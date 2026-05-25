@@ -211,22 +211,63 @@ export class AgentEngine {
             { role: 'user', content: context ? `${question}\n\nContexto:\n${context}` : question },
         ];
 
-        let content = '';
+        let finalContent = '';
+        const maxIter = 30;
+        let iter = 0;
+
         this.opts.transport.emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
 
-        await this.opts.provider.chat(messages, this.getToolsForAgent(profile), {
-            onChunk: (delta) => {
-                content += delta;
-                this.opts.transport.emit({ type: 'token', content: delta });
-            },
-            onToolCall: () => {},
-            onDone: () => {},
-            onError: (err) => { throw err; },
-        });
+        while (iter < maxIter) {
+            iter++;
+
+            let streamContent = '';
+            const toolCalls: Array<{ id: string; name: string; args: string }> = [];
+            let finalMessage: LLMMessage | null = null;
+
+            await this.opts.provider.chat(messages, this.getToolsForAgent(profile), {
+                onChunk: (delta) => {
+                    streamContent += delta;
+                    this.opts.transport.emit({ type: 'token', content: delta });
+                },
+                onToolCall: (name, args, id) => {
+                    this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 80) });
+                    toolCalls.push({ id, name, args });
+                },
+                onDone: (msg) => { finalMessage = msg; },
+                onError: (err) => { throw err; },
+            });
+
+            if (!finalMessage) break;
+            if (streamContent) finalContent = streamContent;
+            messages.push(finalMessage);
+
+            if (toolCalls.length === 0) break;
+
+            const toolResults: LLMMessage[] = [];
+            for (const call of toolCalls) {
+                const toolDef = this.opts.tools.get(call.name);
+                let result: string;
+                if (!toolDef) {
+                    result = `Tool "${call.name}" not found`;
+                } else {
+                    const ctx = this.buildContext();
+                    try {
+                        const args = JSON.parse(call.args);
+                        result = await toolDef.execute(args, ctx);
+                    } catch (err) {
+                        result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+                    }
+                }
+                const success = !result.startsWith('Error:');
+                this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
+                toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
+            }
+            messages.push(...toolResults);
+        }
 
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
 
-        return { agentId, content, inputTokens: 0, outputTokens: 0, elapsedMs: Date.now() - start };
+        return { agentId, content: finalContent, inputTokens: 0, outputTokens: 0, elapsedMs: Date.now() - start };
     }
 
     private buildContext(): ExecutionContext {

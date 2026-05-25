@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
-import type { ToolDefinition } from '@bk/agent-core';
+import { resolve } from 'path';
+import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
 
 export const readFileTool: ToolDefinition = {
     name: 'read_file',
@@ -7,16 +8,17 @@ export const readFileTool: ToolDefinition = {
     parameters: {
         type: 'object',
         properties: {
-            file_path: { type: 'string', description: 'Absolute path to the file' },
+            file_path: { type: 'string', description: 'Absolute or relative path to the file' },
         },
         required: ['file_path'],
     },
-    async execute(args: unknown) {
+    async execute(args: unknown, ctx: ExecutionContext) {
         const { file_path } = args as { file_path: string };
+        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
         try {
-            return readFileSync(file_path, 'utf-8');
+            return readFileSync(abs, 'utf-8');
         } catch (err) {
-            throw new Error(`Cannot read "${file_path}": ${(err as Error).message}`);
+            throw new Error(`Cannot read "${abs}": ${(err as Error).message}`);
         }
     },
 };

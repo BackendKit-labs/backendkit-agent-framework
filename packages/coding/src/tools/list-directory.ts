@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'fs';
-import { join } from 'path';
-import type { ToolDefinition } from '@bk/agent-core';
+import { join, resolve } from 'path';
+import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
 
 function listRecursive(dir: string, depth: number, maxDepth: number): string[] {
     if (depth > maxDepth) return [];
@@ -30,8 +30,9 @@ export const listDirectoryTool: ToolDefinition = {
         },
         required: ['path'],
     },
-    async execute(args: unknown) {
-        const { path, max_depth = 3 } = args as { path: string; max_depth?: number };
+    async execute(args: unknown, ctx: ExecutionContext) {
+        const { path: inputPath, max_depth = 3 } = args as { path: string; max_depth?: number };
+        const path = resolve(ctx.workingDir ?? process.cwd(), inputPath);
         try {
             const stat = statSync(path);
             if (!stat.isDirectory()) return readFileSync_fallback(path);

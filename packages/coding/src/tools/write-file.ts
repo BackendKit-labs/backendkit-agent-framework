@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
-import type { ToolDefinition } from '@bk/agent-core';
+import { resolve, dirname } from 'path';
+import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
 
 export const writeFileTool: ToolDefinition = {
     name: 'write_file',
@@ -8,19 +8,20 @@ export const writeFileTool: ToolDefinition = {
     parameters: {
         type: 'object',
         properties: {
-            file_path: { type: 'string', description: 'Absolute path to the file' },
+            file_path: { type: 'string', description: 'Absolute or relative path to the file' },
             content: { type: 'string', description: 'Content to write' },
         },
         required: ['file_path', 'content'],
     },
-    async execute(args: unknown) {
+    async execute(args: unknown, ctx: ExecutionContext) {
         const { file_path, content } = args as { file_path: string; content: string };
+        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
         try {
-            mkdirSync(dirname(file_path), { recursive: true });
-            writeFileSync(file_path, content, 'utf-8');
-            return `Written: ${file_path}`;
+            mkdirSync(dirname(abs), { recursive: true });
+            writeFileSync(abs, content, 'utf-8');
+            return `Written: ${abs}`;
         } catch (err) {
-            throw new Error(`Cannot write "${file_path}": ${(err as Error).message}`);
+            throw new Error(`Cannot write "${abs}": ${(err as Error).message}`);
         }
     },
 };

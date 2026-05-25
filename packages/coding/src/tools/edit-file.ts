@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'fs';
-import type { ToolDefinition } from '@bk/agent-core';
+import { resolve } from 'path';
+import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
 
 export const editFileTool: ToolDefinition = {
     name: 'edit_file',
@@ -14,7 +15,7 @@ export const editFileTool: ToolDefinition = {
         },
         required: ['file_path', 'old_string', 'new_string'],
     },
-    async execute(args: unknown) {
+    async execute(args: unknown, ctx: ExecutionContext) {
         const { file_path, old_string, new_string, replace_all } = args as {
             file_path: string;
             old_string: string;
@@ -22,21 +23,23 @@ export const editFileTool: ToolDefinition = {
             replace_all?: boolean;
         };
 
+        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
+
         let content: string;
         try {
-            content = readFileSync(file_path, 'utf-8');
+            content = readFileSync(abs, 'utf-8');
         } catch (err) {
-            throw new Error(`Cannot read "${file_path}": ${(err as Error).message}`);
+            throw new Error(`Cannot read "${abs}": ${(err as Error).message}`);
         }
 
         if (!content.includes(old_string)) {
-            throw new Error(`old_string not found in "${file_path}"`);
+            throw new Error(`old_string not found in "${abs}"`);
         }
 
         if (!replace_all) {
             const occurrences = content.split(old_string).length - 1;
             if (occurrences > 1) {
-                throw new Error(`old_string appears ${occurrences} times in "${file_path}". Use replace_all: true or provide more context.`);
+                throw new Error(`old_string appears ${occurrences} times in "${abs}". Use replace_all: true or provide more context.`);
             }
         }
 
@@ -44,7 +47,7 @@ export const editFileTool: ToolDefinition = {
             ? content.split(old_string).join(new_string)
             : content.replace(old_string, new_string);
 
-        writeFileSync(file_path, updated, 'utf-8');
-        return `Edited: ${file_path}`;
+        writeFileSync(abs, updated, 'utf-8');
+        return `Edited: ${abs}`;
     },
 };

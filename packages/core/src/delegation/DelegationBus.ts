@@ -1,6 +1,6 @@
 import type { AgentRegistry } from '../engine/AgentRegistry';
 import type { ToolRegistry } from '../engine/ToolRegistry';
-import type { LLMProvider, LLMMessage } from '../types';
+import type { LLMMessage } from '../types';
 import type { Transport } from '../transport/Transport';
 
 export interface DelegationRequest {
@@ -23,7 +23,6 @@ export interface DelegationBusOptions {
     maxParallel?: number;
     agents: AgentRegistry;
     tools: ToolRegistry;
-    provider: LLMProvider;
     transport: Transport;
     parentMessages: LLMMessage[];
     workingDir?: string;

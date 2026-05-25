@@ -9,13 +9,17 @@ import type {
 import type { Transport } from '../transport/Transport';
 import type { AgentRegistry } from './AgentRegistry';
 import type { ToolRegistry } from './ToolRegistry';
+import { ProviderRegistry } from './ProviderRegistry';
 import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
 
 export interface AgentEngineOptions extends EngineOptions {
     agents: AgentRegistry;
     tools: ToolRegistry;
-    provider: LLMProvider;
+    /** Registry of all available providers */
+    providers: ProviderRegistry;
+    /** ID of the provider to use when an agent has no explicit provider set */
+    defaultProvider: string;
     transport: Transport;
     defaultAgentId: string;
 }
@@ -51,12 +55,15 @@ export class AgentEngine {
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
             tools: opts.tools,
-            provider: opts.provider,
             transport: opts.transport,
             parentMessages: this.messages,
             workingDir: opts.workingDir,
             runAgent: (id, question, context) => this.runAgentInternal(id, question, context),
         });
+    }
+
+    private getProviderForProfile(profile: AgentProfile): LLMProvider {
+        return this.opts.providers.resolve(profile.provider, this.opts.defaultProvider);
     }
 
     async run(input: string): Promise<void> {
@@ -119,7 +126,7 @@ export class AgentEngine {
             const otherCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
 
-            await this.opts.provider.chat(
+            await this.getProviderForProfile(profile).chat(
                 [systemMsg, ...this.messages],
                 tools,
                 {
@@ -224,7 +231,7 @@ export class AgentEngine {
             const toolCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
 
-            await this.opts.provider.chat(messages, this.getToolsForAgent(profile), {
+            await this.getProviderForProfile(profile).chat(messages, this.getToolsForAgent(profile), {
                 onChunk: (delta) => {
                     streamContent += delta;
                     this.opts.transport.emit({ type: 'token', content: delta });

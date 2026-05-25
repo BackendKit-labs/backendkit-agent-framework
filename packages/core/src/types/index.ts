@@ -9,6 +9,7 @@ export interface AgentProfile {
     allowedTools: string[];
     delegatesTo?: string[];
     suppressDefaultOutput?: boolean;
+    provider?: string;
 }
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────

@@ -305,12 +305,16 @@ El framework incluye 9 agentes con roles bien definidos. El agente **general** a
 
 #### Agente `qa-engineer`
 
+El QA Engineer tiene dos responsabilidades que lo definen: **crear tests** y **auditar cada proceso importante que termina**. Cada vez que otro agente completa un analisis, una feature o una refactorizacion significativa, el QA audita el resultado y persiste el reporte via `save_audit`.
+
 - Unit tests (Jest, Vitest, Mocha)
 - Integration tests (Supertest, Testing Library)
 - E2E tests (Playwright, Cypress)
 - TDD / BDD, analisis de cobertura
 - Nombres de test: `"should [behavior] when [condition]"`
-- Delega implementacion a `coder`
+- **Audita** cada proceso importante al finalizar → `save_audit` con reporte estructurado
+- **Revisa** el output de otros agentes (architecture, backend, security) antes de darlo por cerrado
+- Delega implementacion de tests a `coder`
 
 #### Agente `security`
 
@@ -362,9 +366,10 @@ general
   │   └─ security     → evalua superficie de ataque
   │
   └─ Wave 2 (paralelo, espera Wave 1)
-      ├─ backend   → implementa el servidor WebSocket
-      ├─ frontend  → implementa el cliente React
-      └─ qa-engineer → escribe los tests de integracion
+      ├─ backend      → implementa el servidor WebSocket
+      ├─ frontend     → implementa el cliente React
+      ├─ qa-engineer  → escribe los tests de integracion
+      │                 + audita el resultado completo → save_audit
               ↓ (cada uno delega a)
            coder → ejecuta los cambios en el filesystem
 ```
@@ -406,7 +411,7 @@ Todos los agentes tienen acceso a herramientas de persistencia para mantener con
 | `save_learning` | Preferencias aprendidas del usuario en este proyecto | `learnings.md` del proyecto |
 | `save_user_preference` | Preferencias globales del usuario (aplica a todos los proyectos) | `USER.md` global |
 | `append_log` | Actividad reciente con timestamp ISO | `log.md` del proyecto |
-| `save_audit` | Reportes de auditoria por agente y fecha | `audits/{agente}-{fecha}.md` |
+| `save_audit` | Reporte de auditoria al finalizar un proceso importante. Responsabilidad del `qa-engineer` | `audits/{agente}-{fecha}.md` |
 | `get_latest_audit` | Recupera el audit mas reciente de un agente especifico | `audits/` |
 | `list_audits` | Lista todos los audits guardados del proyecto | `audits/` |
 
@@ -738,7 +743,7 @@ node /path/to/coding-assistant/dist/index.js
 # 1. Analiza la solicitud
 # 2. Delega en paralelo a: security (evalua) + backend (implementa estrategia)
 # 3. Coder escribe los archivos
-# 4. qa-engineer escribe los tests
+# 4. qa-engineer escribe los tests + audita el proceso completo (save_audit)
 # 5. save_context con los nuevos archivos tocados
 # 6. append_log con la actividad
 ```

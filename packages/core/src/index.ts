@@ -29,6 +29,9 @@ export * from './qa';
 // Context Pipeline
 export * from './context';
 
+// Skills
+export * from './skills';
+
 // Shared utils
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';

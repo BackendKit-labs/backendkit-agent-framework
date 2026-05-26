@@ -23,6 +23,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import * as yaml from 'yaml';
+import { pipeline, Ok, Err } from '@backendkit-labs/pipeline';
+import type { PipelineStep, StepResult } from '@backendkit-labs/pipeline';
 
 import { createTaskContext, TaskContext, TaskStatus } from './task-context';
 import { enrichTaskWithIntent, LLMChatClient } from './intent-detector';
@@ -41,6 +43,70 @@ import {
 } from './types';
 import { AuditReporter } from './audit-reporter';
 import type { GateVeredict, AuditFinding } from './audit';
+
+// ── Pipeline context ──────────────────────────────────────────────────────────
+
+type OrchestratorCtx = {
+  task: TaskContext;
+  policyResult: PolicyEngineResult;
+};
+
+const EMPTY_POLICY_RESULT: PolicyEngineResult = {
+  mustInclude: [],
+  requiredGates: [],
+  mustExecute: [],
+  appliedRules: [],
+};
+
+// ── Enrichment steps ──────────────────────────────────────────────────────────
+
+class IntentStep implements PipelineStep<OrchestratorCtx, Error> {
+  readonly stepName = 'intent-detection';
+  constructor(private client?: LLMChatClient) {}
+  async handle(ctx: OrchestratorCtx): Promise<StepResult<OrchestratorCtx, Error>> {
+    try {
+      return Ok({ ...ctx, task: await enrichTaskWithIntent(ctx.task, this.client) });
+    } catch (e) {
+      return Err(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+}
+
+class DomainStep implements PipelineStep<OrchestratorCtx, Error> {
+  readonly stepName = 'domain-detection';
+  async handle(ctx: OrchestratorCtx): Promise<StepResult<OrchestratorCtx, Error>> {
+    return Ok({ ...ctx, task: enrichTaskWithDomains(ctx.task) });
+  }
+}
+
+class RiskStep implements PipelineStep<OrchestratorCtx, Error> {
+  readonly stepName = 'risk-scoring';
+  constructor(private config: OrchestratorConfig) {}
+  async handle(ctx: OrchestratorCtx): Promise<StepResult<OrchestratorCtx, Error>> {
+    return Ok({ ...ctx, task: enrichTaskWithRisk(ctx.task, this.config) });
+  }
+}
+
+class PolicyStep implements PipelineStep<OrchestratorCtx, Error> {
+  readonly stepName = 'policy-engine';
+  constructor(
+    private customRules: PolicyRule[] | undefined,
+    private loadManifest: () => Promise<PolicyRule[]>,
+    private input: string,
+  ) {}
+  async handle(ctx: OrchestratorCtx): Promise<StepResult<OrchestratorCtx, Error>> {
+    try {
+      const manifestRules = await this.loadManifest();
+      const mergedRules = [...(this.customRules ?? []), ...manifestRules];
+      const result = applyPolicies(ctx.task, mergedRules.length > 0 ? mergedRules : undefined, this.input);
+      return Ok({ task: result.task, policyResult: result.result });
+    } catch (e) {
+      return Err(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+}
+
+// ── Public re-exports ─────────────────────────────────────────────────────────
 
 export type { OrchestratorConfig, OrchestrationResult, PolicyRule, CapabilityMatrix };
 export { defaultOrchestratorConfig } from './types';
@@ -108,60 +174,34 @@ export class Orchestrator {
    * @returns Resultado completo de la orquestación
    */
   async orchestrate(input: string): Promise<OrchestrationResult> {
-    // Etapa 1: Crear TaskContext
-    let task = createTaskContext(input);
+    const enrichResult = await pipeline<OrchestratorCtx, Error>()
+      .pipeIf(_ => this.config.features.intentDetection, new IntentStep(this.client))
+      .pipeIf(_ => this.config.features.domainDetection, new DomainStep())
+      .pipeIf(_ => this.config.features.riskScoring, new RiskStep(this.config))
+      .pipeIf(_ => this.config.features.policyEngine, new PolicyStep(
+        this.customRules,
+        () => this.loadManifestPolicyRules(),
+        input,
+      ))
+      .run({ task: createTaskContext(input), policyResult: EMPTY_POLICY_RESULT });
 
-    // Etapa 2: Intent Detection
-    if (this.config.features.intentDetection) {
-      task = await enrichTaskWithIntent(task, this.client);
+    if (!enrichResult.ok) {
+      throw enrichResult.error.cause;
     }
 
-    // Etapa 3: Domain Detection
-    if (this.config.features.domainDetection) {
-      task = enrichTaskWithDomains(task);
-    }
+    const { task, policyResult } = enrichResult.value;
 
-    // Etapa 4: Risk Scoring
-    if (this.config.features.riskScoring) {
-      task = enrichTaskWithRisk(task, this.config);
-    }
-
-    // Etapa 5: Policy Engine
-    let policyResult: PolicyEngineResult = {
-      mustInclude: [],
-      requiredGates: [],
-      mustExecute: [],
-      appliedRules: [],
-    };
-
-    if (this.config.features.policyEngine) {
-      const manifestRules = await this.loadManifestPolicyRules();
-      const mergedRules = [...(this.customRules ?? []), ...manifestRules];
-      const result = applyPolicies(task, mergedRules.length > 0 ? mergedRules : undefined, input);
-      task = result.task;
-      policyResult = result.result;
-    }
-
-    // Etapa 6: Seleccionar agentes basados en capability matrix
     const selectedAgents = this.selectAgents(task, policyResult);
-
-    // Etapa 7: Construir pipeline secuencial de agentes
-    const agentPipeline = this.buildPipeline(selectedAgents, task);
-
-    // Etapa 8: Determinar si commit está permitido
+    const agentPipeline = this.buildAgentPipeline(selectedAgents, task);
     const commitAllowed = this.isCommitAllowed(task, policyResult);
 
-    // ── Etapa 9: Auditar orquestación ─────────────────────────────────
     await this.recordOrchestrationGate(task, selectedAgents, policyResult);
 
     return {
       task,
       selectedAgents,
-      agentPipeline, // ← pipeline secuencial
-      appliedPolicies: policyResult.appliedRules.map(r => ({
-        rule: r.rule,
-        reason: r.reason,
-      })),
+      agentPipeline,
+      appliedPolicies: policyResult.appliedRules.map(r => ({ rule: r.rule, reason: r.reason })),
       requiredGates: policyResult.requiredGates,
       commitAllowed,
     };
@@ -308,7 +348,7 @@ export class Orchestrator {
    * - implement: el agente con mayor score en selectedAgents
    * - verify: qa-engineer siempre al final si hay implementación
    */
-  private buildPipeline(
+  private buildAgentPipeline(
     selectedAgents: Array<{ agentId: string; score: number; reason: string }>,
     task: TaskContext
   ): AgentPipelinePhase[] | undefined {

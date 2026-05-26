@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@backendkit-labs/pipeline": "^0.3.2",
     "@backendkit-labs/result": "^0.2.1",
     "@backendkit-labs/retry": "^0.1.2",
     "yaml": "^2.4.0"

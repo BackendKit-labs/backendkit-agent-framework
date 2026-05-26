@@ -13,6 +13,15 @@ import type { ToolRegistry } from './ToolRegistry';
 import { ProviderRegistry } from './ProviderRegistry';
 import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
+import type { Orchestrator } from '../orchestration/orchestrator';
+import type { OrchestrationResult } from '../orchestration/types';
+import type { QAService } from '../qa/qa-service';
+import {
+    advanceRequiredGates,
+    activateQaEngineerIfNeeded,
+    processQaEngineerResponse,
+    processInlineQaReview,
+} from './qa-orchestrator';
 
 export interface AgentEngineOptions extends EngineOptions {
     agents: AgentRegistry;
@@ -25,6 +34,14 @@ export interface AgentEngineOptions extends EngineOptions {
     defaultAgentId: string;
     /** Optional persistent memory — replaces the default in-memory SessionMemory */
     sessionMemory?: SessionMemoryData;
+    /** Orchestrator para clasificacion de tareas, risk scoring y FSM */
+    orchestrator?: Orchestrator;
+    /** QA service para revisar respuestas y registrar gates */
+    qaService?: QAService;
+    /** Si true, deshabilita las revisiones de QA automaticas */
+    noQA?: boolean;
+    /** Callback invocado cuando el QA genera una revision */
+    onQAReview?: (review: string) => void;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -77,8 +94,14 @@ export class AgentEngine {
         const profile = this.getCurrentProfile();
         if (!profile) throw new Error(`Default agent "${this.currentAgentId}" not registered`);
 
+        // Orquestar la tarea para obtener clasificacion, risk scoring y gates requeridos
+        let orchestrationResult: OrchestrationResult | undefined;
+        if (this.opts.orchestrator) {
+            orchestrationResult = await this.opts.orchestrator.orchestrate(input).catch(() => undefined);
+        }
+
         this.messages.push({ role: 'user', content: input });
-        await this.runLoop(profile);
+        await this.runLoop(profile, orchestrationResult);
         this.opts.transport.emit({ type: 'done' });
     }
 
@@ -133,9 +156,10 @@ export class AgentEngine {
         return tools;
     }
 
-    private async runLoop(profile: AgentProfile): Promise<void> {
+    private async runLoop(profile: AgentProfile, orchestrationResult?: OrchestrationResult): Promise<void> {
         const maxIter = this.opts.maxIterations ?? 100;
         let iterations = 0;
+        let currentProfile = profile;
 
         this.opts.transport.emit({
             type: 'block_start',
@@ -147,15 +171,15 @@ export class AgentEngine {
         while (iterations < maxIter && !this.aborted) {
             iterations++;
 
-            const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(profile) };
-            const tools = this.getToolsForAgent(profile);
+            const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile) };
+            const tools = this.getToolsForAgent(currentProfile);
 
             let streamBuffer = '';
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
             const otherCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
 
-            await this.getProviderForProfile(profile).chat(
+            await this.getProviderForProfile(currentProfile).chat(
                 [systemMsg, ...this.messages],
                 tools,
                 {
@@ -228,6 +252,40 @@ export class AgentEngine {
                 const success = !result.startsWith('Error:');
                 this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
+            }
+
+            // ── QA orchestration: runs when response is final (no tool calls) ─
+            if (toolResults.length === 0 && this.opts.orchestrator && this.opts.qaService && orchestrationResult) {
+                const qaCtx = {
+                    clean: streamBuffer,
+                    orchestrationResult,
+                    orchestrator: this.opts.orchestrator,
+                    qaService: this.opts.qaService,
+                    allAgents: this.opts.agents.getAll(),
+                    messages: this.messages,
+                    effectiveAgentId: currentProfile.id,
+                    noQA: this.opts.noQA,
+                    onQAReview: this.opts.onQAReview,
+                    setEffectiveAgent: (agentId: string) => {
+                        const p = this.opts.agents.get(agentId);
+                        if (p) currentProfile = p;
+                    },
+                };
+
+                await advanceRequiredGates(qaCtx);
+
+                const qaProfile = activateQaEngineerIfNeeded(qaCtx);
+                if (qaProfile) {
+                    currentProfile = qaProfile;
+                    continue; // re-enter loop as qa-engineer
+                }
+
+                if (currentProfile.id === 'qa-engineer') {
+                    await processQaEngineerResponse(qaCtx);
+                    currentProfile = profile; // reset to original agent
+                } else {
+                    await processInlineQaReview(qaCtx);
+                }
             }
 
             if (toolResults.length === 0) break;

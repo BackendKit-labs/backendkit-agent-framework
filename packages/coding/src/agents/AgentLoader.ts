@@ -20,6 +20,23 @@ interface AgentFileDefinition {
     suppressDefaultOutput?: boolean;
 }
 
+function applyPromptOverrides(dir: string, merged: Map<string, AgentProfile>): void {
+    if (!existsSync(dir)) return;
+    const mdOnlyFiles = readdirSync(dir)
+        .filter(f => f.endsWith('.md') && f !== 'README.md')
+        .filter(f => !existsSync(join(dir, f.replace(/\.md$/, '.json'))));
+
+    for (const file of mdOnlyFiles) {
+        const id = basename(file, '.md');
+        const agent = merged.get(id);
+        if (!agent) continue;
+        try {
+            const prompt = readFileSync(join(dir, file), 'utf-8').trim();
+            if (prompt) merged.set(id, { ...agent, systemPrompt: prompt });
+        } catch { /* skip */ }
+    }
+}
+
 function readAgentDir(dir: string, source: AgentProfile['source']): AgentProfile[] {
     if (!existsSync(dir)) return [];
 
@@ -61,6 +78,11 @@ export class AgentLoader {
     /**
      * Load agents with priority: project > global > builtins
      * Returns merged array ready to register in AgentRegistry.
+     *
+     * A directory can contain:
+     *   {id}.json + {id}.md  — full agent definition (json profile + md system prompt)
+     *   {id}.json only       — full agent definition (system prompt inside json)
+     *   {id}.md only         — system prompt override for a built-in with the same id
      */
     static load(opts: AgentLoaderOptions = {}): AgentProfile[] {
         const appName = opts.appName ?? 'bk-agent';
@@ -81,6 +103,11 @@ export class AgentLoader {
         const merged = new Map<string, AgentProfile>();
         for (const a of [...builtins, ...globals, ...project]) {
             merged.set(a.id, a);
+        }
+
+        // Apply .md-only prompt overrides (no .json counterpart)
+        for (const dir of [globalDir, projectDir]) {
+            applyPromptOverrides(dir, merged);
         }
 
         return Array.from(merged.values());

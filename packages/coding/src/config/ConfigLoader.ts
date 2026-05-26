@@ -46,6 +46,52 @@ The agent will read this to tailor its responses to you.
 <!-- e.g. Prefer concise answers, Spanish responses -->
 `;
 
+const AGENTS_README = `# Global Agents
+
+Drop custom agent definitions here. Each agent needs two files:
+
+  {id}.json   — profile (required)
+  {id}.md     — system prompt (optional, overrides the default)
+
+These agents are available in ALL projects (+) and override built-in agents
+with the same id. Project-level agents (.{appName}/agents/) take priority over these.
+
+## Example: my-reviewer.json
+
+\`\`\`json
+{
+  "id": "my-reviewer",
+  "name": "My Reviewer",
+  "icon": "◎",
+  "description": "Code review focused on our team conventions",
+  "provider": "anthropic",
+  "delegatesTo": ["coder"]
+}
+\`\`\`
+
+## Example: my-reviewer.md
+
+\`\`\`
+You are a code reviewer who enforces our team conventions:
+- No console.log in production code
+- All public functions must have JSDoc
+- Prefer early returns over nested ifs
+\`\`\`
+
+## Built-in agents (already included, override by creating same id here)
+
+  general       Orchestrator — delegates to specialists
+  coder         Pure implementation — writes files, runs commands
+  backend       APIs, controllers, services, ORMs
+  frontend      React, Vue, components, CSS
+  qa-engineer   Unit, integration and e2e tests
+  security      OWASP, vulnerabilities, auth hardening
+  architecture  System design, DDD, microservices
+  infrastructure Docker, Kubernetes, CI/CD
+  data          SQL, indexes, ETL, pipelines
+`;
+
+
 export class ConfigLoader {
     readonly configDir: string;
     readonly configPath: string;
@@ -111,6 +157,11 @@ export class ConfigLoader {
         const userMdPath = join(this.configDir, 'USER.md');
         if (!existsSync(userMdPath)) {
             writeFileSync(userMdPath, USER_MD_TEMPLATE, 'utf-8');
+        }
+
+        const agentsReadme = join(this.agentsDir, 'README.md');
+        if (!existsSync(agentsReadme)) {
+            writeFileSync(agentsReadme, AGENTS_README, 'utf-8');
         }
 
         if (isNew) {

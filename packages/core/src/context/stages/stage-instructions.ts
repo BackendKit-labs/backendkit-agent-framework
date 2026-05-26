@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { run, isOk } from '@backendkit-labs/result';
 import { getFrameworkDir } from '../../shared/utils/project-key';
 
 export interface InstructionsResult {
@@ -16,29 +17,25 @@ export async function runStageInstructions(
     appName: string
 ): Promise<{ checksum: string; data: InstructionsResult }> {
     const globalDir = getFrameworkDir(appName);
-
     const agentMdPath = path.join(cwd, 'AGENT.md');
-    let agentMd: string | null = null;
-    try {
-        agentMd = await fs.readFile(agentMdPath, 'utf-8');
-    } catch {
-        // not present
-    }
+
+    const agentResult = await run(() => fs.readFile(agentMdPath, 'utf-8'));
+    const agentMd = isOk(agentResult) ? agentResult.value : null;
 
     const userMdLocal = path.join(cwd, 'USER.md');
     const userMdGlobal = path.join(globalDir, 'USER.md');
     let userMd: string | null = null;
     let userMdPath: string | null = null;
 
-    try {
-        userMd = await fs.readFile(userMdLocal, 'utf-8');
+    const localResult = await run(() => fs.readFile(userMdLocal, 'utf-8'));
+    if (isOk(localResult)) {
+        userMd = localResult.value;
         userMdPath = userMdLocal;
-    } catch {
-        try {
-            userMd = await fs.readFile(userMdGlobal, 'utf-8');
+    } else {
+        const globalResult = await run(() => fs.readFile(userMdGlobal, 'utf-8'));
+        if (isOk(globalResult)) {
+            userMd = globalResult.value;
             userMdPath = userMdGlobal;
-        } catch {
-            // not present
         }
     }
 

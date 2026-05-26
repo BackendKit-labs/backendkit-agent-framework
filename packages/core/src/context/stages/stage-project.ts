@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { run, isOk } from '@backendkit-labs/result';
 import { getProjectDir } from '../../shared/utils/project-key';
 
 export interface ProjectResult {
@@ -16,12 +17,8 @@ export async function runStageProject(
     const memoryDir = path.join(getProjectDir(appName, cwd), 'memory');
     const filePath = path.join(memoryDir, 'contexto-proyecto.md');
 
-    let content: string | null = null;
-    try {
-        content = await fs.readFile(filePath, 'utf-8');
-    } catch {
-        // not present
-    }
+    const fileResult = await run(() => fs.readFile(filePath, 'utf-8'));
+    const content = isOk(fileResult) ? fileResult.value : null;
 
     const checksum = content
         ? createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16)

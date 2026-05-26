@@ -2,6 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import * as yaml from 'yaml';
+import { run, isOk, fromThrowable } from '@backendkit-labs/result';
 import { getFrameworkDir } from '../../shared/utils/project-key';
 
 export interface ManifestResult {
@@ -16,15 +17,10 @@ export async function runStageManifest(
 ): Promise<{ checksum: string; data: ManifestResult }> {
     const filePath = path.join(getFrameworkDir(appName), 'manifest.yaml');
 
-    let rawContent: string | null = null;
-    let parsed: Record<string, unknown> | null = null;
-
-    try {
-        rawContent = await fs.readFile(filePath, 'utf-8');
-        parsed = (yaml.parse(rawContent) as Record<string, unknown>) ?? null;
-    } catch {
-        // not present or unparseable
-    }
+    const fileResult = await run(() => fs.readFile(filePath, 'utf-8'));
+    const rawContent = isOk(fileResult) ? fileResult.value : null;
+    const parseResult = rawContent ? fromThrowable(() => yaml.parse(rawContent) as Record<string, unknown>) : null;
+    const parsed = parseResult && isOk(parseResult) ? parseResult.value ?? null : null;
 
     const checksum = rawContent
         ? createHash('sha256').update(rawContent, 'utf-8').digest('hex').slice(0, 16)

@@ -1,8 +1,11 @@
+import { run, type Result } from '@backendkit-labs/result';
 import { runStageInstructions, InstructionsResult } from './stages/stage-instructions';
 import { runStageProject, ProjectResult } from './stages/stage-project';
 import { runStageSession, SessionResult } from './stages/stage-session';
 import { runStageManifest, ManifestResult } from './stages/stage-manifest';
 import { runStageLessons, LessonsResult } from './stages/stage-lessons';
+
+export type { Result };
 
 export interface PipelineResult {
     instructions: InstructionsResult;
@@ -61,57 +64,59 @@ export interface PipelineConfig {
     forceRefresh?: boolean;
 }
 
-export async function runContextPipeline(config: PipelineConfig): Promise<PipelineResult> {
-    const start = Date.now();
-    const { appName } = config;
-    const cache = config.cache ?? new StageCache();
-    const cwd = config.cwd ?? process.cwd();
-    const forceRefresh = config.forceRefresh ?? false;
+export async function runContextPipeline(config: PipelineConfig): Promise<Result<PipelineResult, Error>> {
+    return run(async () => {
+        const start = Date.now();
+        const { appName } = config;
+        const cache = config.cache ?? new StageCache();
+        const cwd = config.cwd ?? process.cwd();
+        const forceRefresh = config.forceRefresh ?? false;
 
-    const changedStages: string[] = [];
+        const changedStages: string[] = [];
 
-    const instructionsResult = await runStageWithCache(
-        'instructions', cache, forceRefresh,
-        () => runStageInstructions(cwd, appName),
-        () => changedStages.push('instructions'),
-    );
+        const instructions = await runStageWithCache(
+            'instructions', cache, forceRefresh,
+            () => runStageInstructions(cwd, appName),
+            () => changedStages.push('instructions'),
+        );
 
-    const projectResult = await runStageWithCache(
-        'project', cache, forceRefresh,
-        () => runStageProject(cwd, appName),
-        () => changedStages.push('project'),
-    );
+        const project = await runStageWithCache(
+            'project', cache, forceRefresh,
+            () => runStageProject(cwd, appName),
+            () => changedStages.push('project'),
+        );
 
-    const sessionResult = await runStageWithCache(
-        'session', cache, forceRefresh,
-        () => runStageSession(cwd, appName),
-        () => changedStages.push('session'),
-    );
+        const session = await runStageWithCache(
+            'session', cache, forceRefresh,
+            () => runStageSession(cwd, appName),
+            () => changedStages.push('session'),
+        );
 
-    const manifestResult = await runStageWithCache(
-        'manifest', cache, forceRefresh,
-        () => runStageManifest(appName),
-        () => changedStages.push('manifest'),
-    );
+        const manifest = await runStageWithCache(
+            'manifest', cache, forceRefresh,
+            () => runStageManifest(appName),
+            () => changedStages.push('manifest'),
+        );
 
-    const lessonsResult = await runStageWithCache(
-        'lessons', cache, forceRefresh,
-        () => runStageLessons(cwd, appName),
-        () => changedStages.push('lessons'),
-    );
+        const lessons = await runStageWithCache(
+            'lessons', cache, forceRefresh,
+            () => runStageLessons(cwd, appName),
+            () => changedStages.push('lessons'),
+        );
 
-    return {
-        instructions: instructionsResult,
-        project: projectResult,
-        session: sessionResult,
-        manifest: manifestResult,
-        lessons: lessonsResult,
-        meta: {
-            executedAt: new Date().toISOString(),
-            changedStages,
-            elapsedMs: Date.now() - start,
-        },
-    };
+        return {
+            instructions,
+            project,
+            session,
+            manifest,
+            lessons,
+            meta: {
+                executedAt: new Date().toISOString(),
+                changedStages,
+                elapsedMs: Date.now() - start,
+            },
+        };
+    });
 }
 
 async function runStageWithCache<T>(

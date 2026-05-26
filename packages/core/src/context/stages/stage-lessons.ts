@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { run, isOk, fromThrowable } from '@backendkit-labs/result';
 import { getFrameworkDir, getProjectDir } from '../../shared/utils/project-key';
 
 export interface LessonsResult {
@@ -15,26 +16,19 @@ export interface LessonsResult {
 async function loadLessonsMemo(cwd: string, appName: string): Promise<string | null> {
     const auditsDir = path.join(getProjectDir(appName, cwd), 'audits');
     const filePath = path.join(auditsDir, 'lecciones-aprendidas.md');
-    try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        const sections = content.split('---');
-        if (sections.length >= 3) {
-            return sections[2]?.trim() ?? null;
-        }
-        return content.trim() || null;
-    } catch {
-        return null;
-    }
+    const fileResult = await run(() => fs.readFile(filePath, 'utf-8'));
+    if (!isOk(fileResult)) return null;
+    const sections = fileResult.value.split('---');
+    if (sections.length >= 3) return sections[2]?.trim() ?? null;
+    return fileResult.value.trim() || null;
 }
 
 async function loadLessonsFingerprints(appName: string): Promise<Record<string, unknown> | null> {
     const filePath = path.join(getFrameworkDir(appName), 'lessons-fingerprints.json');
-    try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        return JSON.parse(content) as Record<string, unknown>;
-    } catch {
-        return null;
-    }
+    const fileResult = await run(() => fs.readFile(filePath, 'utf-8'));
+    if (!isOk(fileResult)) return null;
+    const parseResult = fromThrowable(() => JSON.parse(fileResult.value) as Record<string, unknown>);
+    return isOk(parseResult) ? parseResult.value : null;
 }
 
 export async function runStageLessons(

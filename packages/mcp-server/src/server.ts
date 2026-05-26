@@ -12,6 +12,7 @@ import { codeContext } from './tools/code/context.js';
 import { GraphStore } from './indexer/graph-store.js';
 import { CodeIndexer } from './indexer/indexer.js';
 import { FileWatcher } from './indexer/watcher.js';
+import { detectStackFromGraph } from './indexer/stack-detector.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
@@ -32,6 +33,32 @@ const server = new McpServer({
 });
 
 // ---------------------------------------------------------------------------
+// stack_detect
+// ---------------------------------------------------------------------------
+server.tool(
+    'stack_detect',
+    'Detect the technology stack of the current project using the code index (languages, frameworks, libraries).',
+    {
+        cwd: z.string().optional().describe('Project directory (defaults to server cwd)'),
+    },
+    async ({ cwd: _cwd }) => {
+        const graphTech = detectStackFromGraph(store);
+        const { SkillActivator } = await import('@bk/agent-core');
+        const activator = new SkillActivator();
+        const fileTech = await activator.detectStack(CWD);
+        const all = [...new Set([...fileTech, ...graphTech])].sort();
+        return {
+            content: [{
+                type: 'text',
+                text: all.length
+                    ? `Detected stack: ${all.join(', ')}`
+                    : 'No stack detected yet. Run code_index first.',
+            }],
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
 // skills_search
 // ---------------------------------------------------------------------------
 // @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
@@ -43,13 +70,22 @@ server.tool(
         cwd: z.string().optional().describe('Project directory to detect stack (defaults to server cwd)'),
     },
     async ({ query, cwd }) => {
+        // Merge file-based + graph-based stack detection
+        const { SkillActivator } = await import('@bk/agent-core');
+        const activator = new SkillActivator();
+        const fileTech = await activator.detectStack(cwd ?? CWD);
+        const graphTech = detectStackFromGraph(store);
+        const enrichedStack = [...new Set([...fileTech, ...graphTech])];
+
         const results = await skillsSearch(query, cwd ?? CWD, APP_NAME);
         if (results.length === 0) {
             return { content: [{ type: 'text', text: `No skills found matching "${query}".` }] };
         }
         const lines = results.map(s => {
             const tags = [s.scope, ...(s.language ?? []), s.active ? 'ACTIVE' : ''].filter(Boolean);
-            return `- **${s.name}** [${tags.join(', ')}]\n  ${s.description}`;
+            const stackMatch = s.language?.some(l => enrichedStack.includes(l));
+            const marker = stackMatch ? ' ✓' : '';
+            return `- **${s.name}**${marker} [${tags.join(', ')}]\n  ${s.description}`;
         });
         return { content: [{ type: 'text', text: lines.join('\n') }] };
     },

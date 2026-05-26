@@ -41,7 +41,20 @@ export class CodeIndexer {
 
         const parsed = await parseFile(content, config);
 
-        // Build nodes
+        // Build nodes — symbols + imports (imports stored as kind='import' for stack detection)
+        const importNodes: Omit<NodeRow, 'updated_at'>[] = parsed.imports.map(imp => ({
+            id: nodeId(filePath, imp.source, imp.line),
+            name: imp.source,
+            qualified_name: imp.source,
+            kind: 'import',
+            language: config.name,
+            file_path: filePath,
+            start_line: imp.line,
+            end_line: imp.line,
+            signature: `import "${imp.source}"`,
+            exported: 0,
+        }));
+
         const nodes: Omit<NodeRow, 'updated_at'>[] = parsed.symbols.map(sym => ({
             id: nodeId(filePath, sym.name, sym.startLine),
             name: sym.name,
@@ -76,10 +89,10 @@ export class CodeIndexer {
             }
         }
 
-        // Write atomically: clear old + insert new inside a store transaction
+        // Write atomically: clear old + insert new
         this.store.removeNodesForFile(filePath);
         this.store.removeEdgesForFile(filePath);
-        this.store.upsertNodes(nodes);
+        this.store.upsertNodes([...nodes, ...importNodes]);
         this.store.upsertEdges(edges);
         this.store.upsertFile(filePath, config.name, hash, nodes.length);
 

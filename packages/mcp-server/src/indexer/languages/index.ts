@@ -46,3 +46,7 @@ export function registeredExtensions(): string[] {
 
 // Eagerly import all language configs so they self-register
 import './typescript';
+import './python';
+import './go';
+import './rust';
+import './java';

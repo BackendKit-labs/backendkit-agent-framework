@@ -217,6 +217,20 @@ export class GraphStore {
         return this.db.prepare('SELECT * FROM edges WHERE target_id = ?').all(nodeId) as EdgeRow[];
     }
 
+    getAllImportSources(): string[] {
+        const rows = this.db.prepare(
+            `SELECT DISTINCT name FROM nodes WHERE kind = 'import'`,
+        ).all() as { name: string }[];
+        // Also query edges of kind 'imports' source names
+        const edgeRows = this.db.prepare(
+            `SELECT DISTINCT target_id FROM edges WHERE kind = 'imports'`,
+        ).all() as { target_id: string }[];
+        return [
+            ...rows.map(r => r.name),
+            ...edgeRows.map(r => r.target_id),
+        ];
+    }
+
     stats(): { files: number; nodes: number; edges: number } {
         const files = (this.db.prepare('SELECT COUNT(*) AS n FROM files').get() as { n: number }).n;
         const nodes = (this.db.prepare('SELECT COUNT(*) AS n FROM nodes').get() as { n: number }).n;

@@ -6,7 +6,7 @@ import { CallbackTransport } from '@bk/agent-core';
 import { renderEvent } from './display';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const APP_NAME    = process.env.AGENT_APP_NAME ?? 'bk-agent';
+const APP_NAME    = process.env.AGENT_APP_NAME ?? 'coding-assistant';
 const loader      = new ConfigLoader(APP_NAME);
 const config      = loader.load();
 const AGENT_ID    = process.env.AGENT_ID    ?? 'general';

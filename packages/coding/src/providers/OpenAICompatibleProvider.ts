@@ -18,7 +18,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     constructor(opts: OpenAICompatibleProviderOptions) {
         this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl });
         this.model = opts.model;
-        this.maxTokens = opts.maxTokens ?? 8192;
+        this.maxTokens = opts.maxTokens ?? 16384;
         this.temperature = opts.temperature ?? 0.0;
     }
 

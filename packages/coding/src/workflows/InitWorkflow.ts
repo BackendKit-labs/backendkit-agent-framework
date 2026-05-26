@@ -52,17 +52,19 @@ Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "architecture":
   1. Use read_file to read prompt.md at the project root.
-  2. Use write_file to CREATE the file disene.md with a comprehensive architecture document. Include:
-     executive summary, system components, data models, API design, tech stack with justification,
-     infrastructure and deployment strategy, key architectural decisions and trade-offs.
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  2. Use write_file to CREATE disene.md with a skeleton: title + section headers only (no content yet).
+     Sections: Executive Summary, Components, Data Models, API Design, Tech Stack, Infrastructure, Key Decisions.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to disene.md.
+     Write each section separately — first Executive Summary, then Components, etc.
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ask_agent "backend" (simultaneously with architecture):
   1. Use read_file to read prompt.md.
-  2. Use write_file to CREATE especification.md with complete technical specifications. Include:
-     functional requirements, API endpoints with request/response schemas,
-     data models, business logic rules, integration points, non-functional requirements (performance, scalability).
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  2. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+     Sections: Functional Requirements, API Endpoints, Data Models, Business Logic, Integrations, Non-functional Requirements.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+     Write each section separately.
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ---
 PHASE 2 — Audit (after Phase 1 results arrive — WAIT for both files to exist)
@@ -120,17 +122,19 @@ Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "architecture":
   1. Explore the codebase thoroughly (list_directory + read_file for key files).
-  2. Use write_file to CREATE disene.md documenting the CURRENT architecture:
-     system overview, component breakdown, data models, existing API design,
-     tech stack (as found), infrastructure. This is reverse-engineered — document what EXISTS.
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  2. Use write_file to CREATE disene.md with a skeleton: title + section headers only (no content yet).
+     Sections: Overview, Components, Data Models, API Design, Tech Stack, Infrastructure.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to disene.md.
+     Write each section separately: first Overview, then Components, then Data Models, etc.
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ask_agent "backend" (simultaneously):
   1. Use list_directory and read_file to explore the codebase.
-  2. Use write_file to CREATE especification.md documenting CURRENT specifications:
-     existing endpoints with schemas, data models, business logic found, integrations.
-     Document what EXISTS, mark gaps as "Undocumented".
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  2. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+     Sections: Endpoints, Data Models, Business Logic, Integrations, Non-functional Requirements.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+     Write each section separately, mark gaps as "Undocumented".
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ---
 PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist)
@@ -189,21 +193,18 @@ Emit BOTH ask_agent calls in the same response IN PARALLEL:
 ask_agent "architecture":
   1. Use read_file to read prompt.md.
   2. Use list_directory and read_file to explore the codebase.
-  3. Use write_file to CREATE disene.md with:
-     - Current architecture (what exists)
-     - Target architecture (from prompt.md)
-     - Migration path (how to get from current to target)
-     - Tech stack decisions
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  3. Use write_file to CREATE disene.md with a skeleton: title + section headers only (no content yet).
+     Sections: Current Architecture, Target Architecture, Migration Path, Tech Stack Decisions.
+  4. Use edit_file to APPEND the full content of each section ONE AT A TIME to disene.md.
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ask_agent "backend" (simultaneously):
   1. Use read_file to read prompt.md.
   2. Use list_directory and read_file to explore the codebase.
-  3. Use write_file to CREATE especification.md with:
-     - Current specification (what exists)
-     - New requirements (from prompt.md)
-     - What needs to be built vs modified vs removed
-  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
+  3. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+     Sections: Current Specification, New Requirements, Build vs Modify vs Remove.
+  4. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+  IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ---
 PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist)

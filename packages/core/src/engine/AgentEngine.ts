@@ -4,6 +4,7 @@ import type {
     ExecutionContext,
     LLMMessage,
     LLMProvider,
+    SessionMemoryData,
     ToolDefinition,
 } from '../types';
 import type { Transport } from '../transport/Transport';
@@ -22,6 +23,8 @@ export interface AgentEngineOptions extends EngineOptions {
     defaultProvider: string;
     transport: Transport;
     defaultAgentId: string;
+    /** Optional persistent memory — replaces the default in-memory SessionMemory */
+    sessionMemory?: SessionMemoryData;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -43,13 +46,14 @@ const ASK_AGENT_TOOL: ToolDefinition = {
 };
 
 export class AgentEngine {
-    private readonly memory = new SessionMemory();
+    private readonly memory: SessionMemoryData;
     private readonly bus: DelegationBus;
     private currentAgentId: string;
     private messages: LLMMessage[] = [];
     private aborted = false;
 
     constructor(private readonly opts: AgentEngineOptions) {
+        this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
@@ -92,6 +96,10 @@ export class AgentEngine {
     }
 
     private buildSystemPrompt(profile: AgentProfile): string {
+        const isOrchestrator = profile.id === this.opts.defaultAgentId;
+        if (isOrchestrator && this.opts.projectContext) {
+            return `${profile.systemPrompt}\n\n${this.opts.projectContext}`;
+        }
         return profile.systemPrompt;
     }
 
@@ -283,6 +291,7 @@ export class AgentEngine {
             sessionId: this.opts.sessionId ?? 'default',
             workingDir: this.opts.workingDir,
             memory: this.memory,
+            store: this.opts.store,
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context });
                 return result.content;

@@ -1,23 +1,18 @@
 import * as readline from 'readline';
 import * as path from 'path';
-import { createCodingEngine, CODING_AGENTS } from '@bk/agent-coding';
+import { createCodingEngineFromConfig, ConfigLoader, CODING_AGENTS } from '@bk/agent-coding';
 import type { AgentProfile } from '@bk/agent-core';
 import { CallbackTransport } from '@bk/agent-core';
 import { renderEvent } from './display';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const DEEPSEEK_KEY   = process.env.DEEPSEEK_API_KEY  ?? '';
-const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY ?? '';
-const OPENAI_KEY     = process.env.OPENAI_API_KEY    ?? '';
-const KIMI_KEY       = process.env.KIMI_API_KEY      ?? '';
-const GROK_KEY       = process.env.GROK_API_KEY      ?? '';
-const MODEL          = process.env.AGENT_MODEL       ?? 'deepseek-chat';
-const AGENT_ID       = process.env.AGENT_ID          ?? 'general';
-const WORKING_DIR    = process.env.WORKING_DIR       ?? process.cwd();
-const DEFAULT_PROVIDER = process.env.AGENT_PROVIDER  ?? (DEEPSEEK_KEY ? 'deepseek' : ANTHROPIC_KEY ? 'anthropic' : OPENAI_KEY ? 'openai' : '');
+const config      = ConfigLoader.load();
+const AGENT_ID    = process.env.AGENT_ID    ?? 'general';
+const WORKING_DIR = process.env.WORKING_DIR ?? process.cwd();
 
-if (!DEFAULT_PROVIDER) {
+if (!config.defaultProvider) {
     console.error('Error: set at least one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY');
+    console.error(`       or add providers to ${ConfigLoader.configPath}`);
     process.exit(1);
 }
 
@@ -25,25 +20,17 @@ if (!DEFAULT_PROVIDER) {
 function printBanner(): void {
     const agents = CODING_AGENTS.map((a: AgentProfile) => `${a.icon} ${a.id}`).join('  ');
     console.log('\n\x1b[1m\x1b[36m  bk-agent-coding\x1b[0m\x1b[2m  v0.1.0\x1b[0m');
-    console.log(`\x1b[90m  provider: ${DEFAULT_PROVIDER}  model: ${MODEL}\x1b[0m`);
-    console.log(`\x1b[90m  agent:  ${AGENT_ID}\x1b[0m`);
-    console.log(`\x1b[90m  cwd:    ${WORKING_DIR}\x1b[0m`);
-    console.log(`\x1b[90m  agents: ${agents}\x1b[0m`);
+    console.log(`\x1b[90m  provider: ${config.defaultProvider}  config: ${ConfigLoader.configPath}\x1b[0m`);
+    console.log(`\x1b[90m  agent:    ${AGENT_ID}\x1b[0m`);
+    console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
+    console.log(`\x1b[90m  agents:   ${agents}\x1b[0m`);
     console.log('\x1b[90m\n  Commands: /agent <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
 function makeEngine(agentId: string, cwd: string) {
     const transport = new CallbackTransport(renderEvent);
-    const engine = createCodingEngine({
-        providers: {
-            ...(DEEPSEEK_KEY  ? { deepseek:  { apiKey: DEEPSEEK_KEY,  model: DEFAULT_PROVIDER === 'deepseek'  ? MODEL : undefined } } : {}),
-            ...(ANTHROPIC_KEY ? { anthropic: { apiKey: ANTHROPIC_KEY, model: DEFAULT_PROVIDER === 'anthropic' ? MODEL : undefined } } : {}),
-            ...(OPENAI_KEY    ? { openai:    { apiKey: OPENAI_KEY,    model: DEFAULT_PROVIDER === 'openai'    ? MODEL : undefined } } : {}),
-            ...(KIMI_KEY      ? { kimi:      { apiKey: KIMI_KEY } } : {}),
-            ...(GROK_KEY      ? { grok:      { apiKey: GROK_KEY } } : {}),
-        },
-        defaultProvider: DEFAULT_PROVIDER,
+    const engine = createCodingEngineFromConfig({
         defaultAgent: agentId,
         workingDir: cwd,
         transport,

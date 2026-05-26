@@ -23,6 +23,7 @@ export type {
     ToolDefinition,
     ExecutionContext,
     SessionMemoryData,
+    ProjectStoreData,
     ModelConfig,
     LLMMessage,
     LLMToolCall,

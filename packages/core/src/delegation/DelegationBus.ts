@@ -1,3 +1,4 @@
+import { Bulkhead, BulkheadRejectedError, BulkheadTimeoutError } from '@backendkit-labs/bulkhead';
 import type { AgentRegistry } from '../engine/AgentRegistry';
 import type { ToolRegistry } from '../engine/ToolRegistry';
 import type { LLMMessage } from '../types';
@@ -30,25 +31,26 @@ export interface DelegationBusOptions {
 }
 
 export class DelegationBus {
-    private readonly maxParallel: number;
+    private readonly bulkhead: Bulkhead;
 
     constructor(private readonly opts: DelegationBusOptions) {
-        this.maxParallel = opts.maxParallel ?? 6;
+        this.bulkhead = new Bulkhead({
+            name: 'delegation-bus',
+            maxConcurrentCalls: opts.maxParallel ?? 6,
+            maxQueueSize: 50,
+            queueTimeoutMs: 120_000, // 2 min — agent calls can be long
+            rejectWhenFull: false,
+        });
     }
 
+    /**
+     * Runs all requests concurrently, bounded by the bulkhead semaphore.
+     *
+     * Unlike the previous wave-based approach, slots free up immediately as
+     * individual agents finish — no waiting for the whole wave to complete.
+     */
     async runParallel(requests: DelegationRequest[]): Promise<DelegationResult[]> {
-        const results: DelegationResult[] = [];
-
-        // Process in waves of maxParallel
-        for (let i = 0; i < requests.length; i += this.maxParallel) {
-            const wave = requests.slice(i, i + this.maxParallel);
-            const waveResults = await Promise.all(
-                wave.map(req => this.runSingle(req))
-            );
-            results.push(...waveResults);
-        }
-
-        return results;
+        return Promise.all(requests.map(req => this.runSingle(req)));
     }
 
     async runSingle(request: DelegationRequest): Promise<DelegationResult> {
@@ -73,9 +75,14 @@ export class DelegationBus {
         });
 
         try {
-            return await this.opts.runAgent(request.agentId, request.question, request.context);
+            return await this.bulkhead.execute(
+                () => this.opts.runAgent(request.agentId, request.question, request.context),
+            );
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message =
+                err instanceof BulkheadRejectedError ? 'Delegation rejected: queue is full' :
+                err instanceof BulkheadTimeoutError  ? 'Delegation timed out in queue' :
+                err instanceof Error ? err.message : String(err);
             return {
                 agentId: request.agentId,
                 content: `Error: ${message}`,
@@ -85,5 +92,9 @@ export class DelegationBus {
                 error: message,
             };
         }
+    }
+
+    getBulkheadMetrics() {
+        return this.bulkhead.getMetrics();
     }
 }

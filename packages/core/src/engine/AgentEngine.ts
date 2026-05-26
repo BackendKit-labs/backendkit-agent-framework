@@ -95,18 +95,39 @@ export class AgentEngine {
         return this.opts.agents.get(this.currentAgentId);
     }
 
+    private buildAgentRoster(excludeId: string): string {
+        const entries = this.opts.agents.getAll()
+            .filter(a => a.id !== excludeId)
+            .map(a => {
+                const tag = a.source === 'project' ? ' [PROJECT]' : a.source === 'global' ? ' [GLOBAL]' : '';
+                return `- ${a.id} (${a.icon}): ${a.description}${tag}`;
+            })
+            .join('\n');
+        return `## Available Agents\nUse ask_agent to delegate tasks:\n${entries}`;
+    }
+
     private buildSystemPrompt(profile: AgentProfile): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
-        if (isOrchestrator && this.opts.projectContext) {
-            return `${profile.systemPrompt}\n\n${this.opts.projectContext}`;
+        if (!isOrchestrator) return profile.systemPrompt;
+
+        const parts = [profile.systemPrompt, this.buildAgentRoster(profile.id)];
+        if (this.opts.projectContext) parts.push(this.opts.projectContext);
+        return parts.join('\n\n');
+    }
+
+    private resolvesDelegateTo(profile: AgentProfile): string[] {
+        if (!profile.delegatesTo || profile.delegatesTo.length === 0) return [];
+        if (profile.delegatesTo[0] === '*') {
+            return this.opts.agents.getAll()
+                .map(a => a.id)
+                .filter(id => id !== profile.id);
         }
-        return profile.systemPrompt;
+        return profile.delegatesTo as string[];
     }
 
     private getToolsForAgent(profile: AgentProfile): ToolDefinition[] {
         const tools = this.opts.tools.getForAgent(profile.allowedTools);
-        // Always inject ask_agent if agent can delegate
-        if ((profile.delegatesTo?.length ?? 0) > 0) {
+        if (this.resolvesDelegateTo(profile).length > 0) {
             tools.push(ASK_AGENT_TOOL);
         }
         return tools;

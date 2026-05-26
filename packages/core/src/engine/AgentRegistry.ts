@@ -11,6 +11,12 @@ export class AgentRegistry {
         return this;
     }
 
+    /** Register or replace an existing agent (used by AgentLoader for global/project overrides) */
+    upsert(profile: AgentProfile): this {
+        this.agents.set(profile.id, profile);
+        return this;
+    }
+
     registerAll(profiles: AgentProfile[]): this {
         for (const p of profiles) this.register(p);
         return this;

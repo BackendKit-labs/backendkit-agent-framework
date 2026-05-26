@@ -12,6 +12,7 @@ import { DeepSeekProvider } from './providers/DeepSeekProvider';
 import { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 import { AnthropicProvider } from './providers/AnthropicProvider';
 import { CODING_AGENTS } from './agents/profiles';
+import { AgentLoader } from './agents/AgentLoader';
 import { readFileTool } from './tools/read-file';
 import { writeFileTool } from './tools/write-file';
 import { editFileTool } from './tools/edit-file';
@@ -32,6 +33,8 @@ export { DeepSeekProvider } from './providers/DeepSeekProvider';
 export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 export { AnthropicProvider } from './providers/AnthropicProvider';
 export { CODING_AGENTS } from './agents/profiles';
+export { AgentLoader } from './agents/AgentLoader';
+export type { AgentLoaderOptions } from './agents/AgentLoader';
 export { ProjectStore } from './store/ProjectStore';
 export { PersistentMemory } from './store/PersistentMemory';
 export { ConfigLoader } from './config/ConfigLoader';
@@ -128,8 +131,12 @@ export interface CodingEngineOptions {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
+    const cwd     = opts.workingDir ?? process.cwd();
+    const appName = opts.appName ?? 'bk-agent';
+
     const agents = new AgentRegistry();
-    agents.registerAll(CODING_AGENTS);
+    const allAgents = AgentLoader.load({ appName, cwd, builtins: CODING_AGENTS });
+    for (const a of allAgents) agents.upsert(a);
 
     const tools = new ToolRegistry();
     for (const tool of CODING_TOOLS) tools.register(tool);
@@ -164,8 +171,6 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
     }
 
     // ── Persistent store + memory ─────────────────────────────────────────────
-    const cwd = opts.workingDir ?? process.cwd();
-    const appName = opts.appName ?? 'bk-agent';
     let store: ProjectStore | undefined;
     let memory: PersistentMemory | undefined;
     let projectContext: string | undefined;

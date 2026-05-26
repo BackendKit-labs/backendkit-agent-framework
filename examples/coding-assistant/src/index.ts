@@ -1,6 +1,6 @@
 import * as readline from 'readline';
 import * as path from 'path';
-import { createCodingEngineFromConfig, ConfigLoader, CODING_AGENTS } from '@bk/agent-coding';
+import { createCodingEngineFromConfig, ConfigLoader, AgentLoader, CODING_AGENTS } from '@bk/agent-coding';
 import type { AgentProfile } from '@bk/agent-core';
 import { CallbackTransport } from '@bk/agent-core';
 import { renderEvent } from './display';
@@ -20,13 +20,19 @@ if (!config.defaultProvider) {
 
 // ── Banner ────────────────────────────────────────────────────────────────────
 function printBanner(): void {
-    const agents = CODING_AGENTS.map((a: AgentProfile) => `${a.icon} ${a.id}`).join('  ');
+    const allAgents = AgentLoader.load({ appName: APP_NAME, cwd: WORKING_DIR, builtins: CODING_AGENTS });
+    const agentList = allAgents.map((a: AgentProfile) => {
+        const tag = a.source === 'project' ? '*' : a.source === 'global' ? '+' : '';
+        return `${a.icon} ${a.id}${tag}`;
+    }).join('  ');
+    const dirs = AgentLoader.dirs(APP_NAME, WORKING_DIR);
     console.log('\n\x1b[1m\x1b[36m  bk-agent-coding\x1b[0m\x1b[2m  v0.1.0\x1b[0m');
     console.log(`\x1b[90m  app:      ${APP_NAME}  provider: ${config.defaultProvider}\x1b[0m`);
     console.log(`\x1b[90m  config:   ${loader.configPath}\x1b[0m`);
     console.log(`\x1b[90m  agent:    ${AGENT_ID}\x1b[0m`);
     console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
-    console.log(`\x1b[90m  agents:   ${agents}\x1b[0m`);
+    console.log(`\x1b[90m  agents:   ${agentList}\x1b[0m`);
+    console.log(`\x1b[90m  [+] global: ${dirs.global}  [*] project: ${dirs.project}\x1b[0m`);
     console.log('\x1b[90m\n  Commands: /agent <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
 }
 

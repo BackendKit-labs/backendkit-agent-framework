@@ -7,9 +7,12 @@ export interface AgentProfile {
     description: string;
     systemPrompt: string;
     allowedTools: string[];
-    delegatesTo?: string[];
+    /** Agent IDs this agent can delegate to. Use ['*'] to allow delegation to all registered agents. */
+    delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;
     provider?: string;
+    /** Where this agent was loaded from */
+    source?: 'builtin' | 'global' | 'project';
 }
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────

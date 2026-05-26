@@ -12,8 +12,6 @@ import { DATA_PROMPT } from './prompts/data';
 const MEMORY_TOOLS = ['save_context', 'save_learning', 'save_user_preference', 'append_log', 'save_audit', 'get_latest_audit', 'list_audits'];
 const READ_ONLY_TOOLS = ['read_file', 'list_directory', 'search_files', 'run_command', ...MEMORY_TOOLS];
 const WRITE_TOOLS = [...READ_ONLY_TOOLS, 'write_file', 'edit_file'];
-const ALL_AGENTS = ['coder', 'backend', 'frontend', 'qa-engineer', 'security', 'architecture', 'infrastructure', 'data'];
-
 export const CODING_AGENTS: AgentProfile[] = [
     {
         id: 'general',
@@ -22,7 +20,8 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Orchestrator — analyzes requests and delegates to specialists',
         systemPrompt: GENERAL_PROMPT,
         allowedTools: READ_ONLY_TOOLS,
-        delegatesTo: ALL_AGENTS,
+        delegatesTo: ['*'],
+        source: 'builtin',
     },
     {
         id: 'coder',
@@ -31,6 +30,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Pure implementation — writes files, runs commands, executes plans',
         systemPrompt: CODER_PROMPT,
         allowedTools: WRITE_TOOLS,
+        source: 'builtin',
     },
     {
         id: 'backend',
@@ -40,6 +40,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: BACKEND_PROMPT,
         allowedTools: WRITE_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
     {
         id: 'frontend',
@@ -49,6 +50,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: FRONTEND_PROMPT,
         allowedTools: WRITE_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
     {
         id: 'qa-engineer',
@@ -58,6 +60,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: QA_PROMPT,
         allowedTools: WRITE_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
     {
         id: 'security',
@@ -67,6 +70,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: SECURITY_PROMPT,
         allowedTools: READ_ONLY_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
     {
         id: 'architecture',
@@ -76,6 +80,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: ARCHITECTURE_PROMPT,
         allowedTools: READ_ONLY_TOOLS,
         delegatesTo: ['coder', 'backend', 'frontend'],
+        source: 'builtin',
     },
     {
         id: 'infrastructure',
@@ -85,6 +90,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: INFRASTRUCTURE_PROMPT,
         allowedTools: WRITE_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
     {
         id: 'data',
@@ -94,5 +100,6 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: DATA_PROMPT,
         allowedTools: READ_ONLY_TOOLS,
         delegatesTo: ['coder'],
+        source: 'builtin',
     },
 ];

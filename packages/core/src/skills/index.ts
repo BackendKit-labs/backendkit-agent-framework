@@ -1,4 +1,6 @@
 export { SkillLoader } from './loader';
+export { SkillManager } from './manager';
+export type { InstallOptions, InstalledPack } from './manager';
 export { SkillRegistry } from './registry';
 export { SkillActivator } from './activator';
 export { GLOBAL_BUILTIN_SKILLS } from './builtins/global';

@@ -1,6 +1,6 @@
 import * as readline from 'readline';
 import * as path from 'path';
-import { createCodingEngineFromConfig, ConfigLoader, AgentLoader, CODING_AGENTS } from '@bk/agent-coding';
+import { createCodingEngineFromConfig, ConfigLoader, AgentLoader, InitWorkflow, CODING_AGENTS } from '@bk/agent-coding';
 import type { AgentProfile } from '@bk/agent-core';
 import { CallbackTransport } from '@bk/agent-core';
 import { renderEvent } from './display';
@@ -33,7 +33,7 @@ function printBanner(): void {
     console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
     console.log(`\x1b[90m  agents:   ${agentList}\x1b[0m`);
     console.log(`\x1b[90m  [+] global: ${dirs.global}  [*] project: ${dirs.project}\x1b[0m`);
-    console.log('\x1b[90m\n  Commands: /agent <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
+    console.log('\x1b[90m\n  Commands: /init  /agent <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
@@ -96,6 +96,33 @@ async function main(): Promise<void> {
                         console.log(`\x1b[90m  cwd: ${currentCwd}\x1b[0m`);
                     }
                     break;
+
+                case 'init': {
+                    const mode = InitWorkflow.detectMode(currentCwd);
+                    const modeLabel = { new: 'new project', existing: 'existing project', hybrid: 'hybrid' }[mode];
+                    console.log(`\x1b[90m  /init — detected: ${modeLabel}\x1b[0m`);
+                    if (mode === 'new') {
+                        const hasPrompt = require('fs').existsSync(require('path').join(currentCwd, 'prompt.md'));
+                        if (!hasPrompt) {
+                            console.log(`\x1b[33m  No prompt.md found. Create one describing what you want to build, then run /init again.\x1b[0m`);
+                            rl.prompt();
+                            return;
+                        }
+                    }
+                    const initPrompt = InitWorkflow.buildPrompt(currentCwd, mode);
+                    running = true;
+                    rl.pause();
+                    try {
+                        await engine.run(initPrompt);
+                    } catch (err) {
+                        console.error(`\n  \x1b[31mInit error:\x1b[0m ${(err as Error).message}\n`);
+                    } finally {
+                        running = false;
+                        rl.resume();
+                        rl.prompt();
+                    }
+                    return;
+                }
 
                 case 'clear':
                     ({ engine } = makeEngine(currentAgent, currentCwd));

@@ -110,10 +110,11 @@ async function main(): Promise<void> {
                         }
                     }
                     const initPrompt = InitWorkflow.buildPrompt(currentCwd, mode);
+                    const { engine: initEngine } = makeEngine('project-manager', currentCwd);
                     running = true;
                     rl.pause();
                     try {
-                        await engine.run(initPrompt);
+                        await initEngine.run(initPrompt);
                     } catch (err) {
                         console.error(`\n  \x1b[31mInit error:\x1b[0m ${(err as Error).message}\n`);
                     } finally {

@@ -23,6 +23,9 @@ export * from './reflection';
 // Orchestration
 export * from './orchestration';
 
+// QA
+export * from './qa';
+
 // Shared utils
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';

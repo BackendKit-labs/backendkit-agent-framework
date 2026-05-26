@@ -13,6 +13,8 @@ export interface AgentProfile {
     provider?: string;
     /** Where this agent was loaded from */
     source?: 'builtin' | 'global' | 'project';
+    /** Additional instructions appended to the base system prompt when this agent is active. */
+    systemPromptAddition?: string;
 }
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────

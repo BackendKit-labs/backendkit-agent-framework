@@ -13,6 +13,8 @@ export interface CommandSkillInfo {
 }
 
 export interface CommandContext {
+    /** Full original input string (e.g. "/agent coder"). */
+    rawInput: string;
     /** Everything after the command name, trimmed. */
     args: string;
     /** Send text output back to the user. */
@@ -63,7 +65,7 @@ export class SlashCommandRegistry {
         const cmd = this.commands.get(name);
         if (!cmd) return false;
         const args = input.slice(name.length).trim();
-        await cmd.handler({ ...ctx, args });
+        await cmd.handler({ ...ctx, rawInput: input, args });
         return true;
     }
 

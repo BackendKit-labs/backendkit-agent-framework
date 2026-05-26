@@ -40,45 +40,55 @@ INIT WORKFLOW — NEW PROJECT
 
 You are executing the project initialization workflow. Follow these phases STRICTLY and IN ORDER. Do NOT skip any phase.
 
+CRITICAL — FILE OPERATION RULES (MANDATORY):
+- To CREATE a new file: use the write_file tool
+- To APPEND or MODIFY an existing file: use the edit_file tool
+- To READ a file: use the read_file tool
+- NEVER use run_command for any file operation (no cat, echo, tail, sed, awk, etc.)
+
 ---
 PHASE 1 — Generate design and specification
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "architecture":
-  Read prompt.md at the project root.
-  Create the file disene.md with a comprehensive architecture document. Include:
-  executive summary, system components, data models, API design, tech stack with justification,
-  infrastructure and deployment strategy, key architectural decisions and trade-offs.
+  1. Use read_file to read prompt.md at the project root.
+  2. Use write_file to CREATE the file disene.md with a comprehensive architecture document. Include:
+     executive summary, system components, data models, API design, tech stack with justification,
+     infrastructure and deployment strategy, key architectural decisions and trade-offs.
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ask_agent "backend" (simultaneously with architecture):
-  Read prompt.md.
-  Create especification.md with complete technical specifications. Include:
-  functional requirements, API endpoints with request/response schemas,
-  data models, business logic rules, integration points, non-functional requirements (performance, scalability).
+  1. Use read_file to read prompt.md.
+  2. Use write_file to CREATE especification.md with complete technical specifications. Include:
+     functional requirements, API endpoints with request/response schemas,
+     data models, business logic rules, integration points, non-functional requirements (performance, scalability).
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ---
-PHASE 2 — Audit (after Phase 1 results arrive)
+PHASE 2 — Audit (after Phase 1 results arrive — WAIT for both files to exist)
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "qa-engineer":
-  Read especification.md.
-  Edit the file DIRECTLY to append a "## QA Review" section with:
-  test strategy, test cases for each requirement, edge cases, acceptance criteria, quality risks.
+  1. Use read_file to read especification.md.
+  2. Use edit_file to APPEND a "## QA Review" section to especification.md with:
+     test strategy, test cases for each requirement, edge cases, acceptance criteria, quality risks.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ask_agent "security":
-  Read disene.md.
-  Edit the file DIRECTLY to append a "## Security Review" section with:
-  authentication and authorization design, data protection, OWASP threat model, security requirements.
+  1. Use read_file to read disene.md.
+  2. Use edit_file to APPEND a "## Security Review" section to disene.md with:
+     authentication and authorization design, data protection, OWASP threat model, security requirements.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 3 — Final architectural review (after Phase 2 results arrive)
 Single call:
 
 ask_agent "architecture":
-  Read disene.md and especification.md (both now audited).
-  Edit disene.md DIRECTLY to incorporate security and QA findings.
-  Add a "## Final Decisions" section that reconciles all inputs.
-  Ensure both documents are consistent and production-ready.
+  1. Use read_file to read disene.md.
+  2. Use read_file to read especification.md.
+  3. Use edit_file to APPEND a "## Final Decisions" section to disene.md that reconciles all inputs.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 4 — Persist (use these tools directly, no delegation):
@@ -92,9 +102,15 @@ INIT WORKFLOW — EXISTING PROJECT
 You are executing the initialization workflow for an EXISTING codebase.
 Follow these phases STRICTLY and IN ORDER.
 
+CRITICAL — FILE OPERATION RULES (MANDATORY):
+- To CREATE a new file: use the write_file tool
+- To APPEND or MODIFY an existing file: use the edit_file tool
+- To READ a file: use the read_file tool
+- NEVER use run_command for any file operation (no cat, echo, tail, sed, awk, etc.)
+
 ---
 PHASE 1 — Explore (do this yourself before delegating)
-Use list_directory (max_depth: 3) and read key files:
+Use list_directory (max_depth: 3) and use read_file for key files:
 package.json / pyproject.toml / go.mod / README.md / main entry point.
 Build a mental model of the project structure.
 
@@ -103,39 +119,45 @@ PHASE 2 — Document existing architecture and spec
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "architecture":
-  Explore the codebase thoroughly (list_directory + read key files).
-  Create disene.md documenting the CURRENT architecture:
-  system overview, component breakdown, data models, existing API design,
-  tech stack (as found), infrastructure. This is reverse-engineered — document what EXISTS.
+  1. Explore the codebase thoroughly (list_directory + read_file for key files).
+  2. Use write_file to CREATE disene.md documenting the CURRENT architecture:
+     system overview, component breakdown, data models, existing API design,
+     tech stack (as found), infrastructure. This is reverse-engineered — document what EXISTS.
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ask_agent "backend" (simultaneously):
-  Explore the codebase.
-  Create especification.md documenting CURRENT specifications:
-  existing endpoints with schemas, data models, business logic found, integrations.
-  Document what EXISTS, mark gaps as "Undocumented".
+  1. Use list_directory and read_file to explore the codebase.
+  2. Use write_file to CREATE especification.md documenting CURRENT specifications:
+     existing endpoints with schemas, data models, business logic found, integrations.
+     Document what EXISTS, mark gaps as "Undocumented".
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ---
-PHASE 3 — Audit (after Phase 2 results arrive)
+PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist)
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "qa-engineer":
-  Read especification.md.
-  Edit DIRECTLY to append "## QA Findings":
-  test coverage gaps, missing test scenarios, quality concerns found in the codebase.
+  1. Use read_file to read especification.md.
+  2. Use edit_file to APPEND a "## QA Findings" section to especification.md with:
+     test coverage gaps, missing test scenarios, quality concerns found in the codebase.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ask_agent "security":
-  Read disene.md.
-  Edit DIRECTLY to append "## Security Findings":
-  vulnerabilities or risks found, auth review, data protection gaps, quick wins.
+  1. Use read_file to read disene.md.
+  2. Use edit_file to APPEND a "## Security Findings" section to disene.md with:
+     vulnerabilities or risks found, auth review, data protection gaps, quick wins.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 4 — Final review + recommendations (after Phase 3 results arrive)
 Single call:
 
 ask_agent "architecture":
-  Read both documents (now audited).
-  Edit disene.md DIRECTLY to incorporate audit findings.
-  Add "## Recommended Improvements" section with prioritized action items.
+  1. Use read_file to read disene.md.
+  2. Use read_file to read especification.md.
+  3. Use edit_file to APPEND a "## Recommended Improvements" section to disene.md
+     with prioritized action items incorporating all audit findings.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 5 — Persist:
@@ -149,48 +171,64 @@ INIT WORKFLOW — HYBRID (existing project + new direction)
 prompt.md describes the DESIRED direction. The codebase is the CURRENT state.
 Follow these phases STRICTLY and IN ORDER.
 
+CRITICAL — FILE OPERATION RULES (MANDATORY):
+- To CREATE a new file: use the write_file tool
+- To APPEND or MODIFY an existing file: use the edit_file tool
+- To READ a file: use the read_file tool
+- NEVER use run_command for any file operation (no cat, echo, tail, sed, awk, etc.)
+
 ---
 PHASE 1 — Explore (do this yourself)
-Read prompt.md to understand the desired direction.
-Use list_directory (max_depth: 3) and read key files to understand current state.
+Use read_file to read prompt.md to understand the desired direction.
+Use list_directory (max_depth: 3) and read_file for key files to understand current state.
 
 ---
 PHASE 2 — Gap analysis and design
 Emit BOTH ask_agent calls in the same response IN PARALLEL:
 
 ask_agent "architecture":
-  Read prompt.md AND explore the codebase.
-  Create disene.md with:
-  1. Current architecture (what exists)
-  2. Target architecture (from prompt.md)
-  3. Migration path (how to get from current to target)
-  4. Tech stack decisions
+  1. Use read_file to read prompt.md.
+  2. Use list_directory and read_file to explore the codebase.
+  3. Use write_file to CREATE disene.md with:
+     - Current architecture (what exists)
+     - Target architecture (from prompt.md)
+     - Migration path (how to get from current to target)
+     - Tech stack decisions
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ask_agent "backend" (simultaneously):
-  Read prompt.md AND explore the codebase.
-  Create especification.md with:
-  1. Current specification (what exists)
-  2. New requirements (from prompt.md)
-  3. What needs to be built vs modified vs removed
+  1. Use read_file to read prompt.md.
+  2. Use list_directory and read_file to explore the codebase.
+  3. Use write_file to CREATE especification.md with:
+     - Current specification (what exists)
+     - New requirements (from prompt.md)
+     - What needs to be built vs modified vs removed
+  IMPORTANT: Use write_file tool — do NOT use run_command to create this file.
 
 ---
-PHASE 3 — Audit (after Phase 2)
+PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist)
 Emit BOTH IN PARALLEL:
 
 ask_agent "qa-engineer":
-  Read especification.md. Edit DIRECTLY to append "## QA Plan":
-  test strategy for new features, regression risks, acceptance criteria.
+  1. Use read_file to read especification.md.
+  2. Use edit_file to APPEND a "## QA Plan" section to especification.md with:
+     test strategy for new features, regression risks, acceptance criteria.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ask_agent "security":
-  Read disene.md. Edit DIRECTLY to append "## Security Review":
-  security impact of the migration, new attack surface, recommendations.
+  1. Use read_file to read disene.md.
+  2. Use edit_file to APPEND a "## Security Review" section to disene.md with:
+     security impact of the migration, new attack surface, recommendations.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 4 — Final review:
 ask_agent "architecture":
-  Read both audited documents.
-  Edit disene.md to finalize the migration plan incorporating all audit findings.
-  Add "## Immediate Next Steps" — the first 3 things to implement.
+  1. Use read_file to read disene.md.
+  2. Use read_file to read especification.md.
+  3. Use edit_file to APPEND a "## Immediate Next Steps" section to disene.md
+     with the first 3 things to implement, incorporating all audit findings.
+  IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 5 — Persist:

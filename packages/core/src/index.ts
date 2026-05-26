@@ -32,6 +32,9 @@ export * from './context';
 // Skills
 export * from './skills';
 
+// Commands
+export * from './commands';
+
 // Bootstrap
 export { runGlobalSeed } from './bootstrap/GlobalSeed';
 export type { SeedResult } from './bootstrap/GlobalSeed';

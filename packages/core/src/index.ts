@@ -17,6 +17,13 @@ export type { Transport, Unsubscribe } from './transport/Transport';
 export { StdoutTransport } from './transport/StdoutTransport';
 export { CallbackTransport } from './transport/CallbackTransport';
 
+// Reflection
+export * from './reflection';
+
+// Shared utils
+export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
+export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';
+
 // Types
 export type {
     AgentProfile,

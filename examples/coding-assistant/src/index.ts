@@ -33,7 +33,7 @@ function printBanner(): void {
     console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
     console.log(`\x1b[90m  agents:   ${agentList}\x1b[0m`);
     console.log(`\x1b[90m  [+] global: ${dirs.global}  [*] project: ${dirs.project}\x1b[0m`);
-    console.log('\x1b[90m\n  Commands: /init  /agent <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
+    console.log('\x1b[90m\n  Commands: /init  /agent list | new <id> [--global] | <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
@@ -75,17 +75,48 @@ async function main(): Promise<void> {
             const arg = rest.join(' ').trim();
 
             switch (cmd) {
-                case 'agent':
-                    if (!arg) {
-                        console.log(`  Available: ${CODING_AGENTS.map((a: AgentProfile) => a.id).join(', ')}`);
-                    } else if (!CODING_AGENTS.find((a: AgentProfile) => a.id === arg)) {
-                        console.log(`  Unknown agent "${arg}"`);
+                case 'agent': {
+                    const [sub, ...subArgs] = arg ? arg.split(' ') : ['list'];
+
+                    if (sub === 'list' || !sub) {
+                        const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
+                        const bySource: Record<string, AgentProfile[]> = { project: [], global: [], builtin: [] };
+                        for (const a of all) bySource[a.source ?? 'builtin'].push(a);
+                        const fmt = (a: AgentProfile) => `${a.icon} ${a.id}`;
+                        if (bySource.project.length) console.log(`  \x1b[1mproject\x1b[0m  ${bySource.project.map(fmt).join('  ')}`);
+                        if (bySource.global.length)  console.log(`  \x1b[1mglobal \x1b[0m  ${bySource.global.map(fmt).join('  ')}`);
+                        if (bySource.builtin.length) console.log(`  \x1b[1mbuiltin\x1b[0m  ${bySource.builtin.map(fmt).join('  ')}`);
+                        const dirs = AgentLoader.dirs(APP_NAME, currentCwd);
+                        console.log(`\x1b[90m  global:  ${dirs.global}\x1b[0m`);
+                        console.log(`\x1b[90m  project: ${dirs.project}\x1b[0m`);
+
+                    } else if (sub === 'new') {
+                        const newId   = subArgs.find(s => !s.startsWith('--'));
+                        const isGlobal = subArgs.includes('--global');
+                        if (!newId) {
+                            console.log('  Usage: /agent new <id> [--global]');
+                        } else {
+                            const scope = isGlobal ? 'global' : 'project';
+                            AgentLoader.scaffold(newId, { appName: APP_NAME, cwd: currentCwd, scope });
+                            const dirs = AgentLoader.dirs(APP_NAME, currentCwd);
+                            const dir  = isGlobal ? dirs.global : dirs.project;
+                            console.log(`\x1b[90m  created ${dir}\\${newId}.json\x1b[0m`);
+                            console.log(`\x1b[90m          ${dir}\\${newId}.md\x1b[0m`);
+                            console.log(`\x1b[90m  edit the .md to write the system prompt — restart to load\x1b[0m`);
+                        }
+
                     } else {
-                        currentAgent = arg;
-                        ({ engine } = makeEngine(currentAgent, currentCwd));
-                        console.log(`\x1b[90m  switched to ${arg}\x1b[0m`);
+                        const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
+                        if (!all.find((a: AgentProfile) => a.id === sub)) {
+                            console.log(`  Unknown agent "${sub}". Run /agent list to see available agents.`);
+                        } else {
+                            currentAgent = sub;
+                            ({ engine } = makeEngine(currentAgent, currentCwd));
+                            console.log(`\x1b[90m  switched to ${sub}\x1b[0m`);
+                        }
                     }
                     break;
+                }
 
                 case 'cwd':
                     if (!arg) {

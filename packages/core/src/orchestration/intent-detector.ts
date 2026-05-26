@@ -10,7 +10,17 @@
  * 'design' o 'implementation'.
  */
 
+import { retry } from '@backendkit-labs/retry';
 import { ActionType, createTaskContext, TaskContext } from './task-context';
+
+const LLM_RETRY = {
+    maxAttempts: 3,
+    backoff: { type: 'exponential' as const, baseDelay: 500, maxDelay: 8_000, jitter: 'full' as const },
+    retryIf: (e: { type: string; status?: number }) =>
+        e.type === 'network' || (e.type === 'http' && (e.status ?? 0) >= 500),
+    abortIf: (e: { type: string; status?: number }) =>
+        e.type === 'http' && [401, 403].includes(e.status ?? 0),
+};
 
 export interface LLMChatClient {
     chat(messages: Array<{ role: string; content: string }>, tools?: unknown, temperature?: number): Promise<{ content: string | null }>;
@@ -217,13 +227,12 @@ Responde ÚNICAMENTE con JSON: {"action":"<tipo>"}
 
 Solicitud: "${input.slice(0, 500)}"`;
 
-  const response = await client.chat(
-    [{ role: 'user', content: prompt }],
-    undefined,
-    0.0
+  const result = await retry(
+    () => client.chat([{ role: 'user', content: prompt }], undefined, 0.0),
+    LLM_RETRY,
   );
 
-  const content = response.content ?? '';
+  const content = result.ok ? (result.value.content ?? '') : '';
   const match = content.match(/"action"\s*:\s*"([\w-]+)"/);
   const actionType = (match?.[1] as ActionType) ?? 'unknown';
 

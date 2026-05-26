@@ -1,7 +1,17 @@
+import { retry } from '@backendkit-labs/retry';
 import { LLMChatClient } from '../orchestration/intent-detector';
 import { AgentProfile } from '../types';
 import { getGitDiff } from '../shared/utils/git';
 import { AuditFinding } from '../reflection/types';
+
+const LLM_RETRY = {
+    maxAttempts: 3,
+    backoff: { type: 'exponential' as const, baseDelay: 500, maxDelay: 8_000, jitter: 'full' as const },
+    retryIf: (e: { type: string; status?: number }) =>
+        e.type === 'network' || (e.type === 'http' && (e.status ?? 0) >= 500),
+    abortIf: (e: { type: string; status?: number }) =>
+        e.type === 'http' && [401, 403].includes(e.status ?? 0),
+};
 
 export interface QAServiceOptions {
     client: LLMChatClient;
@@ -61,22 +71,23 @@ export class QAService {
         if (!qaProfile) return null;
 
         const systemPrompt = this.opts.basePrompt() + qaProfile.systemPromptAddition;
-        try {
-            const response = await this.opts.client.chat(
+        const result = await retry(
+            () => this.opts.client.chat(
                 [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: `Revisa el siguiente trabajo y da el visto bueno, o senala problemas de calidad, testing faltante o edge cases importantes:\n\n${workContent}` },
                 ],
                 undefined,
                 0.2
-            );
-            return response.content ?? null;
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            const fallback = `(QA review no disponible: ${msg}. El codigo se acepta sin revision de QA.)`;
+            ),
+            LLM_RETRY,
+        );
+        if (!result.ok) {
+            const fallback = `(QA review no disponible: ${result.error.message}. El codigo se acepta sin revision de QA.)`;
             this.opts.onQAReview?.(fallback);
             return null;
         }
+        return result.value.content ?? null;
     }
 
     async reviewPreCommit(stagedFiles: string[]): Promise<QAReviewResult> {
@@ -122,27 +133,27 @@ export class QAService {
             ...contextParts,
         ].join('\n');
 
-        try {
-            const response = await this.opts.client.chat(
+        const result = await retry(
+            () => this.opts.client.chat(
                 [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userMessage },
                 ],
                 undefined,
                 0.2
-            );
-
-            const review = response.content ?? '(QA no pudo generar revision)';
-            const approved = this.evaluateReview(review);
-            this.opts.onOutcome?.('qa-engineer', approved);
-            return { approved, review };
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
+            ),
+            LLM_RETRY,
+        );
+        if (!result.ok) {
             return {
                 approved: true,
-                review: `(QA no disponible: ${msg}. Commit sin revision de QA.)`,
+                review: `(QA no disponible: ${result.error.message}. Commit sin revision de QA.)`,
             };
         }
+        const review = result.value.content ?? '(QA no pudo generar revision)';
+        const approved = this.evaluateReview(review);
+        this.opts.onOutcome?.('qa-engineer', approved);
+        return { approved, review };
     }
 
     async diagnoseTestFailure(testOutput: string): Promise<string> {
@@ -182,27 +193,23 @@ export class QAService {
             ...contextParts,
         ].join('\n');
 
-        try {
-            const response = await this.opts.client.chat(
+        const result = await retry(
+            () => this.opts.client.chat(
                 [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userMessage },
                 ],
                 undefined,
                 0.2
-            );
-
-            const diagnosis = response.content ?? '(QA no pudo generar diagnostico)';
-
-            if (this.opts.onQAReview) {
-                this.opts.onQAReview(`QA Diagnosis - Tests Fallidos\n\n${diagnosis}`);
-            }
-
-            return diagnosis;
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return `(QA no disponible: ${msg}. Corrige los errores manualmente.)`;
+            ),
+            LLM_RETRY,
+        );
+        if (!result.ok) {
+            return `(QA no disponible: ${result.error.message}. Corrige los errores manualmente.)`;
         }
+        const diagnosis = result.value.content ?? '(QA no pudo generar diagnostico)';
+        this.opts.onQAReview?.(`QA Diagnosis - Tests Fallidos\n\n${diagnosis}`);
+        return diagnosis;
     }
 
     evaluateReview(review: string): boolean {

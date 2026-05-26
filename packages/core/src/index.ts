@@ -32,6 +32,12 @@ export * from './context';
 // Skills
 export * from './skills';
 
+// Bootstrap
+export { runGlobalSeed } from './bootstrap/GlobalSeed';
+export type { SeedResult } from './bootstrap/GlobalSeed';
+export { loadFrameworkConfig, DEFAULT_CONFIG } from './bootstrap/config';
+export type { FrameworkConfig, ProviderConfig, FrameworkFeatures } from './bootstrap/config';
+
 // Shared utils
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';

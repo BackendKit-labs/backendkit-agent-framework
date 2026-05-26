@@ -8,11 +8,12 @@ function cwdToHash(cwd: string): string {
 }
 
 export class ProjectStore implements ProjectStoreData {
-    static readonly HOME_DIR = join(homedir(), '.bk-agent');
+    readonly homeDir: string;
     readonly projectDir: string;
 
-    constructor(cwd: string) {
-        this.projectDir = join(ProjectStore.HOME_DIR, 'projects', cwdToHash(cwd));
+    constructor(cwd: string, appName = 'bk-agent') {
+        this.homeDir = join(homedir(), `.${appName}`);
+        this.projectDir = join(this.homeDir, 'projects', cwdToHash(cwd));
         mkdirSync(join(this.projectDir, 'audits'), { recursive: true });
     }
 
@@ -56,10 +57,10 @@ export class ProjectStore implements ProjectStoreData {
 
     // ── USER.md (global) ──────────────────────────────────────────────────────
     getUserProfile(): string {
-        return this.readAbs(join(ProjectStore.HOME_DIR, 'USER.md'));
+        return this.readAbs(join(this.homeDir, 'USER.md'));
     }
     appendUserPreference(content: string): void {
-        this.appendAbs(join(ProjectStore.HOME_DIR, 'USER.md'), content);
+        this.appendAbs(join(this.homeDir, 'USER.md'), content);
     }
 
     // ── System prompt context builder ─────────────────────────────────────────

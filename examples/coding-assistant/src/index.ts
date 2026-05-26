@@ -6,13 +6,15 @@ import { CallbackTransport } from '@bk/agent-core';
 import { renderEvent } from './display';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const config      = ConfigLoader.load();
+const APP_NAME    = process.env.AGENT_APP_NAME ?? 'bk-agent';
+const loader      = new ConfigLoader(APP_NAME);
+const config      = loader.load();
 const AGENT_ID    = process.env.AGENT_ID    ?? 'general';
 const WORKING_DIR = process.env.WORKING_DIR ?? process.cwd();
 
 if (!config.defaultProvider) {
     console.error('Error: set at least one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY');
-    console.error(`       or add providers to ${ConfigLoader.configPath}`);
+    console.error(`       or add providers to ${loader.configPath}`);
     process.exit(1);
 }
 
@@ -20,7 +22,8 @@ if (!config.defaultProvider) {
 function printBanner(): void {
     const agents = CODING_AGENTS.map((a: AgentProfile) => `${a.icon} ${a.id}`).join('  ');
     console.log('\n\x1b[1m\x1b[36m  bk-agent-coding\x1b[0m\x1b[2m  v0.1.0\x1b[0m');
-    console.log(`\x1b[90m  provider: ${config.defaultProvider}  config: ${ConfigLoader.configPath}\x1b[0m`);
+    console.log(`\x1b[90m  app:      ${APP_NAME}  provider: ${config.defaultProvider}\x1b[0m`);
+    console.log(`\x1b[90m  config:   ${loader.configPath}\x1b[0m`);
     console.log(`\x1b[90m  agent:    ${AGENT_ID}\x1b[0m`);
     console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
     console.log(`\x1b[90m  agents:   ${agents}\x1b[0m`);
@@ -31,6 +34,7 @@ function printBanner(): void {
 function makeEngine(agentId: string, cwd: string) {
     const transport = new CallbackTransport(renderEvent);
     const engine = createCodingEngineFromConfig({
+        appName: APP_NAME,
         defaultAgent: agentId,
         workingDir: cwd,
         transport,

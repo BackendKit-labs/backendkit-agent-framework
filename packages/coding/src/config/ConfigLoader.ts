@@ -16,9 +16,6 @@ export interface BkAgentConfig {
     agents?: Record<string, { provider?: string }>;
 }
 
-const CONFIG_DIR  = join(homedir(), '.bk-agent');
-const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
-
 const ENV_KEYS: Record<string, string> = {
     DEEPSEEK_API_KEY:  'deepseek',
     ANTHROPIC_API_KEY: 'anthropic',
@@ -28,16 +25,21 @@ const ENV_KEYS: Record<string, string> = {
 };
 
 export class ConfigLoader {
-    static readonly configPath = CONFIG_FILE;
-    static readonly configDir  = CONFIG_DIR;
+    readonly configDir: string;
+    readonly configPath: string;
 
-    static load(): BkAgentConfig {
-        mkdirSync(CONFIG_DIR, { recursive: true });
+    constructor(appName = 'bk-agent') {
+        this.configDir  = join(homedir(), `.${appName}`);
+        this.configPath = join(this.configDir, 'config.json');
+    }
+
+    load(): BkAgentConfig {
+        mkdirSync(this.configDir, { recursive: true });
 
         let file: BkAgentConfig = {};
-        if (existsSync(CONFIG_FILE)) {
-            try { file = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')); }
-            catch { console.warn(`[bk-agent] Could not parse ${CONFIG_FILE} — using defaults`); }
+        if (existsSync(this.configPath)) {
+            try { file = JSON.parse(readFileSync(this.configPath, 'utf-8')); }
+            catch { console.warn(`[bk-agent] Could not parse ${this.configPath} — using defaults`); }
         }
 
         const merged: BkAgentConfig = {
@@ -60,7 +62,7 @@ export class ConfigLoader {
             merged.defaultProvider = process.env.AGENT_PROVIDER;
         }
 
-        // Auto-detect defaultProvider if not set
+        // Auto-detect defaultProvider if not explicitly set
         if (!merged.defaultProvider) {
             const available = Object.entries(merged.providers ?? {})
                 .filter(([, v]) => v?.apiKey)
@@ -71,17 +73,17 @@ export class ConfigLoader {
         return merged;
     }
 
-    static initTemplate(): void {
-        mkdirSync(CONFIG_DIR, { recursive: true });
-        if (!existsSync(CONFIG_FILE)) {
+    initTemplate(): void {
+        mkdirSync(this.configDir, { recursive: true });
+        if (!existsSync(this.configPath)) {
             const template: BkAgentConfig = {
                 providers: {
                     deepseek: { apiKey: '', model: 'deepseek-chat' },
                 },
                 defaultProvider: 'deepseek',
             };
-            writeFileSync(CONFIG_FILE, JSON.stringify(template, null, 2), 'utf-8');
-            console.log(`[bk-agent] Created config template at ${CONFIG_FILE}`);
+            writeFileSync(this.configPath, JSON.stringify(template, null, 2), 'utf-8');
+            console.log(`[bk-agent] Created config template at ${this.configPath}`);
         }
     }
 }

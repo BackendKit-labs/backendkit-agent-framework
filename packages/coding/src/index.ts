@@ -116,6 +116,11 @@ export interface CodingEngineOptions {
     maxIterations?: number;
     maxParallelAgents?: number;
     transport?: Transport;
+    /**
+     * App name used to derive the home config directory (~/.{appName}/).
+     * Defaults to 'bk-agent'. Set this to your own app name when building on top of the framework.
+     */
+    appName?: string;
     /** Skip creating a ProjectStore (e.g. for testing) */
     disablePersistence?: boolean;
 }
@@ -160,12 +165,13 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
 
     // ── Persistent store + memory ─────────────────────────────────────────────
     const cwd = opts.workingDir ?? process.cwd();
+    const appName = opts.appName ?? 'bk-agent';
     let store: ProjectStore | undefined;
     let memory: PersistentMemory | undefined;
     let projectContext: string | undefined;
 
     if (!opts.disablePersistence) {
-        store = new ProjectStore(cwd);
+        store = new ProjectStore(cwd, appName);
         memory = new PersistentMemory(store.projectDir);
 
         // Load AGENT.md from working directory if present
@@ -197,11 +203,13 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
 // ── Config-based factory (reads ~/.bk-agent/config.json) ─────────────────────
 
 export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOptions> = {}): AgentEngine {
-    const config = ConfigLoader.load();
+    const appName = overrides.appName ?? 'bk-agent';
+    const loader = new ConfigLoader(appName);
+    const config = loader.load();
 
     if (!config.defaultProvider) {
         throw new Error(
-            'No provider configured. Set DEEPSEEK_API_KEY or add providers to ~/.bk-agent/config.json'
+            `No provider configured. Set DEEPSEEK_API_KEY or add providers to ${loader.configPath}`
         );
     }
 
@@ -214,5 +222,6 @@ export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOpti
         providers,
         defaultProvider: config.defaultProvider,
         ...overrides,
+        appName,
     });
 }

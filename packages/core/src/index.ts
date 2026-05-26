@@ -20,6 +20,9 @@ export { CallbackTransport } from './transport/CallbackTransport';
 // Reflection
 export * from './reflection';
 
+// Orchestration
+export * from './orchestration';
+
 // Shared utils
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';

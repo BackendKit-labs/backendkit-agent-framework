@@ -20,6 +20,36 @@ interface AgentFileDefinition {
     suppressDefaultOutput?: boolean;
 }
 
+interface MdFrontmatter {
+    name?: string;
+    icon?: string;
+    description?: string;
+    provider?: string;
+    model?: string;
+}
+
+function parseMd(raw: string): { frontmatter: MdFrontmatter; body: string } {
+    const fm: MdFrontmatter = {};
+    let body = raw.trim();
+
+    if (body.startsWith('---')) {
+        const end = body.indexOf('\n---', 3);
+        if (end !== -1) {
+            const block = body.slice(3, end).trim();
+            for (const line of block.split('\n')) {
+                const colon = line.indexOf(':');
+                if (colon === -1) continue;
+                const key = line.slice(0, colon).trim();
+                const val = line.slice(colon + 1).trim();
+                (fm as Record<string, string>)[key] = val;
+            }
+            body = body.slice(end + 4).trim();
+        }
+    }
+
+    return { frontmatter: fm, body };
+}
+
 function applyPromptOverrides(dir: string, merged: Map<string, AgentProfile>): void {
     if (!existsSync(dir)) return;
     const mdOnlyFiles = readdirSync(dir)
@@ -31,8 +61,18 @@ function applyPromptOverrides(dir: string, merged: Map<string, AgentProfile>): v
         const agent = merged.get(id);
         if (!agent) continue;
         try {
-            const prompt = readFileSync(join(dir, file), 'utf-8').trim();
-            if (prompt) merged.set(id, { ...agent, systemPrompt: prompt });
+            const raw = readFileSync(join(dir, file), 'utf-8');
+            const { frontmatter: fm, body } = parseMd(raw);
+            if (!body) continue;
+            merged.set(id, {
+                ...agent,
+                ...(fm.name        && { name: fm.name }),
+                ...(fm.icon        && { icon: fm.icon }),
+                ...(fm.description && { description: fm.description }),
+                ...(fm.provider    && { provider: fm.provider }),
+                ...(fm.model       && { provider: fm.model }),  // model maps to provider
+                systemPrompt: body,
+            });
         } catch { /* skip */ }
     }
 }
@@ -48,11 +88,18 @@ function readAgentDir(dir: string, source: AgentProfile['source']): AgentProfile
             const raw = readFileSync(join(dir, file), 'utf-8');
             const def = JSON.parse(raw) as AgentFileDefinition;
 
-            // .md overrides systemPrompt in json
+            // .md overrides systemPrompt (and optionally profile fields) from json
             const mdPath = join(dir, `${basename(file, '.json')}.md`);
-            const systemPrompt = existsSync(mdPath)
-                ? readFileSync(mdPath, 'utf-8').trim()
-                : def.systemPrompt ?? '';
+            let systemPrompt = def.systemPrompt ?? '';
+            if (existsSync(mdPath)) {
+                const { frontmatter: fm, body } = parseMd(readFileSync(mdPath, 'utf-8'));
+                systemPrompt = body || systemPrompt;
+                if (fm.name)        def.name = fm.name;
+                if (fm.icon)        def.icon = fm.icon;
+                if (fm.description) def.description = fm.description;
+                if (fm.provider)    def.provider = fm.provider;
+                if (fm.model)       def.provider = fm.model;
+            }
 
             if (!systemPrompt) {
                 console.warn(`[AgentLoader] Agent "${def.id}" has no system prompt — skipped`);

@@ -2,16 +2,33 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import * as path from 'path';
+import { getFrameworkDir } from '@bk/agent-core';
 import { skillsSearch } from './tools/skills/search.js';
 import { skillsInstall } from './tools/skills/install.js';
 import { skillsList } from './tools/skills/list.js';
+import { codeSearch } from './tools/code/search.js';
+import { codeContext } from './tools/code/context.js';
+import { GraphStore } from './indexer/graph-store.js';
+import { CodeIndexer } from './indexer/indexer.js';
+import { FileWatcher } from './indexer/watcher.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
 
+// --- Code index setup ---
+const dbPath = path.join(
+    getFrameworkDir(APP_NAME),
+    'code-index',
+    Buffer.from(CWD).toString('base64url').slice(0, 32) + '.db',
+);
+const store = new GraphStore(dbPath);
+const indexer = new CodeIndexer(store, CWD);
+const watcher = new FileWatcher();
+
 const server = new McpServer({
     name: '@bk/mcp-server',
-    version: '0.1.0',
+    version: '0.2.0',
 });
 
 // ---------------------------------------------------------------------------
@@ -53,18 +70,12 @@ server.tool(
         const result = await skillsInstall(source, APP_NAME, { skill, pack });
         if (!result.ok) {
             return {
-                content: [{
-                    type: 'text',
-                    text: `Failed to install from "${source}":\n${result.error}`,
-                }],
+                content: [{ type: 'text', text: `Failed to install from "${source}":\n${result.error}` }],
                 isError: true,
             };
         }
         return {
-            content: [{
-                type: 'text',
-                text: `Installed pack "${result.pack}" with ${result.skillsInstalled} skill(s).`,
-            }],
+            content: [{ type: 'text', text: `Installed pack "${result.pack}" with ${result.skillsInstalled} skill(s).` }],
         };
     },
 );
@@ -87,9 +98,96 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// code_search
+// ---------------------------------------------------------------------------
+server.tool(
+    'code_search',
+    'Search the codebase for symbols (functions, classes, interfaces, types) by name or keyword.',
+    {
+        query: z.string().describe('Symbol name or keyword to search for'),
+        limit: z.number().optional().describe('Max results to return (default 20)'),
+    },
+    ({ query, limit }) => {
+        const results = codeSearch(query, store, limit ?? 20);
+        if (results.length === 0) {
+            return { content: [{ type: 'text', text: `No symbols found matching "${query}".` }] };
+        }
+        const lines = results.map(r =>
+            `**${r.name}** (${r.kind}) — ${r.filePath}:${r.startLine}\n  ${r.signature}`,
+        );
+        return { content: [{ type: 'text', text: lines.join('\n\n') }] };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// code_context
+// ---------------------------------------------------------------------------
+server.tool(
+    'code_context',
+    'Get relevant code context for a task — finds the symbols most related to the task and returns their code, callers, and callees.',
+    {
+        task: z.string().describe('Task or feature description to find context for'),
+        max_symbols: z.number().optional().describe('Max symbols to return (default 10)'),
+    },
+    async ({ task, max_symbols }) => {
+        const ctx = await codeContext(task, store, max_symbols ?? 10);
+        if (ctx.symbols.length === 0) {
+            return { content: [{ type: 'text', text: `No relevant code found for: "${task}"` }] };
+        }
+        const parts = ctx.symbols.map(s => {
+            const location = `${s.filePath}:${s.startLine}-${s.endLine}`;
+            const relations = [
+                s.calledBy.length ? `calledBy: ${s.calledBy.slice(0, 5).join(', ')}` : '',
+                s.calls.length ? `calls: ${s.calls.slice(0, 5).join(', ')}` : '',
+            ].filter(Boolean).join(' | ');
+            return [
+                `### ${s.name} (${s.kind}) — ${location}`,
+                relations ? `> ${relations}` : '',
+                '```' + s.language,
+                s.snippet,
+                '```',
+            ].filter(Boolean).join('\n');
+        });
+        return { content: [{ type: 'text', text: parts.join('\n\n') }] };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// code_index (trigger manual re-index)
+// ---------------------------------------------------------------------------
+server.tool(
+    'code_index',
+    'Trigger a full re-index of the project codebase. Run this after installing new files or if search results seem stale.',
+    {
+        cwd: z.string().optional().describe('Directory to index (defaults to server cwd)'),
+    },
+    async ({ cwd }) => {
+        const dir = cwd ?? CWD;
+        const result = await indexer.indexDirectory(dir);
+        const stats = store.stats();
+        return {
+            content: [{
+                type: 'text',
+                text: `Indexed ${result.files} files, ${result.symbols} new symbols.\nTotal: ${stats.nodes} nodes, ${stats.edges} edges across ${stats.files} files.`,
+            }],
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 async function main() {
+    // Index on startup (non-blocking — don't await fully)
+    indexer.indexDirectory(CWD).catch(() => undefined);
+    watcher.start(CWD, indexer);
+
+    process.on('SIGINT', async () => {
+        await watcher.stop();
+        store.close();
+        process.exit(0);
+    });
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
 }

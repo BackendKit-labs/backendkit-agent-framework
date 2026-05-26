@@ -59,7 +59,7 @@ export class SlashCommandRegistry {
      */
     async dispatch(
         input: string,
-        ctx: Omit<CommandContext, 'args'>,
+        ctx: Omit<CommandContext, 'args' | 'rawInput'>,
     ): Promise<boolean> {
         const name = this.parseName(input);
         const cmd = this.commands.get(name);

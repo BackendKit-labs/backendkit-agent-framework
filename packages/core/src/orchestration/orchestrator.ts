@@ -218,6 +218,14 @@ export class Orchestrator {
   }
 
   /**
+   * @description Intenta transicionar el estado de la tarea en el FSM.
+   * Expuesto para que el QA orchestrator pueda avanzar estados desde el loop.
+   */
+  transitionTask(task: TaskContext, to: TaskStatus): FSMTransitionResult {
+    return this.fsm.transition(task, to);
+  }
+
+  /**
    * @description Registra automáticamente un gate de orquestación después
    * de ejecutar el pipeline completo.
    */
@@ -432,18 +440,6 @@ export class Orchestrator {
     }
 
     return false;
-  }
-
-  /**
-   * @description Transiciona una tarea a un nuevo estado usando el FSM.
-   * Valida que la transición sea legal según las reglas del FSM.
-   * 
-   * @param task - Tarea a transicionar
-   * @param to - Estado destino
-   * @returns Resultado de la transición
-   */
-  transitionTask(task: TaskContext, to: TaskStatus): FSMTransitionResult {
-    return this.fsm.transition(task, to);
   }
 
   /**

@@ -18,16 +18,25 @@ export function codeSearch(
     store: GraphStore,
     limit = 20,
 ): CodeSearchResult[] {
-    // Sanitize for FTS5 — wrap in quotes if it contains special chars
-    const ftsQuery = query.trim().replace(/[^a-zA-Z0-9_\-. ]/g, ' ').trim();
-    if (!ftsQuery) return [];
+    const sanitized = query.trim().replace(/[^a-zA-Z0-9_\-. ]/g, ' ').trim();
+    if (!sanitized) return [];
+
+    const terms = sanitized.split(/\s+/).filter(t => t.length > 2);
+    if (terms.length === 0) return [];
 
     let rows: SearchResult[];
     try {
-        rows = store.search(ftsQuery, limit);
+        // Multi-word: try AND first, fall back to OR so partial matches surface
+        rows = store.search(sanitized, limit);
+        if (rows.length === 0 && terms.length > 1) {
+            rows = store.search(terms.join(' OR '), limit);
+        }
     } catch {
-        // FTS5 query might be malformed — fallback to LIKE on name
-        rows = store.search(`"${ftsQuery}"`, limit);
+        try {
+            rows = store.search(terms.join(' OR '), limit);
+        } catch {
+            rows = [];
+        }
     }
 
     return rows.map(r => ({

@@ -35,6 +35,7 @@ const server = new McpServer({
 // ---------------------------------------------------------------------------
 // stack_detect
 // ---------------------------------------------------------------------------
+// @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
 server.tool(
     'stack_detect',
     'Detect the technology stack of the current project using the code index (languages, frameworks, libraries).',
@@ -61,7 +62,6 @@ server.tool(
 // ---------------------------------------------------------------------------
 // skills_search
 // ---------------------------------------------------------------------------
-// @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
 server.tool(
     'skills_search',
     'Search available skills by query. Returns matching skills and whether they are active for the current project.',
@@ -136,6 +136,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // code_search
 // ---------------------------------------------------------------------------
+// @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
 server.tool(
     'code_search',
     'Search the codebase for symbols (functions, classes, interfaces, types) by name or keyword.',

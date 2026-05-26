@@ -1,4 +1,5 @@
-import { Parser, Language, Query, Node } from 'web-tree-sitter';
+import Parser from 'web-tree-sitter';
+import * as path from 'path';
 import type { LanguageConfig, SymbolKind } from './languages/index';
 
 export interface ExtractedSymbol {
@@ -27,30 +28,35 @@ export interface ParseResult {
 }
 
 let initPromise: Promise<void> | null = null;
-const languageCache = new Map<string, Language>();
+const languageCache = new Map<string, Parser.Language>();
 
 async function ensureInit(): Promise<void> {
     if (!initPromise) {
-        initPromise = Parser.init();
+        initPromise = Parser.init({
+            locateFile: (file: string) => path.join(
+                path.dirname(require.resolve('web-tree-sitter')),
+                file,
+            ),
+        });
     }
     return initPromise;
 }
 
-async function loadLanguage(config: LanguageConfig): Promise<Language> {
+async function loadLanguage(config: LanguageConfig): Promise<Parser.Language> {
     if (languageCache.has(config.name)) {
         return languageCache.get(config.name)!;
     }
     await ensureInit();
-    const lang = await Language.load(config.wasmFile);
+    const lang = await Parser.Language.load(config.wasmFile);
     languageCache.set(config.name, lang);
     return lang;
 }
 
-function isExported(node: Node): boolean {
+function isExported(node: Parser.SyntaxNode): boolean {
     return node.parent?.type === 'export_statement';
 }
 
-function extractSignature(node: Node, content: string): string {
+function extractSignature(node: Parser.SyntaxNode, content: string): string {
     const lines = content.split('\n');
     const firstLine = lines[node.startPosition.row] ?? '';
     return firstLine.slice(node.startPosition.column).trim().slice(0, 120);
@@ -65,23 +71,17 @@ export async function parseFile(
     parser.setLanguage(lang);
 
     const tree = parser.parse(content);
-    if (!tree) {
-        parser.delete();
-        return { symbols: [], imports: [], calls: [] };
-    }
-
     const symbols: ExtractedSymbol[] = [];
     const imports: ExtractedImport[] = [];
     const calls: ExtractedCall[] = [];
 
     // --- Symbols ---
-    const symbolQuery = new Query(lang, config.queries.symbols);
+    const symbolQuery = lang.query(config.queries.symbols);
     const symbolCaptures = symbolQuery.captures(tree.rootNode);
 
     for (const cap of symbolCaptures) {
         if (cap.name !== 'node') continue;
 
-        // Find the @name capture that lives inside this @node
         let symbolName = '';
         for (const nameCap of symbolCaptures) {
             if (
@@ -109,7 +109,7 @@ export async function parseFile(
     symbolQuery.delete();
 
     // --- Imports ---
-    const importQuery = new Query(lang, config.queries.imports);
+    const importQuery = lang.query(config.queries.imports);
     for (const cap of importQuery.captures(tree.rootNode)) {
         if (cap.name === 'source') {
             imports.push({
@@ -121,7 +121,7 @@ export async function parseFile(
     importQuery.delete();
 
     // --- Calls ---
-    const callQuery = new Query(lang, config.queries.calls);
+    const callQuery = lang.query(config.queries.calls);
     const seenCalls = new Set<string>();
     for (const cap of callQuery.captures(tree.rootNode)) {
         if (cap.name === 'name') {

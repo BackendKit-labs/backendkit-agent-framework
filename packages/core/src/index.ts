@@ -26,6 +26,9 @@ export * from './orchestration';
 // QA
 export * from './qa';
 
+// Context Pipeline
+export * from './context';
+
 // Shared utils
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';

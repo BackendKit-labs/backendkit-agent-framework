@@ -60,9 +60,9 @@ ask_agent "architecture":
 
 ask_agent "backend" (simultaneously with architecture):
   1. Use read_file to read prompt.md.
-  2. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+  2. Use write_file to CREATE especificacion.md with a skeleton: title + section headers only (no content yet).
      Sections: Functional Requirements, API Endpoints, Data Models, Business Logic, Integrations, Non-functional Requirements.
-  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especificacion.md.
      Write each section separately.
   IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
@@ -71,8 +71,8 @@ PHASE 2 — Audit (after Phase 1 results arrive — WAIT for both files to exist
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "qa-engineer":
-  1. Use read_file to read especification.md.
-  2. Use edit_file to APPEND a "## QA Review" section to especification.md with:
+  1. Use read_file to read especificacion.md.
+  2. Use edit_file to APPEND a "## QA Review" section to especificacion.md with:
      test strategy, test cases for each requirement, edge cases, acceptance criteria, quality risks.
   IMPORTANT: Use edit_file to append — do NOT use run_command.
 
@@ -88,14 +88,14 @@ Single call:
 
 ask_agent "architecture":
   1. Use read_file to read disene.md.
-  2. Use read_file to read especification.md.
+  2. Use read_file to read especificacion.md.
   3. Use edit_file to APPEND a "## Final Decisions" section to disene.md that reconciles all inputs.
   IMPORTANT: Use edit_file to append — do NOT use run_command.
 
 ---
 PHASE 4 — Persist (use these tools directly, no delegation):
 1. Call save_context with a concise summary of the key architectural decisions
-2. Call append_log with the entry: "/init completed — disene.md + especification.md generated and audited"
+2. Call append_log with the entry: "/init completed — disene.md + especificacion.md generated and audited"
 `.trim();
 
 const EXISTING_PROJECT_PROMPT = `
@@ -130,9 +130,9 @@ ask_agent "architecture":
 
 ask_agent "backend" (simultaneously):
   1. Use list_directory and read_file to explore the codebase.
-  2. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+  2. Use write_file to CREATE especificacion.md with a skeleton: title + section headers only (no content yet).
      Sections: Endpoints, Data Models, Business Logic, Integrations, Non-functional Requirements.
-  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+  3. Use edit_file to APPEND the full content of each section ONE AT A TIME to especificacion.md.
      Write each section separately, mark gaps as "Undocumented".
   IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
@@ -141,8 +141,8 @@ PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist
 Emit BOTH ask_agent calls in the same response so they run IN PARALLEL:
 
 ask_agent "qa-engineer":
-  1. Use read_file to read especification.md.
-  2. Use edit_file to APPEND a "## QA Findings" section to especification.md with:
+  1. Use read_file to read especificacion.md.
+  2. Use edit_file to APPEND a "## QA Findings" section to especificacion.md with:
      test coverage gaps, missing test scenarios, quality concerns found in the codebase.
   IMPORTANT: Use edit_file to append — do NOT use run_command.
 
@@ -158,7 +158,7 @@ Single call:
 
 ask_agent "architecture":
   1. Use read_file to read disene.md.
-  2. Use read_file to read especification.md.
+  2. Use read_file to read especificacion.md.
   3. Use edit_file to APPEND a "## Recommended Improvements" section to disene.md
      with prioritized action items incorporating all audit findings.
   IMPORTANT: Use edit_file to append — do NOT use run_command.
@@ -201,9 +201,9 @@ ask_agent "architecture":
 ask_agent "backend" (simultaneously):
   1. Use read_file to read prompt.md.
   2. Use list_directory and read_file to explore the codebase.
-  3. Use write_file to CREATE especification.md with a skeleton: title + section headers only (no content yet).
+  3. Use write_file to CREATE especificacion.md with a skeleton: title + section headers only (no content yet).
      Sections: Current Specification, New Requirements, Build vs Modify vs Remove.
-  4. Use edit_file to APPEND the full content of each section ONE AT A TIME to especification.md.
+  4. Use edit_file to APPEND the full content of each section ONE AT A TIME to especificacion.md.
   IMPORTANT: Write in multiple small edit_file calls — NOT one huge write_file. Do NOT use run_command.
 
 ---
@@ -211,8 +211,8 @@ PHASE 3 — Audit (after Phase 2 results arrive — WAIT for both files to exist
 Emit BOTH IN PARALLEL:
 
 ask_agent "qa-engineer":
-  1. Use read_file to read especification.md.
-  2. Use edit_file to APPEND a "## QA Plan" section to especification.md with:
+  1. Use read_file to read especificacion.md.
+  2. Use edit_file to APPEND a "## QA Plan" section to especificacion.md with:
      test strategy for new features, regression risks, acceptance criteria.
   IMPORTANT: Use edit_file to append — do NOT use run_command.
 
@@ -226,7 +226,7 @@ ask_agent "security":
 PHASE 4 — Final review:
 ask_agent "architecture":
   1. Use read_file to read disene.md.
-  2. Use read_file to read especification.md.
+  2. Use read_file to read especificacion.md.
   3. Use edit_file to APPEND a "## Immediate Next Steps" section to disene.md
      with the first 3 things to implement, incorporating all audit findings.
   IMPORTANT: Use edit_file to append — do NOT use run_command.

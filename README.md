@@ -9,19 +9,31 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 1. [Vision general](#vision-general)
 2. [Arquitectura](#arquitectura)
 3. [Instalacion](#instalacion)
-4. [Packages](#packages)
-5. [Sistema de Skills](#sistema-de-skills)
-6. [Skills builtin](#skills-builtin)
-7. [Servidor MCP](#servidor-mcp)
-8. [Casos de uso basicos](#casos-de-uso-basicos)
-9. [Casos de uso intermedios](#casos-de-uso-intermedios)
-10. [Casos de uso avanzados](#casos-de-uso-avanzados)
-11. [Instalar packs externos](#instalar-packs-externos)
-12. [Crear tu propio pack de skills](#crear-tu-propio-pack-de-skills)
-13. [Integracion con Claude Code / Cursor](#integracion-con-claude-code--cursor)
-14. [Librerias de resiliencia](#librerias-de-resiliencia)
-15. [Estructura de datos en disco](#estructura-de-datos-en-disco)
-16. [Roadmap](#roadmap)
+4. [Quickstart — REPL interactivo](#quickstart--repl-interactivo)
+5. [Packages](#packages)
+6. [Motor de agentes — @bk/agent-coding](#motor-de-agentes--bkagent-coding)
+   - [Proveedores LLM](#proveedores-llm)
+   - [Los 9 agentes especializados](#los-9-agentes-especializados)
+   - [Orquestacion y delegacion paralela](#orquestacion-y-delegacion-paralela)
+   - [Herramientas de filesystem](#herramientas-de-filesystem)
+   - [Herramientas de memoria y contexto](#herramientas-de-memoria-y-contexto)
+   - [ProjectStore — persistencia entre sesiones](#projectstore--persistencia-entre-sesiones)
+   - [AgentLoader — carga automatica de agentes](#agentloader--carga-automatica-de-agentes)
+7. [Comando /init — inicializacion de proyectos](#comando-init--inicializacion-de-proyectos)
+8. [Slash commands](#slash-commands)
+9. [Sistema de Skills](#sistema-de-skills)
+10. [Skills builtin](#skills-builtin)
+11. [Servidor MCP](#servidor-mcp)
+12. [Casos de uso basicos](#casos-de-uso-basicos)
+13. [Casos de uso intermedios](#casos-de-uso-intermedios)
+14. [Casos de uso avanzados](#casos-de-uso-avanzados)
+15. [Crear agentes personalizados](#crear-agentes-personalizados)
+16. [Instalar packs externos de skills](#instalar-packs-externos-de-skills)
+17. [Crear tu propio pack de skills](#crear-tu-propio-pack-de-skills)
+18. [Integracion con Claude Code / Cursor](#integracion-con-claude-code--cursor)
+19. [Librerias de resiliencia](#librerias-de-resiliencia)
+20. [Estructura de datos en disco](#estructura-de-datos-en-disco)
+21. [Roadmap](#roadmap)
 
 ---
 
@@ -31,11 +43,11 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 
 | Problema | Solucion |
 |----------|----------|
-| Los agentes olvidan convenciones del proyecto | **Sistema de skills**: inyeccion dinamica en system prompt |
-| Un solo agente no puede hacer todo bien | **Motor multi-agente**: orquestador + especialistas con bus de delegacion |
-| Las llamadas a LLMs fallan o son lentas | **Resiliencia**: Circuit breaker, retry, bulkhead de BackendKit Labs |
+| Un solo agente no puede hacer todo bien | **9 agentes especializados** orquestados por un agente general |
+| Los agentes olvidan convenciones del proyecto | **Skills + ProjectStore**: contexto persistente entre sesiones |
+| Las llamadas a LLMs fallan o son lentas | **Resiliencia integrada**: CircuitBreaker, Retry, Bulkhead |
 
-El framework no impone un LLM especifico. Puede trabajar con OpenAI, Anthropic, DeepSeek o cualquier proveedor compatible con la interfaz `LLMProvider`.
+El framework no impone un LLM especifico. Funciona con DeepSeek, Anthropic (Claude), OpenAI, Kimi (Moonshot) o Grok.
 
 ---
 
@@ -44,46 +56,45 @@ El framework no impone un LLM especifico. Puede trabajar con OpenAI, Anthropic, 
 ```
 agent-framework/
 ├── packages/
-│   ├── core/          @bk/agent-core     — Motor generico, skills, orquestacion
-│   ├── coding/        @bk/agent-coding   — Capa de coding: agentes, filesystem tools, LLM providers
-│   └── mcp-server/    @bk/mcp-server     — Servidor MCP: code intelligence + skills via protocolo MCP
+│   ├── core/          @bk/agent-core     — Motor generico, skills, orquestacion base
+│   ├── coding/        @bk/agent-coding   — 9 agentes, filesystem tools, LLM providers, /init
+│   └── mcp-server/    @bk/mcp-server     — Servidor MCP: code intelligence + skills
 └── examples/
-    └── coding-assistant/                 — REPL interactivo de ejemplo
+    └── coding-assistant/                 — REPL interactivo completo
 ```
 
 ### Diagrama de capas
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Tu aplicacion / CLI                       │
+│              Tu app / CLI (ej: coding-assistant)            │
+│         CallbackTransport  ·  Slash Commands  ·  REPL       │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │                   @bk/agent-coding                          │
-│  AgentProfiles (9)  ·  FilesystemTools  ·  LLM Providers   │
+│                                                             │
+│  createCodingEngine()  ·  9 Agent Profiles                  │
+│  InitWorkflow (/init)  ·  AgentLoader                       │
+│  Filesystem Tools      ·  Memory Tools                      │
+│  LLM Providers: DeepSeek · OpenAI · Anthropic · Kimi · Grok │
+│  ProjectStore  ·  ConfigLoader  ·  PersistentMemory         │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │                    @bk/agent-core                           │
 │                                                             │
 │   AgentEngine  ←→  DelegationBus  ←→  AgentRegistry        │
-│        │                                    │               │
-│   ToolRegistry        SkillSystem     ProviderRegistry      │
-│        │                  │                                  │
-│   Orchestrator      SkillLoader                             │
-│   FSM / Policies    SkillActivator                          │
-│   QAService         SkillManager                            │
-│   ContextPipeline   SkillRegistry                           │
-│   Reflection                                                │
-│   SessionMemory                                             │
+│   ToolRegistry  ·  ProviderRegistry  ·  SessionMemory       │
+│   Orchestrator  ·  FSM  ·  ContextPipeline                  │
+│   QAService  ·  Reflection  ·  SkillSystem                  │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │                   @bk/mcp-server                            │
-│  code_search  ·  code_context  ·  code_index                │
+│  stack_detect  ·  code_search  ·  code_context              │
 │  skills_search  ·  skills_install  ·  skills_list           │
-│  stack_detect                                               │
-│  Tree-sitter (TS/JS/Python/Go/Rust/Java)  ·  SQLite FTS5   │
+│  Tree-sitter (6 lenguajes)  ·  SQLite FTS5  ·  chokidar    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,7 +105,7 @@ agent-framework/
 ### Requisitos
 
 - Node.js >= 20
-- npm >= 9 (workspaces)
+- npm >= 9
 
 ### Clonar y construir
 
@@ -113,51 +124,431 @@ npm install @bk/agent-core @bk/agent-coding
 
 ---
 
+## Quickstart — REPL interactivo
+
+El ejemplo `coding-assistant` incluye un REPL completo listo para usar.
+
+### Configuracion inicial
+
+```bash
+# La primera vez se crea automaticamente ~/.bk-agent/config.json
+node examples/coding-assistant/dist/index.js
+```
+
+Editar `~/.bk-agent/config.json` con tus API keys:
+
+```json
+{
+  "providers": {
+    "deepseek": { "apiKey": "sk-..." },
+    "anthropic": { "apiKey": "sk-ant-..." },
+    "openai": { "apiKey": "sk-..." }
+  },
+  "defaultProvider": "anthropic"
+}
+```
+
+O usar variables de entorno:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+export DEEPSEEK_API_KEY=sk-...
+export OPENAI_API_KEY=sk-...
+```
+
+### Iniciar el asistente
+
+```bash
+cd tu-proyecto
+node /path/to/coding-assistant/dist/index.js
+```
+
+El agente arranca en modo `general` (orquestador). Desde ahi podes:
+
+```
+> /init              # Analizar el proyecto y generar documentacion
+> /agent list        # Ver todos los agentes disponibles
+> /agent backend     # Cambiar al agente backend
+> Como agrego autenticacion JWT a la API?
+> /cwd /otro/proyecto
+```
+
+---
+
 ## Packages
 
 ### `@bk/agent-core`
 
-Motor generico del framework. Exporta todo lo necesario para construir agentes sin depender de ningun proveedor de LLM.
-
-```typescript
-import {
-  AgentEngine,
-  AgentRegistry,
-  ToolRegistry,
-  ProviderRegistry,
-  DelegationBus,
-  SessionMemory,
-  SkillLoader,
-  SkillManager,
-  SkillActivator,
-  SkillRegistry,
-  GLOBAL_BUILTIN_SKILLS,
-  NODE_PACK_SKILLS,
-  getFrameworkDir,
-  getProjectDir,
-  ResilientLLMClient,
-} from '@bk/agent-core';
-```
+Motor generico del framework. Model-agnostic, transport-agnostic. Exporta el engine, sistema de skills, orquestacion, reflection y utilidades compartidas.
 
 ### `@bk/agent-coding`
 
-Capa especifica para asistentes de codigo. Incluye:
+Capa especifica para asistentes de codigo. Incluye los 9 perfiles de agente, herramientas de filesystem, providers de LLM, ProjectStore y el InitWorkflow.
 
-- **9 perfiles de agente**: orchestrator, coder, backend, frontend, QA, security, architecture, infrastructure, data
-- **13 filesystem tools**: read, write, edit, search, glob, run command, etc.
-- **Providers LLM**: OpenAI-compatible + Anthropic
-- **ProjectStore**: persistencia de estado del proyecto en filesystem
-- **InitWorkflow**: bootstrapping de proyectos
+```typescript
+import { createCodingEngine, createCodingEngineFromConfig } from '@bk/agent-coding';
+```
 
 ### `@bk/mcp-server`
 
-Servidor MCP (Model Context Protocol) que expone las capacidades del framework a cualquier cliente MCP (Claude Code, Cursor, Windsurf, etc.).
+Servidor MCP que expone las capacidades del framework a Claude Code, Cursor, Windsurf y cualquier cliente compatible con el protocolo MCP.
+
+---
+
+## Motor de agentes — @bk/agent-coding
+
+### Crear el engine
+
+```typescript
+import { createCodingEngine } from '@bk/agent-coding';
+import { CallbackTransport } from '@bk/agent-core';
+
+const engine = createCodingEngine({
+  providers: {
+    anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
+    deepseek:  { apiKey: process.env.DEEPSEEK_API_KEY },
+  },
+  defaultProvider: 'anthropic',
+  defaultAgent: 'general',       // Agente inicial
+  workingDir: process.cwd(),
+  maxIterations: 100,
+  maxParallelAgents: 6,
+  appName: 'mi-app',             // Define ~/.mi-app/ para persistencia
+  transport: new CallbackTransport(event => console.log(event)),
+});
+
+await engine.run('Agrega autenticacion JWT a la API');
+```
+
+### Desde configuracion global
+
+```typescript
+import { createCodingEngineFromConfig } from '@bk/agent-coding';
+
+// Lee ~/.bk-agent/config.json + env vars
+const engine = createCodingEngineFromConfig({
+  workingDir: process.cwd(),
+  appName: 'mi-app',
+});
+```
+
+---
+
+### Proveedores LLM
+
+El framework soporta 5 proveedores de LLM. Se pueden usar varios simultaneamente — cada agente puede tener su propio provider.
+
+| Provider | Env var | Modelo default |
+|----------|---------|----------------|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o` |
+| `kimi` | `KIMI_API_KEY` | `moonshot-v1-8k` |
+| `grok` | `GROK_API_KEY` | `grok-3` |
+
+```typescript
+// Usar un provider especifico para un agente puntual
+const engine = createCodingEngine({
+  providers: {
+    anthropic: { apiKey: '...', model: 'claude-opus-4-7' },
+    deepseek:  { apiKey: '...', model: 'deepseek-coder' },
+  },
+  defaultProvider: 'anthropic',
+  // El agente 'coder' puede usar deepseek para menor costo
+});
+```
+
+La variable `AGENT_PROVIDER` fuerza el provider sin cambiar la config:
+
+```bash
+AGENT_PROVIDER=deepseek node dist/index.js
+```
+
+---
+
+### Los 9 agentes especializados
+
+El framework incluye 9 agentes con roles bien definidos. El agente **general** actua como orquestador y nunca escribe codigo directamente — delega a los especialistas.
+
+#### Agente `general` (Orquestador)
+
+- Analiza la solicitud del usuario
+- Decide cuales especialistas necesita y en que orden
+- Emite multiples `ask_agent` en la misma respuesta para ejecucion paralela
+- Maximo 6 agentes en paralelo por wave; multiples waves para tareas grandes
+- Tiene acceso a herramientas de lectura y memoria (no escribe archivos)
+
+#### Agente `coder` (Implementador puro)
+
+- Recibe planes de los especialistas y los ejecuta
+- Siempre lee los archivos antes de editarlos
+- Prefiere `edit_file` sobre `write_file` para archivos existentes
+- Ejecuta comandos para verificar que los cambios funcionan
+- Reporta concisamente lo que hizo
+
+#### Agente `backend`
+
+- APIs REST y GraphQL
+- NestJS, Express, Fastify
+- TypeORM, Prisma, Sequelize
+- Validacion de inputs, manejo de errores, dependency injection
+- Delega implementacion a `coder`
+
+#### Agente `frontend`
+
+- React, Vue 3, Angular
+- TypeScript, Tailwind CSS
+- Accesibilidad WCAG 2.1
+- Componentes pequenos y reutilizables
+- State management: Zustand, Pinia, Redux
+- Delega implementacion a `coder`
+
+#### Agente `qa-engineer`
+
+- Unit tests (Jest, Vitest, Mocha)
+- Integration tests (Supertest, Testing Library)
+- E2E tests (Playwright, Cypress)
+- TDD / BDD, analisis de cobertura
+- Nombres de test: `"should [behavior] when [condition]"`
+- Delega implementacion a `coder`
+
+#### Agente `security`
+
+- OWASP Top 10
+- JWT, OAuth 2.0, session management
+- RBAC / ABAC, policy enforcement
+- SQL injection, XSS, CSRF
+- Secrets management, hardening
+- Delega remediaciones a `coder`
+
+#### Agente `architecture`
+
+- Domain-Driven Design (DDD)
+- Microservicios vs monolito (con trade-offs)
+- Event-driven, CQRS, Event Sourcing
+- C4 model, ADRs
+- Delega a `coder`, `backend` y `frontend`
+
+#### Agente `infrastructure`
+
+- Docker y Docker Compose
+- Kubernetes (manifests, Helm, operators)
+- CI/CD: GitHub Actions, GitLab CI, Jenkins
+- Cloud: AWS, GCP, Azure
+- Terraform, Nginx, monitoring
+- Delega a `coder`
+
+#### Agente `data`
+
+- SQL optimization, indexes, query plans
+- Schema design, normalizacion
+- ETL/ELT, data warehousing
+- Spark, pandas, dbt
+- Disena schemas para access patterns
+- Solo tiene herramientas de lectura — delega escritura a `coder`
+
+---
+
+### Orquestacion y delegacion paralela
+
+El **DelegationBus** permite que el agente general coordine multiples especialistas en paralelo. Cuando el agente emite varios `ask_agent` en la misma respuesta, se ejecutan simultaneamente (hasta `maxParallelAgents`).
+
+```
+Usuario: "Agregar sistema de notificaciones en tiempo real"
+
+general
+  ├─ Wave 1 (paralelo)
+  │   ├─ architecture → disena la solucion (WebSockets vs SSE vs polling)
+  │   └─ security     → evalua superficie de ataque
+  │
+  └─ Wave 2 (paralelo, espera Wave 1)
+      ├─ backend   → implementa el servidor WebSocket
+      ├─ frontend  → implementa el cliente React
+      └─ qa-engineer → escribe los tests de integracion
+              ↓ (cada uno delega a)
+           coder → ejecuta los cambios en el filesystem
+```
+
+Los eventos de delegacion se propagan al transport:
+
+```typescript
+engine.on('agent_switch', ({ from, to, reason }) => {
+  console.log(`${from} → ${to}: ${reason}`);
+});
+```
+
+---
+
+### Herramientas de filesystem
+
+Todos los agentes con permisos de escritura tienen acceso a estas herramientas:
+
+| Herramienta | Descripcion |
+|-------------|-------------|
+| `read_file` | Lee el contenido de un archivo (resuelve paths relativos y absolutos) |
+| `write_file` | Crea o sobrescribe un archivo, crea directorios padre automaticamente |
+| `edit_file` | Reemplaza un string exacto dentro de un archivo. Error si hay multiples ocurrencias sin `replace_all=true` |
+| `list_directory` | Lista el directorio recursivamente hasta profundidad 3 (ignora node_modules, .git) |
+| `search_files` | Grep recursivo con soporte de glob y case-insensitive. Retorna hasta 200 lineas |
+| `run_command` | Ejecuta un comando shell con timeout configurable (default 30s). Bloqueados: `rm -rf /`, `format`, `del /f /s /q c:\` |
+
+Los agentes de solo-lectura (`general`, `data`) no tienen `write_file`, `edit_file` ni `run_command`.
+
+---
+
+### Herramientas de memoria y contexto
+
+Todos los agentes tienen acceso a herramientas de persistencia para mantener contexto entre sesiones:
+
+| Herramienta | Que guarda | Donde |
+|-------------|------------|-------|
+| `save_context` | Descubrimientos del proyecto: stack, arquitectura, archivos clave | `context.md` del proyecto |
+| `save_learning` | Preferencias aprendidas del usuario en este proyecto | `learnings.md` del proyecto |
+| `save_user_preference` | Preferencias globales del usuario (aplica a todos los proyectos) | `USER.md` global |
+| `append_log` | Actividad reciente con timestamp ISO | `log.md` del proyecto |
+| `save_audit` | Reportes de auditoria por agente y fecha | `audits/{agente}-{fecha}.md` |
+| `get_latest_audit` | Recupera el audit mas reciente de un agente especifico | `audits/` |
+| `list_audits` | Lista todos los audits guardados del proyecto | `audits/` |
+
+---
+
+### ProjectStore — persistencia entre sesiones
+
+El ProjectStore guarda el estado del proyecto en `~/.{appName}/projects/{cwd-hash}/`. Cada directorio de trabajo tiene su propio store.
+
+```
+~/.bk-agent/projects/abc123def/
+├── context.md        ← Stack detectado, arquitectura, archivos clave, convenciones
+├── learnings.md      ← Preferencias del usuario aprendidas en este proyecto
+├── log.md            ← Actividad reciente (ultimas 20 lineas en el system context)
+├── memory.json       ← Key-value persistente para datos entre sesiones
+└── audits/
+    ├── security-2025-05-26.md
+    └── qa-engineer-2025-05-26.md
+```
+
+En cada sesion nueva, el engine construye automaticamente el system context con:
+
+1. **User Profile** — `~/.bk-agent/USER.md` (rol, estilo de trabajo, preferencias globales)
+2. **Project Instructions** — `AGENT.md` del proyecto (convenciones, stack, que no tocar)
+3. **Project Context** — `context.md` (lo que el agente ya aprendio del proyecto)
+4. **Learned Preferences** — `learnings.md` (correcciones y preferencias del usuario)
+5. **Recent Activity** — ultimas 20 lineas del `log.md`
+
+---
+
+### AgentLoader — carga automatica de agentes
+
+El framework carga agentes desde 3 ubicaciones en orden de prioridad:
+
+```
+Prioridad alta   → ./{cwd}/.bk-agent/agents/    (especificos del proyecto)
+Prioridad media  → ~/.bk-agent/agents/           (globales, todos los proyectos)
+Prioridad baja   → Builtins (CODING_AGENTS)      (los 9 agentes hardcoded)
+```
+
+Cada agente es un par de archivos:
+
+```
+{id}.json   — metadatos (name, icon, description, allowedTools, delegatesTo, provider)
+{id}.md     — system prompt en markdown (sobrescribe el systemPrompt del JSON)
+```
+
+Si solo existe `{id}.md` sin su `.json`, sobrescribe el system prompt de un builtin conservando el resto de su configuracion.
+
+---
+
+## Comando /init — inicializacion de proyectos
+
+El comando `/init` analiza el proyecto y genera automaticamente la documentacion necesaria para que los agentes trabajen con contexto completo. Detecta tres modos automaticamente:
+
+| Modo | Cuando aplica | Que genera |
+|------|---------------|------------|
+| `new` | El proyecto tiene `prompt.md` pero poco o ningun codigo | Disena la arquitectura desde cero |
+| `existing` | El proyecto tiene codigo pero no documentacion de agentes | Reverse-engineering del estado actual |
+| `hybrid` | Tiene tanto codigo existente como `prompt.md` con nueva direccion | Analisis de gaps y plan de migracion |
+
+### Archivos generados (todos los modos)
+
+| Archivo | Contenido |
+|---------|-----------|
+| `design.md` | Arquitectura actual: componentes, flujos, decisiones clave (documento estable) |
+| `specification.md` | Contratos API, modelos de datos, interfaces (con "Undocumented" donde hay gaps) |
+| `security.md` | Findings de seguridad priorizados P0-P3, requerimientos y mitigaciones |
+| `roadmap.md` | Fases, prioridades y estado actual (documento vivo, se actualiza con cada tarea) |
+| `AGENT.md` | Instrucciones operacionales inyectadas en cada sesion: commands, stack, convenciones, que NO tocar |
+
+### Flujo para proyecto nuevo (5 fases)
+
+```
+PHASE 1 (paralelo)
+  architecture → lee prompt.md, crea design.md
+  backend      → crea specification.md
+
+PHASE 2 (paralelo, espera Phase 1)
+  security     → audita design + spec, crea security.md
+  qa-engineer  → agrega seccion QA Review a specification.md
+
+PHASE 3 (espera Phase 2)
+  architecture → lee los 3 docs, crea roadmap.md con fases priorizadas
+
+PHASE 4
+  general      → crea AGENT.md con stack, convenciones y comandos
+
+PHASE 5
+  general      → save_context + append_log (completa /init)
+```
+
+### Flujo para proyecto existente (6 fases)
+
+```
+PHASE 1
+  general → explore: lee package.json, README, entry points
+
+PHASE 2 (paralelo)
+  architecture → reverse-engineer la arquitectura real, crea design.md
+  backend      → documenta lo que existe, marca gaps como "Undocumented"
+
+PHASE 3 (paralelo)
+  security     → findings priorizados P0 (critico) a P3 (informativo)
+  qa-engineer  → agrega QA Findings a specification.md
+
+PHASE 4 (espera Phase 3)
+  architecture → roadmap con P0/P1 findings primero, luego features
+
+PHASE 5
+  general → AGENT.md reverse-engineered desde el codigo real
+
+PHASE 6
+  general → save_context + append_log
+```
+
+### Flujo para proyecto hibrido (6 fases)
+
+Similar al existente pero la Phase 1 lee tanto `prompt.md` (direction deseada) como el codigo actual, y todos los documentos incluyen secciones "Current State vs Target" y "Migration Path".
+
+---
+
+## Slash commands
+
+Disponibles desde cualquier REPL construido con el framework:
+
+| Comando | Descripcion |
+|---------|-------------|
+| `/init` | Detecta modo (new/existing/hybrid) y ejecuta el InitWorkflow |
+| `/agent list` | Lista todos los agentes disponibles (builtin / global / project) |
+| `/agent <id>` | Cambia al agente especificado |
+| `/agent new <id>` | Scaffoldea un nuevo agente en `.{appName}/agents/` del proyecto |
+| `/agent new <id> --global` | Scaffoldea el agente en `~/.{appName}/agents/` (todos los proyectos) |
+| `/cwd <path>` | Cambia el directorio de trabajo activo |
+| `/clear` | Limpia la pantalla |
+| `/quit` | Sale del REPL |
 
 ---
 
 ## Sistema de Skills
 
-Las skills son el mecanismo central del framework para inyectar conocimiento contextual en los agentes. Cuando un usuario hace una pregunta que dispara una skill, su contenido se inyecta automaticamente en el system prompt del agente activo.
+Las skills son el mecanismo para inyectar conocimiento contextual en los agentes. Cuando el input del usuario hace match con los triggers de una skill, su contenido se inyecta automaticamente en el system prompt del agente activo.
 
 ### Como funciona
 
@@ -201,689 +592,21 @@ interface Skill {
   name: string;
   version: string;
   description: string;
-
-  // Palabras clave que activan el skill cuando aparecen en el input
-  triggers: string[];
-
-  // undefined/[] = siempre activo (cualquier lenguaje)
-  // ['node', 'typescript'] = solo activo si el stack coincide
-  language?: string[];
-
-  // Contenido inyectado en el system prompt cuando el skill esta activo
-  systemPromptAddition?: string;
-
-  // Scope jerarquico
+  triggers: string[];           // Palabras clave que activan el skill
+  language?: string[];          // undefined = cualquier lenguaje
+  systemPromptAddition?: string; // Contenido inyectado en el system prompt
   scope?: 'global' | 'pack' | 'project';
-
-  // Para agrupar skills de un mismo pack
   pack?: string;
-
-  // AgentIds que siempre tienen este skill activo (sin importar triggers)
-  agents?: string[];
-
-  // Herramientas adicionales que el skill aporta al agente
-  tools?: SkillToolDefinition[];
+  agents?: string[];            // AgentIds que siempre tienen este skill activo
 }
 ```
 
 ### Definir una skill en YAML
 
-Cada archivo `.yaml` en el directorio de skills define una skill:
-
-```yaml
-name: my-skill
-version: 1.0.0
-description: Descripcion breve del skill
-scope: project
-language:
-  - node
-  - typescript
-triggers:
-  - keyword1
-  - keyword2
-  - frase de ejemplo
-systemPromptAddition: |
-  ## Titulo del skill
-
-  Cuando el usuario pida algo relacionado con este skill, seguir estas reglas:
-
-  1. Regla uno
-  2. Regla dos
-
-  ### Ejemplo de codigo
-
-  ```typescript
-  // ejemplo aqui
-  ```
-```
-
----
-
-## Skills builtin
-
-### Skills globales (siempre activos, agnnosticos)
-
-Estos skills estan disponibles para cualquier proyecto independientemente del lenguaje.
-
-#### `conventional-commits`
-
-**Triggers:** `commit`, `changelog`, `semver`, `release notes`
-
-Guia al agente para escribir commits segun la convencion estandar. Incluye reglas de formato, tipos validos (feat, fix, refactor, test, docs, chore, perf, ci) y manejo de breaking changes.
-
-```
-feat(auth): add OAuth2 login via Google
-fix(api): handle null response from payment provider
-feat!: remove deprecated /v1 endpoints
-
-BREAKING CHANGE: /v1/* no longer available, migrate to /v2/*
-```
-
-#### `code-review`
-
-**Triggers:** `code review`, `pull request`, `revision`, `code quality`
-
-Checklist estructurado de 5 dimensiones para revisiones de codigo: correctitud, legibilidad, mantenibilidad, seguridad y rendimiento. El agente siempre cita `file:line + razon`.
-
-#### `tdd`
-
-**Triggers:** `tdd`, `test-driven`, `red green refactor`, `coverage`
-
-Ciclo Red → Green → Refactor. Patron AAA (Arrange/Act/Assert). Reglas sobre que testear (comportamiento observable) y que no (implementacion interna, librerias de terceros).
-
-#### `adr`
-
-**Triggers:** `adr`, `architecture decision`, `decision de arquitectura`
-
-Formato de Architecture Decision Records. Guia al agente a generar ADRs con Contexto, Decision, Consecuencias y Alternativas consideradas. Los guarda en `docs/adr/`.
-
-#### `security-checklist`
-
-**Triggers:** `seguridad`, `security`, `owasp`, `sql injection`, `xss`, `csrf`
-
-OWASP Top 10 simplificado: validacion de inputs, autenticacion (bcrypt/argon2), autorizacion, manejo de datos sensibles, headers HTTP, errores genericos.
-
----
-
-### Skills de Node/TypeScript (`@bk-node`)
-
-Activos automaticamente cuando el proyecto tiene `package.json` o `tsconfig.json`. Implementados sobre las librerias de BackendKit Labs.
-
-#### `bk-result`
-
-**Triggers:** `result monad`, `Result<T>`, `ok(`, `err(`, `error tipado`, `andThen`, `match(`
-
-```typescript
-import { ok, err, Result } from '@backendkit-labs/result';
-
-async function findUser(id: string): Promise<Result<User, NotFoundError>> {
-  const user = await db.users.findById(id);
-  if (!user) return err(new NotFoundError(id));
-  return ok(user);
-}
-
-const result = await findUser('123');
-result.match({
-  ok: user => response.json(user),
-  err: error => response.status(404).json({ error: error.message }),
-});
-```
-
-#### `bk-retry`
-
-**Triggers:** `retry`, `reintentos`, `exponential backoff`, `retry storm`, `budget retry`
-
-```typescript
-import { withRetry } from '@backendkit-labs/retry';
-
-const result = await withRetry(
-  () => externalApi.call(),
-  {
-    maxAttempts: 3,
-    backoff: 'exponential',
-    initialDelayMs: 500,
-    classify: (error) => error.status === 429 ? 'retryable' : 'fatal',
-  }
-);
-```
-
-#### `bk-circuit-breaker`
-
-**Triggers:** `circuit breaker`, `fail fast`, `resilience`, `open circuit`, `half-open`
-
-```typescript
-import { CircuitBreaker } from '@backendkit-labs/circuit-breaker';
-
-const cb = new CircuitBreaker({
-  threshold: 5,       // fallos para abrir el circuito
-  timeout: 10_000,    // ms en estado open antes de probar half-open
-  isFailure: (err) => err.status >= 500,
-});
-
-const result = await cb.execute(() => service.call());
-```
-
-#### `bk-bulkhead`
-
-**Triggers:** `bulkhead`, `concurrencia`, `throttle`, `rate limiting`, `semaforo`
-
-```typescript
-import { Bulkhead } from '@backendkit-labs/bulkhead';
-
-const bulkhead = new Bulkhead({ maxConcurrent: 10, maxQueue: 50 });
-
-const result = await bulkhead.execute(() => processRequest(req));
-```
-
-#### `bk-pipeline`
-
-**Triggers:** `pipeline`, `chain of responsibility`, `middleware`, `pasos encadenados`
-
-```typescript
-import { Pipeline } from '@backendkit-labs/pipeline';
-
-const pipeline = new Pipeline<CreateOrderInput, Order>()
-  .use(validateInventory)
-  .use(calculatePricing)
-  .use(applyDiscounts)
-  .use(persistOrder)
-  .use(sendConfirmationEmail);
-
-const result = await pipeline.run(orderInput);
-result.match({ ok: order => ..., err: step => ... });
-```
-
-#### `bk-http-client`
-
-**Triggers:** `http client`, `axios`, `llamadas http`, `api externa`, `fetch`
-
-HTTP client con circuit breaker + retry + Result tipado ya integrados. Nunca usar axios/fetch directamente en produccion.
-
-#### `bk-observability`
-
-**Triggers:** `observability`, `logging`, `structured log`, `correlation id`, `metricas`
-
-Logging estructurado con correlation ID propagado via headers y context. Incluye patron de exception handler global para NestJS.
-
-#### `bk-request-scanner`
-
-**Triggers:** `request scanner`, `sql injection`, `xss`, `path traversal`, `command injection`
-
-Detector de payloads maliciosos: SQLi, XSS, Path Traversal, SSRF. Se aplica como middleware antes de cualquier procesamiento.
-
-#### `bk-rate-limiter`
-
-**Triggers:** `rate limiter`, `token bucket`, `sliding window`, `limite de peticiones`
-
-Rate limiting con estrategias token bucket y sliding window. Configurable por IP, usuario o API key.
-
-#### `bk-idempotency`
-
-**Triggers:** `idempotency`, `idempotencia`, `duplicate request`, `mutacion duplicada`
-
-Idempotency keys para evitar mutaciones duplicadas. Replay automatico de respuestas anteriores usando el mismo `Idempotency-Key` header.
-
-#### `bk-auto-learning`
-
-**Triggers:** `auto learning`, `self-tuning`, `adaptativo`, `resilience tuning`
-
-Auto-tuning de parametros de resiliencia basado en metricas de trafico en tiempo real.
-
----
-
-## Servidor MCP
-
-El servidor MCP expone las capacidades del framework a cualquier cliente compatible con el protocolo MCP.
-
-### Iniciar el servidor
-
-```bash
-# En el directorio del proyecto que queres indexar
-BK_CWD=$(pwd) BK_APP_NAME=mi-app npx @bk/mcp-server
-```
-
-### Variables de entorno
-
-| Variable | Default | Descripcion |
-|----------|---------|-------------|
-| `BK_APP_NAME` | `deepseek-code` | Nombre de la aplicacion (define la carpeta de datos) |
-| `BK_CWD` | `process.cwd()` | Directorio del proyecto a indexar |
-
-### Herramientas disponibles
-
-#### `stack_detect`
-
-Detecta el stack tecnologico del proyecto usando el indice de codigo (grafo de imports) combinado con la deteccion por archivos indicadores.
-
-```
-Respuesta: "Detected stack: node, typescript, zod, nestjs"
-```
-
-#### `skills_search`
-
-Busca skills disponibles por query. Marca con ✓ los que coinciden con el stack del proyecto.
-
-```
-Input:  { query: "retry", cwd: "/mi-proyecto" }
-Output: - **bk-retry** ✓ [pack, typescript, ACTIVE]
-          Retry enterprise-grade con backoff, budget y clasificacion de errores
-```
-
-#### `skills_install`
-
-Instala un pack de skills desde GitHub o desde un directorio local.
-
-```
-Input:  { source: "https://github.com/org/my-skills", skill: "deploy-k8s" }
-Output: "Installed pack "my-skills" with 1 skill(s)."
-```
-
-#### `skills_list`
-
-Lista todos los packs instalados incluyendo los builtin.
-
-```
-Output:
-**@bk/global** (builtin)
-  Skills: conventional-commits, code-review, tdd, adr, security-checklist
-
-**@bk-node** (builtin)
-  Skills: bk-result, bk-retry, bk-circuit-breaker, ...
-```
-
-#### `code_search`
-
-Busca simbolos (funciones, clases, interfaces, tipos) en la codebase por nombre o keyword.
-
-```
-Input:  { query: "SkillManager", limit: 5 }
-Output: **SkillManager** (class) — packages/core/src/skills/manager.ts:37
-          export class SkillManager {
-```
-
-#### `code_context`
-
-Dada una descripcion de tarea, retorna los simbolos mas relevantes con su codigo, callers y callees. Usa el grafo de llamadas del indice para dar contexto completo.
-
-```
-Input:  { task: "install skill from github", max_symbols: 5 }
-Output:
-### install (method) — manager.ts:47-89
-> calledBy: main, install | calls: fetchGitHub, writeAtomic
-```typescript
-async install(source: string, options?: InstallOptions): Promise<void> {
-  ...
-}
-```
-```
-
-#### `code_index`
-
-Dispara una re-indexacion completa del proyecto. Util si el indice esta desactualizado.
-
-```
-Input:  { cwd: "/mi-proyecto" }
-Output: "Indexed 247 files, 1843 new symbols.
-         Total: 2891 nodes, 6234 edges across 247 files."
-```
-
-### Configurar en Cursor / Windsurf
-
-En `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "agent-framework": {
-      "command": "node",
-      "args": ["path/to/agent-framework/packages/mcp-server/dist/server.js"],
-      "env": {
-        "BK_CWD": "/ruta/a/tu/proyecto",
-        "BK_APP_NAME": "mi-app"
-      }
-    }
-  }
-}
-```
-
-### Configurar en Claude Code
-
-```json
-{
-  "mcpServers": {
-    "bk": {
-      "command": "npx",
-      "args": ["@bk/mcp-server"],
-      "env": {
-        "BK_CWD": "${workspaceFolder}",
-        "BK_APP_NAME": "mi-app"
-      }
-    }
-  }
-}
-```
-
----
-
-## Casos de uso basicos
-
-### 1. Activar skills segun el input del usuario
-
-```typescript
-import {
-  SkillLoader,
-  SkillActivator,
-  GLOBAL_BUILTIN_SKILLS,
-  NODE_PACK_SKILLS,
-} from '@bk/agent-core';
-
-const loader = new SkillLoader('mi-app');
-const activator = new SkillActivator();
-
-// Cargar todas las skills disponibles
-const loaded = await loader.loadAll('/ruta/al/proyecto');
-const allSkills = [
-  ...GLOBAL_BUILTIN_SKILLS,
-  ...NODE_PACK_SKILLS,
-  ...loaded.global,
-  ...loaded.packs,
-  ...loaded.project,
-];
-
-// Detectar el stack del proyecto
-const stack = await activator.detectStack('/ruta/al/proyecto');
-// → ['node', 'typescript']
-
-// Activar skills segun el input del usuario
-const input = 'como hago un commit?';
-const activeSkills = activator.activate(input, allSkills, stack);
-// → [Skill { name: 'conventional-commits', ... }]
-
-// Obtener el texto a inyectar en el system prompt
-const addition = activator.buildSystemPromptAddition(activeSkills);
-// → "## Conventional Commits\n\nFormato obligatorio: `<type>(<scope>): <desc>`..."
-
-// Inyectar en el system prompt
-const systemPrompt = `Sos un asistente de codigo.\n\n${addition}`;
-```
-
-### 2. Listar packs instalados
-
-```typescript
-import { SkillManager } from '@bk/agent-core';
-
-const manager = new SkillManager('mi-app');
-const packs = await manager.list();
-
-for (const pack of packs) {
-  console.log(`${pack.pack} — ${pack.skills.length} skills`);
-  console.log(`  Instalado: ${pack.installedAt}`);
-  console.log(`  Fuente: ${pack.source}`);
-}
-```
-
-### 3. Detectar el stack del proyecto
-
-```typescript
-import { SkillActivator } from '@bk/agent-core';
-
-const activator = new SkillActivator();
-const stack = await activator.detectStack('/ruta/al/proyecto');
-// Node.js + TypeScript: ['node', 'typescript']
-// Python:               ['python']
-// Java (Maven):         ['java']
-// Go:                   ['go']
-// Rust:                 ['rust']
-```
-
-El detector busca archivos indicadores:
-- `package.json` → `node`
-- `tsconfig.json` → `typescript`
-- `requirements.txt` / `pyproject.toml` → `python`
-- `pom.xml` / `build.gradle` → `java`
-- `Cargo.toml` → `rust`
-- `go.mod` → `go`
-- `composer.json` → `php`
-- `Gemfile` → `ruby`
-- `mix.exs` → `elixir`
-
----
-
-## Casos de uso intermedios
-
-### 4. Registrar handlers de skills personalizados
-
-```typescript
-import { SkillRegistry } from '@bk/agent-core';
-
-const registry = new SkillRegistry();
-
-// Registrar un handler
-registry.register('my-db-query', async (args) => {
-  const { query } = args as { query: string };
-  const rows = await db.raw(query);
-  return JSON.stringify(rows);
-});
-
-// Ejecutar desde cualquier parte del agente
-const result = await registry.execute('my-db-query', { query: 'SELECT 1' });
-if (result.ok) {
-  console.log(result.data);
-}
-```
-
-### 5. Instalar un pack de skills desde GitHub
-
-```typescript
-import { SkillManager } from '@bk/agent-core';
-
-const manager = new SkillManager('mi-app');
-
-// Instalar un pack completo
-await manager.install('https://github.com/mi-org/mi-skills-pack');
-
-// Instalar solo un skill especifico del pack
-await manager.install('https://github.com/mi-org/mi-skills-pack', {
-  skill: 'deploy-kubernetes',
-});
-
-// Actualizar un pack a la ultima version
-await manager.update('@mi-org/mi-skills-pack');
-
-// Desinstalar un pack
-await manager.uninstall('@mi-org/mi-skills-pack');
-```
-
-**Garantia de atomicidad:** El SkillManager descarga todos los archivos en memoria primero. Solo escribe al disco si todos los fetches tienen exito. Si falla cualquier archivo, el disco queda sin modificar.
-
-### 6. Instalar un pack desde un directorio local
-
-```typescript
-import { SkillManager } from '@bk/agent-core';
-
-const manager = new SkillManager('mi-app');
-
-// Desde ruta absoluta
-await manager.install('/home/usuario/mis-skills');
-
-// Desde ruta relativa al cwd del proceso
-await manager.install('./skills/custom');
-```
-
-El manager busca archivos `.yaml` primero en la subcarpeta `skills/` del directorio, y si no encuentra, en el directorio raiz.
-
-### 7. Skills de proyecto (especificos del repositorio)
-
-Las skills de proyecto se guardan en `~/.{appName}/projects/{key}/skills/` y son especificas de ese directorio de trabajo. Son la capa de mayor prioridad y sobrescriben cualquier skill global con el mismo nombre.
-
-**Caso de uso:** convenciones internas de tu equipo que no queres publicar.
-
-```yaml
-# ~/.deepseek-code/projects/abc123/skills/internal-api.yaml
-name: internal-api-conventions
-version: 1.0.0
-description: Convenciones internas de la API REST de nuestro equipo
-scope: project
-triggers:
-  - endpoint
-  - controller
-  - api rest
-  - route
-systemPromptAddition: |
-  ## Convenciones de API de nuestro equipo
-
-  - Todos los endpoints usan el prefijo `/api/v2/`
-  - La autenticacion va siempre via header `X-Auth-Token`
-  - Los errores siguen el formato `{ code, message, traceId }`
-  - Nunca exponer stacktraces en produccion
-  - Los IDs de recursos usan ULID, no UUID ni autoincrement
-```
-
----
-
-## Casos de uso avanzados
-
-### 8. Usar el MCP server para buscar codigo
-
-El servidor MCP indexa tu proyecto con Tree-sitter y SQLite FTS5 para busqueda en tiempo real de simbolos y contexto semantico.
-
-```typescript
-// Via cliente MCP (ejemplo con el SDK de MCP)
-const result = await mcp.callTool('code_context', {
-  task: 'refactorizar el sistema de autenticacion para soportar OAuth2',
-  max_symbols: 10,
-});
-
-// El servidor retorna:
-// - Simbolos mas relevantes para la tarea (AuthService, JwtStrategy, etc.)
-// - Su codigo fuente completo
-// - Que funciones llaman a cada simbolo (calledBy)
-// - Que funciones llama cada simbolo (calls)
-```
-
-### 9. Deteccion de stack via grafo de imports
-
-Ademas de detectar el stack por archivos indicadores, el servidor MCP analiza el grafo de imports para identificar frameworks especificos:
-
-```
-Imports detectados → Framework identificado
-──────────────────────────────────────────
-@nestjs/core              → nestjs
-express                   → express
-fastify                   → fastify
-@fastapi/*                → fastapi
-django                    → django
-flask                     → flask
-gin-gonic/gin             → gin
-actix-web                 → actix
-tokio                     → tokio
-spring-boot               → spring
-zod                       → zod
-prisma                    → prisma
-typeorm                   → typeorm
-```
-
-Esto permite que `skills_search` marque con ✓ los skills que corresponden exactamente al stack real del proyecto.
-
-### 10. Re-indexacion automatica con file watcher
-
-El servidor MCP inicia un watcher con chokidar que detecta cambios en archivos y re-indexa solo los archivos modificados (indexacion incremental via hash SHA1). Los archivos no modificados no se re-parsean.
-
-```
-Archivos ignorados automaticamente:
-  node_modules/, dist/, build/, .git/, coverage/, .next/, out/
-```
-
-### 11. Usar code_context desde un agente
-
-Patron tipico: el agente usa `code_context` antes de responder una pregunta tecnica para obtener el codigo relevante del proyecto real del usuario.
-
-```typescript
-// Dentro de un agente construido con @bk/agent-coding
-
-async function handleUserMessage(message: string) {
-  // 1. Obtener contexto del codigo del proyecto
-  const context = await mcp.callTool('code_context', {
-    task: message,
-    max_symbols: 8,
-  });
-
-  // 2. Activar skills segun el input
-  const stack = await mcp.callTool('stack_detect', {});
-  const skills = await mcp.callTool('skills_search', { query: message });
-
-  // 3. Construir el prompt enriquecido
-  const enrichedPrompt = [
-    systemPrompt,
-    context.content[0].text,
-    buildSkillAdditions(skills),
-  ].join('\n\n---\n\n');
-
-  // 4. Llamar al LLM con contexto completo
-  return await llm.chat([
-    { role: 'system', content: enrichedPrompt },
-    { role: 'user', content: message },
-  ]);
-}
-```
-
----
-
-## Instalar packs externos
-
-### Via CLI (recomendado desde agentes)
-
-```bash
-# Instalar pack completo
-npx @bk/mcp-server install https://github.com/org/skills-pack
-
-# Instalar un skill especifico
-npx @bk/mcp-server install https://github.com/org/skills-pack --skill deploy-k8s
-
-# Listar lo instalado
-npx @bk/mcp-server list
-
-# Actualizar
-npx @bk/mcp-server update @org/skills-pack
-```
-
-### Via herramienta MCP (desde Cursor/Claude)
-
-Desde el agente podes pedirle directamente:
-
-```
-Instala el pack de skills para Kubernetes desde https://github.com/org/k8s-skills
-```
-
-El agente usara la herramienta `skills_install` del servidor MCP.
-
-### Que pasa si el repositorio esta offline
-
-Si el repositorio fuente no esta disponible al momento de la instalacion, la operacion falla sin modificar el disco (garantia de atomicidad). Los packs ya instalados siguen funcionando porque el framework los copia localmente en `~/.{appName}/skills/packs/`. El repositorio remoto solo se necesita para instalar o actualizar.
-
----
-
-## Crear tu propio pack de skills
-
-### Estructura del repositorio
-
-```
-mi-skills-pack/
-├── skills/                    ← El manager busca aqui primero
-│   ├── deploy-kubernetes.yaml
-│   ├── terraform-modules.yaml
-│   └── datadog-setup.yaml
-└── README.md
-```
-
-Si no hay carpeta `skills/`, el manager busca `.yaml` directamente en la raiz.
-
-### Ejemplo de skill
-
 ```yaml
 name: deploy-kubernetes
 version: 1.0.0
-description: Guia para deployar en Kubernetes usando Helm charts
+description: Guia para deployar en Kubernetes usando Helm
 scope: pack
 pack: mi-infra-skills
 language:
@@ -895,43 +618,445 @@ triggers:
   - k8s
   - helm
   - deploy
-  - pod
-  - deployment
-  - ingress
 systemPromptAddition: |
   ## Deploy en Kubernetes
 
-  Siempre usar Helm para gestionar deployments. Nunca aplicar manifests YAML directamente en produccion.
+  Siempre usar Helm. Nunca aplicar manifests YAML directamente en produccion.
 
-  ### Estructura de Helm chart
-
-  ```
+  ```yaml
+  # Estructura de chart obligatoria
   charts/mi-servicio/
   ├── Chart.yaml
   ├── values.yaml
-  ├── values.prod.yaml
   └── templates/
-      ├── deployment.yaml
-      ├── service.yaml
-      ├── ingress.yaml
-      └── _helpers.tpl
   ```
 
-  ### Reglas obligatorias
-
-  - `resources.requests` y `resources.limits` siempre definidos
-  - `livenessProbe` y `readinessProbe` siempre configurados
-  - Secrets van via `ExternalSecret` (no hardcoded en values)
-  - Siempre definir `PodDisruptionBudget` para servicios criticos
-  - Rolling update: `maxSurge: 1`, `maxUnavailable: 0`
+  - Siempre definir resources.requests y resources.limits
+  - livenessProbe y readinessProbe obligatorios
+  - Secrets via ExternalSecret, nunca hardcoded
 ```
 
-### Publicar el pack
+---
 
-Cualquier repositorio GitHub publico puede ser usado como pack. Simplemente compartir la URL:
+## Skills builtin
+
+### Skills globales (siempre activos)
+
+| Skill | Triggers principales | Que hace |
+|-------|---------------------|----------|
+| `conventional-commits` | commit, changelog, semver | Formato `<type>(<scope>): <desc>`, tipos validos, BREAKING CHANGE |
+| `code-review` | code review, pull request, revision | Checklist 5 dimensiones: correctitud, legibilidad, mantenibilidad, seguridad, rendimiento |
+| `tdd` | tdd, test-driven, red green refactor | Ciclo Red→Green→Refactor, patron AAA, que testear y que no |
+| `adr` | adr, architecture decision | Formato ADR: Contexto, Decision, Consecuencias, Alternativas |
+| `security-checklist` | seguridad, owasp, sql injection, xss | OWASP Top 10 simplificado, headers HTTP, errores genericos |
+
+### Skills de Node/TypeScript (`@bk-node`)
+
+Activos automaticamente cuando el proyecto tiene `package.json` o `tsconfig.json`.
+
+| Skill | Triggers | Libreria |
+|-------|----------|----------|
+| `bk-result` | result monad, Result<T>, error tipado | `@backendkit-labs/result` |
+| `bk-retry` | retry, reintentos, exponential backoff | `@backendkit-labs/retry` |
+| `bk-circuit-breaker` | circuit breaker, fail fast, resilience | `@backendkit-labs/circuit-breaker` |
+| `bk-bulkhead` | bulkhead, concurrencia, semaforo | `@backendkit-labs/bulkhead` |
+| `bk-pipeline` | pipeline, chain of responsibility | `@backendkit-labs/pipeline` |
+| `bk-http-client` | http client, axios, api externa | `@backendkit-labs/http-client` |
+| `bk-observability` | logging, structured log, correlation id | NestJS interceptors + Winston |
+| `bk-request-scanner` | sql injection, xss, path traversal | Middleware de deteccion |
+| `bk-rate-limiter` | rate limiter, token bucket, sliding window | `@backendkit-labs/bulkhead` |
+| `bk-idempotency` | idempotency, duplicate request | Idempotency keys pattern |
+| `bk-auto-learning` | auto learning, self-tuning, adaptativo | Auto-tuning de resiliencia |
+| `bk-console-animations` | spinner, progress bar, cli animation | `@backendkit-labs/console-animations` |
+
+---
+
+## Servidor MCP
+
+El servidor MCP expone las capacidades del framework a cualquier cliente compatible con el protocolo MCP.
+
+### Iniciar el servidor
 
 ```bash
-# Tus companeros instalan el pack con:
+BK_CWD=$(pwd) BK_APP_NAME=mi-app npx @bk/mcp-server
+```
+
+### Herramientas disponibles (7)
+
+| Herramienta | Descripcion |
+|-------------|-------------|
+| `stack_detect` | Detecta el stack via archivos indicadores + grafo de imports (45 framework signatures) |
+| `skills_search` | Busca skills por query, marca con ✓ los que coinciden con el stack del proyecto |
+| `skills_install` | Instala un pack desde GitHub URL o path local |
+| `skills_list` | Lista todos los packs instalados (builtin + externos) |
+| `code_search` | Busca simbolos (funciones, clases, tipos) por nombre o keyword con FTS5 |
+| `code_context` | Contexto de codigo para una tarea: simbolos relevantes + snippet + callers + callees |
+| `code_index` | Re-indexacion manual (si los resultados estan desactualizados) |
+
+### Lenguajes soportados por el indexador
+
+TypeScript, JavaScript, Python, Go, Rust, Java — via Tree-sitter (WASM) + SQLite FTS5.
+
+### Configurar en Claude Code
+
+```json
+{
+  "mcpServers": {
+    "bk": {
+      "command": "node",
+      "args": ["path/to/mcp-server/dist/server.js"],
+      "env": {
+        "BK_APP_NAME": "mi-app",
+        "BK_CWD": "/ruta/al/proyecto"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Casos de uso basicos
+
+### 1. Iniciar el asistente en un proyecto existente
+
+```bash
+cd mi-proyecto
+node /path/to/coding-assistant/dist/index.js
+# Agente: general (orquestador)
+> /init
+# Detecta modo 'existing', ejecuta 6 fases en paralelo
+# Genera: design.md, specification.md, security.md, roadmap.md, AGENT.md
+```
+
+### 2. Pedir una feature al orquestador
+
+```
+> Agregar autenticacion con Google OAuth2
+
+# El agente general:
+# 1. Analiza la solicitud
+# 2. Delega en paralelo a: security (evalua) + backend (implementa estrategia)
+# 3. Coder escribe los archivos
+# 4. qa-engineer escribe los tests
+# 5. save_context con los nuevos archivos tocados
+# 6. append_log con la actividad
+```
+
+### 3. Cambiar al agente especializado directamente
+
+```
+> /agent security
+# Ahora hablas directo con el Security Expert
+
+> Revisa las rutas de autenticacion para vulnerabilidades
+# Analiza JWT, session management, CSRF sin pasar por el orquestador
+```
+
+### 4. Activar skills segun el input
+
+```typescript
+import { SkillLoader, SkillActivator, GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-core';
+
+const loader = new SkillLoader('mi-app');
+const activator = new SkillActivator();
+
+const loaded = await loader.loadAll('/ruta/al/proyecto');
+const allSkills = [...GLOBAL_BUILTIN_SKILLS, ...NODE_PACK_SKILLS, ...loaded.global, ...loaded.packs, ...loaded.project];
+
+const stack = await activator.detectStack('/ruta/al/proyecto');
+// → ['node', 'typescript']
+
+const activeSkills = activator.activate('como hago un commit?', allSkills, stack);
+// → [Skill { name: 'conventional-commits', ... }]
+
+const addition = activator.buildSystemPromptAddition(activeSkills);
+// → "## Conventional Commits\n\n..."
+```
+
+---
+
+## Casos de uso intermedios
+
+### 5. Construir un asistente personalizado
+
+```typescript
+import { createCodingEngine } from '@bk/agent-coding';
+import { CallbackTransport } from '@bk/agent-core';
+
+const engine = createCodingEngine({
+  providers: {
+    anthropic: { apiKey: process.env.ANTHROPIC_API_KEY, model: 'claude-opus-4-7' },
+    deepseek:  { apiKey: process.env.DEEPSEEK_API_KEY },
+  },
+  defaultProvider: 'anthropic',
+  defaultAgent: 'general',
+  workingDir: '/mi/proyecto',
+  appName: 'mi-asistente',
+  transport: new CallbackTransport(event => {
+    if (event.type === 'token') process.stdout.write(event.text);
+    if (event.type === 'tool_call') console.log(`\n[${event.tool}]`);
+    if (event.type === 'agent_switch') console.log(`\n→ ${event.to}`);
+    if (event.type === 'metrics') console.log(`Tokens: ${event.total}, Costo: $${event.cost}`);
+  }),
+});
+
+await engine.run('Refactorizar el modulo de pagos para soportar múltiples proveedores');
+```
+
+### 6. Crear un agente personalizado para el proyecto
+
+Crear `.bk-agent/agents/` en el proyecto:
+
+```
+mi-proyecto/
+└── .bk-agent/
+    └── agents/
+        ├── devops-interno.json
+        └── devops-interno.md
+```
+
+```json
+// devops-interno.json
+{
+  "id": "devops-interno",
+  "name": "DevOps Interno",
+  "icon": "⚙",
+  "description": "Especialista en el pipeline de CI/CD de este proyecto",
+  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files"],
+  "delegatesTo": ["coder"],
+  "provider": "deepseek"
+}
+```
+
+```markdown
+<!-- devops-interno.md -->
+Sos el especialista en DevOps de este proyecto. Conoces en detalle:
+- El pipeline de GitHub Actions en .github/workflows/
+- El Helm chart en charts/mi-app/
+- Los secrets en AWS Secrets Manager (nunca los hardcodees)
+- El entorno de staging en EKS y produccion en GKE
+
+Cuando modificas el pipeline, siempre ejecuta 'act' para validar localmente.
+```
+
+Una vez creado, aparece automaticamente:
+
+```
+> /agent list
+  [builtin] general, coder, backend, frontend, qa-engineer, security, architecture, infrastructure, data
+  [project] devops-interno
+```
+
+### 7. Instalar un pack de skills desde GitHub
+
+```typescript
+import { SkillManager } from '@bk/agent-core';
+
+const manager = new SkillManager('mi-app');
+
+// Pack completo
+await manager.install('https://github.com/mi-org/skills-pack');
+
+// Solo un skill especifico
+await manager.install('https://github.com/mi-org/skills-pack', { skill: 'deploy-k8s' });
+
+// Actualizar
+await manager.update('@mi-org/skills-pack');
+
+// Desinstalar
+await manager.uninstall('@mi-org/skills-pack');
+```
+
+**Garantia de atomicidad:** el manager descarga todo en memoria. Solo escribe al disco si todos los fetches tienen exito.
+
+---
+
+## Casos de uso avanzados
+
+### 8. Usar el MCP server para code context en un agente
+
+```typescript
+// El agente usa code_context antes de responder para obtener el codigo real del proyecto
+
+async function handleMessage(message: string) {
+  const [context, stack] = await Promise.all([
+    mcp.callTool('code_context', { task: message, max_symbols: 8 }),
+    mcp.callTool('stack_detect', {}),
+  ]);
+
+  const enrichedPrompt = [
+    systemPrompt,
+    context.content[0].text,  // simbolos relevantes + snippets + callers
+  ].join('\n\n---\n\n');
+
+  return llm.chat([
+    { role: 'system', content: enrichedPrompt },
+    { role: 'user', content: message },
+  ]);
+}
+```
+
+### 9. Suscribirse a todos los eventos del engine
+
+```typescript
+import { AgentEvent } from '@bk/agent-core';
+
+const engine = createCodingEngine({ ... });
+
+// O usar transport directo
+const transport = new CallbackTransport((event: AgentEvent) => {
+  switch (event.type) {
+    case 'block_start':   console.log(`[${event.agentId}] iniciando...`); break;
+    case 'agent_switch':  console.log(`delegando: ${event.from} → ${event.to}`); break;
+    case 'token':         process.stdout.write(event.text); break;
+    case 'tool_call':     console.log(`\n  tool: ${event.tool}(${JSON.stringify(event.args)})`); break;
+    case 'tool_result':   console.log(`  → ${event.ok ? 'ok' : 'error'}`); break;
+    case 'thinking':      console.log(`  [thinking] ${event.label}`); break;
+    case 'metrics':       console.log(`tokens: ${event.total}, costo: $${event.cost}`); break;
+    case 'done':          console.log('\n✓ completado'); break;
+    case 'error':         console.error(`\n✗ ${event.message}`); break;
+  }
+});
+```
+
+### 10. Override del system prompt de un agente builtin
+
+Para personalizar un agente builtin sin perder su configuracion base, crear solo el `.md`:
+
+```
+~/.bk-agent/agents/general.md
+```
+
+```markdown
+Sos el orquestador de equipo de backend en [Mi Empresa].
+Siempre que el usuario pida una feature, primero pregunta si hay tickets en Jira
+relacionados antes de empezar a implementar.
+
+Nuestras convenciones internas:
+- Todas las PRs necesitan review de al menos 2 personas
+- Nunca deployar los viernes
+- Los nombres de branches siguen el patron: {tipo}/{ticket-id}-{descripcion}
+```
+
+### 11. Deteccion de frameworks via grafo de imports (MCP)
+
+El servidor MCP analiza el grafo de imports para identificar frameworks especificos mas alla del lenguaje:
+
+```
+@nestjs/core              → nestjs
+express                   → express
+fastify                   → fastify
+@prisma/client            → prisma
+typeorm                   → typeorm
+zod                       → zod
+fastapi (Python)          → fastapi
+django (Python)           → django
+gin-gonic/gin (Go)        → gin
+actix-web (Rust)          → actix
+spring-boot (Java)        → spring
+```
+
+`skills_search` usa esta info para marcar con ✓ los skills que coinciden exactamente con el stack real del proyecto.
+
+---
+
+## Crear agentes personalizados
+
+### Agente de proyecto
+
+Visible solo en el proyecto donde esta definido:
+
+```
+mi-proyecto/.bk-agent/agents/
+├── mi-agente.json
+└── mi-agente.md
+```
+
+### Agente global
+
+Disponible en todos los proyectos:
+
+```
+~/.bk-agent/agents/
+├── mi-agente.json
+└── mi-agente.md
+```
+
+### Scaffoldear un agente nuevo
+
+```
+> /agent new database-expert
+# Crea .bk-agent/agents/database-expert.json + .md con template
+
+> /agent new database-expert --global
+# Crea ~/.bk-agent/agents/database-expert.json + .md
+```
+
+### Schema del .json
+
+```json
+{
+  "id": "database-expert",
+  "name": "Database Expert",
+  "icon": "⊞",
+  "description": "Especialista en PostgreSQL y optimizacion de queries",
+  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files",
+                   "save_context", "save_learning", "append_log"],
+  "delegatesTo": ["coder"],
+  "provider": "deepseek",
+  "suppressDefaultOutput": false
+}
+```
+
+---
+
+## Instalar packs externos de skills
+
+### Via CLI
+
+```bash
+# Pack completo
+npx @bk/mcp-server install https://github.com/org/skills-pack
+
+# Un skill especifico
+npx @bk/mcp-server install https://github.com/org/skills-pack --skill deploy-k8s
+
+# Actualizar
+npx @bk/mcp-server update @org/skills-pack
+```
+
+### Via MCP (desde Claude Code / Cursor)
+
+```
+Instala el pack de skills para Kubernetes desde https://github.com/org/k8s-skills
+```
+
+### Que pasa si el repositorio esta offline
+
+Si el repositorio fuente no esta disponible, la operacion falla sin tocar el disco. Los packs ya instalados siguen funcionando — el framework los copia localmente en `~/.{appName}/skills/packs/`.
+
+---
+
+## Crear tu propio pack de skills
+
+### Estructura del repositorio
+
+```
+mi-skills-pack/
+├── skills/                    ← el manager busca aqui primero
+│   ├── deploy-kubernetes.yaml
+│   ├── terraform.yaml
+│   └── datadog.yaml
+└── README.md
+```
+
+### Publicar
+
+Cualquier repositorio GitHub publico puede usarse como pack:
+
+```bash
+# Tus companeros instalan con:
 npx @bk/mcp-server install https://github.com/mi-org/mi-skills-pack
 ```
 
@@ -939,9 +1064,7 @@ npx @bk/mcp-server install https://github.com/mi-org/mi-skills-pack
 
 ## Integracion con Claude Code / Cursor
 
-### Claude Code
-
-Agregar en `~/.claude/settings.json` o en `.claude/settings.json` del proyecto:
+### Claude Code (`~/.claude/settings.json`)
 
 ```json
 {
@@ -958,15 +1081,7 @@ Agregar en `~/.claude/settings.json` o en `.claude/settings.json` del proyecto:
 }
 ```
 
-Una vez conectado, Claude Code puede:
-- Buscar simbolos en tu proyecto: *"Busca la implementacion de SkillManager"*
-- Obtener contexto para una tarea: *"Que codigo es relevante para agregar OAuth2?"*
-- Buscar skills: *"Que skills tengo disponibles para Kubernetes?"*
-- Instalar packs: *"Instala el pack de skills de NextJS desde github.com/org/nextjs-skills"*
-
-### Cursor
-
-En `.cursor/mcp.json`:
+### Cursor (`.cursor/mcp.json`)
 
 ```json
 {
@@ -986,20 +1101,20 @@ En `.cursor/mcp.json`:
 ### Workflow tipico desde el agente
 
 ```
-Usuario: "Necesito agregar rate limiting a los endpoints de la API"
+Usuario: "Agregar rate limiting a los endpoints de la API"
 
 Agente (automaticamente):
-  1. stack_detect → "node, typescript, nestjs, express"
-  2. skills_search query="rate limiting" → bk-rate-limiter [ACTIVE, ✓]
-  3. code_context task="agregar rate limiting a endpoints API" → RateLimiterModule, AppModule, guards/
-  4. Responde con el patron exacto de @backendkit-labs/bulkhead + codigo especifico del proyecto
+  1. stack_detect → "node, typescript, nestjs"
+  2. skills_search query="rate limiting" → bk-bulkhead [ACTIVE ✓], bk-rate-limiter [ACTIVE ✓]
+  3. code_context task="rate limiting endpoints API" → AppModule, Guards, Controllers
+  4. Responde con el patron exacto de @backendkit-labs/bulkhead integrado al codigo del proyecto
 ```
 
 ---
 
 ## Librerias de resiliencia
 
-El framework usa las librerias de BackendKit Labs para toda la capa de resiliencia. Estas librerias son independientes del framework y se pueden usar en cualquier proyecto Node.js.
+El framework usa las librerias de BackendKit Labs para toda la capa de resiliencia.
 
 ### Patron de composicion
 
@@ -1009,9 +1124,7 @@ import { withRetry } from '@backendkit-labs/retry';
 import { CircuitBreaker } from '@backendkit-labs/circuit-breaker';
 import { Bulkhead } from '@backendkit-labs/bulkhead';
 
-// Composicion tipica para llamadas a servicios externos:
-// Bulkhead (control de concurrencia) > CircuitBreaker (fail-fast) > Retry (reintentos)
-
+// Orden de composicion: Bulkhead > CircuitBreaker > Retry
 const bulkhead = new Bulkhead({ maxConcurrent: 10, maxQueue: 50 });
 const cb = new CircuitBreaker({ threshold: 5, timeout: 10_000 });
 
@@ -1019,7 +1132,7 @@ async function callExternalService(payload: unknown) {
   return bulkhead.execute(() =>
     cb.execute(() =>
       withRetry(
-        () => fetch('/external-api', { method: 'POST', body: JSON.stringify(payload) }),
+        () => fetch('/api', { method: 'POST', body: JSON.stringify(payload) }),
         { maxAttempts: 3, backoff: 'exponential' }
       )
     )
@@ -1029,7 +1142,7 @@ async function callExternalService(payload: unknown) {
 
 ### `ResilientLLMClient`
 
-`@bk/agent-core` exporta `ResilientLLMClient`, un cliente HTTP para llamadas a LLMs que ya integra retry + circuit breaker configurados para los patrones de fallo tipicos de APIs de LLMs (rate limits 429, timeouts, 5xx).
+Cliente HTTP para LLMs con retry + circuit breaker preconfigurados para los patrones de fallo tipicos (rate limits 429, timeouts, 5xx):
 
 ```typescript
 import { ResilientLLMClient } from '@bk/agent-core';
@@ -1040,59 +1153,43 @@ const client = new ResilientLLMClient({
   maxRetries: 3,
   circuitBreakerThreshold: 5,
 });
-
-const response = await client.post('/v1/chat/completions', { ... });
 ```
 
 ---
 
 ## Estructura de datos en disco
 
-Todos los datos del framework se guardan en `~/.{appName}/`. No se toca nada dentro del directorio del proyecto del usuario.
+Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usuario nunca se toca (excepto los archivos que el agente modifica explicitamente).
 
 ```
-~/.deepseek-code/                    ← o el appName que configures
+~/.bk-agent/                         ← o el appName que configures
+│
+├── config.json                      ← API keys, providers, defaultProvider
+├── USER.md                          ← Perfil global del usuario (rol, estilo, preferencias)
+│
+├── agents/                          ← Agentes globales (todos los proyectos)
+│   ├── general.md                   ← Override del system prompt del agente builtin
+│   └── mi-agente-global.json + .md
 │
 ├── skills/
-│   ├── global/                      ← Skills agnnosticos de lenguaje (YAML)
-│   │   └── my-global-skill.yaml
-│   │
+│   ├── global/                      ← Skills agnnosticos (YAML)
 │   ├── packs/                       ← Packs instalados via SkillManager
-│   │   ├── @bk-node/                ← builtin (Node/TypeScript)
-│   │   ├── @mi-org/mi-pack/         ← GitHub pack instalado
-│   │   │   ├── deploy-k8s.yaml
-│   │   │   └── terraform.yaml
-│   │   └── local-pack/              ← Pack local instalado
-│   │
-│   └── sources.json                 ← Metadata de packs (fuente, fecha, version)
+│   │   └── @mi-org/mi-pack/
+│   └── sources.json                 ← Metadata (fuente, fecha, version)
 │
 ├── code-index/
-│   └── {cwd-base64hash}.db          ← SQLite con el grafo de simbolos del proyecto
+│   └── {cwd-hash}.db                ← SQLite: grafo de simbolos del proyecto
 │
 └── projects/
-    └── {project-key}/               ← Basado en hash del path del proyecto
-        ├── config.json
-        ├── store.json
-        └── skills/                  ← Skills especificos de este proyecto
-            └── team-conventions.yaml
-```
-
-### `sources.json`
-
-```json
-[
-  {
-    "pack": "@mi-org/k8s-skills",
-    "source": "https://github.com/mi-org/k8s-skills",
-    "installedAt": "2025-05-26T14:30:00.000Z",
-    "version": "1.2.0"
-  },
-  {
-    "pack": "local-internal",
-    "source": "/home/usuario/internal-skills",
-    "installedAt": "2025-05-20T09:00:00.000Z"
-  }
-]
+    └── {cwd-hash}/                  ← Estado especifico del proyecto
+        ├── context.md               ← Stack, arquitectura, archivos clave
+        ├── learnings.md             ← Preferencias aprendidas del usuario
+        ├── log.md                   ← Actividad reciente
+        ├── memory.json              ← Key-value persistente entre sesiones
+        ├── skills/                  ← Skills especificos de este proyecto
+        └── audits/
+            ├── security-2025-05-26.md
+            └── qa-engineer-2025-05-26.md
 ```
 
 ---
@@ -1101,30 +1198,36 @@ Todos los datos del framework se guardan en `~/.{appName}/`. No se toca nada den
 
 ### Completado
 
-- [x] Motor multi-agente con bus de delegacion paralela
+- [x] Motor multi-agente con bus de delegacion paralela (max 6 agentes por wave)
+- [x] 9 agentes especializados: general, coder, backend, frontend, qa-engineer, security, architecture, infrastructure, data
+- [x] InitWorkflow con 3 modos: new / existing / hybrid
+- [x] ProjectStore: persistencia de context, learnings, log, audits entre sesiones
+- [x] AgentLoader: carga automatica desde global y proyecto (prioridad sobre builtins)
+- [x] 5 proveedores LLM: Anthropic, DeepSeek, OpenAI, Kimi, Grok
+- [x] Filesystem tools: read, write, edit, list, search, run_command
+- [x] Memory tools: save_context, save_learning, save_audit, append_log
 - [x] Sistema de skills jerarquico (global / pack / proyecto)
 - [x] Skills builtin: 5 globales + 12 de Node/TypeScript
 - [x] SkillManager: install / uninstall / list / update (atomicidad garantizada)
-- [x] Deteccion de stack por archivos indicadores (9 lenguajes)
 - [x] Servidor MCP con 7 herramientas
-- [x] Indexador de codigo con Tree-sitter (TypeScript, JavaScript, Python, Go, Rust, Java)
-- [x] SQLite FTS5 para busqueda de simbolos con ranking BM25
-- [x] Grafo de llamadas (caller/callee) en el indice
-- [x] Deteccion de frameworks via grafo de imports (45 signaturas)
-- [x] File watcher con re-indexacion incremental
-- [x] Integracion con BackendKit Labs (Result, Retry, CircuitBreaker, Bulkhead, Pipeline)
+- [x] Indexador Tree-sitter (TS, JS, Python, Go, Rust, Java) + SQLite FTS5
+- [x] Grafo de llamadas caller/callee
+- [x] Deteccion de 45 frameworks via grafo de imports
+- [x] File watcher con re-indexacion incremental (SHA1)
+- [x] Integracion BackendKit Labs (Result, Retry, CircuitBreaker, Bulkhead, Pipeline)
+- [x] Slash commands: /init, /agent, /cwd, /clear, /quit
+- [x] ConfigLoader con bootstrap automatico de ~/.{appName}/
 
 ### En progreso
 
-- [ ] `agent_context` — Herramienta MCP que combina code intelligence + skills + ContextPipeline en una sola llamada
-- [ ] Agentes especializados via `@bk/agent-coding` (coder, backend, frontend, QA, security, etc.)
+- [ ] `agent_context` — herramienta MCP que combina code intelligence + skills en una llamada
 - [ ] Panel de administracion de skills via CLI interactivo
 
 ### Planificado
 
-- [ ] Soporte para skills con handlers TypeScript (no solo YAML estatico)
+- [ ] Skills con handlers TypeScript (no solo YAML estatico)
 - [ ] Indexacion de Ruby, PHP, Elixir, Kotlin
-- [ ] Embeddings semanticos para busqueda de simbolos por significado (no solo keyword)
+- [ ] Embeddings semanticos para busqueda por significado
 - [ ] Agentes autonomos con ciclo plan → execute → reflect
 - [ ] `npx @bk/create-agent` para scaffolding de nuevos proyectos
 
@@ -1133,20 +1236,15 @@ Todos los datos del framework se guardan en `~/.{appName}/`. No se toca nada den
 ## Contribuir
 
 ```bash
-# Fork y clonar
-git clone https://github.com/tu-usuario/agent-framework.git
+git clone https://github.com/backendkit-dev/agent-framework.git
 cd agent-framework
 npm install
 npm run build
 
-# Crear una rama de feature
 git checkout -b feat/mi-feature
-
-# Desarrollar + testear
 npm run typecheck
 npm test
 
-# Commit siguiendo conventional commits
 git commit -m "feat(skills): add elixir stack detection"
 ```
 

@@ -1,5 +1,6 @@
 import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { createCheckpoint, listCheckpoints, readCheckpoint } from '../checkpoint';
+import { listWorkspaces, ensureWorkspace, readWorkspaceMemory } from '../workspace';
 
 /**
  * Registers the framework's built-in slash commands into the given registry.
@@ -33,6 +34,24 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             `Agent : ${ctx.effectiveAgentId ?? '—'}`,
             `Model : ${ctx.model ?? '—'}`,
         ].join('\n'));
+    });
+
+    registry.register('/switch', 'List or switch workspace within the project', async (ctx) => {
+        const { args, emit, projectBaseDir, injectContext } = ctx;
+        if (!projectBaseDir) { emit('No active project directory.'); return; }
+
+        if (!args || args === 'list') {
+            const workspaces = await listWorkspaces(projectBaseDir);
+            emit(workspaces.map((w, i) =>
+                `  ${i + 1}. ${w.name}${w.isDefault ? ' (default)' : ''}`,
+            ).join('\n'));
+            return;
+        }
+
+        const workspace = await ensureWorkspace(projectBaseDir, args);
+        const { sessionContent } = await readWorkspaceMemory(projectBaseDir, args);
+        injectContext?.(`## Workspace: ${args}\n\n${sessionContent || '*(empty)*'}`);
+        emit(`Workspace: ${args}\n${workspace.memoryDir}`);
     });
 
     registry.register('/checkpoint', 'Create / list / load session checkpoints', async (ctx) => {

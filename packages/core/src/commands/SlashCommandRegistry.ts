@@ -25,6 +25,8 @@ export interface CommandContext {
     model?: string;
     /** Absolute path to the active project memory directory (for checkpoint commands). */
     projectDir?: string;
+    /** Parent directory of the active project — contains memory/ and workspaces/ (for workspace commands). */
+    projectBaseDir?: string;
     /** Current content of sesion-actual.md (snapshotted into checkpoints). */
     sessionContent?: string;
     /** Inject a message into the agent's active context window. */

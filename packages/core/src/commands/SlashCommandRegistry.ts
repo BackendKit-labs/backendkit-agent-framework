@@ -23,6 +23,12 @@ export interface CommandContext {
     skills?: CommandSkillInfo[];
     effectiveAgentId?: string;
     model?: string;
+    /** Absolute path to the active project memory directory (for checkpoint commands). */
+    projectDir?: string;
+    /** Current content of sesion-actual.md (snapshotted into checkpoints). */
+    sessionContent?: string;
+    /** Inject a message into the agent's active context window. */
+    injectContext?: (message: string) => void;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

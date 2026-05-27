@@ -35,6 +35,10 @@ export * from './skills';
 // Commands
 export * from './commands';
 
+// Checkpoint
+export { createCheckpoint, listCheckpoints, readCheckpoint, compactSession, compactSessionContent } from './checkpoint';
+export type { CheckpointSummary } from './checkpoint';
+
 // Bootstrap
 export { runGlobalSeed } from './bootstrap/GlobalSeed';
 export type { SeedResult } from './bootstrap/GlobalSeed';

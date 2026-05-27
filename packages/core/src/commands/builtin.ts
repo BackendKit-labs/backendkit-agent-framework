@@ -1,4 +1,5 @@
 import { SlashCommandRegistry } from './SlashCommandRegistry';
+import { createCheckpoint, listCheckpoints, readCheckpoint } from '../checkpoint';
 
 /**
  * Registers the framework's built-in slash commands into the given registry.
@@ -32,5 +33,38 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             `Agent : ${ctx.effectiveAgentId ?? '—'}`,
             `Model : ${ctx.model ?? '—'}`,
         ].join('\n'));
+    });
+
+    registry.register('/checkpoint', 'Create / list / load session checkpoints', async (ctx) => {
+        const { args, emit, projectDir, sessionContent, injectContext } = ctx;
+        if (!projectDir) { emit('No active project directory.'); return; }
+
+        if (!args) {
+            emit('Usage:\n  /checkpoint <name>        create checkpoint\n  /checkpoint list          list checkpoints\n  /checkpoint load <name>   load checkpoint into context');
+            return;
+        }
+
+        if (args === 'list') {
+            const cps = await listCheckpoints(projectDir);
+            if (!cps.length) { emit('No checkpoints saved.'); return; }
+            emit(cps.map((cp, i) => `  ${i + 1}. ${cp.date} — ${cp.feature}`).join('\n'));
+            return;
+        }
+
+        if (args.startsWith('load ')) {
+            const target = args.slice(5).trim();
+            const cps = await listCheckpoints(projectDir);
+            const match = cps.find(cp => cp.feature.includes(target) || cp.filename.includes(target));
+            if (!match) { emit(`Checkpoint not found: ${target}`); return; }
+            const content = await readCheckpoint(projectDir, match.filename);
+            if (content) {
+                injectContext?.(`## Checkpoint: ${match.feature} (${match.date})\n\n${content}`);
+                emit(`Checkpoint loaded: ${match.feature}`);
+            }
+            return;
+        }
+
+        const cpPath = await createCheckpoint(projectDir, args, '', sessionContent ?? '');
+        emit(`Checkpoint created: ${args}\n${cpPath}`);
     });
 }

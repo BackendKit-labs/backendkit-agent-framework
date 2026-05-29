@@ -1,5 +1,11 @@
 import { SlashCommandRegistry } from './SlashCommandRegistry';
-import { createCheckpoint, listCheckpoints, readCheckpoint } from '../checkpoint';
+import {
+    createCheckpoint,
+    listCheckpoints,
+    readCheckpoint,
+    getLatestCheckpoints,
+    extractSessionFromCheckpoint,
+} from '../checkpoint';
 import { listWorkspaces, ensureWorkspace, readWorkspaceMemory } from '../workspace';
 
 /**
@@ -58,32 +64,49 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         const { args, emit, projectDir, sessionContent, injectContext } = ctx;
         if (!projectDir) { emit('No active project directory.'); return; }
 
-        if (!args) {
-            emit('Usage:\n  /checkpoint <name>        create checkpoint\n  /checkpoint list          list checkpoints\n  /checkpoint load <name>   load checkpoint into context');
-            return;
-        }
-
+        // /checkpoint list
         if (args === 'list') {
-            const cps = await listCheckpoints(projectDir);
-            if (!cps.length) { emit('No checkpoints saved.'); return; }
-            emit(cps.map((cp, i) => `  ${i + 1}. ${cp.date} — ${cp.feature}`).join('\n'));
+            const all = await listCheckpoints(projectDir);
+            if (!all.length) { emit('No checkpoints saved.'); return; }
+            const latest = getLatestCheckpoints(all);
+            const lines = latest.map((cp, i) => {
+                const count = all.filter(c => c.feature === cp.feature).length;
+                const label = (cp.feature || '(unnamed)').padEnd(24);
+                const timeDisplay = cp.time ? `${cp.time.slice(0, 2)}:${cp.time.slice(2)}` : '';
+                const versions = count > 1 ? `  (${count} versions)` : '';
+                return `  ${i + 1}. ${label} ${cp.date} ${timeDisplay}${versions}`;
+            });
+            emit(lines.join('\n'));
             return;
         }
 
-        if (args.startsWith('load ')) {
-            const target = args.slice(5).trim();
-            const cps = await listCheckpoints(projectDir);
-            const match = cps.find(cp => cp.feature.includes(target) || cp.filename.includes(target));
+        // /checkpoint load [feature]
+        if (args === 'load' || args.startsWith('load ')) {
+            const target = args.slice(4).trim();
+            const all = await listCheckpoints(projectDir);
+            if (!all.length) { emit('No checkpoints saved.'); return; }
+
+            let match = target
+                ? all.find(cp => cp.feature === target || cp.feature.includes(target))
+                : all[0]; // most recent overall
+
             if (!match) { emit(`Checkpoint not found: ${target}`); return; }
-            const content = await readCheckpoint(projectDir, match.filename);
-            if (content) {
-                injectContext?.(`## Checkpoint: ${match.feature} (${match.date})\n\n${content}`);
-                emit(`Checkpoint loaded: ${match.feature}`);
+
+            const raw = await readCheckpoint(projectDir, match.filename);
+            if (raw) {
+                const session = extractSessionFromCheckpoint(raw);
+                const timeDisplay = match.time ? `${match.time.slice(0, 2)}:${match.time.slice(2)}` : '';
+                const label = match.feature || 'unnamed';
+                injectContext?.(`## Checkpoint: ${label} (${match.date} ${timeDisplay})\n\n${session}`);
+                emit(`Checkpoint loaded: ${label}`);
             }
             return;
         }
 
-        const cpPath = await createCheckpoint(projectDir, args, '', sessionContent ?? '');
-        emit(`Checkpoint created: ${args}\n${cpPath}`);
+        // /checkpoint [name] — create (name optional)
+        const featureName = args ?? '';
+        const cpPath = await createCheckpoint(projectDir, featureName, '', sessionContent ?? '');
+        const label = featureName || '(unnamed)';
+        emit(`Checkpoint saved: ${label}\n${cpPath}`);
     });
 }

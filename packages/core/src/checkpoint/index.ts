@@ -6,6 +6,7 @@ import * as path from 'path';
 export interface CheckpointSummary {
     filename: string;
     date: string;
+    time: string;
     feature: string;
     path: string;
 }
@@ -14,28 +15,62 @@ export interface CheckpointSummary {
 
 const SESSION_MAX_BYTES = 8192;
 
+// ── Filename helpers ──────────────────────────────────────────────────────────
+
+function buildCheckpointFilename(featureName: string): string {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = now.toTimeString().slice(0, 5).replace(':', '');
+    if (!featureName) return `checkpoint-${date}-${time}.md`;
+    const safeName = featureName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').toLowerCase();
+    return `checkpoint-${safeName}-${date}-${time}.md`;
+}
+
+function parseCheckpointFilename(filename: string): { date: string; time: string; feature: string } | null {
+    if (!filename.startsWith('checkpoint-') || !filename.endsWith('.md')) return null;
+    const base = filename.slice('checkpoint-'.length, -'.md'.length);
+
+    // New format: {feature?}-YYYY-MM-DD-HHmm
+    const newFmt = base.match(/^(.*?)(\d{4}-\d{2}-\d{2})-(\d{4})$/);
+    if (newFmt) {
+        const feature = (newFmt[1] ?? '').replace(/-$/, '');
+        return { date: newFmt[2] ?? '', time: newFmt[3] ?? '', feature };
+    }
+
+    // Old format: YYYY-MM-DD-{feature} — parse for backwards compatibility
+    const oldFmt = base.match(/^(\d{4}-\d{2}-\d{2})-(.*)$/);
+    if (oldFmt) {
+        return { date: oldFmt[1] ?? '', time: '0000', feature: oldFmt[2] ?? '' };
+    }
+
+    return null;
+}
+
 // ── Checkpoint CRUD ───────────────────────────────────────────────────────────
 
 export async function createCheckpoint(
     projectDir: string,
     featureName: string,
     description: string,
-    sessionContent: string
+    sessionContent: string,
 ): Promise<string> {
-    const date = new Date().toISOString().split('T')[0];
-    const safeName = featureName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').toLowerCase();
-    const cpFile = path.join(projectDir, 'checkpoints', `checkpoint-${date}-${safeName}.md`);
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const timeDisplay = now.toTimeString().slice(0, 5);
+    const label = featureName || '(unnamed)';
+    const cpFile = path.join(projectDir, 'checkpoints', buildCheckpointFilename(featureName));
 
     const content = [
         '---',
-        `tags: [memory, checkpoint, ${safeName}]`,
+        `tags: [memory, checkpoint${featureName ? `, ${featureName.replace(/\s+/g, '-').toLowerCase()}` : ''}]`,
         `date: ${date}`,
+        `time: ${timeDisplay}`,
         `feature: "${featureName}"`,
         '---',
         '',
-        `# Checkpoint: ${featureName}`,
+        `# Checkpoint: ${label}`,
         '',
-        `**Date:** ${date}  `,
+        `**Date:** ${date} ${timeDisplay}`,
         description ? `**Description:** ${description}` : '',
         '',
         '---',
@@ -51,7 +86,7 @@ export async function createCheckpoint(
     const logFile = path.join(projectDir, 'project-log.md');
     try {
         const log = await fs.readFile(logFile, 'utf-8');
-        const row = `| ${date} | ${featureName} | Checkpoint |`;
+        const row = `| ${date} ${timeDisplay} | ${label} | Checkpoint |`;
         if (log.includes('## Project Milestones')) {
             const updated = log.replace(
                 /(## Project Milestones[\s\S]*?\|---.*?\n)/,
@@ -71,15 +106,25 @@ export async function listCheckpoints(projectDir: string): Promise<CheckpointSum
         return files
             .filter(f => f.startsWith('checkpoint-') && f.endsWith('.md'))
             .map(f => {
-                const base = f.slice('checkpoint-'.length, -'.md'.length);
-                const date = base.slice(0, 10);
-                const feature = base.slice(11);
-                return { filename: f, date, feature, path: path.join(dir, f) };
+                const parsed = parseCheckpointFilename(f);
+                if (!parsed) return null;
+                return { filename: f, date: parsed.date, time: parsed.time, feature: parsed.feature, path: path.join(dir, f) };
             })
-            .sort((a, b) => b.date.localeCompare(a.date));
+            .filter((x): x is CheckpointSummary => x !== null)
+            .sort((a, b) => `${b.date}-${b.time}`.localeCompare(`${a.date}-${a.time}`));
     } catch {
         return [];
     }
+}
+
+/** Returns the most recent checkpoint per unique feature name. */
+export function getLatestCheckpoints(checkpoints: CheckpointSummary[]): CheckpointSummary[] {
+    const seen = new Map<string, CheckpointSummary>();
+    for (const cp of checkpoints) {
+        const key = cp.feature || '__unnamed__';
+        if (!seen.has(key)) seen.set(key, cp);
+    }
+    return Array.from(seen.values());
 }
 
 export async function readCheckpoint(projectDir: string, filename: string): Promise<string | null> {
@@ -90,6 +135,14 @@ export async function readCheckpoint(projectDir: string, filename: string): Prom
     }
 }
 
+/** Extracts only the session state body from a checkpoint file (strips frontmatter + headers). */
+export function extractSessionFromCheckpoint(content: string): string {
+    const marker = '## Session state at checkpoint creation';
+    const idx = content.indexOf(marker);
+    if (idx === -1) return content;
+    return content.slice(idx + marker.length).trim();
+}
+
 // ── Session compaction ────────────────────────────────────────────────────────
 
 export async function compactSession(
@@ -97,12 +150,12 @@ export async function compactSession(
     featureName: string,
     checkpointRef: string
 ): Promise<void> {
-    const date = new Date().toISOString().split('T')[0];
-    const sesionFile = path.join(projectDir, 'memory', 'session.md');
+    const date = new Date().toISOString().slice(0, 10);
+    const sessionFile = path.join(projectDir, 'memory', 'session.md');
 
     let content: string;
     try {
-        content = await fs.readFile(sesionFile, 'utf-8');
+        content = await fs.readFile(sessionFile, 'utf-8');
     } catch {
         return;
     }
@@ -125,7 +178,7 @@ export async function compactSession(
         `*Compacted on ${date} (checkpoint: ${checkpointRef})*`
     );
 
-    await fs.writeFile(sesionFile, content, 'utf-8');
+    await fs.writeFile(sessionFile, content, 'utf-8');
 }
 
 export function compactSessionContent(content: string): string {

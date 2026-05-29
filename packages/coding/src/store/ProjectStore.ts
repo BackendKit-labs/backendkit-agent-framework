@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { homedir } from 'os';
 import type { ProjectStoreData } from '@bk/agent-core';
 import { cwdToProjectKey } from '@bk/agent-core';
@@ -13,6 +13,33 @@ export class ProjectStore implements ProjectStoreData {
         this.projectDir = join(this.homeDir, 'projects', cwdToProjectKey(cwd));
         mkdirSync(join(this.projectDir, 'audits'), { recursive: true });
         mkdirSync(join(this.projectDir, 'memory'), { recursive: true });
+        this.initSessionFile(cwd);
+    }
+
+    private initSessionFile(cwd: string): void {
+        const sessionPath = join(this.projectDir, 'memory', 'session.md');
+        if (existsSync(sessionPath)) return;
+        const projectName = basename(cwd);
+        const date = new Date().toISOString().slice(0, 10);
+        const template = [
+            '---',
+            `project: ${projectName}`,
+            `created_at: ${date}`,
+            `updated_at: ${date}`,
+            'last_checkpoint: null',
+            '---',
+            '',
+            '## Current Feature',
+            '*(none)*',
+            '',
+            '## Decisions',
+            '',
+            '## Active Issues',
+            '',
+            '## Engine Learnings',
+            '',
+        ].join('\n');
+        writeFileSync(sessionPath, template, 'utf-8');
     }
 
     // ── memory/contexto-proyecto.md ───────────────────────────────────────────

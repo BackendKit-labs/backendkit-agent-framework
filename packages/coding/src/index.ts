@@ -1,16 +1,14 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
-    AgentEngine,
-    AgentRegistry,
-    ProviderRegistry,
-    ToolRegistry,
+    createBaseEngine,
     SkillLoader,
+    type LLMProvider,
     type Transport,
     type Skill,
-    StdoutTransport,
     getProjectDir,
 } from '@bk/agent-core';
+export type { AgentEngine } from '@bk/agent-core';
 import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
@@ -172,44 +170,37 @@ export interface CodingEngineOptions {
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
-export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
+export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof createBaseEngine> {
     const cwd     = opts.workingDir ?? process.cwd();
     const appName = opts.appName ?? 'bk-agent';
 
-    const agents = new AgentRegistry();
+    // ── Agents (builtins + global + project overrides) ────────────────────────
     const allAgents = AgentLoader.load({ appName, cwd, builtins: CODING_AGENTS });
-    for (const a of allAgents) agents.upsert(a);
 
-    const tools = new ToolRegistry();
-    for (const tool of CODING_TOOLS) tools.register(tool);
-
-    const providers = new ProviderRegistry();
+    // ── Providers (instantiate from config) ───────────────────────────────────
+    const providers: Record<string, LLMProvider> = {};
     for (const [id, config] of Object.entries(opts.providers)) {
         if (!config) continue;
         if (id === 'anthropic') {
             const cfg = config as AnthropicConfig;
-            providers.register(id, new AnthropicProvider({
+            providers[id] = new AnthropicProvider({
                 apiKey: cfg.apiKey,
                 model: cfg.model ?? DEFAULT_MODELS.anthropic,
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
-            }));
+            });
         } else {
             const cfg = config as OpenAICompatibleConfig;
             const baseUrl = cfg.baseUrl ?? KNOWN_BASE_URLS[id];
             if (!baseUrl) throw new Error(`Provider "${id}" requires a baseUrl`);
-            providers.register(id, new OpenAICompatibleProvider({
+            providers[id] = new OpenAICompatibleProvider({
                 apiKey: cfg.apiKey,
                 baseUrl,
                 model: cfg.model ?? DEFAULT_MODELS[id] ?? 'gpt-4o',
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
-            }));
+            });
         }
-    }
-
-    if (!providers.has(opts.defaultProvider)) {
-        throw new Error(`defaultProvider "${opts.defaultProvider}" is not configured in providers`);
     }
 
     // ── Persistent store + memory ─────────────────────────────────────────────
@@ -221,16 +212,14 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         store = new ProjectStore(cwd, appName);
         memory = new PersistentMemory(store.projectDir);
 
-        // Load AGENT.md from working directory if present
         const agentMdPath = join(cwd, 'AGENT.md');
         const agentMd = existsSync(agentMdPath)
             ? readFileSync(agentMdPath, 'utf-8').trim()
             : undefined;
 
-        // Extra pipeline files managed by other subsystems (not ProjectStore)
         const projectDir = getProjectDir(appName, cwd);
         const pipelineParts: string[] = [];
-        const tryRead = (path: string) => existsSync(path) ? readFileSync(path, 'utf-8').trim() : null;
+        const tryRead = (p: string) => existsSync(p) ? readFileSync(p, 'utf-8').trim() : null;
 
         const sesion = tryRead(join(projectDir, 'memory', 'session.md'));
         if (sesion) pipelineParts.push(`## Current Session\n${sesion}`);
@@ -238,26 +227,19 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         const lecciones = tryRead(join(projectDir, 'audits', 'lecciones-aprendidas.md'));
         if (lecciones) pipelineParts.push(`## Lecciones Aprendidas\n${lecciones}`);
 
-        // buildSystemContext already covers: USER.md, AGENT.md, memory/contexto-proyecto.md,
-        // learnings.md, log.md — so we only add what it doesn't manage
         const storeCtx = store.buildSystemContext(agentMd) || '';
         const pipelineCtx = pipelineParts.join('\n\n');
         projectContext = [storeCtx, pipelineCtx].filter(Boolean).join('\n\n') || undefined;
     }
 
-    // Detect the project stack from indicator files and append to context.
-    // Acts as a fallback when AGENT.md hasn't been generated yet (no init workflow run).
+    // ── Stack detection ───────────────────────────────────────────────────────
     const detectedStack = detectProjectStack(cwd);
     if (detectedStack.length > 0) {
         const stackSection = `## Detected Project Stack\n${detectedStack.join(', ')}`;
         projectContext = projectContext ? `${projectContext}\n\n${stackSection}` : stackSection;
     }
 
-    // ── Skills ────────────────────────────────────────────────────────────────
-    // Three-layer skill hierarchy (builtins are in-memory; YAML layers are lazy-loaded):
-    //   1. Framework builtins: GLOBAL_BUILTIN_SKILLS + NODE_PACK_SKILLS (always available)
-    //   2. Coding agent skills: ~/.{appName}/skills/global/ + /packs/ (the tool's own skills)
-    //   3. Project skills: {cwd}/.{appName}/skills/ (git-tracked, team-shareable)
+    // ── Skills (3-layer: builtins in-memory + YAML lazy-loaded) ──────────────
     const builtinSkills: Skill[] = [
         ...GLOBAL_BUILTIN_SKILLS,
         ...NODE_PACK_SKILLS,
@@ -274,14 +256,14 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         }
         : undefined;
 
-    return new AgentEngine({
-        model: { provider: opts.defaultProvider, id: opts.defaultProvider },
-        agents,
-        tools,
+    // ── Delegate engine assembly to createBaseEngine ──────────────────────────
+    return createBaseEngine({
         providers,
         defaultProvider: opts.defaultProvider,
-        transport: opts.transport ?? new StdoutTransport(),
-        defaultAgentId: opts.defaultAgent ?? 'general',
+        agents: allAgents,
+        tools: CODING_TOOLS,
+        defaultAgent: opts.defaultAgent ?? 'general',
+        transport: opts.transport,
         workingDir: cwd,
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
@@ -296,7 +278,7 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
 
 // ── Config-based factory (reads ~/.bk-agent/config.json) ─────────────────────
 
-export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOptions> = {}): AgentEngine {
+export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOptions> = {}): ReturnType<typeof createBaseEngine> {
     const appName = overrides.appName ?? 'bk-agent';
     const loader = new ConfigLoader(appName);
     const config = loader.load();

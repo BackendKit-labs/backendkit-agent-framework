@@ -4,6 +4,8 @@ export type { AgentEngineOptions } from './engine/AgentEngine';
 export { AgentRegistry } from './engine/AgentRegistry';
 export { ToolRegistry } from './engine/ToolRegistry';
 export { ProviderRegistry } from './engine/ProviderRegistry';
+export { createBaseEngine } from './engine/createBaseEngine';
+export type { BaseEngineOptions } from './engine/createBaseEngine';
 
 // Delegation
 export { DelegationBus } from './delegation/DelegationBus';

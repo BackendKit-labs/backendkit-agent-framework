@@ -8,6 +8,10 @@ import {
     SkillLoader,
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
+    GO_PACK_SKILLS,
+    JAVA_PACK_SKILLS,
+    KOTLIN_PACK_SKILLS,
+    PYTHON_PACK_SKILLS,
     type Transport,
     type Skill,
     StdoutTransport,
@@ -36,17 +40,19 @@ import { ConfigLoader } from './config/ConfigLoader';
 // ── Stack detection ───────────────────────────────────────────────────────────
 
 const STACK_INDICATORS: Array<{ file: string; stack: string }> = [
-    { file: 'package.json',     stack: 'node' },
-    { file: 'tsconfig.json',    stack: 'typescript' },
-    { file: 'requirements.txt', stack: 'python' },
-    { file: 'pyproject.toml',   stack: 'python' },
-    { file: 'pom.xml',          stack: 'java' },
-    { file: 'build.gradle',     stack: 'java' },
-    { file: 'Cargo.toml',       stack: 'rust' },
-    { file: 'go.mod',           stack: 'go' },
-    { file: 'composer.json',    stack: 'php' },
-    { file: 'Gemfile',          stack: 'ruby' },
-    { file: 'mix.exs',          stack: 'elixir' },
+    { file: 'package.json',         stack: 'node' },
+    { file: 'tsconfig.json',        stack: 'typescript' },
+    { file: 'requirements.txt',     stack: 'python' },
+    { file: 'pyproject.toml',       stack: 'python' },
+    { file: 'pom.xml',              stack: 'java' },
+    { file: 'build.gradle',         stack: 'java' },
+    { file: 'build.gradle.kts',     stack: 'kotlin' },  // Kotlin DSL gradle
+    { file: 'settings.gradle.kts',  stack: 'kotlin' },  // Android / Kotlin Multiplatform
+    { file: 'Cargo.toml',           stack: 'rust' },
+    { file: 'go.mod',               stack: 'go' },
+    { file: 'composer.json',        stack: 'php' },
+    { file: 'Gemfile',              stack: 'ruby' },
+    { file: 'mix.exs',              stack: 'elixir' },
 ];
 
 function detectProjectStack(cwd: string): string[] {
@@ -249,7 +255,14 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
     //   1. Framework builtins: GLOBAL_BUILTIN_SKILLS + NODE_PACK_SKILLS (always available)
     //   2. Coding agent skills: ~/.{appName}/skills/global/ + /packs/ (the tool's own skills)
     //   3. Project skills: {cwd}/.{appName}/skills/ (git-tracked, team-shareable)
-    const builtinSkills: Skill[] = [...GLOBAL_BUILTIN_SKILLS, ...NODE_PACK_SKILLS];
+    const builtinSkills: Skill[] = [
+        ...GLOBAL_BUILTIN_SKILLS,
+        ...NODE_PACK_SKILLS,
+        ...GO_PACK_SKILLS,
+        ...JAVA_PACK_SKILLS,
+        ...KOTLIN_PACK_SKILLS,
+        ...PYTHON_PACK_SKILLS,
+    ];
     const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
     const loadSkills = skillLoader
         ? async () => {

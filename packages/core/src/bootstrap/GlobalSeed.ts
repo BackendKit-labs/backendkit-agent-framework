@@ -4,8 +4,7 @@ import * as path from 'path';
 import * as yaml from 'yaml';
 import { getFrameworkDir, getProjectDir, cwdToProjectKey } from '../shared/utils/project-key';
 import { DEFAULT_CONFIG } from './config';
-import { GLOBAL_BUILTIN_SKILLS } from '../skills/builtins/global';
-import { NODE_PACK_SKILLS } from '../skills/builtins/node-pack';
+import type { Skill } from '../skills/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -229,9 +228,19 @@ function buildAgentMdTemplate(projectName: string): string {
  * @param appName  Application name (determines ~/.{appName}/ location)
  * @param cwd      Project directory (default: process.cwd())
  */
+export interface GlobalSeedOptions {
+    /**
+     * Skills to seed as YAML files on first run so users can discover and customize them.
+     * Pass your domain-specific builtin skills here (e.g. GLOBAL_BUILTIN_SKILLS + NODE_PACK_SKILLS).
+     * The engine always loads skills from memory — seeding is optional UX scaffolding.
+     */
+    skills?: Skill[];
+}
+
 export async function runGlobalSeed(
     appName: string,
     cwd: string = process.cwd(),
+    options: GlobalSeedOptions = {},
 ): Promise<SeedResult> {
     const globalDir   = getFrameworkDir(appName);
     const agentsDir   = path.join(globalDir, 'agents');
@@ -301,23 +310,20 @@ export async function runGlobalSeed(
         }
     }));
 
-    // ── 6. Global skills (language-agnostic) ──────────────────────────────────
-    await Promise.all(GLOBAL_BUILTIN_SKILLS.map(async (skill) => {
-        const skillPath = path.join(skillsGlobal, `${skill.name}.yaml`);
-        if (!(await fileExists(skillPath))) {
-            await fs.writeFile(skillPath, yaml.stringify(skill), 'utf-8');
-            result.seededSkills++;
-        }
-    }));
-
-    // ── 7. Node pack skills ───────────────────────────────────────────────────
-    await Promise.all(NODE_PACK_SKILLS.map(async (skill) => {
-        const skillPath = path.join(skillsPacks, `${skill.name}.yaml`);
-        if (!(await fileExists(skillPath))) {
-            await fs.writeFile(skillPath, yaml.stringify(skill), 'utf-8');
-            result.seededSkills++;
-        }
-    }));
+    // ── 6. Seed provided skills as YAML so users can discover and customize them ─
+    if (options.skills && options.skills.length > 0) {
+        await Promise.all(options.skills.map(async (skill) => {
+            const dir = skill.scope === 'pack' && skill.pack
+                ? path.join(globalDir, 'skills', 'packs', skill.pack)
+                : skillsGlobal;
+            await fs.mkdir(dir, { recursive: true });
+            const skillPath = path.join(dir, `${skill.name}.yaml`);
+            if (!(await fileExists(skillPath))) {
+                await fs.writeFile(skillPath, yaml.stringify(skill), 'utf-8');
+                result.seededSkills++;
+            }
+        }));
+    }
 
     return result;
 }

@@ -6,17 +6,19 @@ import {
     ProviderRegistry,
     ToolRegistry,
     SkillLoader,
+    type Transport,
+    type Skill,
+    StdoutTransport,
+    getProjectDir,
+} from '@bk/agent-core';
+import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
     GO_PACK_SKILLS,
     JAVA_PACK_SKILLS,
     KOTLIN_PACK_SKILLS,
     PYTHON_PACK_SKILLS,
-    type Transport,
-    type Skill,
-    StdoutTransport,
-    getProjectDir,
-} from '@bk/agent-core';
+} from './skills';
 import { DeepSeekProvider } from './providers/DeepSeekProvider';
 import { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 import { AnthropicProvider } from './providers/AnthropicProvider';
@@ -66,6 +68,7 @@ function detectProjectStack(cwd: string): string[] {
 }
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
+export * from './skills';
 export { DeepSeekProvider } from './providers/DeepSeekProvider';
 export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 export { AnthropicProvider } from './providers/AnthropicProvider';

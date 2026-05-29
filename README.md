@@ -1,6 +1,6 @@
 # agent-framework
 
-Framework multi-agente para asistentes de codigo, construido en TypeScript con arquitectura monorepo. Disenado para ser agnnostico de LLM, agnnostico de transporte y extensible mediante un sistema jerarquico de skills.
+Framework multi-agente para asistentes de codigo, construido en TypeScript con arquitectura monorepo. Disenado para ser agnostico de LLM, agnostico de transporte y extensible mediante un sistema jerarquico de skills.
 
 ---
 
@@ -19,21 +19,30 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
    - [Herramientas de memoria y contexto](#herramientas-de-memoria-y-contexto)
    - [ProjectStore — persistencia entre sesiones](#projectstore--persistencia-entre-sesiones)
    - [AgentLoader — carga automatica de agentes](#agentloader--carga-automatica-de-agentes)
-7. [Comando /init — inicializacion de proyectos](#comando-init--inicializacion-de-proyectos)
-8. [Slash commands](#slash-commands)
-9. [Sistema de Skills](#sistema-de-skills)
-10. [Skills builtin](#skills-builtin)
-11. [Servidor MCP](#servidor-mcp)
-12. [Casos de uso basicos](#casos-de-uso-basicos)
-13. [Casos de uso intermedios](#casos-de-uso-intermedios)
-14. [Casos de uso avanzados](#casos-de-uso-avanzados)
-15. [Crear agentes personalizados](#crear-agentes-personalizados)
-16. [Instalar packs externos de skills](#instalar-packs-externos-de-skills)
-17. [Crear tu propio pack de skills](#crear-tu-propio-pack-de-skills)
-18. [Integracion con Claude Code / Cursor](#integracion-con-claude-code--cursor)
-19. [Librerias de resiliencia](#librerias-de-resiliencia)
-20. [Estructura de datos en disco](#estructura-de-datos-en-disco)
-21. [Roadmap](#roadmap)
+7. [Estructura de datos en disco](#estructura-de-datos-en-disco)
+8. [Comando /init — inicializacion de proyectos](#comando-init--inicializacion-de-proyectos)
+9. [Slash commands built-in](#slash-commands-built-in)
+   - [/help](#help)
+   - [/agents](#agents)
+   - [/skills](#skills)
+   - [/status](#status)
+   - [/checkpoint](#checkpoint)
+   - [/workspace](#workspace)
+10. [Sistema de checkpoints](#sistema-de-checkpoints)
+11. [Workspaces multi-proyecto](#workspaces-multi-proyecto)
+12. [Sistema de Skills](#sistema-de-skills)
+13. [Skills builtin](#skills-builtin)
+14. [Servidor MCP](#servidor-mcp)
+15. [Casos de uso basicos](#casos-de-uso-basicos)
+16. [Casos de uso intermedios](#casos-de-uso-intermedios)
+17. [Casos de uso avanzados](#casos-de-uso-avanzados)
+18. [Crear agentes personalizados](#crear-agentes-personalizados)
+19. [Instalar packs externos de skills](#instalar-packs-externos-de-skills)
+20. [Crear tu propio pack de skills](#crear-tu-propio-pack-de-skills)
+21. [Integracion con Claude Code / Cursor](#integracion-con-claude-code--cursor)
+22. [Librerias de resiliencia](#librerias-de-resiliencia)
+23. [Integrar los slash commands en tu app](#integrar-los-slash-commands-en-tu-app)
+24. [Roadmap](#roadmap)
 
 ---
 
@@ -44,7 +53,7 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 | Problema | Solucion |
 |----------|----------|
 | Un solo agente no puede hacer todo bien | **9 agentes especializados** orquestados por un agente general |
-| Los agentes olvidan convenciones del proyecto | **Skills + ProjectStore**: contexto persistente entre sesiones |
+| Los agentes olvidan convenciones del proyecto | **Skills + ProjectStore + session.md**: contexto persistente entre sesiones |
 | Las llamadas a LLMs fallan o son lentas | **Resiliencia integrada**: CircuitBreaker, Retry, Bulkhead |
 
 El framework no impone un LLM especifico. Funciona con DeepSeek, Anthropic (Claude), OpenAI, Kimi (Moonshot) o Grok.
@@ -56,8 +65,8 @@ El framework no impone un LLM especifico. Funciona con DeepSeek, Anthropic (Clau
 ```
 agent-framework/
 ├── packages/
-│   ├── core/          @bk/agent-core     — Motor generico, skills, orquestacion base
-│   ├── coding/        @bk/agent-coding   — 9 agentes, filesystem tools, LLM providers, /init
+│   ├── core/          @bk/agent-core     — Motor generico, skills, orquestacion, commands, checkpoints, workspaces
+│   ├── coding/        @bk/agent-coding   — 9 agentes, filesystem tools, LLM providers, /init, ProjectStore
 │   └── mcp-server/    @bk/mcp-server     — Servidor MCP: code intelligence + skills
 └── examples/
     └── coding-assistant/                 — REPL interactivo completo
@@ -88,6 +97,7 @@ agent-framework/
 │   ToolRegistry  ·  ProviderRegistry  ·  SessionMemory       │
 │   Orchestrator  ·  FSM  ·  ContextPipeline                  │
 │   QAService  ·  Reflection  ·  SkillSystem                  │
+│   SlashCommandRegistry  ·  Checkpoint  ·  Workspace         │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -110,7 +120,7 @@ agent-framework/
 ### Clonar y construir
 
 ```bash
-git clone https://github.com/backendkit-dev/agent-framework.git
+git clone https://github.com/BackendKit-labs/backendkit-agent-framework.git
 cd agent-framework
 npm install
 npm run build
@@ -142,7 +152,7 @@ Editar `~/.bk-agent/config.json` con tus API keys:
   "providers": {
     "deepseek": { "apiKey": "sk-..." },
     "anthropic": { "apiKey": "sk-ant-..." },
-    "openai": { "apiKey": "sk-..." }
+    "openai":    { "apiKey": "sk-..." }
   },
   "defaultProvider": "anthropic"
 }
@@ -166,11 +176,13 @@ node /path/to/coding-assistant/dist/index.js
 El agente arranca en modo `general` (orquestador). Desde ahi podes:
 
 ```
-> /init              # Analizar el proyecto y generar documentacion
-> /agent list        # Ver todos los agentes disponibles
-> /agent backend     # Cambiar al agente backend
+> /help               # Lista comandos + el LLM explica como puede ayudarte
+> /init               # Analizar el proyecto y generar documentacion
+> /agent list         # Ver todos los agentes disponibles
+> /agent backend      # Cambiar al agente backend
+> /checkpoint auth    # Guardar checkpoint de la sesion actual
+> /workspace list     # Ver workspaces multi-proyecto
 > Como agrego autenticacion JWT a la API?
-> /cwd /otro/proyecto
 ```
 
 ---
@@ -179,7 +191,7 @@ El agente arranca en modo `general` (orquestador). Desde ahi podes:
 
 ### `@bk/agent-core`
 
-Motor generico del framework. Model-agnostic, transport-agnostic. Exporta el engine, sistema de skills, orquestacion, reflection y utilidades compartidas.
+Motor generico del framework. Model-agnostic, transport-agnostic. Exporta el engine, sistema de skills, orquestacion, checkpoints, workspaces, comandos slash y utilidades compartidas.
 
 ### `@bk/agent-coding`
 
@@ -247,21 +259,13 @@ El framework soporta 5 proveedores de LLM. Se pueden usar varios simultaneamente
 | `grok` | `GROK_API_KEY` | `grok-3` |
 
 ```typescript
-// Usar un provider especifico para un agente puntual
 const engine = createCodingEngine({
   providers: {
     anthropic: { apiKey: '...', model: 'claude-opus-4-7' },
     deepseek:  { apiKey: '...', model: 'deepseek-coder' },
   },
   defaultProvider: 'anthropic',
-  // El agente 'coder' puede usar deepseek para menor costo
 });
-```
-
-La variable `AGENT_PROVIDER` fuerza el provider sin cambiar la config:
-
-```bash
-AGENT_PROVIDER=deepseek node dist/index.js
 ```
 
 ---
@@ -270,86 +274,17 @@ AGENT_PROVIDER=deepseek node dist/index.js
 
 El framework incluye 9 agentes con roles bien definidos. El agente **general** actua como orquestador y nunca escribe codigo directamente — delega a los especialistas.
 
-#### Agente `general` (Orquestador)
-
-- Analiza la solicitud del usuario
-- Decide cuales especialistas necesita y en que orden
-- Emite multiples `ask_agent` en la misma respuesta para ejecucion paralela
-- Maximo 6 agentes en paralelo por wave; multiples waves para tareas grandes
-- Tiene acceso a herramientas de lectura y memoria (no escribe archivos)
-
-#### Agente `coder` (Implementador puro)
-
-- Recibe planes de los especialistas y los ejecuta
-- Siempre lee los archivos antes de editarlos
-- Prefiere `edit_file` sobre `write_file` para archivos existentes
-- Ejecuta comandos para verificar que los cambios funcionan
-- Reporta concisamente lo que hizo
-
-#### Agente `backend`
-
-- APIs REST y GraphQL
-- NestJS, Express, Fastify
-- TypeORM, Prisma, Sequelize
-- Validacion de inputs, manejo de errores, dependency injection
-- Delega implementacion a `coder`
-
-#### Agente `frontend`
-
-- React, Vue 3, Angular
-- TypeScript, Tailwind CSS
-- Accesibilidad WCAG 2.1
-- Componentes pequenos y reutilizables
-- State management: Zustand, Pinia, Redux
-- Delega implementacion a `coder`
-
-#### Agente `qa-engineer`
-
-El QA Engineer tiene dos responsabilidades que lo definen: **crear tests** y **auditar cada proceso importante que termina**. Cada vez que otro agente completa un analisis, una feature o una refactorizacion significativa, el QA audita el resultado y persiste el reporte via `save_audit`.
-
-- Unit tests (Jest, Vitest, Mocha)
-- Integration tests (Supertest, Testing Library)
-- E2E tests (Playwright, Cypress)
-- TDD / BDD, analisis de cobertura
-- Nombres de test: `"should [behavior] when [condition]"`
-- **Audita** cada proceso importante al finalizar → `save_audit` con reporte estructurado
-- **Revisa** el output de otros agentes (architecture, backend, security) antes de darlo por cerrado
-- Delega implementacion de tests a `coder`
-
-#### Agente `security`
-
-- OWASP Top 10
-- JWT, OAuth 2.0, session management
-- RBAC / ABAC, policy enforcement
-- SQL injection, XSS, CSRF
-- Secrets management, hardening
-- Delega remediaciones a `coder`
-
-#### Agente `architecture`
-
-- Domain-Driven Design (DDD)
-- Microservicios vs monolito (con trade-offs)
-- Event-driven, CQRS, Event Sourcing
-- C4 model, ADRs
-- Delega a `coder`, `backend` y `frontend`
-
-#### Agente `infrastructure`
-
-- Docker y Docker Compose
-- Kubernetes (manifests, Helm, operators)
-- CI/CD: GitHub Actions, GitLab CI, Jenkins
-- Cloud: AWS, GCP, Azure
-- Terraform, Nginx, monitoring
-- Delega a `coder`
-
-#### Agente `data`
-
-- SQL optimization, indexes, query plans
-- Schema design, normalizacion
-- ETL/ELT, data warehousing
-- Spark, pandas, dbt
-- Disena schemas para access patterns
-- Solo tiene herramientas de lectura — delega escritura a `coder`
+| Agente | Rol | Delega a |
+|--------|-----|----------|
+| `general` | Orquestador — analiza, divide y coordina en paralelo | todos los especialistas |
+| `coder` | Implementador puro — escribe y edita archivos | — |
+| `backend` | APIs REST/GraphQL, NestJS/Express, ORMs | `coder` |
+| `frontend` | React/Vue, Tailwind, componentes, state management | `coder` |
+| `qa-engineer` | Tests (unit/integration/e2e), auditorias de proceso | `coder` |
+| `security` | OWASP, JWT, OAuth, RBAC, hardening | `coder` |
+| `architecture` | DDD, microservicios, ADRs, trade-offs | `coder`, `backend`, `frontend` |
+| `infrastructure` | Docker, Kubernetes, CI/CD, cloud, Terraform | `coder` |
+| `data` | SQL, indexes, ETL, schema design | `coder` |
 
 ---
 
@@ -362,56 +297,40 @@ Usuario: "Agregar sistema de notificaciones en tiempo real"
 
 general
   ├─ Wave 1 (paralelo)
-  │   ├─ architecture → disena la solucion (WebSockets vs SSE vs polling)
+  │   ├─ architecture → disena la solucion (WebSockets vs SSE)
   │   └─ security     → evalua superficie de ataque
   │
   └─ Wave 2 (paralelo, espera Wave 1)
       ├─ backend      → implementa el servidor WebSocket
       ├─ frontend     → implementa el cliente React
-      ├─ qa-engineer  → escribe los tests de integracion
-      │                 + audita el resultado completo → save_audit
+      └─ qa-engineer  → escribe tests + audita el resultado → save_audit
               ↓ (cada uno delega a)
            coder → ejecuta los cambios en el filesystem
-```
-
-Los eventos de delegacion se propagan al transport:
-
-```typescript
-engine.on('agent_switch', ({ from, to, reason }) => {
-  console.log(`${from} → ${to}: ${reason}`);
-});
 ```
 
 ---
 
 ### Herramientas de filesystem
 
-Todos los agentes con permisos de escritura tienen acceso a estas herramientas:
-
 | Herramienta | Descripcion |
 |-------------|-------------|
-| `read_file` | Lee el contenido de un archivo (resuelve paths relativos y absolutos) |
+| `read_file` | Lee el contenido de un archivo |
 | `write_file` | Crea o sobrescribe un archivo, crea directorios padre automaticamente |
-| `edit_file` | Reemplaza un string exacto dentro de un archivo. Error si hay multiples ocurrencias sin `replace_all=true` |
-| `list_directory` | Lista el directorio recursivamente hasta profundidad 3 (ignora node_modules, .git) |
-| `search_files` | Grep recursivo con soporte de glob y case-insensitive. Retorna hasta 200 lineas |
-| `run_command` | Ejecuta un comando shell con timeout configurable (default 30s). Bloqueados: `rm -rf /`, `format`, `del /f /s /q c:\` |
-
-Los agentes de solo-lectura (`general`, `data`) no tienen `write_file`, `edit_file` ni `run_command`.
+| `edit_file` | Reemplaza un string exacto dentro de un archivo |
+| `list_directory` | Lista el directorio recursivamente hasta profundidad 3 |
+| `search_files` | Grep recursivo con soporte de glob y case-insensitive |
+| `run_command` | Ejecuta un comando shell con timeout configurable (default 30s) |
 
 ---
 
 ### Herramientas de memoria y contexto
 
-Todos los agentes tienen acceso a herramientas de persistencia para mantener contexto entre sesiones:
-
 | Herramienta | Que guarda | Donde |
 |-------------|------------|-------|
-| `save_context` | Descubrimientos del proyecto: stack, arquitectura, archivos clave | `context.md` del proyecto |
-| `save_learning` | Preferencias aprendidas del usuario en este proyecto | `learnings.md` del proyecto |
-| `save_user_preference` | Preferencias globales del usuario (aplica a todos los proyectos) | `USER.md` global |
-| `append_log` | Actividad reciente con timestamp ISO | `log.md` del proyecto |
-| `save_audit` | Reporte de auditoria al finalizar un proceso importante. Responsabilidad del `qa-engineer` | `audits/{agente}-{fecha}.md` |
+| `save_context` | Descubrimientos del proyecto: stack, arquitectura, archivos clave | `memory/contexto-proyecto.md` |
+| `save_learning` | Preferencias aprendidas del usuario en este proyecto | `learnings.md` |
+| `save_user_preference` | Preferencias globales del usuario (todos los proyectos) | `~/.{appName}/USER.md` |
+| `save_audit` | Reporte de auditoria estructurado al finalizar un proceso | `audits/{agente}-{fecha}.md` |
 | `get_latest_audit` | Recupera el audit mas reciente de un agente especifico | `audits/` |
 | `list_audits` | Lista todos los audits guardados del proyecto | `audits/` |
 
@@ -419,26 +338,18 @@ Todos los agentes tienen acceso a herramientas de persistencia para mantener con
 
 ### ProjectStore — persistencia entre sesiones
 
-El ProjectStore guarda el estado del proyecto en `~/.{appName}/projects/{cwd-hash}/`. Cada directorio de trabajo tiene su propio store.
+El ProjectStore guarda el estado del proyecto en `~/.{appName}/projects/{project-key}/`. Usa una funcion unica de hash (`cwdToProjectKey`) en todo el framework para garantizar que todos los subsistemas lean y escriban en el mismo directorio.
 
-```
-~/.bk-agent/projects/abc123def/
-├── context.md        ← Stack detectado, arquitectura, archivos clave, convenciones
-├── learnings.md      ← Preferencias del usuario aprendidas en este proyecto
-├── log.md            ← Actividad reciente (ultimas 20 lineas en el system context)
-├── memory.json       ← Key-value persistente para datos entre sesiones
-└── audits/
-    ├── security-2025-05-26.md
-    └── qa-engineer-2025-05-26.md
-```
+Al inicializar, crea automaticamente `memory/session.md` si no existe — la primera vez que el agente trabaja en un proyecto ya tiene su archivo de sesion listo.
 
-En cada sesion nueva, el engine construye automaticamente el system context con:
+En cada sesion nueva, el engine inyecta automaticamente al system prompt:
 
-1. **User Profile** — `~/.bk-agent/USER.md` (rol, estilo de trabajo, preferencias globales)
-2. **Project Instructions** — `AGENT.md` del proyecto (convenciones, stack, que no tocar)
-3. **Project Context** — `context.md` (lo que el agente ya aprendio del proyecto)
-4. **Learned Preferences** — `learnings.md` (correcciones y preferencias del usuario)
-5. **Recent Activity** — ultimas 20 lineas del `log.md`
+1. **User Profile** — `~/.{appName}/USER.md`
+2. **Project Instructions** — `AGENT.md` del proyecto
+3. **Project Context** — `memory/contexto-proyecto.md` (lo que el agente aprendio via `save_context`)
+4. **Learned Preferences** — `learnings.md`
+5. **Current Session** — `memory/session.md` (si existe)
+6. **Lessons Learned** — `audits/lecciones-aprendidas.md` (si existe)
 
 ---
 
@@ -463,6 +374,54 @@ Si solo existe `{id}.md` sin su `.json`, sobrescribe el system prompt de un buil
 
 ---
 
+## Estructura de datos en disco
+
+Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usuario nunca se toca (excepto los archivos que el agente modifica explicitamente).
+
+```
+~/.bk-agent/                         ← o el appName que configures
+│
+├── config.json                      ← API keys, providers, defaultProvider
+├── USER.md                          ← Perfil global del usuario (rol, estilo, preferencias)
+│
+├── workspaces.json                  ← Workspaces multi-proyecto
+│
+├── agents/                          ← Agentes globales (todos los proyectos)
+│   ├── general.md                   ← Override del system prompt de un builtin
+│   └── mi-agente-global.json + .md
+│
+├── skills/
+│   ├── global/                      ← Skills agnosticos de lenguaje (YAML)
+│   ├── packs/                       ← Packs instalados via SkillManager
+│   └── sources.json                 ← Metadata de packs instalados
+│
+├── code-index/
+│   └── {project-key}.db             ← SQLite: grafo de simbolos (MCP server)
+│
+└── projects/
+    └── {project-key}/               ← Estado especifico del proyecto
+        │
+        ├── memory/
+        │   ├── session.md           ← Sesion activa (feature, decisiones, issues)
+        │   └── contexto-proyecto.md ← Stack, arquitectura, archivos clave (save_context)
+        │
+        ├── learnings.md             ← Preferencias del usuario en este proyecto
+        ├── memory.json              ← Key-value persistente entre sesiones
+        │
+        ├── audits/
+        │   ├── security-2025-05-29.md
+        │   ├── qa-engineer-2025-05-29.md
+        │   └── lecciones-aprendidas.md  ← Reflection engine
+        │
+        ├── checkpoints/
+        │   ├── checkpoint-auth-login-2025-05-29-1430.md
+        │   └── checkpoint-2025-05-29-0900.md
+        │
+        └── skills/                  ← Skills especificos de este proyecto
+```
+
+---
+
 ## Comando /init — inicializacion de proyectos
 
 El comando `/init` analiza el proyecto y genera automaticamente la documentacion necesaria para que los agentes trabajen con contexto completo. Detecta tres modos automaticamente:
@@ -473,81 +432,290 @@ El comando `/init` analiza el proyecto y genera automaticamente la documentacion
 | `existing` | El proyecto tiene codigo pero no documentacion de agentes | Reverse-engineering del estado actual |
 | `hybrid` | Tiene tanto codigo existente como `prompt.md` con nueva direccion | Analisis de gaps y plan de migracion |
 
-### Archivos generados (todos los modos)
+### Archivos generados
 
 | Archivo | Contenido |
 |---------|-----------|
-| `design.md` | Arquitectura actual: componentes, flujos, decisiones clave (documento estable) |
-| `specification.md` | Contratos API, modelos de datos, interfaces (con "Undocumented" donde hay gaps) |
-| `security.md` | Findings de seguridad priorizados P0-P3, requerimientos y mitigaciones |
-| `roadmap.md` | Fases, prioridades y estado actual (documento vivo, se actualiza con cada tarea) |
-| `AGENT.md` | Instrucciones operacionales inyectadas en cada sesion: commands, stack, convenciones, que NO tocar |
+| `design.md` | Arquitectura actual: componentes, flujos, decisiones clave |
+| `specification.md` | Contratos API, modelos de datos, interfaces |
+| `security.md` | Findings priorizados P0-P3, requerimientos y mitigaciones |
+| `roadmap.md` | Fases, prioridades y estado actual |
+| `AGENT.md` | Instrucciones inyectadas en cada sesion: commands, stack, convenciones |
 
-### Flujo para proyecto nuevo (5 fases)
-
-```
-PHASE 1 (paralelo)
-  architecture → lee prompt.md, crea design.md
-  backend      → crea specification.md
-
-PHASE 2 (paralelo, espera Phase 1)
-  security     → audita design + spec, crea security.md
-  qa-engineer  → agrega seccion QA Review a specification.md
-
-PHASE 3 (espera Phase 2)
-  architecture → lee los 3 docs, crea roadmap.md con fases priorizadas
-
-PHASE 4
-  general      → crea AGENT.md con stack, convenciones y comandos
-
-PHASE 5
-  general      → save_context + append_log (completa /init)
-```
-
-### Flujo para proyecto existente (6 fases)
-
-```
-PHASE 1
-  general → explore: lee package.json, README, entry points
-
-PHASE 2 (paralelo)
-  architecture → reverse-engineer la arquitectura real, crea design.md
-  backend      → documenta lo que existe, marca gaps como "Undocumented"
-
-PHASE 3 (paralelo)
-  security     → findings priorizados P0 (critico) a P3 (informativo)
-  qa-engineer  → agrega QA Findings a specification.md
-
-PHASE 4 (espera Phase 3)
-  architecture → roadmap con P0/P1 findings primero, luego features
-
-PHASE 5
-  general → AGENT.md reverse-engineered desde el codigo real
-
-PHASE 6
-  general → save_context + append_log
-```
-
-### Flujo para proyecto hibrido (6 fases)
-
-Similar al existente pero la Phase 1 lee tanto `prompt.md` (direction deseada) como el codigo actual, y todos los documentos incluyen secciones "Current State vs Target" y "Migration Path".
+Al finalizar, `/init` llama `save_context` para persistir el contexto generado en `memory/contexto-proyecto.md`.
 
 ---
 
-## Slash commands
+## Slash commands built-in
 
-Disponibles desde cualquier REPL construido con el framework:
+El framework registra 6 comandos via `registerBuiltinCommands()`. Cualquier app que use el framework los obtiene automaticamente.
 
-| Comando | Descripcion |
-|---------|-------------|
-| `/init` | Detecta modo (new/existing/hybrid) y ejecuta el InitWorkflow |
-| `/agent list` | Lista todos los agentes disponibles (builtin / global / project) |
-| `/agent <id>` | Cambia al agente especificado |
-| `/agent new <id>` | Scaffoldea un nuevo agente en `.{appName}/agents/` del proyecto |
-| `/agent new <id> --global` | Scaffoldea el agente en `~/.{appName}/agents/` (todos los proyectos) |
-| `/cwd <path>` | Cambia el directorio de trabajo activo |
-| `/clear` | Limpia la pantalla |
-| `/quit` | Sale del REPL |
+### /help
+
+Lista todos los comandos disponibles y pide al LLM que explique con que puede ayudar en el contexto del proyecto actual.
+
+```
+> /help
+Available commands:
+- /agents     List available agents
+- /checkpoint Create / list / load session checkpoints
+- /help       List commands and get AI guidance on what I can help with
+- /skills     List loaded skills
+- /status     Show current agent and model
+- /workspace  Manage multi-project workspaces
+
+[LLM responde]: Hola! Estoy trabajando en tu proyecto de API REST con NestJS.
+Puedo ayudarte con...
+```
+
+### /agents
+
+Lista todos los agentes disponibles (builtin, global y de proyecto).
+
+```
+> /agents
+Agents:
+  general            General — Orchestrator — analyzes requests and delegates to specialists
+  coder              Coder — implements code precisely and efficiently
+  backend            Backend Dev — REST/GraphQL APIs, controllers, services
+  frontend           Frontend Dev — React, Vue, components, CSS/Tailwind
+  qa-engineer        QA Engineer — tests, coverage, TDD/BDD
+  security           Security Expert — OWASP, vulnerabilities, JWT, OAuth
+  architecture       Architect — system design, DDD, microservices
+  infrastructure     Infrastructure — Docker, Kubernetes, CI/CD
+  data               Data Engineer — SQL, indexes, ETL
+  devops-interno *   DevOps Interno — pipeline CI/CD de este proyecto [PROJECT]
+```
+
+### /skills
+
+Lista los skills cargados en la sesion actual.
+
+```
+> /skills
+Skills:
+  conventional-commits    Conventional Commits format and types
+  code-review             Code review checklist — 5 dimensions
+  bk-circuit-breaker      Circuit Breaker pattern with @backendkit-labs/circuit-breaker
+  bk-retry                Retry with exponential backoff
+```
+
+### /status
+
+Muestra el agente activo y el modelo en uso.
+
+```
+> /status
+Agent : general
+Model : claude-sonnet-4-6
+```
+
+### /checkpoint
+
+Sistema completo de checkpoints para guardar y retomar el estado de la sesion.
+
+```
+# Crear checkpoint (sin nombre — usa fecha y hora)
+> /checkpoint
+Checkpoint saved: (unnamed)
+~/.bk-agent/projects/.../checkpoints/checkpoint-2025-05-29-1430.md
+
+# Crear checkpoint con nombre de feature
+> /checkpoint auth-login
+Checkpoint saved: auth-login
+~/.bk-agent/projects/.../checkpoints/checkpoint-auth-login-2025-05-29-1430.md
+
+# Listar checkpoints (agrupados por feature, el mas reciente de cada una)
+> /checkpoint list
+  1. auth-login             2025-05-29 14:30  (3 versions)
+  2. payments-flow          2025-05-28 11:00
+  3. (unnamed)              2025-05-29 09:00  (2 versions)
+
+# Cargar el checkpoint mas reciente (inyecta al contexto activo)
+> /checkpoint load
+Checkpoint loaded: auth-login
+
+# Cargar un checkpoint especifico por nombre
+> /checkpoint load payments-flow
+Checkpoint loaded: payments-flow
+```
+
+### /workspace
+
+Gestiona workspaces multi-proyecto — grupos de proyectos relacionados que no son un monorepo.
+
+```
+# Listar workspaces (* = proyecto activo)
+> /workspace list
+Workspaces (* = active project):
+  mi-sistema           backend*, frontend, mobile
+  otro-sistema         api
+
+# Crear workspace
+> /workspace create mi-sistema
+
+# Agregar proyectos al workspace
+> /workspace add mi-sistema C:\Projects\backend
+Added "backend" to workspace "mi-sistema".
+
+> /workspace add mi-sistema C:\Projects\frontend frontend-web
+Added "frontend-web" to workspace "mi-sistema".
+
+# Cambiar al workspace (inyecta contexto de todos los proyectos)
+> /workspace switch mi-sistema
+Workspace "mi-sistema" context loaded. Active project: backend
+
+# Cambiar a un proyecto especifico dentro del workspace
+> /workspace switch mi-sistema frontend-web
+Switched to workspace "mi-sistema" — active: frontend-web
+
+# Quitar un proyecto del workspace
+> /workspace remove mi-sistema frontend-web
+Removed "frontend-web" from workspace "mi-sistema".
+
+# Eliminar workspace
+> /workspace delete mi-sistema
+Workspace "mi-sistema" deleted.
+```
+
+---
+
+## Sistema de checkpoints
+
+Los checkpoints son snapshots del estado de la sesion activa (`memory/session.md`). Permiten retomar el trabajo exactamente donde se dejo, incluso despues de cambiar de proyecto o reiniciar el agente.
+
+### Como funciona
+
+```
+Trabajo en feature "auth-login"
+        ↓
+session.md se actualiza (agentes y /init escriben ahi)
+        ↓
+/checkpoint auth-login
+        ↓
+checkpoints/checkpoint-auth-login-2025-05-29-1430.md
+(snapshot del session.md actual)
+        ↓
+[cambio de proyecto, reinicio, otra feature...]
+        ↓
+/checkpoint load auth-login
+        ↓
+El contenido del checkpoint se inyecta al contexto activo
+El agente retoma con el contexto completo de donde estaba
+```
+
+### Formato de session.md
+
+El archivo `memory/session.md` se crea automaticamente al inicializar el engine si no existe:
+
+```markdown
+---
+project: mi-proyecto
+created_at: 2025-05-29
+updated_at: 2025-05-29
+last_checkpoint: null
+---
+
+## Current Feature
+*(none)*
+
+## Decisions
+
+## Active Issues
+
+## Engine Learnings
+```
+
+Los agentes actualizan este archivo a medida que trabajan. `/init` lo rellena al generar la documentacion del proyecto.
+
+### Naming de archivos
+
+```
+Sin nombre:   checkpoint-{YYYY-MM-DD}-{HHmm}.md
+Con nombre:   checkpoint-{feature}-{YYYY-MM-DD}-{HHmm}.md
+```
+
+Multiples checkpoints del mismo nombre se acumulan (con timestamp distinto). `/checkpoint list` muestra el mas reciente de cada feature con el conteo de versiones.
+
+---
+
+## Workspaces multi-proyecto
+
+Un workspace agrupa proyectos relacionados que no son un monorepo pero pertenecen al mismo sistema. Por ejemplo: un backend API, un frontend React y una app mobile que comparten dominio pero viven en repos separados.
+
+### Estructura en disco
+
+```
+~/.{appName}/
+└── workspaces.json
+```
+
+```json
+{
+  "mi-sistema": {
+    "projects": [
+      { "name": "backend",  "cwd": "C:\\Projects\\mi-sistema\\backend" },
+      { "name": "frontend", "cwd": "C:\\Projects\\mi-sistema\\frontend" },
+      { "name": "mobile",   "cwd": "C:\\Projects\\mi-sistema\\mobile" }
+    ],
+    "active": "backend"
+  }
+}
+```
+
+### Contexto inyectado al hacer /workspace switch
+
+```markdown
+## Workspace: mi-sistema
+- **backend** *(active)* — `C:\Projects\mi-sistema\backend`
+- **frontend** — `C:\Projects\mi-sistema\frontend`
+- **mobile** — `C:\Projects\mi-sistema\mobile`
+
+### backend — Context
+Stack: Node.js, NestJS, PostgreSQL
+API REST en puerto 3000...
+
+### frontend — Context
+Stack: React 18, TypeScript, Tailwind
+SPA que consume el backend en /api...
+```
+
+El agente ve el contexto de todos los proyectos del workspace y puede razonar sobre las interacciones entre ellos.
+
+### Cambiar de proyecto activo
+
+```
+/workspace switch mi-sistema frontend
+```
+
+Esto cambia el `cwd` del engine al directorio del frontend. Las herramientas de filesystem (`read_file`, `write_file`, `run_command`) operan sobre ese directorio. El contexto de todos los proyectos sigue disponible en el system prompt.
+
+### API programatica
+
+```typescript
+import {
+  loadWorkspaces,
+  saveWorkspaces,
+  createWorkspace,
+  addProject,
+  removeProject,
+  deleteWorkspace,
+  setActiveProject,
+  buildWorkspaceContext,
+} from '@bk/agent-core';
+
+// Cargar workspaces
+const config = await loadWorkspaces('mi-app');
+
+// Crear y agregar proyectos
+let updated = createWorkspace(config, 'mi-sistema');
+updated = addProject(updated, 'mi-sistema', { name: 'backend', cwd: '/projects/backend' });
+updated = addProject(updated, 'mi-sistema', { name: 'frontend', cwd: '/projects/frontend' });
+await saveWorkspaces('mi-app', updated);
+
+// Construir contexto para inyectar al agente
+const context = await buildWorkspaceContext('mi-sistema', updated['mi-sistema'], 'mi-app');
+```
 
 ---
 
@@ -578,7 +746,7 @@ Input del usuario
 ```
 Prioridad: proyecto > global > builtin
 
-1. GLOBAL  (agnnostico de lenguaje)
+1. GLOBAL  (agnostico de lenguaje)
    ~/.{appName}/skills/global/
    + GLOBAL_BUILTIN_SKILLS (hardcoded en el framework)
 
@@ -627,15 +795,6 @@ systemPromptAddition: |
   ## Deploy en Kubernetes
 
   Siempre usar Helm. Nunca aplicar manifests YAML directamente en produccion.
-
-  ```yaml
-  # Estructura de chart obligatoria
-  charts/mi-servicio/
-  ├── Chart.yaml
-  ├── values.yaml
-  └── templates/
-  ```
-
   - Siempre definir resources.requests y resources.limits
   - livenessProbe y readinessProbe obligatorios
   - Secrets via ExternalSecret, nunca hardcoded
@@ -698,7 +857,7 @@ BK_CWD=$(pwd) BK_APP_NAME=mi-app npx @bk/mcp-server
 | `code_context` | Contexto de codigo para una tarea: simbolos relevantes + snippet + callers + callees |
 | `code_index` | Re-indexacion manual (si los resultados estan desactualizados) |
 
-### Lenguajes soportados por el indexador
+### Lenguajes soportados
 
 TypeScript, JavaScript, Python, Go, Rust, Java — via Tree-sitter (WASM) + SQLite FTS5.
 
@@ -728,10 +887,11 @@ TypeScript, JavaScript, Python, Go, Rust, Java — via Tree-sitter (WASM) + SQLi
 ```bash
 cd mi-proyecto
 node /path/to/coding-assistant/dist/index.js
-# Agente: general (orquestador)
+
 > /init
 # Detecta modo 'existing', ejecuta 6 fases en paralelo
 # Genera: design.md, specification.md, security.md, roadmap.md, AGENT.md
+# Guarda contexto en memory/contexto-proyecto.md
 ```
 
 ### 2. Pedir una feature al orquestador
@@ -739,44 +899,33 @@ node /path/to/coding-assistant/dist/index.js
 ```
 > Agregar autenticacion con Google OAuth2
 
-# El agente general:
-# 1. Analiza la solicitud
-# 2. Delega en paralelo a: security (evalua) + backend (implementa estrategia)
-# 3. Coder escribe los archivos
-# 4. qa-engineer escribe los tests + audita el proceso completo (save_audit)
-# 5. save_context con los nuevos archivos tocados
-# 6. append_log con la actividad
+# general → delega en paralelo:
+#   security → evalua superficie de ataque
+#   backend  → implementa estrategia OAuth
+#   coder    → escribe los archivos
+#   qa-engineer → escribe tests + save_audit del proceso
 ```
 
-### 3. Cambiar al agente especializado directamente
+### 3. Cambiar al agente especializado
 
 ```
 > /agent security
 # Ahora hablas directo con el Security Expert
 
 > Revisa las rutas de autenticacion para vulnerabilidades
-# Analiza JWT, session management, CSRF sin pasar por el orquestador
 ```
 
-### 4. Activar skills segun el input
+### 4. Guardar y retomar el trabajo
 
-```typescript
-import { SkillLoader, SkillActivator, GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-core';
+```
+# Terminar el dia guardando el estado
+> /checkpoint auth-feature
+Checkpoint saved: auth-feature
 
-const loader = new SkillLoader('mi-app');
-const activator = new SkillActivator();
-
-const loaded = await loader.loadAll('/ruta/al/proyecto');
-const allSkills = [...GLOBAL_BUILTIN_SKILLS, ...NODE_PACK_SKILLS, ...loaded.global, ...loaded.packs, ...loaded.project];
-
-const stack = await activator.detectStack('/ruta/al/proyecto');
-// → ['node', 'typescript']
-
-const activeSkills = activator.activate('como hago un commit?', allSkills, stack);
-// → [Skill { name: 'conventional-commits', ... }]
-
-const addition = activator.buildSystemPromptAddition(activeSkills);
-// → "## Conventional Commits\n\n..."
+# Al dia siguiente, retomar donde se dejo
+> /checkpoint load auth-feature
+Checkpoint loaded: auth-feature
+# El agente tiene el contexto completo de donde estabas
 ```
 
 ---
@@ -787,93 +936,98 @@ const addition = activator.buildSystemPromptAddition(activeSkills);
 
 ```typescript
 import { createCodingEngine } from '@bk/agent-coding';
-import { CallbackTransport } from '@bk/agent-core';
+import { CallbackTransport, SlashCommandRegistry, registerBuiltinCommands } from '@bk/agent-core';
+import { getProjectDir } from '@bk/agent-core';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const appName = 'mi-asistente';
+const cwd = process.cwd();
 
 const engine = createCodingEngine({
-  providers: {
-    anthropic: { apiKey: process.env.ANTHROPIC_API_KEY, model: 'claude-opus-4-7' },
-    deepseek:  { apiKey: process.env.DEEPSEEK_API_KEY },
-  },
+  providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },
   defaultProvider: 'anthropic',
   defaultAgent: 'general',
-  workingDir: '/mi/proyecto',
-  appName: 'mi-asistente',
+  workingDir: cwd,
+  appName,
   transport: new CallbackTransport(event => {
-    if (event.type === 'token') process.stdout.write(event.text);
-    if (event.type === 'tool_call') console.log(`\n[${event.tool}]`);
+    if (event.type === 'token') process.stdout.write(event.content);
+    if (event.type === 'tool_call') console.log(`\n[${event.name}]`);
     if (event.type === 'agent_switch') console.log(`\n→ ${event.to}`);
-    if (event.type === 'metrics') console.log(`Tokens: ${event.total}, Costo: $${event.cost}`);
   }),
 });
 
-await engine.run('Refactorizar el modulo de pagos para soportar múltiples proveedores');
+// Registrar comandos slash
+const registry = new SlashCommandRegistry();
+registerBuiltinCommands(registry);
+
+// Dispatcher: comandos primero, engine despues
+async function run(input: string) {
+  const projectDir = getProjectDir(appName, cwd);
+  let sessionContent = '';
+  try { sessionContent = readFileSync(join(projectDir, 'memory', 'session.md'), 'utf-8'); } catch {}
+
+  const handled = await registry.dispatch(input, {
+    emit: text => console.log(text),
+    appName,
+    projectDir,
+    sessionContent,
+    injectContext: msg => console.log('[context]', msg),
+    onCwdChange: newCwd => console.log('[cwd]', newCwd),
+    runEngine: prompt => engine.run(prompt),
+  });
+
+  if (!handled) await engine.run(input);
+}
 ```
 
 ### 6. Crear un agente personalizado para el proyecto
 
-Crear `.bk-agent/agents/` en el proyecto:
-
-```
-mi-proyecto/
-└── .bk-agent/
-    └── agents/
-        ├── devops-interno.json
-        └── devops-interno.md
-```
-
 ```json
-// devops-interno.json
+// mi-proyecto/.bk-agent/agents/devops-interno.json
 {
   "id": "devops-interno",
   "name": "DevOps Interno",
   "icon": "⚙",
-  "description": "Especialista en el pipeline de CI/CD de este proyecto",
-  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files"],
+  "description": "Especialista en el pipeline CI/CD de este proyecto",
+  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files", "save_context"],
   "delegatesTo": ["coder"],
   "provider": "deepseek"
 }
 ```
 
 ```markdown
-<!-- devops-interno.md -->
-Sos el especialista en DevOps de este proyecto. Conoces en detalle:
-- El pipeline de GitHub Actions en .github/workflows/
+<!-- mi-proyecto/.bk-agent/agents/devops-interno.md -->
+Sos el especialista en DevOps de este proyecto. Conoces:
+- El pipeline en .github/workflows/
 - El Helm chart en charts/mi-app/
-- Los secrets en AWS Secrets Manager (nunca los hardcodees)
-- El entorno de staging en EKS y produccion en GKE
+- Los secretos en AWS Secrets Manager (nunca los hardcodees)
 
 Cuando modificas el pipeline, siempre ejecuta 'act' para validar localmente.
 ```
 
-Una vez creado, aparece automaticamente:
-
-```
-> /agent list
-  [builtin] general, coder, backend, frontend, qa-engineer, security, architecture, infrastructure, data
-  [project] devops-interno
-```
-
-### 7. Instalar un pack de skills desde GitHub
+### 7. Gestionar workspaces multi-proyecto desde codigo
 
 ```typescript
-import { SkillManager } from '@bk/agent-core';
+import {
+  loadWorkspaces, saveWorkspaces, createWorkspace, addProject, buildWorkspaceContext
+} from '@bk/agent-core';
 
-const manager = new SkillManager('mi-app');
+const appName = 'mi-app';
 
-// Pack completo
-await manager.install('https://github.com/mi-org/skills-pack');
+// Crear workspace con los tres servicios del sistema
+let config = await loadWorkspaces(appName);
+config = createWorkspace(config, 'fintech-system');
+config = addProject(config, 'fintech-system', { name: 'payments-api', cwd: '/projects/payments' });
+config = addProject(config, 'fintech-system', { name: 'fraud-service', cwd: '/projects/fraud' });
+config = addProject(config, 'fintech-system', { name: 'dashboard',    cwd: '/projects/dashboard' });
+await saveWorkspaces(appName, config);
 
-// Solo un skill especifico
-await manager.install('https://github.com/mi-org/skills-pack', { skill: 'deploy-k8s' });
-
-// Actualizar
-await manager.update('@mi-org/skills-pack');
-
-// Desinstalar
-await manager.uninstall('@mi-org/skills-pack');
+// Obtener el contexto combinado de todos los proyectos
+const ws = config['fintech-system'];
+const context = await buildWorkspaceContext('fintech-system', ws, appName);
+// context contiene memory/contexto-proyecto.md de los 3 proyectos
 ```
-
-**Garantia de atomicidad:** el manager descarga todo en memoria. Solo escribe al disco si todos los fetches tienen exito.
 
 ---
 
@@ -882,21 +1036,14 @@ await manager.uninstall('@mi-org/skills-pack');
 ### 8. Usar el MCP server para code context en un agente
 
 ```typescript
-// El agente usa code_context antes de responder para obtener el codigo real del proyecto
-
 async function handleMessage(message: string) {
   const [context, stack] = await Promise.all([
     mcp.callTool('code_context', { task: message, max_symbols: 8 }),
     mcp.callTool('stack_detect', {}),
   ]);
 
-  const enrichedPrompt = [
-    systemPrompt,
-    context.content[0].text,  // simbolos relevantes + snippets + callers
-  ].join('\n\n---\n\n');
-
   return llm.chat([
-    { role: 'system', content: enrichedPrompt },
+    { role: 'system', content: [systemPrompt, context.content[0].text].join('\n\n---\n\n') },
     { role: 'user', content: message },
   ]);
 }
@@ -905,35 +1052,25 @@ async function handleMessage(message: string) {
 ### 9. Suscribirse a todos los eventos del engine
 
 ```typescript
-import { AgentEvent } from '@bk/agent-core';
+import { CallbackTransport } from '@bk/agent-core';
 
-const engine = createCodingEngine({ ... });
-
-// O usar transport directo
-const transport = new CallbackTransport((event: AgentEvent) => {
+const transport = new CallbackTransport(event => {
   switch (event.type) {
-    case 'block_start':   console.log(`[${event.agentId}] iniciando...`); break;
-    case 'agent_switch':  console.log(`delegando: ${event.from} → ${event.to}`); break;
-    case 'token':         process.stdout.write(event.text); break;
-    case 'tool_call':     console.log(`\n  tool: ${event.tool}(${JSON.stringify(event.args)})`); break;
-    case 'tool_result':   console.log(`  → ${event.ok ? 'ok' : 'error'}`); break;
-    case 'thinking':      console.log(`  [thinking] ${event.label}`); break;
-    case 'metrics':       console.log(`tokens: ${event.total}, costo: $${event.cost}`); break;
-    case 'done':          console.log('\n✓ completado'); break;
-    case 'error':         console.error(`\n✗ ${event.message}`); break;
+    case 'block_start':  console.log(`[${event.agent_id}] iniciando...`); break;
+    case 'agent_switch': console.log(`delegando: ${event.from} → ${event.to}`); break;
+    case 'token':        process.stdout.write(event.content); break;
+    case 'tool_call':    console.log(`\n  tool: ${event.name}`); break;
+    case 'tool_result':  console.log(`  → ${event.success ? 'ok' : 'error'}`); break;
+    case 'done':         console.log('\n✓ completado'); break;
+    case 'error':        console.error(`\n✗ ${event.message}`); break;
   }
 });
 ```
 
 ### 10. Override del system prompt de un agente builtin
 
-Para personalizar un agente builtin sin perder su configuracion base, crear solo el `.md`:
-
-```
-~/.bk-agent/agents/general.md
-```
-
 ```markdown
+<!-- ~/.bk-agent/agents/general.md -->
 Sos el orquestador de equipo de backend en [Mi Empresa].
 Siempre que el usuario pida una feature, primero pregunta si hay tickets en Jira
 relacionados antes de empezar a implementar.
@@ -941,36 +1078,14 @@ relacionados antes de empezar a implementar.
 Nuestras convenciones internas:
 - Todas las PRs necesitan review de al menos 2 personas
 - Nunca deployar los viernes
-- Los nombres de branches siguen el patron: {tipo}/{ticket-id}-{descripcion}
+- Branches: {tipo}/{ticket-id}-{descripcion}
 ```
-
-### 11. Deteccion de frameworks via grafo de imports (MCP)
-
-El servidor MCP analiza el grafo de imports para identificar frameworks especificos mas alla del lenguaje:
-
-```
-@nestjs/core              → nestjs
-express                   → express
-fastify                   → fastify
-@prisma/client            → prisma
-typeorm                   → typeorm
-zod                       → zod
-fastapi (Python)          → fastapi
-django (Python)           → django
-gin-gonic/gin (Go)        → gin
-actix-web (Rust)          → actix
-spring-boot (Java)        → spring
-```
-
-`skills_search` usa esta info para marcar con ✓ los skills que coinciden exactamente con el stack real del proyecto.
 
 ---
 
 ## Crear agentes personalizados
 
-### Agente de proyecto
-
-Visible solo en el proyecto donde esta definido:
+### Agente de proyecto (visible solo en ese proyecto)
 
 ```
 mi-proyecto/.bk-agent/agents/
@@ -978,9 +1093,7 @@ mi-proyecto/.bk-agent/agents/
 └── mi-agente.md
 ```
 
-### Agente global
-
-Disponible en todos los proyectos:
+### Agente global (disponible en todos los proyectos)
 
 ```
 ~/.bk-agent/agents/
@@ -991,11 +1104,8 @@ Disponible en todos los proyectos:
 ### Scaffoldear un agente nuevo
 
 ```
-> /agent new database-expert
-# Crea .bk-agent/agents/database-expert.json + .md con template
-
-> /agent new database-expert --global
-# Crea ~/.bk-agent/agents/database-expert.json + .md
+> /agent new database-expert          # Crea en .bk-agent/agents/ del proyecto
+> /agent new database-expert --global # Crea en ~/.bk-agent/agents/
 ```
 
 ### Schema del .json
@@ -1006,11 +1116,10 @@ Disponible en todos los proyectos:
   "name": "Database Expert",
   "icon": "⊞",
   "description": "Especialista en PostgreSQL y optimizacion de queries",
-  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files",
-                   "save_context", "save_learning", "append_log"],
+  "allowedTools": ["read_file", "write_file", "edit_file", "run_command",
+                   "search_files", "save_context", "save_learning"],
   "delegatesTo": ["coder"],
-  "provider": "deepseek",
-  "suppressDefaultOutput": false
+  "provider": "deepseek"
 }
 ```
 
@@ -1018,50 +1127,34 @@ Disponible en todos los proyectos:
 
 ## Instalar packs externos de skills
 
-### Via CLI
+```typescript
+import { SkillManager } from '@bk/agent-core';
 
-```bash
-# Pack completo
-npx @bk/mcp-server install https://github.com/org/skills-pack
-
-# Un skill especifico
-npx @bk/mcp-server install https://github.com/org/skills-pack --skill deploy-k8s
-
-# Actualizar
-npx @bk/mcp-server update @org/skills-pack
+const manager = new SkillManager('mi-app');
+await manager.install('https://github.com/mi-org/skills-pack');
+await manager.install('https://github.com/mi-org/skills-pack', { skill: 'deploy-k8s' });
+await manager.update('@mi-org/skills-pack');
+await manager.uninstall('@mi-org/skills-pack');
 ```
 
-### Via MCP (desde Claude Code / Cursor)
-
-```
-Instala el pack de skills para Kubernetes desde https://github.com/org/k8s-skills
-```
-
-### Que pasa si el repositorio esta offline
-
-Si el repositorio fuente no esta disponible, la operacion falla sin tocar el disco. Los packs ya instalados siguen funcionando — el framework los copia localmente en `~/.{appName}/skills/packs/`.
+**Garantia de atomicidad:** el manager descarga todo en memoria. Solo escribe al disco si todos los fetches tienen exito.
 
 ---
 
 ## Crear tu propio pack de skills
 
-### Estructura del repositorio
-
 ```
 mi-skills-pack/
-├── skills/                    ← el manager busca aqui primero
+├── skills/
 │   ├── deploy-kubernetes.yaml
 │   ├── terraform.yaml
 │   └── datadog.yaml
 └── README.md
 ```
 
-### Publicar
-
 Cualquier repositorio GitHub publico puede usarse como pack:
 
 ```bash
-# Tus companeros instalan con:
 npx @bk/mcp-server install https://github.com/mi-org/mi-skills-pack
 ```
 
@@ -1077,10 +1170,7 @@ npx @bk/mcp-server install https://github.com/mi-org/mi-skills-pack
     "bk": {
       "command": "node",
       "args": ["/path/to/agent-framework/packages/mcp-server/dist/server.js"],
-      "env": {
-        "BK_APP_NAME": "claude-code",
-        "BK_CWD": "/ruta/a/tu/proyecto"
-      }
+      "env": { "BK_APP_NAME": "claude-code", "BK_CWD": "/ruta/a/tu/proyecto" }
     }
   }
 }
@@ -1094,34 +1184,15 @@ npx @bk/mcp-server install https://github.com/mi-org/mi-skills-pack
     "agent-framework": {
       "command": "node",
       "args": ["/path/to/mcp-server/dist/server.js"],
-      "env": {
-        "BK_APP_NAME": "cursor",
-        "BK_CWD": "${workspaceFolder}"
-      }
+      "env": { "BK_APP_NAME": "cursor", "BK_CWD": "${workspaceFolder}" }
     }
   }
 }
 ```
 
-### Workflow tipico desde el agente
-
-```
-Usuario: "Agregar rate limiting a los endpoints de la API"
-
-Agente (automaticamente):
-  1. stack_detect → "node, typescript, nestjs"
-  2. skills_search query="rate limiting" → bk-bulkhead [ACTIVE ✓], bk-rate-limiter [ACTIVE ✓]
-  3. code_context task="rate limiting endpoints API" → AppModule, Guards, Controllers
-  4. Responde con el patron exacto de @backendkit-labs/bulkhead integrado al codigo del proyecto
-```
-
 ---
 
 ## Librerias de resiliencia
-
-El framework usa las librerias de BackendKit Labs para toda la capa de resiliencia.
-
-### Patron de composicion
 
 ```typescript
 import { ok, err } from '@backendkit-labs/result';
@@ -1136,10 +1207,8 @@ const cb = new CircuitBreaker({ threshold: 5, timeout: 10_000 });
 async function callExternalService(payload: unknown) {
   return bulkhead.execute(() =>
     cb.execute(() =>
-      withRetry(
-        () => fetch('/api', { method: 'POST', body: JSON.stringify(payload) }),
-        { maxAttempts: 3, backoff: 'exponential' }
-      )
+      withRetry(() => fetch('/api', { method: 'POST', body: JSON.stringify(payload) }),
+        { maxAttempts: 3, backoff: 'exponential' })
     )
   );
 }
@@ -1147,93 +1216,106 @@ async function callExternalService(payload: unknown) {
 
 ### `ResilientLLMClient`
 
-Cliente HTTP para LLMs con retry + circuit breaker preconfigurados para los patrones de fallo tipicos (rate limits 429, timeouts, 5xx):
-
 ```typescript
 import { ResilientLLMClient } from '@bk/agent-core';
 
 const client = new ResilientLLMClient({
-  baseUrl: 'https://api.openai.com',
-  apiKey: process.env.OPENAI_API_KEY!,
-  maxRetries: 3,
-  circuitBreakerThreshold: 5,
+  client: myLLMClient,
+  name: 'openai',
+  failureThreshold: 50,   // % de fallos para abrir el circuit
+  openTimeoutMs: 30_000,  // ms antes de intentar recovery
 });
 ```
 
 ---
 
-## Estructura de datos en disco
+## Integrar los slash commands en tu app
 
-Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usuario nunca se toca (excepto los archivos que el agente modifica explicitamente).
+Para conectar los 6 comandos built-in a tu app, necesitas instanciar el registry, pasarle los callbacks correctos y despachar antes de enviar al engine.
 
+```typescript
+import { SlashCommandRegistry, registerBuiltinCommands, getProjectDir } from '@bk/agent-core';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const appName = 'mi-app';
+const registry = new SlashCommandRegistry();
+registerBuiltinCommands(registry);
+
+// Tambien podes registrar comandos propios
+registry.register('/clear', 'Limpiar pantalla', async (ctx) => {
+  console.clear();
+  ctx.emit('Sesion reiniciada.');
+});
+
+async function handleInput(text: string, cwd: string, engine: AgentEngine) {
+  if (!registry.isCommand(text)) {
+    await engine.run(text);
+    return;
+  }
+
+  const projectDir = getProjectDir(appName, cwd);
+  let sessionContent = '';
+  try { sessionContent = readFileSync(join(projectDir, 'memory', 'session.md'), 'utf-8'); } catch {}
+
+  await registry.dispatch(text, {
+    emit: (msg) => console.log(msg),                    // /help, /agents, /status, etc.
+    appName,                                             // requerido por /workspace
+    projectDir,                                          // requerido por /checkpoint
+    sessionContent,                                      // snapshot del session.md para /checkpoint
+    injectContext: (msg) => console.log('[ctx]', msg),  // /workspace switch, /checkpoint load
+    onCwdChange: (newCwd) => restartEngine(newCwd),     // /workspace switch con cambio de proyecto
+    runEngine: (prompt) => engine.run(prompt),           // /help → LLM responde
+  });
+}
 ```
-~/.bk-agent/                         ← o el appName que configures
-│
-├── config.json                      ← API keys, providers, defaultProvider
-├── USER.md                          ← Perfil global del usuario (rol, estilo, preferencias)
-│
-├── agents/                          ← Agentes globales (todos los proyectos)
-│   ├── general.md                   ← Override del system prompt del agente builtin
-│   └── mi-agente-global.json + .md
-│
-├── skills/
-│   ├── global/                      ← Skills agnnosticos (YAML)
-│   ├── packs/                       ← Packs instalados via SkillManager
-│   │   └── @mi-org/mi-pack/
-│   └── sources.json                 ← Metadata (fuente, fecha, version)
-│
-├── code-index/
-│   └── {cwd-hash}.db                ← SQLite: grafo de simbolos del proyecto
-│
-└── projects/
-    └── {cwd-hash}/                  ← Estado especifico del proyecto
-        ├── context.md               ← Stack, arquitectura, archivos clave
-        ├── learnings.md             ← Preferencias aprendidas del usuario
-        ├── log.md                   ← Actividad reciente
-        ├── memory.json              ← Key-value persistente entre sesiones
-        ├── skills/                  ← Skills especificos de este proyecto
-        └── audits/
-            ├── security-2025-05-26.md
-            └── qa-engineer-2025-05-26.md
-```
+
+### Campos de `CommandContext`
+
+| Campo | Tipo | Requerido por |
+|-------|------|---------------|
+| `emit` | `(text: string) => void` | todos |
+| `appName` | `string` | `/workspace` |
+| `projectDir` | `string` | `/checkpoint` |
+| `sessionContent` | `string` | `/checkpoint` (crear) |
+| `agents` | `CommandAgentInfo[]` | `/agents` |
+| `skills` | `CommandSkillInfo[]` | `/skills` |
+| `effectiveAgentId` | `string` | `/status` |
+| `model` | `string` | `/status` |
+| `injectContext` | `(msg: string) => void` | `/workspace switch`, `/checkpoint load` |
+| `onCwdChange` | `(cwd: string) => void` | `/workspace switch` |
+| `runEngine` | `(prompt: string) => Promise<void>` | `/help` |
 
 ---
 
 ## Roadmap
 
-### Completado
+### Completado en v0.2.0
 
 - [x] Motor multi-agente con bus de delegacion paralela (max 6 agentes por wave)
-- [x] 9 agentes especializados: general, coder, backend, frontend, qa-engineer, security, architecture, infrastructure, data
-- [x] InitWorkflow con 3 modos: new / existing / hybrid
-- [x] ProjectStore: persistencia de context, learnings, log, audits entre sesiones
-- [x] AgentLoader: carga automatica desde global y proyecto (prioridad sobre builtins)
+- [x] 9 agentes especializados con roles y herramientas bien definidas
+- [x] InitWorkflow: new / existing / hybrid con documentacion generada automaticamente
+- [x] ProjectStore con clave unica unificada (`cwdToProjectKey`) en todo el framework
+- [x] Estructura canonica `~/.{appName}/projects/{key}/memory/` y `audits/`
+- [x] `session.md` — auto-creado al inicializar, actualizado por agentes e `/init`
+- [x] Sistema de checkpoints: naming con timestamp, lista agrupada, load por inyeccion
+- [x] Workspaces multi-proyecto: CRUD, switch con contexto combinado, `onCwdChange` callback
+- [x] 6 slash commands built-in: `/help`, `/agents`, `/skills`, `/status`, `/checkpoint`, `/workspace`
+- [x] `/help` invoca el LLM para guia contextual ademas de listar comandos
+- [x] `runEngine` en `CommandContext` — cualquier comando puede invocar el LLM
 - [x] 5 proveedores LLM: Anthropic, DeepSeek, OpenAI, Kimi, Grok
-- [x] Filesystem tools: read, write, edit, list, search, run_command
-- [x] Memory tools: save_context, save_learning, save_audit, append_log
-- [x] Sistema de skills jerarquico (global / pack / proyecto)
-- [x] Skills builtin: 5 globales + 12 de Node/TypeScript
+- [x] Sistema de skills jerarquico (global / pack / proyecto) con 17 skills builtin
 - [x] SkillManager: install / uninstall / list / update (atomicidad garantizada)
-- [x] Servidor MCP con 7 herramientas
-- [x] Indexador Tree-sitter (TS, JS, Python, Go, Rust, Java) + SQLite FTS5
-- [x] Grafo de llamadas caller/callee
-- [x] Deteccion de 45 frameworks via grafo de imports
-- [x] File watcher con re-indexacion incremental (SHA1)
-- [x] Integracion BackendKit Labs (Result, Retry, CircuitBreaker, Bulkhead, Pipeline)
-- [x] Slash commands: /init, /agent, /cwd, /clear, /quit
-- [x] ConfigLoader con bootstrap automatico de ~/.{appName}/
-
-### En progreso
-
-- [ ] `agent_context` — herramienta MCP que combina code intelligence + skills en una llamada
-- [ ] Panel de administracion de skills via CLI interactivo
+- [x] Servidor MCP con 7 herramientas, indexador Tree-sitter (6 lenguajes) + SQLite FTS5
+- [x] Integracion BackendKit Labs: Result, Retry, CircuitBreaker, Bulkhead, Pipeline
 
 ### Planificado
 
 - [ ] Skills con handlers TypeScript (no solo YAML estatico)
+- [ ] `agent_context` — herramienta MCP que combina code intelligence + skills en una llamada
 - [ ] Indexacion de Ruby, PHP, Elixir, Kotlin
 - [ ] Embeddings semanticos para busqueda por significado
-- [ ] Agentes autonomos con ciclo plan → execute → reflect
+- [ ] Panel de administracion de skills via CLI interactivo
 - [ ] `npx @bk/create-agent` para scaffolding de nuevos proyectos
 
 ---
@@ -1241,14 +1323,13 @@ Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usua
 ## Contribuir
 
 ```bash
-git clone https://github.com/backendkit-dev/agent-framework.git
+git clone https://github.com/BackendKit-labs/backendkit-agent-framework.git
 cd agent-framework
 npm install
 npm run build
 
 git checkout -b feat/mi-feature
 npm run typecheck
-npm test
 
 git commit -m "feat(skills): add elixir stack detection"
 ```

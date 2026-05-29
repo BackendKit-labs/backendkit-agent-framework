@@ -14,6 +14,8 @@ import type {
 import type { Transport } from '../transport/Transport';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { QAService } from '../qa/qa-service';
+import { MCPClientManager } from '../mcp/MCPClientManager';
+import type { MCPServerConfig } from '../mcp/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +98,19 @@ export interface BaseEngineOptions {
 
     /** Called when QA generates an inline review. */
     onQAReview?: (review: string) => void;
+
+    /**
+     * External MCP servers to connect to.
+     * Tools are discovered on the first run() call (lazy connection) and
+     * made available to all agents in the session.
+     *
+     * @example
+     * mcpServers: [
+     *   { name: 'github',   command: 'npx', args: ['@modelcontextprotocol/server-github'],   env: { GITHUB_TOKEN } },
+     *   { name: 'postgres', command: 'npx', args: ['@modelcontextprotocol/server-postgres'],  env: { DATABASE_URL } },
+     * ]
+     */
+    mcpServers?: MCPServerConfig[];
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -156,5 +171,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.qaService ? { qaService: opts.qaService } : {}),
         ...(opts.noQA !== undefined ? { noQA: opts.noQA } : {}),
         ...(opts.onQAReview ? { onQAReview: opts.onQAReview } : {}),
+        ...(opts.mcpServers?.length
+            ? { mcpManager: new MCPClientManager(opts.mcpServers) }
+            : {}),
     });
 }

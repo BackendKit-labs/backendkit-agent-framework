@@ -11,6 +11,7 @@ import {
     type Skill,
     type CapabilityMatrix,
     type PolicyRule,
+    type MCPServerConfig,
     getProjectDir,
 } from '@bk/agent-core';
 export type { AgentEngine } from '@bk/agent-core';
@@ -196,6 +197,18 @@ export interface CodingEngineOptions {
     /** Skip creating a ProjectStore (e.g. for testing) */
     disablePersistence?: boolean;
     /**
+     * External MCP servers to connect to on first run.
+     * Tools are discovered lazily and made available to all agents.
+     *
+     * @example
+     * mcpServers: [
+     *   { name: 'github',   command: 'npx', args: ['@modelcontextprotocol/server-github'],   env: { GITHUB_TOKEN: '...' } },
+     *   { name: 'postgres', command: 'npx', args: ['@modelcontextprotocol/server-postgres'],  env: { DATABASE_URL: '...' } },
+     *   { name: 'slack',    command: 'npx', args: ['@modelcontextprotocol/server-slack'],     env: { SLACK_TOKEN: '...' } },
+     * ]
+     */
+    mcpServers?: MCPServerConfig[];
+    /**
      * Activate the Orchestrator pipeline:
      * intent detection → domain detection → risk scoring → policy engine → FSM gates.
      *
@@ -370,6 +383,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(qaService ? { qaService } : {}),
         ...(noQA !== undefined ? { noQA } : {}),
         ...(onQAReview ? { onQAReview } : {}),
+        ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
     });
 }
 

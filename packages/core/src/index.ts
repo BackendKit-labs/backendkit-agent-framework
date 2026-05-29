@@ -24,6 +24,9 @@ export * from './reflection';
 
 // Orchestration
 export * from './orchestration';
+
+// MCP Client
+export * from './mcp';
 export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
 
 // QA

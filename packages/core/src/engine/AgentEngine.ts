@@ -15,6 +15,7 @@ import { ProviderRegistry } from './ProviderRegistry';
 import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
 import { SkillActivator } from '../skills/activator';
+import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { OrchestrationResult } from '../orchestration/types';
 import type { QAService } from '../qa/qa-service';
@@ -44,6 +45,8 @@ export interface AgentEngineOptions extends EngineOptions {
     noQA?: boolean;
     /** Callback invocado cuando el QA genera una revision */
     onQAReview?: (review: string) => void;
+    /** MCP client manager — connects to external MCP servers and registers their tools */
+    mcpManager?: MCPClientManager;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -74,6 +77,7 @@ export class AgentEngine {
     private allSkills: Skill[];
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
+    private mcpInitialized = false;
 
     constructor(private readonly opts: AgentEngineOptions) {
         this.memory = opts.sessionMemory ?? new SessionMemory();
@@ -97,6 +101,22 @@ export class AgentEngine {
     async run(input: string): Promise<void> {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
+
+        // Lazy-connect MCP servers on first run and register their tools
+        if (!this.mcpInitialized && this.opts.mcpManager) {
+            try {
+                await this.opts.mcpManager.initialize();
+                for (const tool of this.opts.mcpManager.getTools()) {
+                    this.opts.tools.register(tool);
+                }
+            } catch (err) {
+                this.opts.transport.emit({
+                    type: 'system', level: 'warn',
+                    text: `MCP initialization error: ${(err as Error).message}`,
+                });
+            }
+            this.mcpInitialized = true;
+        }
 
         // Lazy-load user YAML skills (global + packs + project) on first call
         if (!this.yamlSkillsLoaded && this.opts.loadSkills) {

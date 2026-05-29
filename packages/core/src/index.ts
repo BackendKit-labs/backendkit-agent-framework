@@ -47,10 +47,6 @@ export {
 } from './checkpoint';
 export type { CheckpointSummary } from './checkpoint';
 
-// Workspace
-export { listWorkspaces, ensureWorkspace, readWorkspaceMemory, getWorkspaceMemoryDir, DEFAULT_WORKSPACE } from './workspace';
-export type { WorkspaceInfo } from './workspace';
-
 // Bootstrap
 export { runGlobalSeed } from './bootstrap/GlobalSeed';
 export type { SeedResult } from './bootstrap/GlobalSeed';

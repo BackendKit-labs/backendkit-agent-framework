@@ -24,6 +24,7 @@ export * from './reflection';
 
 // Orchestration
 export * from './orchestration';
+export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
 
 // QA
 export * from './qa';

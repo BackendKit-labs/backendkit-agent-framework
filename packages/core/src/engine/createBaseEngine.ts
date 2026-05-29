@@ -12,6 +12,8 @@ import type {
     Skill,
 } from '../types';
 import type { Transport } from '../transport/Transport';
+import type { Orchestrator } from '../orchestration/orchestrator';
+import type { QAService } from '../qa/qa-service';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -73,6 +75,27 @@ export interface BaseEngineOptions {
 
     /** Session ID for tracking and correlation. */
     sessionId?: string;
+
+    /**
+     * Orchestrator for pre-LLM task classification:
+     * intent detection → domain detection → risk scoring → policy engine → FSM gates.
+     * When provided, General receives domain/risk context before each run.
+     * Use createOrchestratedCodingEngine() or pass directly for full control.
+     */
+    orchestrator?: Orchestrator;
+
+    /**
+     * QA service for automatic code review after high-risk responses.
+     * Requires orchestrator to be set. When active, the qa-engineer agent
+     * is automatically triggered for responses with substantial code.
+     */
+    qaService?: QAService;
+
+    /** Disable automatic QA reviews even when qaService is configured. */
+    noQA?: boolean;
+
+    /** Called when QA generates an inline review. */
+    onQAReview?: (review: string) => void;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -129,5 +152,9 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.sessionMemory ? { sessionMemory: opts.sessionMemory } : {}),
         ...(opts.store ? { store: opts.store } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+        ...(opts.orchestrator ? { orchestrator: opts.orchestrator } : {}),
+        ...(opts.qaService ? { qaService: opts.qaService } : {}),
+        ...(opts.noQA !== undefined ? { noQA: opts.noQA } : {}),
+        ...(opts.onQAReview ? { onQAReview: opts.onQAReview } : {}),
     });
 }

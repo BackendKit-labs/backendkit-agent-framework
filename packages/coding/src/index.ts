@@ -3,12 +3,18 @@ import { join } from 'path';
 import {
     createBaseEngine,
     SkillLoader,
+    Orchestrator,
+    QAService,
+    adaptProviderToLLMClient,
     type LLMProvider,
     type Transport,
     type Skill,
+    type CapabilityMatrix,
+    type PolicyRule,
     getProjectDir,
 } from '@bk/agent-core';
 export type { AgentEngine } from '@bk/agent-core';
+import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
 import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
@@ -67,6 +73,7 @@ function detectProjectStack(cwd: string): string[] {
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 export * from './skills';
+export { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
 export { DeepSeekProvider } from './providers/DeepSeekProvider';
 export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 export { AnthropicProvider } from './providers/AnthropicProvider';
@@ -151,6 +158,28 @@ const DEFAULT_MODELS: Record<string, string> = {
 
 // ── Engine options ────────────────────────────────────────────────────────────
 
+export interface OrchestrationOptions {
+    /**
+     * Enable automatic QA review for responses with substantial code.
+     * The qa-engineer agent is triggered automatically for high-risk tasks.
+     * Requires the default provider to be configured (used for QA LLM calls).
+     * Default: true when orchestration is enabled.
+     */
+    enableQA?: boolean;
+    /** Disable QA reviews even when enableQA is true. */
+    noQA?: boolean;
+    /** Called when QA generates an inline review. */
+    onQAReview?: (review: string) => void;
+    /**
+     * Capability matrix mapping agent IDs to the technical domains they own.
+     * Used for automatic agent selection based on detected domains.
+     * Defaults to CODING_CAPABILITY_MATRIX (all 10 coding agents).
+     */
+    capabilityMatrix?: CapabilityMatrix;
+    /** Extra policy rules merged with the default built-in rules. */
+    customRules?: PolicyRule[];
+}
+
 export interface CodingEngineOptions {
     providers: ProvidersConfig;
     defaultProvider: string;
@@ -166,6 +195,28 @@ export interface CodingEngineOptions {
     appName?: string;
     /** Skip creating a ProjectStore (e.g. for testing) */
     disablePersistence?: boolean;
+    /**
+     * Activate the Orchestrator pipeline:
+     * intent detection → domain detection → risk scoring → policy engine → FSM gates.
+     *
+     * Pass `true` for all defaults, or an object for fine-grained control.
+     *
+     * @example
+     * // Simple activation
+     * orchestration: true
+     *
+     * @example
+     * // With QA auto-review disabled
+     * orchestration: { enableQA: false }
+     *
+     * @example
+     * // Custom capability matrix and extra policy rules
+     * orchestration: {
+     *   capabilityMatrix: { 'my-agent': { owns: ['backend'], skills: [], baseWeight: 0.9 } },
+     *   customRules: [{ if: { domain: 'security' }, then: { mustInclude: ['security'] } }],
+     * }
+     */
+    orchestration?: boolean | OrchestrationOptions;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -256,6 +307,48 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         }
         : undefined;
 
+    // ── Orchestrator (optional — activated via opts.orchestration) ────────────
+    let orchestrator: Orchestrator | undefined;
+    let qaService: QAService | undefined;
+    let noQA: boolean | undefined;
+    let onQAReview: ((r: string) => void) | undefined;
+
+    if (opts.orchestration) {
+        const orchOpts: OrchestrationOptions =
+            typeof opts.orchestration === 'boolean' ? {} : opts.orchestration;
+
+        // Adapt the default LLM provider to the simpler LLMChatClient interface
+        // used by Orchestrator (intent detection) and QAService (inline review).
+        const defaultProviderInstance = providers[opts.defaultProvider];
+        const llmClient = defaultProviderInstance
+            ? adaptProviderToLLMClient(defaultProviderInstance)
+            : undefined;
+
+        orchestrator = new Orchestrator({
+            appName,
+            projectRoot: cwd,
+            client: llmClient,
+            capabilityMatrix: orchOpts.capabilityMatrix ?? CODING_CAPABILITY_MATRIX,
+            customRules: orchOpts.customRules,
+        });
+
+        noQA = orchOpts.noQA;
+        onQAReview = orchOpts.onQAReview;
+
+        // QAService: auto-builds when enableQA is not explicitly false and LLM is available.
+        // Uses the qa-engineer agent's system prompt as the base for QA review calls.
+        if (orchOpts.enableQA !== false && llmClient) {
+            const qaProfile = allAgents.find(a => a.id === 'qa-engineer');
+            qaService = new QAService({
+                client: llmClient,
+                basePrompt: () => qaProfile?.systemPrompt ?? '',
+                allAgents,
+                noQA: orchOpts.noQA,
+                onQAReview: orchOpts.onQAReview,
+            });
+        }
+    }
+
     // ── Delegate engine assembly to createBaseEngine ──────────────────────────
     return createBaseEngine({
         providers,
@@ -273,6 +366,10 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         detectedStack,
         loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
+        ...(orchestrator ? { orchestrator } : {}),
+        ...(qaService ? { qaService } : {}),
+        ...(noQA !== undefined ? { noQA } : {}),
+        ...(onQAReview ? { onQAReview } : {}),
     });
 }
 

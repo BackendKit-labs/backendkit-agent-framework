@@ -33,6 +33,8 @@ export interface CommandContext {
     injectContext?: (message: string) => void;
     /** Called by /workspace switch when the active project changes. App handles the actual cwd/engine reload. */
     onCwdChange?: (cwd: string) => void;
+    /** Run the LLM engine with a given prompt. Used by commands that need AI interpretation (e.g. /help). */
+    runEngine?: (prompt: string) => Promise<void>;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

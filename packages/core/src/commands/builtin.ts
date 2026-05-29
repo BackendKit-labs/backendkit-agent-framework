@@ -22,10 +22,19 @@ import {
  * Call this once when bootstrapping the app — before registering app-specific commands.
  */
 export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
-    registry.register('/help', 'List all available commands', async (ctx) => {
+    registry.register('/help', 'List commands and get AI guidance on what I can help with', async (ctx) => {
         const cmds = registry.getAll();
-        const lines = cmds.map(c => `  ${c.name.padEnd(22)} ${c.description}`);
-        ctx.emit('Commands:\n' + lines.join('\n'));
+        const list = cmds.map(c => `- ${c.name.padEnd(22)} ${c.description}`).join('\n');
+        ctx.emit(`Available commands:\n${list}`);
+
+        if (ctx.runEngine) {
+            await ctx.runEngine(
+                `The user ran /help. Available commands:\n${list}\n\n` +
+                `Based on these commands and your capabilities as a coding assistant, ` +
+                `briefly tell the user what you can help them with today. ` +
+                `Be concise, friendly, and mention specific things you can do for the current project.`
+            );
+        }
     });
 
     registry.register('/agents', 'List available agents', async (ctx) => {

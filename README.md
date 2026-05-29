@@ -13,8 +13,10 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 5. [Packages](#packages)
 6. [Motor de agentes — @bk/agent-coding](#motor-de-agentes--bkagent-coding)
    - [Proveedores LLM](#proveedores-llm)
-   - [Los 9 agentes especializados](#los-9-agentes-especializados)
+   - [Los 10 agentes especializados](#los-10-agentes-especializados)
+   - [Prompts con modos de madurez](#prompts-con-modos-de-madurez)
    - [Orquestacion y delegacion paralela](#orquestacion-y-delegacion-paralela)
+   - [Deteccion automatica de stack](#deteccion-automatica-de-stack)
    - [Herramientas de filesystem](#herramientas-de-filesystem)
    - [Herramientas de memoria y contexto](#herramientas-de-memoria-y-contexto)
    - [ProjectStore — persistencia entre sesiones](#projectstore--persistencia-entre-sesiones)
@@ -270,21 +272,38 @@ const engine = createCodingEngine({
 
 ---
 
-### Los 9 agentes especializados
+### Los 10 agentes especializados
 
-El framework incluye 9 agentes con roles bien definidos. El agente **general** actua como orquestador y nunca escribe codigo directamente — delega a los especialistas.
+El framework incluye 10 agentes con roles bien definidos. El agente **general** actua como orquestador y nunca escribe codigo directamente — delega a los especialistas.
 
 | Agente | Rol | Delega a |
 |--------|-----|----------|
 | `general` | Orquestador — analiza, divide y coordina en paralelo | todos los especialistas |
+| `project-manager` | Coordinador del workflow de `/init` — produce design.md, specification.md, security.md, roadmap.md y AGENT.md | `architecture`, `backend`, `security`, `qa-engineer`, `coder` |
 | `coder` | Implementador puro — escribe y edita archivos | — |
-| `backend` | APIs REST/GraphQL, NestJS/Express, ORMs | `coder` |
-| `frontend` | React/Vue, Tailwind, componentes, state management | `coder` |
-| `qa-engineer` | Tests (unit/integration/e2e), auditorias de proceso | `coder` |
-| `security` | OWASP, JWT, OAuth, RBAC, hardening | `coder` |
-| `architecture` | DDD, microservicios, ADRs, trade-offs | `coder`, `backend`, `frontend` |
-| `infrastructure` | Docker, Kubernetes, CI/CD, cloud, Terraform | `coder` |
-| `data` | SQL, indexes, ETL, schema design | `coder` |
+| `backend` | APIs REST/GraphQL, seleccion de arquitectura MVC/Clean/Hexagonal | `coder` |
+| `frontend` | Componentes UI, Core Web Vitals, WCAG 2.1 AA | `coder` |
+| `qa-engineer` | Auditoria holistica — implementaciones y propuestas, GO/NO-GO | `coder` |
+| `security` | OWASP, JWT, OAuth, RBAC, hardening, GO/NO-GO | `coder` |
+| `architecture` | DDD, microservicios, ADRs, diagramas C4, trade-offs | `coder`, `backend`, `frontend` |
+| `infrastructure` | Docker, Kubernetes, CI/CD, cloud, Terraform, GO/NO-GO | `coder` |
+| `data` | SQL, indexes, ETL, schema design, ML Engineering | `coder` |
+
+---
+
+### Prompts con modos de madurez
+
+Todos los agentes especializados adaptan su nivel de exigencia al modo de madurez del proyecto:
+
+| Modo | Cuando aplica | Que exige |
+|------|---------------|-----------|
+| **Prototype** | MVP, prueba de concepto | Arquitectura minima, sin ADRs, deuda tecnica controlada |
+| **Beta** | Producto en desarrollo activo | Tests, ADRs minimos, CI/CD, cobertura ≥ 70% |
+| **Production** | Sistema en produccion | Resiliencia completa, cobertura ≥ 85%, GO/NO-GO gates |
+
+Los agentes **Security**, **QA** e **Infrastructure** emiten un veredicto formal **GO / NO-GO / NO-GO condicional** con plan de remediacion priorizado (Inmediato / Corto plazo / Medio plazo).
+
+Cada agente incluye un checklist de **self-audit** que ejecuta antes de entregar su respuesta, y formatos de respuesta obligatorios que garantizan consistencia entre sesiones.
 
 ---
 
@@ -307,6 +326,28 @@ general
               ↓ (cada uno delega a)
            coder → ejecuta los cambios en el filesystem
 ```
+
+---
+
+### Deteccion automatica de stack
+
+`createCodingEngine()` detecta el stack del proyecto al arrancar, chequeando archivos indicadores en el directorio de trabajo:
+
+| Archivo indicador | Stack detectado |
+|-------------------|-----------------|
+| `package.json` | `node` |
+| `tsconfig.json` | `typescript` |
+| `requirements.txt` / `pyproject.toml` | `python` |
+| `pom.xml` / `build.gradle` | `java` |
+| `Cargo.toml` | `rust` |
+| `go.mod` | `go` |
+| `composer.json` | `php` |
+| `Gemfile` | `ruby` |
+| `mix.exs` | `elixir` |
+
+El resultado se inyecta como `## Detected Project Stack` en el `projectContext` de **todos** los agentes (orquestador y especialistas). Actua como fallback automatico cuando todavia no se ha ejecutado `/init` y no existe `AGENT.md`.
+
+Una vez ejecutado `/init`, el `AGENT.md` generado con la seccion `## Stack` tiene precedencia y complementa a la deteccion automatica.
 
 ---
 
@@ -342,7 +383,7 @@ El ProjectStore guarda el estado del proyecto en `~/.{appName}/projects/{project
 
 Al inicializar, crea automaticamente `memory/session.md` si no existe — la primera vez que el agente trabaja en un proyecto ya tiene su archivo de sesion listo.
 
-En cada sesion nueva, el engine inyecta automaticamente al system prompt:
+En cada sesion nueva, el engine inyecta automaticamente al system prompt de **todos los agentes**:
 
 1. **User Profile** — `~/.{appName}/USER.md`
 2. **Project Instructions** — `AGENT.md` del proyecto
@@ -350,6 +391,7 @@ En cada sesion nueva, el engine inyecta automaticamente al system prompt:
 4. **Learned Preferences** — `learnings.md`
 5. **Current Session** — `memory/session.md` (si existe)
 6. **Lessons Learned** — `audits/lecciones-aprendidas.md` (si existe)
+7. **Detected Project Stack** — detectado automaticamente por `detectProjectStack()` (fallback si no hay `AGENT.md`)
 
 ---
 
@@ -424,7 +466,7 @@ Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usua
 
 ## Comando /init — inicializacion de proyectos
 
-El comando `/init` analiza el proyecto y genera automaticamente la documentacion necesaria para que los agentes trabajen con contexto completo. Detecta tres modos automaticamente:
+El comando `/init` analiza el proyecto y genera automaticamente la documentacion necesaria para que los agentes trabajen con contexto completo. Lo ejecuta el agente **`project-manager`** (builtin), que coordina a los especialistas en fases paralelas y secuenciales. Detecta tres modos automaticamente:
 
 | Modo | Cuando aplica | Que genera |
 |------|---------------|------------|
@@ -1289,6 +1331,14 @@ async function handleInput(text: string, cwd: string, engine: AgentEngine) {
 ---
 
 ## Roadmap
+
+### Completado en v0.3.0
+
+- [x] **10 agentes**: agente `project-manager` builtin — coordinador dedicado del workflow `/init`
+- [x] **Prompts enriquecidos**: todos los agentes con modos de madurez (Prototype/Beta/Production), checklists accionables por dominio, tablas de severidad, self-audit y formatos de respuesta obligatorios
+- [x] **Veredictos GO/NO-GO**: Security, QA e Infrastructure emiten dictamen formal con plan de remediacion (Inmediato / Corto / Medio plazo)
+- [x] **Deteccion automatica de stack**: `detectProjectStack()` chequea 11 archivos indicadores al arrancar e inyecta el stack en el contexto de todos los agentes
+- [x] **Contexto universal**: `AgentEngine.buildSystemPrompt` ahora inyecta `projectContext` en todos los agentes (no solo el orquestador) — los especialistas conocen el stack y la sesion activa sin depender de lo que General les pase
 
 ### Completado en v0.2.0
 

@@ -245,9 +245,10 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
     }
 
     // ── Skills ────────────────────────────────────────────────────────────────
-    // Start with the in-memory builtins (global + node pack).
-    // YAML skills (user global, installed packs, project-specific) are loaded
-    // lazily on the first engine.run() call to keep createCodingEngine() sync.
+    // Three-layer skill hierarchy (builtins are in-memory; YAML layers are lazy-loaded):
+    //   1. Framework builtins: GLOBAL_BUILTIN_SKILLS + NODE_PACK_SKILLS (always available)
+    //   2. Coding agent skills: ~/.{appName}/skills/global/ + /packs/ (the tool's own skills)
+    //   3. Project skills: {cwd}/.{appName}/skills/ (git-tracked, team-shareable)
     const builtinSkills: Skill[] = [...GLOBAL_BUILTIN_SKILLS, ...NODE_PACK_SKILLS];
     const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
     const loadSkills = skillLoader

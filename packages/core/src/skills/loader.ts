@@ -47,9 +47,16 @@ export class SkillLoader {
         return skills;
     }
 
-    /** Loads project-specific skills for the given working directory */
+    /**
+     * Loads project-specific skills from inside the project directory.
+     * Path: {cwd}/.{appName}/skills/*.yaml
+     *
+     * Skills live alongside the project code so they are git-tracked and
+     * shared across the team — consistent with how AgentLoader loads
+     * project agents from {cwd}/.{appName}/agents/.
+     */
     async loadProject(cwd: string): Promise<Skill[]> {
-        const dir = path.join(getProjectDir(this.appName, cwd), 'skills');
+        const dir = path.join(cwd, `.${this.appName}`, 'skills');
         return this.loadFromDir(dir, 'project');
     }
 

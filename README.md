@@ -9,9 +9,10 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 1. [Vision general](#vision-general)
 2. [Arquitectura](#arquitectura)
 3. [Instalacion](#instalacion)
-4. [Quickstart — REPL interactivo](#quickstart--repl-interactivo)
-5. [Packages](#packages)
-6. [Motor de agentes — @bk/agent-coding](#motor-de-agentes--bkagent-coding)
+4. [Construir un agente de codificacion desde cero](#construir-un-agente-de-codificacion-desde-cero)
+5. [Quickstart — REPL interactivo](#quickstart--repl-interactivo)
+6. [Packages](#packages)
+7. [Motor de agentes — @bk/agent-coding](#motor-de-agentes--bkagent-coding)
    - [Proveedores LLM](#proveedores-llm)
    - [Los 10 agentes especializados](#los-10-agentes-especializados)
    - [Prompts con modos de madurez](#prompts-con-modos-de-madurez)
@@ -21,9 +22,9 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
    - [Herramientas de memoria y contexto](#herramientas-de-memoria-y-contexto)
    - [ProjectStore — persistencia entre sesiones](#projectstore--persistencia-entre-sesiones)
    - [AgentLoader — carga automatica de agentes](#agentloader--carga-automatica-de-agentes)
-7. [Estructura de datos en disco](#estructura-de-datos-en-disco)
-8. [Comando /init — inicializacion de proyectos](#comando-init--inicializacion-de-proyectos)
-9. [Slash commands built-in](#slash-commands-built-in)
+8. [Estructura de datos en disco](#estructura-de-datos-en-disco)
+9. [Comando /init — inicializacion de proyectos](#comando-init--inicializacion-de-proyectos)
+10. [Slash commands built-in](#slash-commands-built-in)
    - [/help](#help)
    - [/agents](#agents)
    - [/skills](#skills)
@@ -136,7 +137,276 @@ npm install @bk/agent-core @bk/agent-coding
 
 ---
 
-## Quickstart — REPL interactivo
+## Construir un agente de codificacion desde cero
+
+Esta seccion muestra como crear tu propio agente de codificacion usando el framework como base — ya sea un CLI, una app de escritorio (Electron) o un servidor.
+
+El framework resuelve toda la complejidad: orquestacion multi-agente, deteccion de stack, sistema de skills, persistencia y slash commands. Tu solo defines:
+- Tu **appName** (determina donde vive la configuracion en `~/.{appName}/`)
+- Los **providers LLM** que usas
+- Los **agentes y skills custom** especificos de tu herramienta
+
+### Paso 1 — Crear el proyecto
+
+```bash
+mkdir mi-coding-agent && cd mi-coding-agent
+npm init -y
+npm install @bk/agent-core @bk/agent-coding typescript tsx
+```
+
+### Paso 2 — Configurar providers
+
+Crea `~/.mi-agent/config.json` (o usa env vars):
+
+```json
+{
+  "providers": {
+    "anthropic": { "apiKey": "sk-ant-..." },
+    "deepseek":  { "apiKey": "sk-..." }
+  },
+  "defaultProvider": "anthropic"
+}
+```
+
+O via env vars: `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`.
+
+### Paso 3 — Crear el engine
+
+```typescript
+// src/engine.ts
+import { createCodingEngine } from '@bk/agent-coding';
+import { CallbackTransport } from '@bk/agent-core';
+
+export function buildEngine(cwd: string) {
+    return createCodingEngine({
+        providers: {
+            anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
+        },
+        defaultProvider: 'anthropic',
+        defaultAgent:    'general',      // orquestador por defecto
+        workingDir:      cwd,
+        appName:         'mi-agent',     // ~/.mi-agent/ para persistencia
+        maxParallelAgents: 6,
+        transport: new CallbackTransport(event => {
+            if (event.type === 'token') process.stdout.write(event.content);
+            if (event.type === 'agent_switch') console.log(`\n→ ${event.to_name}`);
+            if (event.type === 'tool_call') console.log(`\n  [${event.name}]`);
+        }),
+    });
+    // createCodingEngine automaticamente:
+    // - detecta el stack del proyecto (Node, Go, Java, Kotlin, Python...)
+    // - carga los 33 skills builtin (global + 5 packs de lenguaje)
+    // - carga skills YAML del agente (~/.mi-agent/skills/) y del proyecto ({cwd}/.mi-agent/skills/)
+    // - inyecta AGENT.md + session + stack en el contexto de todos los agentes
+}
+```
+
+### Paso 4 — Agregar agentes custom (opcional)
+
+Crea agentes especificos de tu herramienta en `~/.mi-agent/agents/` (global) o en el proyecto en `.mi-agent/agents/`:
+
+```markdown
+<!-- ~/.mi-agent/agents/devops.md -->
+Sos el especialista DevOps de esta empresa. Conoces:
+- El pipeline en GitHub Actions (.github/workflows/)
+- El cluster Kubernetes en EKS con Helm
+- Las variables de entorno en AWS Secrets Manager
+
+Cuando configures pipelines, siempre valida con `act` antes de pushear.
+```
+
+```json
+// ~/.mi-agent/agents/devops.json
+{
+  "id": "devops",
+  "name": "DevOps",
+  "icon": "⬡",
+  "description": "Pipeline CI/CD, Kubernetes, AWS",
+  "allowedTools": ["read_file", "write_file", "edit_file", "run_command", "search_files", "save_context"],
+  "delegatesTo": ["coder"]
+}
+```
+
+### Paso 5 — Agregar skills del agente (opcional)
+
+Skills propias de tu herramienta en `~/.mi-agent/skills/global/`:
+
+```yaml
+# ~/.mi-agent/skills/global/empresa-conventions.yaml
+name: empresa-conventions
+version: '1.0.0'
+description: Convenciones de la empresa para todos los proyectos
+triggers:
+  - convencion
+  - convention
+  - estandar
+  - naming
+systemPromptAddition: |
+  ## Convenciones de la Empresa
+
+  - Branches: {tipo}/{ticket-id}-{descripcion-breve}
+  - PRs requieren review de al menos 2 personas
+  - No deployar los viernes
+  - Logs estructurados con correlation-id en todos los servicios
+  - Nunca hardcodear secrets — usar AWS Secrets Manager
+```
+
+### Paso 6 — Agregar skills del proyecto
+
+Las skills especificas del proyecto que se construye viven DENTRO del proyecto (git-tracked):
+
+```yaml
+# mi-android-app/.mi-agent/skills/kotlin-conventions.yaml
+name: kotlin-conventions
+version: '1.0.0'
+description: Convenciones Kotlin de este proyecto Android
+language:
+  - kotlin
+triggers:
+  - coroutine
+  - compose
+  - room
+  - hilt
+systemPromptAddition: |
+  ## Convenciones Kotlin de este proyecto
+
+  - Siempre usar Hilt para DI — no Koin ni manual
+  - Room acceso SOLO via repositorios — nunca directo desde ViewModel
+  - StateFlow para estado UI, nunca LiveData en codigo nuevo
+  - Minimo 80% cobertura en domain layer
+```
+
+### Paso 7 — Wiring del REPL con slash commands
+
+```typescript
+// src/index.ts
+import * as readline from 'readline';
+import { buildEngine } from './engine';
+import {
+    SlashCommandRegistry,
+    registerBuiltinCommands,
+    getProjectDir,
+} from '@bk/agent-core';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const APP_NAME = 'mi-agent';
+const cwd = process.cwd();
+
+let engine = buildEngine(cwd);
+const registry = new SlashCommandRegistry();
+registerBuiltinCommands(registry);
+
+// Comandos propios de tu agente
+registry.register('/init', 'Inicializar el proyecto y generar documentacion', async (ctx) => {
+    await ctx.runEngine?.('/init'); // delega al engine
+});
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '❯ ' });
+rl.prompt();
+
+rl.on('line', async (line) => {
+    const input = line.trim();
+    if (!input) { rl.prompt(); return; }
+
+    const projectDir = getProjectDir(APP_NAME, cwd);
+    let sessionContent = '';
+    try { sessionContent = readFileSync(join(projectDir, 'memory', 'session.md'), 'utf-8'); } catch {}
+
+    const handled = await registry.dispatch(input, {
+        emit: text => console.log(text),
+        appName: APP_NAME,
+        projectDir,
+        sessionContent,
+        runEngine: prompt => engine.run(prompt),
+        injectContext: msg => console.log('[ctx]', msg),
+        onCwdChange: newCwd => { engine = buildEngine(newCwd); },
+    });
+
+    if (!handled) await engine.run(input);
+    rl.prompt();
+});
+```
+
+### Paso 8 — /init para el primer proyecto
+
+Cuando el usuario trabaje en un proyecto nuevo:
+
+```bash
+cd mi-proyecto-android
+echo "# Mi App Android\nCrear app de finanzas personales con Kotlin + Jetpack Compose + Room" > prompt.md
+
+# Ejecutar tu agente
+node dist/index.js
+
+❯ /init
+# Detecta modo 'new' (hay prompt.md, no hay codigo)
+# project-manager lee prompt.md e infiere:
+#   Stack: Kotlin + Jetpack Compose + Room + Hilt + Android SDK 34
+# Genera: design.md, specification.md, security.md, roadmap.md, AGENT.md
+# AGENT.md.§Stack = "Kotlin + Jetpack Compose + Room + Android SDK 34"
+# Todas las sesiones posteriores ya conocen el stack
+```
+
+### Flujo completo de una sesion normal (post-init)
+
+```
+Usuario: "implementa el ViewModel de la pantalla de gastos"
+         │
+         ▼
+engine.run() — el framework automaticamente:
+  1. Lazy-carga skills YAML de ~/.mi-agent/skills/ y .mi-agent/skills/
+  2. Activa skills por trigger: kotlin-coroutines, compose-patterns, android-architecture
+  3. Inyecta en el system prompt: AGENT.md + stack + session + skills activas
+         │
+         ▼
+General analiza + delega:
+  ask_agent("backend",   "disena el ViewModel con StateFlow + Hilt")
+  ask_agent("qa-engineer", "define los tests con Turbine y MockK")
+  (paralelo — DelegationBus con Bulkhead)
+         │
+         ▼
+Cada agente recibe: su prompt especializado + AGENT.md + skills de Kotlin
+Backend → plan de arquitectura
+QA      → plan de tests
+         │
+         ▼
+ask_agent("coder", plan completo)
+Coder escribe los archivos en Kotlin respetando las convenciones del proyecto
+```
+
+### Estructura recomendada del agente
+
+```
+mi-coding-agent/
+├── src/
+│   ├── index.ts        ← REPL / entrada principal
+│   └── engine.ts       ← createCodingEngine configurado
+├── package.json
+└── tsconfig.json
+
+~/.mi-agent/            ← config del agente (no del proyecto)
+├── config.json         ← providers y API keys
+├── USER.md             ← perfil global del desarrollador
+├── agents/             ← agentes custom globales
+│   └── devops.json + .md
+└── skills/
+    └── global/         ← skills globales del agente
+        └── empresa-conventions.yaml
+
+mi-proyecto/            ← proyecto que se construye (en git)
+├── .mi-agent/
+│   ├── agents/         ← agentes especificos del proyecto
+│   └── skills/         ← skills especificas del proyecto (git-tracked)
+│       └── kotlin-conventions.yaml
+├── AGENT.md            ← generado por /init (stack, commands, architecture)
+├── design.md           ← generado por /init
+└── ... (codigo del proyecto)
+```
+
+---
+
+
 
 El ejemplo `coding-assistant` incluye un REPL completo listo para usar.
 
@@ -875,6 +1145,63 @@ Activos automaticamente cuando el proyecto tiene `package.json` o `tsconfig.json
 | `bk-auto-learning` | auto learning, self-tuning, adaptativo | Auto-tuning de resiliencia |
 | `bk-console-animations` | spinner, progress bar, cli animation | `@backendkit-labs/console-animations` |
 
+### Skills de Go (`@bk-go`)
+
+Activos automaticamente cuando el proyecto tiene `go.mod`.
+
+| Skill | Triggers | Contenido |
+|-------|----------|-----------|
+| `go-error-handling` | error, errors, fmt.Errorf, errors.Is | Wrapping con `%w`, sentinel errors, errors.Is/As |
+| `go-concurrency` | goroutine, channel, context, sync | Ciclo de vida de goroutines, select, timeout, Mutex |
+| `go-http-server` | http, handler, middleware, chi, gin | Handler pattern, middleware, helpers JSON, slog |
+| `go-testing` | test, testify, table driven, mock | Table-driven tests, mock via interface, testify |
+
+### Skills de Java/Spring Boot (`@bk-java`)
+
+Activos automaticamente cuando el proyecto tiene `pom.xml` o `build.gradle`.
+
+| Skill | Triggers | Contenido |
+|-------|----------|-----------|
+| `spring-layered-architecture` | spring, controller, service, repository | Controller→Service→Repository, DTOs, @Transactional |
+| `spring-exception-handling` | exception, @ControllerAdvice, ProblemDetail | Excepciones de dominio, RFC 7807, handler global |
+| `spring-testing` | junit, mockito, @WebMvcTest | Unit tests, slices HTTP/JPA, AssertJ |
+| `spring-jpa` | jpa, hibernate, entity, migration | Entities, Spring Data, Flyway/Liquibase |
+
+### Skills de Kotlin/Android (`@bk-kotlin`)
+
+Activos automaticamente cuando el proyecto tiene `build.gradle.kts` o `settings.gradle.kts`.
+
+| Skill | Triggers | Contenido |
+|-------|----------|-----------|
+| `kotlin-coroutines` | coroutine, suspend, flow, StateFlow | Dispatchers, Flow, viewModelScope, manejo de errores |
+| `compose-patterns` | compose, composable, remember, LaunchedEffect | State hoisting, side effects, Modifier convention |
+| `android-architecture` | viewmodel, repository, hilt, room | Clean Architecture, StateFlow, Hilt modules |
+| `kotlin-testing` | mockk, turbine, runTest | MockK, Turbine para Flow, MainCoroutineRule |
+
+### Skills de Python/FastAPI (`@bk-python`)
+
+Activos automaticamente cuando el proyecto tiene `requirements.txt` o `pyproject.toml`.
+
+| Skill | Triggers | Contenido |
+|-------|----------|-----------|
+| `fastapi-patterns` | fastapi, router, depends, pydantic | APIRouter, Depends, schemas separados, async handlers |
+| `python-error-handling` | exception, httpexception, raise | Excepciones de dominio, handler global, logging |
+| `sqlalchemy-patterns` | sqlalchemy, orm, alembic, repository | Async SQLAlchemy, repository pattern, migraciones |
+| `python-testing` | pytest, fixture, httpx, asyncclient | pytest-asyncio, AsyncMock, httpx AsyncClient |
+
+### Total de skills builtin: 33
+
+```
+5  globales (cualquier stack)
+12 @bk-node (Node/TypeScript)
+4  @bk-go (Go)
+4  @bk-java (Java/Spring)
+4  @bk-kotlin (Kotlin/Android)
+4  @bk-python (Python/FastAPI)
+```
+
+Solo las skills cuyos **triggers coinciden con el input** Y cuyo **language coincide con el stack detectado** se inyectan en el prompt — sin bloat.
+
 ---
 
 ## Servidor MCP
@@ -1332,13 +1659,23 @@ async function handleInput(text: string, cwd: string, engine: AgentEngine) {
 
 ## Roadmap
 
+### Completado en v0.4.0
+
+- [x] **Skills cableadas al engine**: `SkillLoader` + `SkillActivator` integrados en `createCodingEngine` y `AgentEngine` — las 33 skills builtin ahora llegan al LLM por primera vez
+- [x] **Activacion por trigger + stack**: cada `engine.run(input)` activa solo las skills cuyos triggers matchean el input Y cuyo language coincide con el stack detectado — sin bloat de prompt
+- [x] **Lazy-loading de YAML**: skills de disco (global + packs instalados + proyecto) se cargan async en el primer `run()` — `createCodingEngine` sigue siendo sincrono
+- [x] **Skills de proyecto en el proyecto**: `SkillLoader.loadProject()` ahora lee de `{cwd}/.{appName}/skills/` (git-tracked, compartible con el equipo) en lugar de `~/.{appName}/projects/{key}/skills/`
+- [x] **4 nuevos packs de skills**: Go (`@bk-go`), Java/Spring (`@bk-java`), Kotlin/Android (`@bk-kotlin`), Python/FastAPI (`@bk-python`) — 16 skills de lenguaje nuevas
+- [x] **Deteccion de Kotlin**: `build.gradle.kts` y `settings.gradle.kts` detectados como stack `kotlin` (diferenciado de `java`)
+- [x] **Seccion "Construir un agente desde cero"**: guia completa paso a paso para crear un coding agent con el framework
+
 ### Completado en v0.3.0
 
 - [x] **10 agentes**: agente `project-manager` builtin — coordinador dedicado del workflow `/init`
 - [x] **Prompts enriquecidos**: todos los agentes con modos de madurez (Prototype/Beta/Production), checklists accionables por dominio, tablas de severidad, self-audit y formatos de respuesta obligatorios
 - [x] **Veredictos GO/NO-GO**: Security, QA e Infrastructure emiten dictamen formal con plan de remediacion (Inmediato / Corto / Medio plazo)
-- [x] **Deteccion automatica de stack**: `detectProjectStack()` chequea 11 archivos indicadores al arrancar e inyecta el stack en el contexto de todos los agentes
-- [x] **Contexto universal**: `AgentEngine.buildSystemPrompt` ahora inyecta `projectContext` en todos los agentes (no solo el orquestador) — los especialistas conocen el stack y la sesion activa sin depender de lo que General les pase
+- [x] **Deteccion automatica de stack**: `detectProjectStack()` chequea indicadores al arrancar e inyecta el stack en el contexto de todos los agentes
+- [x] **Contexto universal**: `AgentEngine.buildSystemPrompt` inyecta `projectContext` en todos los agentes (no solo el orquestador)
 
 ### Completado en v0.2.0
 

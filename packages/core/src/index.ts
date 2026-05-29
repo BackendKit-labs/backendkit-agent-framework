@@ -31,6 +31,9 @@ export * from './mcp';
 // Workflow Engine
 export * from './workflow';
 
+// Triggers & autonomous agent
+export * from './triggers';
+
 // Typed tools
 export { defineTool, z } from './tools/defineTool';
 export type { TypedToolOptions } from './tools/defineTool';

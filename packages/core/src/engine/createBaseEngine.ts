@@ -16,6 +16,8 @@ import type { Orchestrator } from '../orchestration/orchestrator';
 import type { QAService } from '../qa/qa-service';
 import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { MCPServerConfig } from '../mcp/types';
+import { ObservabilityManager } from '../observability/ObservabilityManager';
+import type { ObservabilityConfig } from '../observability/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -100,6 +102,23 @@ export interface BaseEngineOptions {
     onQAReview?: (review: string) => void;
 
     /**
+     * Observability: tracing, metrics, and cost/budget tracking.
+     * Wraps the transport transparently — no changes to existing code needed.
+     *
+     * @example
+     * observability: {
+     *   tracing: { exporter: 'console' },
+     *   costTracker: {
+     *     ...MODEL_PRICING['claude-sonnet-4-6'],
+     *     budget: { perRun: 0.50, perDay: 10.00 },
+     *     onBudgetExceeded: (u) => { engine.abort(); console.warn('Budget exceeded', u); },
+     *   },
+     *   metrics: { onSnapshot: (s) => console.log('runs:', s.runs.total) },
+     * }
+     */
+    observability?: ObservabilityConfig;
+
+    /**
      * External MCP servers to connect to.
      * Tools are discovered on the first run() call (lazy connection) and
      * made available to all agents in the session.
@@ -149,13 +168,18 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ?? opts.agents?.[0]?.id
         ?? 'general';
 
+    // Wrap transport with observability if configured
+    const obsManager = opts.observability ? new ObservabilityManager(opts.observability) : undefined;
+    const baseTransport = opts.transport ?? new StdoutTransport();
+    const transport = obsManager ? obsManager.wrapTransport(baseTransport) : baseTransport;
+
     return new AgentEngine({
         model: { provider: opts.defaultProvider, id: opts.defaultProvider },
         agents,
         tools,
         providers,
         defaultProvider: opts.defaultProvider,
-        transport: opts.transport ?? new StdoutTransport(),
+        transport,
         defaultAgentId,
         workingDir: opts.workingDir,
         maxIterations: opts.maxIterations ?? 100,
@@ -174,5 +198,6 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.mcpServers?.length
             ? { mcpManager: new MCPClientManager(opts.mcpServers) }
             : {}),
+        ...(obsManager ? { observabilityManager: obsManager } : {}),
     });
 }

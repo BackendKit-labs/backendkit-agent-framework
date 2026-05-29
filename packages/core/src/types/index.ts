@@ -100,6 +100,8 @@ export interface LLMStreamCallbacks {
     onToolCall?(name: string, args: string, id: string): void;
     onDone(message: LLMMessage): void;
     onError(err: Error): void;
+    /** Optional — providers that know token usage should call this so cost tracking works. */
+    onMetrics?(inputTokens: number, outputTokens: number): void;
 }
 
 export interface LLMProvider {

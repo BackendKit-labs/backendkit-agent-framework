@@ -34,6 +34,9 @@ export * from './workflow';
 // Triggers & autonomous agent
 export * from './triggers';
 
+// Observability
+export * from './observability';
+
 // Typed tools
 export { defineTool, z } from './tools/defineTool';
 export type { TypedToolOptions } from './tools/defineTool';

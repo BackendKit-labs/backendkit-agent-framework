@@ -16,6 +16,7 @@ import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
 import { SkillActivator } from '../skills/activator';
 import { MCPClientManager } from '../mcp/MCPClientManager';
+import type { ObservabilityManager } from '../observability/ObservabilityManager';
 import { WorkflowRunner } from '../workflow/WorkflowRunner';
 import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
@@ -50,6 +51,8 @@ export interface AgentEngineOptions extends EngineOptions {
     onQAReview?: (review: string) => void;
     /** MCP client manager — connects to external MCP servers and registers their tools */
     mcpManager?: MCPClientManager;
+    /** Observability manager — pre-created and transport-wrapped by createBaseEngine */
+    observabilityManager?: ObservabilityManager;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -95,6 +98,11 @@ export class AgentEngine {
             workingDir: opts.workingDir,
             runAgent: (id, question, context) => this.runAgentInternal(id, question, context),
         });
+    }
+
+    /** Access the observability manager when configured via createBaseEngine({ observability }). */
+    get observability(): ObservabilityManager | undefined {
+        return this.opts.observabilityManager;
     }
 
     private getProviderForProfile(profile: AgentProfile): LLMProvider {
@@ -268,6 +276,9 @@ export class AgentEngine {
                     onError: (err) => {
                         this.opts.transport.emit({ type: 'error', message: err.message });
                     },
+                    onMetrics: (inputTokens, outputTokens) => {
+                        this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
+                    },
                 }
             );
 
@@ -393,6 +404,9 @@ export class AgentEngine {
                 },
                 onDone: (msg) => { finalMessage = msg; },
                 onError: (err) => { throw err; },
+                onMetrics: (inputTokens, outputTokens) => {
+                    this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
+                },
             });
 
             if (!finalMessage) break;

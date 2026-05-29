@@ -29,6 +29,32 @@ import { ProjectStore } from './store/ProjectStore';
 import { PersistentMemory } from './store/PersistentMemory';
 import { ConfigLoader } from './config/ConfigLoader';
 
+// ── Stack detection ───────────────────────────────────────────────────────────
+
+const STACK_INDICATORS: Array<{ file: string; stack: string }> = [
+    { file: 'package.json',     stack: 'node' },
+    { file: 'tsconfig.json',    stack: 'typescript' },
+    { file: 'requirements.txt', stack: 'python' },
+    { file: 'pyproject.toml',   stack: 'python' },
+    { file: 'pom.xml',          stack: 'java' },
+    { file: 'build.gradle',     stack: 'java' },
+    { file: 'Cargo.toml',       stack: 'rust' },
+    { file: 'go.mod',           stack: 'go' },
+    { file: 'composer.json',    stack: 'php' },
+    { file: 'Gemfile',          stack: 'ruby' },
+    { file: 'mix.exs',          stack: 'elixir' },
+];
+
+function detectProjectStack(cwd: string): string[] {
+    const stacks: string[] = [];
+    for (const { file, stack } of STACK_INDICATORS) {
+        if (existsSync(join(cwd, file)) && !stacks.includes(stack)) {
+            stacks.push(stack);
+        }
+    }
+    return stacks;
+}
+
 // ── Re-exports ────────────────────────────────────────────────────────────────
 export { DeepSeekProvider } from './providers/DeepSeekProvider';
 export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
@@ -204,6 +230,14 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         const storeCtx = store.buildSystemContext(agentMd) || '';
         const pipelineCtx = pipelineParts.join('\n\n');
         projectContext = [storeCtx, pipelineCtx].filter(Boolean).join('\n\n') || undefined;
+    }
+
+    // Detect the project stack from indicator files and append to context.
+    // Acts as a fallback when AGENT.md hasn't been generated yet (no init workflow run).
+    const detectedStack = detectProjectStack(cwd);
+    if (detectedStack.length > 0) {
+        const stackSection = `## Detected Project Stack\n${detectedStack.join(', ')}`;
+        projectContext = projectContext ? `${projectContext}\n\n${stackSection}` : stackSection;
     }
 
     return new AgentEngine({

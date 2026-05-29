@@ -131,9 +131,8 @@ export class AgentEngine {
 
     private buildSystemPrompt(profile: AgentProfile): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
-        if (!isOrchestrator) return profile.systemPrompt;
-
-        const parts = [profile.systemPrompt, this.buildAgentRoster(profile.id)];
+        const parts: string[] = [profile.systemPrompt];
+        if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
         return parts.join('\n\n');
     }

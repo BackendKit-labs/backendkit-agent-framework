@@ -56,6 +56,8 @@ export interface AgentEngineOptions extends EngineOptions {
     observabilityManager?: ObservabilityManager;
     /** Advanced memory system — episodic/semantic/procedural */
     memorySystem?: MemorySystem;
+    /** Called once on the first run/runWorkflow to load discovered agents from disk or remote. */
+    loadAgents?: () => Promise<import('../types').AgentProfile[]>;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -87,6 +89,7 @@ export class AgentEngine {
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
     private mcpInitialized = false;
+    private agentsLoaded = false;
     private memoryContextBlock = '';
 
     constructor(private readonly opts: AgentEngineOptions) {
@@ -117,6 +120,7 @@ export class AgentEngine {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
         await this.ensureMCPInitialized();
+        await this.ensureAgentsLoaded();
 
         // Pre-compute memory context block for this input
         if (this.opts.memorySystem) {
@@ -161,6 +165,7 @@ export class AgentEngine {
         opts: WorkflowRunOptions = {},
     ): Promise<WorkflowResult> {
         await this.ensureMCPInitialized();
+        await this.ensureAgentsLoaded();
         const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;
         const runner = new WorkflowRunner(def, {
             ...opts,
@@ -172,6 +177,25 @@ export class AgentEngine {
 
     abort(): void {
         this.aborted = true;
+    }
+
+    private async ensureAgentsLoaded(): Promise<void> {
+        if (this.agentsLoaded || !this.opts.loadAgents) return;
+        this.agentsLoaded = true; // set early to prevent concurrent double-loads
+        try {
+            const discovered = await this.opts.loadAgents();
+            for (const agent of discovered) this.opts.agents.upsert(agent);
+            // If the current default agent still isn't registered, fall back to first available
+            if (!this.opts.agents.has(this.currentAgentId)) {
+                const all = this.opts.agents.getAll();
+                if (all.length > 0) this.currentAgentId = all[0].id;
+            }
+        } catch (err) {
+            this.opts.transport.emit({
+                type: 'system', level: 'warn',
+                text: `[AgentDiscovery] Failed to load agents: ${(err as Error).message}`,
+            });
+        }
     }
 
     private async ensureMCPInitialized(): Promise<void> {

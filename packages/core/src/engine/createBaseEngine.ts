@@ -19,6 +19,8 @@ import type { MCPServerConfig } from '../mcp/types';
 import { ObservabilityManager } from '../observability/ObservabilityManager';
 import type { ObservabilityConfig } from '../observability/types';
 import type { MemorySystem } from '../agent-memory/MemorySystem';
+import { discoverAgents } from '../agent-discovery/discoverAgents';
+import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -120,6 +122,23 @@ export interface BaseEngineOptions {
     observability?: ObservabilityConfig;
 
     /**
+     * Agent discovery — load agents from local directories and/or a remote registry.
+     * Discovered agents are merged with statically provided agents[] on the first run().
+     *
+     * Local directories scanned:
+     *   ~/.{appName}/agents/               ← global (shared across projects)
+     *   {workingDir}/.{appName}/agents/    ← project-local (git-tracked)
+     *
+     * @example
+     * agentDiscovery: {
+     *   appName: 'my-app',
+     *   remote: 'https://registry.backendkit.dev/agents',
+     *   install: ['@bk/agent-devops-aws', '@bk/agent-mobile-android'],
+     * }
+     */
+    agentDiscovery?: AgentDiscoveryConfig;
+
+    /**
      * Advanced three-tier memory system (episodic / semantic / procedural).
      * When provided, memory tools are auto-registered and the context block
      * is injected into every agent system prompt.
@@ -218,5 +237,13 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             : {}),
         ...(obsManager ? { observabilityManager: obsManager } : {}),
         ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
+        ...(opts.agentDiscovery
+            ? {
+                loadAgents: () => discoverAgents({
+                    ...opts.agentDiscovery!,
+                    workingDir: opts.agentDiscovery!.workingDir ?? opts.workingDir,
+                }),
+            }
+            : {}),
     });
 }

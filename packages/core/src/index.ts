@@ -40,6 +40,9 @@ export * from './observability';
 // Advanced memory system
 export * from './agent-memory';
 
+// Agent discovery
+export * from './agent-discovery';
+
 // Typed tools
 export { defineTool, z } from './tools/defineTool';
 export type { TypedToolOptions } from './tools/defineTool';

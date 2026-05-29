@@ -47,6 +47,19 @@ export {
 } from './checkpoint';
 export type { CheckpointSummary } from './checkpoint';
 
+// Workspace
+export {
+    loadWorkspaces,
+    saveWorkspaces,
+    createWorkspace,
+    addProject,
+    removeProject,
+    deleteWorkspace,
+    setActiveProject,
+    buildWorkspaceContext,
+} from './workspace';
+export type { WorkspaceProject, WorkspaceEntry, WorkspacesConfig } from './workspace';
+
 // Bootstrap
 export { runGlobalSeed } from './bootstrap/GlobalSeed';
 export type { SeedResult } from './bootstrap/GlobalSeed';

@@ -27,8 +27,12 @@ export interface CommandContext {
     projectDir?: string;
     /** Current content of memory/session.md (snapshotted into checkpoints). */
     sessionContent?: string;
+    /** App name used to locate ~/.{appName}/ (for workspace commands). */
+    appName?: string;
     /** Inject a message into the agent's active context window. */
     injectContext?: (message: string) => void;
+    /** Called by /workspace switch when the active project changes. App handles the actual cwd/engine reload. */
+    onCwdChange?: (cwd: string) => void;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

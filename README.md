@@ -39,8 +39,16 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 15. [Casos de uso basicos](#casos-de-uso-basicos)
 16. [Casos de uso intermedios](#casos-de-uso-intermedios)
 17. [Casos de uso avanzados](#casos-de-uso-avanzados)
-18. [Crear agentes personalizados](#crear-agentes-personalizados)
-19. [Instalar packs externos de skills](#instalar-packs-externos-de-skills)
+18. [Motor autonomo — nuevas APIs](#motor-autonomo--nuevas-apis)
+    - [MCP Client](#mcp-client--conectar-servidores-mcp-externos)
+    - [Typed Tools con Zod](#typed-tools--definetool-con-zod)
+    - [Workflow Engine](#workflow-engine--flujos-deterministas)
+    - [Triggers externos](#triggers-externos--createautonomousagent)
+    - [Observabilidad](#observabilidad--trazas-metricas-y-presupuesto)
+    - [Memory system avanzado](#memory-system-avanzado)
+    - [Agent Discovery](#agent-discovery--instalar-agentes-como-paquetes)
+19. [Crear agentes personalizados](#crear-agentes-personalizados)
+20. [Instalar packs externos de skills](#instalar-packs-externos-de-skills)
 20. [Crear tu propio pack de skills](#crear-tu-propio-pack-de-skills)
 21. [Integracion con Claude Code / Cursor](#integracion-con-claude-code--cursor)
 22. [Librerias de resiliencia](#librerias-de-resiliencia)
@@ -101,6 +109,9 @@ agent-framework/
 │   Orchestrator  ·  FSM  ·  ContextPipeline                  │
 │   QAService  ·  Reflection  ·  SkillSystem                  │
 │   SlashCommandRegistry  ·  Checkpoint  ·  Workspace         │
+│   WorkflowEngine  ·  TriggerManager  ·  ObservabilityManager│
+│   MemorySystem (episodic/semantic/procedural)               │
+│   MCPClientManager  ·  AgentDiscovery  ·  defineTool()      │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -1452,6 +1463,405 @@ Nuestras convenciones internas:
 
 ---
 
+## Motor autonomo — nuevas APIs
+
+Las siguientes APIs del package `@bk/agent-core` convierten el engine en un sistema de agentes verdaderamente autonomo: actua sobre eventos externos, ejecuta flujos deterministas, mide costos y recuerda lo que aprendio.
+
+---
+
+### MCP Client — conectar servidores MCP externos
+
+Conecta cualquier servidor MCP al engine. Las tools se descubren automaticamente en el primer `run()` y quedan disponibles para todos los agentes.
+
+```typescript
+import { createBaseEngine } from '@bk/agent-core';
+
+const engine = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [myAgent],
+
+  mcpServers: [
+    {
+      name: 'github',
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN },
+    },
+    {
+      name: 'postgres',
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-postgres'],
+      env: { DATABASE_URL: process.env.DATABASE_URL },
+      timeoutMs: 10_000,
+    },
+  ],
+});
+
+// Los agentes pueden llamar a "mcp:github:create_pull_request",
+// "mcp:postgres:query", etc. — sin codigo adicional
+await engine.run('Abri una PR con los cambios del dia');
+```
+
+---
+
+### Typed Tools — defineTool() con Zod
+
+Define tools con type safety completo. El schema JSON para el LLM se genera automaticamente desde Zod; los argumentos se validan en runtime antes de llegar al handler.
+
+```typescript
+import { defineTool, z, createBaseEngine } from '@bk/agent-core';
+
+const searchTool = defineTool({
+  name: 'search_codebase',
+  description: 'Busca simbolos en el codebase por nombre o keyword',
+  input: z.object({
+    query:   z.string().describe('Termino de busqueda'),
+    limit:   z.number().int().min(1).max(50).default(10),
+    kind:    z.enum(['function', 'class', 'type', 'any']).default('any'),
+  }),
+  execute: async ({ query, limit, kind }, ctx) => {
+    // query, limit, kind estan completamente tipados
+    const results = await myIndex.search(query, { limit, kind });
+    return results.map(r => `${r.kind} ${r.name} — ${r.file}:${r.line}`).join('\n');
+  },
+});
+
+const engine = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [myAgent],
+  tools: [searchTool],
+});
+```
+
+**Errores de validacion** se devuelven como strings al LLM (no se lanzan excepciones), permitiendole corregir sus argumentos en la siguiente iteracion.
+
+---
+
+### Workflow Engine — flujos deterministas
+
+Ejecuta secuencias de agentes como codigo, no como decision del LLM. Los steps sin dependencias compartidas corren en paralelo; `requireApproval` pausa el flujo para aprobacion humana.
+
+```typescript
+import { workflow, agent, createBaseEngine } from '@bk/agent-core';
+
+const releaseWorkflow = workflow('release-pipeline')
+  .step('security-audit', agent('security'), {
+    input: 'Audita el diff actual para vulnerabilidades P0 y P1',
+  })
+  .step('qa-review', agent('qa-engineer'), {
+    input: 'Revisa los cambios staged y emite GO / NO-GO',
+  })
+  .step('deploy-staging', agent('infrastructure'), {
+    input: 'Deploya a staging via GitHub Actions',
+    dependsOn: ['security-audit', 'qa-review'],  // espera a que ambos terminen
+  })
+  .step('smoke-tests', agent('qa-engineer'), {
+    input: 'Ejecuta smoke tests en staging y reporta resultados',
+    dependsOn: ['deploy-staging'],
+  })
+  .step('deploy-prod', agent('infrastructure'), {
+    input: 'Deploya a produccion',
+    dependsOn: ['smoke-tests'],
+    requireApproval: true,  // pausa — el humano aprueba o rechaza
+  });
+
+const engine = createBaseEngine({ ... });
+
+const result = await engine.runWorkflow(releaseWorkflow, {
+  onApprovalRequired: async (step, prevOutputs) => {
+    console.log(`\nAprobacion requerida para: ${step.id}`);
+    console.log('Resultado de smoke tests:\n', prevOutputs['smoke-tests']);
+    const answer = await readline.question('Deployar a produccion? (s/n): ');
+    return answer.toLowerCase() === 's';
+  },
+});
+
+console.log('Estado:', result.status); // 'completed' | 'failed' | 'rejected'
+for (const [id, step] of Object.entries(result.steps)) {
+  console.log(`  ${id}: ${step.status}`);
+}
+```
+
+Los outputs de los steps anteriores se pasan automaticamente como contexto a los steps dependientes — el agente de `deploy-staging` recibe los reportes de `security-audit` y `qa-review`.
+
+---
+
+### Triggers externos — createAutonomousAgent()
+
+Crea un agente que se activa solo ante eventos externos — sin que ningun humano tenga que llamar a `engine.run()`.
+
+```typescript
+import { createAutonomousAgent, EventBus } from '@bk/agent-core';
+
+const agent = createAutonomousAgent({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [monitorAgent],
+  workingDir: process.cwd(),
+
+  goal: 'Monitorear PRs, detectar problemas de seguridad y notificar en Slack',
+
+  triggers: [
+    // Webhook: recibe notificaciones de GitHub
+    {
+      type: 'webhook',
+      path: '/github/pr',
+      secret: process.env.GITHUB_WEBHOOK_SECRET,
+      buildPrompt: (body, headers) =>
+        `Nueva PR abierta: ${(body as any).pull_request.title}\nURL: ${(body as any).pull_request.html_url}`,
+    },
+
+    // Schedule: digest diario de seguridad
+    {
+      type: 'schedule',
+      cron: '0 9 * * 1-5',           // lunes a viernes a las 9:00
+      task: 'Genera el resumen de seguridad del dia para el equipo',
+      timezone: 'America/Argentina/Buenos_Aires',
+    },
+
+    // Event: reacciona a eventos internos
+    {
+      type: 'event',
+      topic: 'ci.failed',
+      source: 'github-actions',       // solo eventos de esta fuente
+      buildPrompt: (payload) =>
+        `CI fallo en: ${JSON.stringify(payload)}. Analiza la causa y notifica.`,
+    },
+  ],
+
+  webhookPort: 3001,
+});
+
+await agent.start();
+console.log('Agente autonomo activo');
+
+// Otros servicios pueden disparar el agente via EventBus:
+EventBus.emit('ci.failed', { source: 'github-actions', data: { repo: 'my-api', branch: 'main' } });
+
+// O directamente:
+agent.emit('ci.failed', { repo: 'my-api', branch: 'main' }, 'github-actions');
+
+process.on('SIGTERM', () => agent.stop());
+```
+
+El agente serializa las activaciones — si llega un trigger mientras hay un run en curso, lo descarta con un warning en lugar de crear una race condition.
+
+---
+
+### Observabilidad — trazas, metricas y presupuesto
+
+Wrappea el transport transparentemente. No requiere cambios al engine ni a los agentes existentes.
+
+```typescript
+import { createBaseEngine, MODEL_PRICING } from '@bk/agent-core';
+
+const engine = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [myAgent],
+
+  observability: {
+    // Trazas: span por run y por agent_block
+    tracing: {
+      exporter: 'console',    // 'console' | 'noop' | (span) => void
+      // Para Jaeger: exporter: (span) => fetch('http://jaeger:14268/api/traces', { ... })
+    },
+
+    // Metricas en memoria, snapshot despues de cada run
+    metrics: {
+      onSnapshot: (snapshot) => {
+        console.log(`runs: ${snapshot.runs.total}, p95: ${snapshot.runs.p95Ms}ms`);
+        console.log(`tokens: ${snapshot.tokens.totalInput}in / ${snapshot.tokens.totalOutput}out`);
+        console.log(`costo estimado: $${snapshot.tokens.estimatedCostUsd.toFixed(4)}`);
+      },
+    },
+
+    // Presupuesto de costos
+    costTracker: {
+      ...MODEL_PRICING['claude-sonnet-4-6'],  // { inputPricePerMToken: 3, outputPricePerMToken: 15 }
+      budget: {
+        perRun: 0.50,    // USD maximo por run individual
+        perDay: 10.00,   // USD maximo acumulado por dia (reset a medianoche UTC)
+      },
+      onBudgetExceeded: (usage) => {
+        console.warn(`Presupuesto excedido (${usage.budgetExceeded}):`, usage);
+        engine.abort();   // detiene el run actual en la proxima iteracion
+      },
+    },
+  },
+});
+
+await engine.run('Refactoriza el modulo de autenticacion');
+
+// Acceder a metricas en cualquier momento:
+const snapshot = engine.observability?.getMetricsSnapshot();
+const runCost  = engine.observability?.getRunCost();   // costo del ultimo run
+const dayCost  = engine.observability?.getDayCost();   // acumulado del dia
+```
+
+**Precios disponibles en `MODEL_PRICING`:**
+
+| Modelo | Input ($/Mtok) | Output ($/Mtok) |
+|--------|---------------|----------------|
+| `claude-opus-4-8` | 15 | 75 |
+| `claude-sonnet-4-6` | 3 | 15 |
+| `claude-haiku-4-5` | 0.80 | 4 |
+| `gpt-4o` | 5 | 15 |
+| `gpt-4o-mini` | 0.15 | 0.60 |
+| `deepseek-chat` | 0.27 | 1.10 |
+
+---
+
+### Memory system avanzado
+
+Tres tiers de memoria persistente. Los agentes la usan a traves de 5 tools registrados automaticamente (`memory_remember`, `memory_recall`, `memory_save_knowledge`, `memory_search_knowledge`, `memory_learn_pattern`).
+
+```typescript
+import { createBaseEngine, createMemorySystem } from '@bk/agent-core';
+
+const memory = createMemorySystem({
+  // Episodica: log de experiencias con busqueda por keywords
+  episodic: {
+    provider: 'json',
+    path: '~/.my-agent/memory/episodes.json',
+  },
+
+  // Semantica: knowledge base con busqueda vectorial opcional
+  semantic: {
+    provider: 'json',
+    path: '~/.my-agent/memory/knowledge.json',
+    // embedFn: async (text) => await myEmbeddingAPI.embed(text),
+    // Si no se provee embedFn, usa keyword scoring en su lugar
+  },
+
+  // Retension: evita que la memoria crezca sin limite
+  retention: {
+    maxEpisodes: 1000,
+    summarizeAfter: 100,  // cada 100 episodios, llama a summarizeFn
+    summarizeFn: async (episodes) => {
+      const response = await engine.run(`Resume estos episodios en 3 bullets: ${JSON.stringify(episodes)}`);
+      return response;
+    },
+  },
+});
+
+const engine = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [myAgent],
+  memorySystem: memory,
+  // Los tools de memoria se registran automaticamente
+  // El context block se inyecta en cada system prompt
+});
+
+// Los agentes usan los tools en sus respuestas:
+// memory_remember("Deploy a produccion fallido por OOM en worker-3", ["deploy", "error", "prod"])
+// memory_recall("fallo en produccion")    → episodios relevantes
+// memory_learn_pattern("timeout en DB", "aumentar pool size", "success")
+
+// Uso programatico:
+memory.episodic.remember('PR #234 mergueada sin review de security', ['pr', 'audit']);
+const episodes = memory.episodic.recall('error en deploy', 5);
+const knowledge = await memory.semantic.search('mejores practicas retry');
+memory.procedural.learnPattern('CI falla en tests de integracion', 'correr `docker compose up -d` antes', 'success');
+
+// Contexto combinado de los 3 tiers para inyectar en un prompt:
+const context = await memory.buildContextBlock('deploy a produccion');
+// Devuelve markdown con: episodios relevantes + knowledge + patrones aprendidos
+```
+
+**Sin configurar `embedFn`**, la busqueda usa keyword overlap — util para la mayoria de los casos. Con `embedFn`, activa cosine similarity sobre los embeddings almacenados, compatible con cualquier proveedor (OpenAI, Cohere, local via `transformers.js`).
+
+---
+
+### Agent Discovery — instalar agentes como paquetes
+
+Carga agentes desde directorios locales o un registry remoto. Los agentes descubiertos se registran en el primer `run()` — `createBaseEngine` sigue siendo sincrono.
+
+#### Agentes locales (YAML)
+
+Crea un archivo `agent.yaml` en `~/.bk-agent/agents/` (global) o en `.bk-agent/agents/` del proyecto (git-tracked):
+
+```yaml
+# ~/.bk-agent/agents/devops-aws/agent.yaml
+id: devops-aws
+name: DevOps AWS
+icon: ☁️
+description: Gestiona infraestructura AWS — ECS, Lambda, RDS, Secrets Manager
+systemPrompt: |
+  Sos el especialista DevOps de AWS de este equipo.
+  Conoces el cluster ECS en us-east-1, las lambdas de procesamiento
+  y las conexiones a RDS via Secrets Manager.
+
+  Cuando configures infraestructura, siempre usa Terraform.
+  Nunca hardcodees credenciales — usa aws secretsmanager get-secret-value.
+allowedTools:
+  - read_file
+  - write_file
+  - run_command
+delegatesTo:
+  - coder
+```
+
+#### Registry remoto
+
+```typescript
+import { createBaseEngine, discoverAgents } from '@bk/agent-core';
+
+// Opcion A: via createBaseEngine (lazy, primer run)
+const engine = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [generalAgent],   // agentes estaticos siguen funcionando
+
+  agentDiscovery: {
+    appName: 'my-app',
+    local: true,             // carga ~/.my-app/agents/ y .my-app/agents/
+    remote: 'https://registry.backendkit.dev/agents',
+    install: [
+      '@bk/agent-devops-aws',
+      '@bk/agent-mobile-android',
+    ],
+    // Los paquetes se cachean en ~/.my-app/agents/registry/
+    // Las re-ejecuciones usan el cache — sin descarga redundante
+  },
+});
+
+// Opcion B: pre-cargar antes de crear el engine
+const discovered = await discoverAgents({
+  appName: 'my-app',
+  local: true,
+  install: ['@bk/agent-devops-aws'],
+  remote: 'https://registry.backendkit.dev/agents',
+});
+
+const engine2 = createBaseEngine({
+  providers: { claude: new AnthropicProvider(API_KEY) },
+  defaultProvider: 'claude',
+  agents: [...staticAgents, ...discovered],  // merge manual
+});
+```
+
+**Formato del registry remoto** (para hostear tu propio registry):
+
+```json
+{
+  "version": "1",
+  "agents": [
+    {
+      "name": "@bk/agent-devops-aws",
+      "version": "1.2.0",
+      "description": "DevOps AWS — ECS, Lambda, RDS, Terraform",
+      "downloadUrl": "https://cdn.registry.backendkit.dev/agents/@bk/agent-devops-aws@1.2.0.yaml"
+    }
+  ]
+}
+```
+
+---
+
 ## Crear agentes personalizados
 
 ### Agente de proyecto (visible solo en ese proyecto)
@@ -1658,6 +2068,16 @@ async function handleInput(text: string, cwd: string, engine: AgentEngine) {
 ---
 
 ## Roadmap
+
+### Completado en v0.5.0
+
+- [x] **MCP Client**: `createBaseEngine({ mcpServers })` — conecta servidores MCP externos; tools descubiertas automaticamente en el primer `run()`; namespace `mcp:{name}:{tool}`; timeout configurable por servidor
+- [x] **Typed Tools con Zod**: `defineTool()` — schema JSON generado desde Zod, validacion en runtime, args tipados en el handler
+- [x] **Workflow Engine**: `workflow().step().step()...` + `engine.runWorkflow()` — DAG de agents con dependencias, paralelismo automatico, `requireApproval` para gates humanos, outputs de steps anteriores pasados como contexto
+- [x] **Triggers externos**: `createAutonomousAgent({ triggers })` — schedule (cron via node-cron), webhook (HTTP con HMAC-SHA256), event (EventBus pub/sub global); serializacion de concurrencia incluida
+- [x] **Observabilidad**: `createBaseEngine({ observability })` — tracing por spans (run + agent_block), metricas en memoria (latencia p50/p95/p99, tokens, tool calls), cost tracker con presupuesto por run y por dia; wrapper transparente sobre el transport
+- [x] **Memory system avanzado**: `createMemorySystem()` — episodica (keyword search + retencion configurable), semantica (keyword o cosine similarity con `embedFn`), procedimental (patrones aprendidos de exitos/fallos); 5 tools auto-registrados, context block inyectado en system prompt
+- [x] **Agent Discovery**: `discoverAgents()` + `createBaseEngine({ agentDiscovery })` — carga YAML local desde `~/.{appName}/agents/` y `.{appName}/agents/`; descarga y cachea paquetes de un registry remoto; integracion lazy en el engine
 
 ### Completado en v0.4.0
 

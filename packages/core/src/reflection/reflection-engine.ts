@@ -64,7 +64,7 @@ export class ReflectionEngine {
   }) {
     const projectRoot = options?.projectRoot ?? process.cwd();
     const useGlobal = options?.useGlobalDir ?? true;
-    this.appName = options?.appName ?? 'agent-framework';
+    this.appName = options?.appName ?? 'bk-agent';
     this.onProjectContextUpdate = options?.onProjectContextUpdate;
     this.onEngineInsights = options?.onEngineInsights;
 

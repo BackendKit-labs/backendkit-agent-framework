@@ -28,33 +28,33 @@ export async function createCheckpoint(
 
     const content = [
         '---',
-        `tags: [memoria, checkpoint, ${safeName}]`,
-        `fecha: ${date}`,
+        `tags: [memory, checkpoint, ${safeName}]`,
+        `date: ${date}`,
         `feature: "${featureName}"`,
         '---',
         '',
         `# Checkpoint: ${featureName}`,
         '',
-        `**Fecha:** ${date}  `,
-        description ? `**Descripcion:** ${description}` : '',
+        `**Date:** ${date}  `,
+        description ? `**Description:** ${description}` : '',
         '',
         '---',
         '',
-        '## Estado de la sesion al crear este checkpoint',
+        '## Session state at checkpoint creation',
         '',
-        sessionContent || '*(sesion-actual.md vacia)*',
+        sessionContent || '*(session.md is empty)*',
     ].filter(l => l !== null).join('\n');
 
     await fs.mkdir(path.dirname(cpFile), { recursive: true });
     await fs.writeFile(cpFile, content, 'utf-8');
 
-    const logFile = path.join(projectDir, 'proyecto-log.md');
+    const logFile = path.join(projectDir, 'project-log.md');
     try {
         const log = await fs.readFile(logFile, 'utf-8');
         const row = `| ${date} | ${featureName} | Checkpoint |`;
-        if (log.includes('## Hitos del Proyecto')) {
+        if (log.includes('## Project Milestones')) {
             const updated = log.replace(
-                /(## Hitos del Proyecto[\s\S]*?\|---.*?\n)/,
+                /(## Project Milestones[\s\S]*?\|---.*?\n)/,
                 `$1${row}\n`
             );
             await fs.writeFile(logFile, updated, 'utf-8');
@@ -98,7 +98,7 @@ export async function compactSession(
     checkpointRef: string
 ): Promise<void> {
     const date = new Date().toISOString().split('T')[0];
-    const sesionFile = path.join(projectDir, 'sesion-actual.md');
+    const sesionFile = path.join(projectDir, 'memory', 'session.md');
 
     let content: string;
     try {
@@ -109,30 +109,30 @@ export async function compactSession(
 
     content = compactSessionContent(content);
 
-    content = content.replace(/^fecha_actualizacion: .+$/m, `fecha_actualizacion: ${date}`);
+    content = content.replace(/^updated_at: .+$/m, `updated_at: ${date}`);
 
-    if (/^ultimo_checkpoint:/m.test(content)) {
-        content = content.replace(/^ultimo_checkpoint: .+$/m, `ultimo_checkpoint: "${featureName}"`);
+    if (/^last_checkpoint:/m.test(content)) {
+        content = content.replace(/^last_checkpoint: .+$/m, `last_checkpoint: "${featureName}"`);
     } else {
         content = content.replace(
-            /^(fecha_actualizacion: .+)$/m,
-            `$1\nultimo_checkpoint: "${featureName}"`
+            /^(updated_at: .+)$/m,
+            `$1\nlast_checkpoint: "${featureName}"`
         );
     }
 
     content = content.replace(
-        /\*(?:Creado|Actualizado|Compactada) por DeepSeek Code el .+\*/,
-        `*Compactada por DeepSeek Code el ${date} (checkpoint: ${checkpointRef})*`
+        /\*(?:Created|Updated|Compacted) by .+ on .+\*/,
+        `*Compacted on ${date} (checkpoint: ${checkpointRef})*`
     );
 
     await fs.writeFile(sesionFile, content, 'utf-8');
 }
 
 export function compactSessionContent(content: string): string {
-    content = truncateSectionItems(content, 'Decisiones', 5, 'bullet');
-    content = truncateSectionItems(content, 'Issues Activos', 5, 'numbered');
+    content = truncateSectionItems(content, 'Decisions', 5, 'bullet');
+    content = truncateSectionItems(content, 'Active Issues', 5, 'numbered');
     if (Buffer.byteLength(content, 'utf-8') > SESSION_MAX_BYTES) {
-        content = truncateSectionItems(content, 'Aprendizajes del Engine', 3, 'bullet');
+        content = truncateSectionItems(content, 'Engine Learnings', 3, 'bullet');
     }
     return content;
 }

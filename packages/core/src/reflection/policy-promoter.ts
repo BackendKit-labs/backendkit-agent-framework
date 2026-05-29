@@ -89,7 +89,7 @@ export class PolicyPromoter {
       this.manifestPath = options.manifestPath;
     } else {
       const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
-      const appName = options?.appName ?? 'agent-framework';
+      const appName = options?.appName ?? 'bk-agent';
       this.manifestPath = path.join(home, `.${appName}`, MANIFEST_FILENAME);
     }
     if (options?.registry) {

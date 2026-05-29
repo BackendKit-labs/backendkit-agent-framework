@@ -183,7 +183,6 @@ PHASE 5 — Persist (use these tools directly, no delegation):
    ## Current phase
    [copy Phase 1 objective from roadmap.md]
 
-2. Call append_log: "/init completed — design.md + specification.md + security.md + roadmap.md + AGENT.md generated"
 `.trim();
 
 const EXISTING_PROJECT_PROMPT = `
@@ -320,7 +319,6 @@ PHASE 6 — Persist (use these tools directly, no delegation):
    ## Current phase
    [copy Phase 1 objective from roadmap.md]
 
-2. Call append_log: "/init completed — design.md + specification.md + security.md + roadmap.md + AGENT.md generated"
 `.trim();
 
 const HYBRID_PROJECT_PROMPT = `
@@ -450,5 +448,4 @@ PHASE 6 — Persist (use these tools directly, no delegation):
    ## Current phase
    [copy Immediate Next Steps from roadmap.md]
 
-2. Call append_log: "/init completed — design.md + specification.md + security.md + roadmap.md + AGENT.md generated"
 `.trim();

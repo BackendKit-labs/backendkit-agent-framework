@@ -155,6 +155,8 @@ export class Orchestrator {
     capabilityMatrix?: CapabilityMatrix;
     /** Ruta raíz del proyecto para los informes de auditoría (default: process.cwd()) */
     projectRoot?: string;
+    /** App name para derivar ~/.{appName}/projects/ (default: 'bk-agent') */
+    appName?: string;
   }) {
     this.client = options?.client;
     this.config = options?.config ?? defaultOrchestratorConfig();
@@ -164,6 +166,7 @@ export class Orchestrator {
     this.auditReporter = new AuditReporter({
       projectRoot: options?.projectRoot ?? process.cwd(),
       useGlobalDir: true,
+      appName: options?.appName ?? 'bk-agent',
     });
   }
 

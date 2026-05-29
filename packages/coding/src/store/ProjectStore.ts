@@ -2,10 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { join } from 'path';
 import { homedir } from 'os';
 import type { ProjectStoreData } from '@bk/agent-core';
-
-function cwdToHash(cwd: string): string {
-    return cwd.replace(/[:\\/]/g, '-').replace(/^-+/, '');
-}
+import { cwdToProjectKey } from '@bk/agent-core';
 
 export class ProjectStore implements ProjectStoreData {
     readonly homeDir: string;
@@ -13,28 +10,18 @@ export class ProjectStore implements ProjectStoreData {
 
     constructor(cwd: string, appName = 'bk-agent') {
         this.homeDir = join(homedir(), `.${appName}`);
-        this.projectDir = join(this.homeDir, 'projects', cwdToHash(cwd));
+        this.projectDir = join(this.homeDir, 'projects', cwdToProjectKey(cwd));
         mkdirSync(join(this.projectDir, 'audits'), { recursive: true });
+        mkdirSync(join(this.projectDir, 'memory'), { recursive: true });
     }
 
-    // ── context.md ────────────────────────────────────────────────────────────
-    getContext(): string { return this.read('context.md'); }
-    appendContext(content: string): void { this.append('context.md', content); }
+    // ── memory/contexto-proyecto.md ───────────────────────────────────────────
+    getContext(): string { return this.read(join('memory', 'contexto-proyecto.md')); }
+    appendContext(content: string): void { this.append(join('memory', 'contexto-proyecto.md'), content); }
 
     // ── learnings.md ──────────────────────────────────────────────────────────
     getLearnings(): string { return this.read('learnings.md'); }
     appendLearning(content: string): void { this.append('learnings.md', content); }
-
-    // ── log.md ────────────────────────────────────────────────────────────────
-    getLog(lines = 30): string {
-        const content = this.read('log.md');
-        if (!content) return '';
-        return content.split('\n').slice(-lines).join('\n');
-    }
-    appendLog(entry: string): void {
-        const date = new Date().toISOString().slice(0, 10);
-        this.append('log.md', `[${date}] ${entry}`);
-    }
 
     // ── audits/ ───────────────────────────────────────────────────────────────
     saveAudit(agentId: string, content: string): void {
@@ -73,8 +60,6 @@ export class ProjectStore implements ProjectStoreData {
         if (context) parts.push(`## Project Context\n${context}`);
         const learnings = this.getLearnings();
         if (learnings) parts.push(`## Learned Preferences\n${learnings}`);
-        const log = this.getLog(20);
-        if (log) parts.push(`## Recent Activity\n${log}`);
         return parts.join('\n\n');
     }
 

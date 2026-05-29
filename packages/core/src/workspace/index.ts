@@ -62,7 +62,7 @@ export async function readWorkspaceMemory(
     const memoryDir = getWorkspaceMemoryDir(projectBaseDir, name);
     let sessionContent = '';
     let projectContext = '';
-    try { sessionContent = await fs.readFile(path.join(memoryDir, 'sesion-actual.md'), 'utf-8'); } catch {}
+    try { sessionContent = await fs.readFile(path.join(memoryDir, 'session.md'), 'utf-8'); } catch {}
     try { projectContext = await fs.readFile(path.join(memoryDir, 'contexto-proyecto.md'), 'utf-8'); } catch {}
     return { sessionContent, projectContext };
 }

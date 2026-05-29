@@ -187,7 +187,7 @@ export class AgentLoader {
             name: agentId.charAt(0).toUpperCase() + agentId.slice(1),
             icon: '◇',
             description: `${agentId} specialist`,
-            allowedTools: ['read_file', 'list_directory', 'search_files', 'save_context', 'append_log'],
+            allowedTools: ['read_file', 'list_directory', 'search_files', 'save_context'],
             delegatesTo: ['coder'],
         };
 

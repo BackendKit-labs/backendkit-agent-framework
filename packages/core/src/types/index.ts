@@ -48,11 +48,9 @@ export interface SessionMemoryData {
 export interface ProjectStoreData {
     appendContext(content: string): void;
     appendLearning(content: string): void;
-    appendLog(entry: string): void;
     saveAudit(agentId: string, content: string): void;
     getContext(): string;
     getLearnings(): string;
-    getLog(lines?: number): string;
     listAudits(): string[];
     getLatestAudit(agentId: string): string | null;
     appendUserPreference(content: string): void;
@@ -117,7 +115,7 @@ export interface EngineOptions {
     maxParallelAgents?: number;
     workingDir?: string;
     sessionId?: string;
-    /** Context injected into the orchestrator system prompt (USER.md + AGENT.md + context.md + learnings.md) */
+    /** Context injected into the orchestrator system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */
     projectContext?: string;
     /** Persistent store for context, learnings, audits and logs */
     store?: ProjectStoreData;

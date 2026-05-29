@@ -87,7 +87,7 @@ export class HistoricalLoader {
   constructor(options: { engine: ReflectionEngine; projectRoot?: string; appName?: string }) {
     this.engine = options.engine;
     this.projectRoot = options.projectRoot ?? process.cwd();
-    this.appName = options.appName ?? 'agent-framework';
+    this.appName = options.appName ?? 'bk-agent';
   }
 
   /**

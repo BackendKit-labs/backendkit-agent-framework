@@ -7,6 +7,7 @@ import {
     ToolRegistry,
     type Transport,
     StdoutTransport,
+    getProjectDir,
 } from '@bk/agent-core';
 import { DeepSeekProvider } from './providers/DeepSeekProvider';
 import { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
@@ -22,7 +23,6 @@ import { searchFilesTool } from './tools/search-files';
 import { saveContextTool } from './tools/save-context';
 import { saveLearningTool } from './tools/save-learning';
 import { saveAuditTool, getLatestAuditTool, listAuditsTool } from './tools/save-audit';
-import { appendLogTool } from './tools/append-log';
 import { saveUserPreferenceTool } from './tools/save-user-preference';
 import { ProjectStore } from './store/ProjectStore';
 import { PersistentMemory } from './store/PersistentMemory';
@@ -50,7 +50,6 @@ export * from './tools/search-files';
 export * from './tools/save-context';
 export * from './tools/save-learning';
 export * from './tools/save-audit';
-export * from './tools/append-log';
 export * from './tools/save-user-preference';
 
 // ── Tool sets ─────────────────────────────────────────────────────────────────
@@ -66,7 +65,6 @@ export const CODING_TOOLS = [
     saveAuditTool,
     getLatestAuditTool,
     listAuditsTool,
-    appendLogTool,
     saveUserPreferenceTool,
 ];
 
@@ -187,7 +185,22 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
             ? readFileSync(agentMdPath, 'utf-8').trim()
             : undefined;
 
-        projectContext = store.buildSystemContext(agentMd) || undefined;
+        // Extra pipeline files managed by other subsystems (not ProjectStore)
+        const projectDir = getProjectDir(appName, cwd);
+        const pipelineParts: string[] = [];
+        const tryRead = (path: string) => existsSync(path) ? readFileSync(path, 'utf-8').trim() : null;
+
+        const sesion = tryRead(join(projectDir, 'memory', 'session.md'));
+        if (sesion) pipelineParts.push(`## Current Session\n${sesion}`);
+
+        const lecciones = tryRead(join(projectDir, 'audits', 'lecciones-aprendidas.md'));
+        if (lecciones) pipelineParts.push(`## Lecciones Aprendidas\n${lecciones}`);
+
+        // buildSystemContext already covers: USER.md, AGENT.md, memory/contexto-proyecto.md,
+        // learnings.md, log.md — so we only add what it doesn't manage
+        const storeCtx = store.buildSystemContext(agentMd) || '';
+        const pipelineCtx = pipelineParts.join('\n\n');
+        projectContext = [storeCtx, pipelineCtx].filter(Boolean).join('\n\n') || undefined;
     }
 
     return new AgentEngine({

@@ -14,7 +14,7 @@
  * - `AuditCiBlocker` → bloqueo de deploys en CI/CD
  * - `AuditReflectionBridge` → puente con Reflection Engine
  *
- * Cada informe se almacena en ~/.deepseek-code/projects/{cwd-hashed}/audits/
+ * Cada informe se almacena en ~/.{appName}/projects/{cwd-hashed}/audits/
  * y se aísla por proyecto usando el mismo esquema que la memoria persistente.
  *
  * @example
@@ -76,13 +76,14 @@ export class AuditReporter {
   private ciBlocker: AuditCiBlocker;
   private reflectionBridge: AuditReflectionBridge;
 
-  constructor(options?: { projectRoot?: string; useGlobalDir?: boolean }) {
+  constructor(options?: { projectRoot?: string; useGlobalDir?: boolean; appName?: string }) {
     const root = options?.projectRoot ?? process.cwd();
     const useGlobal = options?.useGlobalDir ?? true;
+    const appName = options?.appName ?? 'bk-agent';
 
     if (useGlobal) {
       const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
-      this.docsDir = path.join(home, '.deepseek-code', 'projects', cwdToProjectKey(root), 'audits');
+      this.docsDir = path.join(home, `.${appName}`, 'projects', cwdToProjectKey(root), 'audits');
     } else {
       this.docsDir = path.join(root, 'docs', 'auditorias');
     }

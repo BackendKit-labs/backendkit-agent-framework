@@ -1,7 +1,7 @@
 ﻿/**
  * @description FailureCatalog — Repositorio persistente de incidentes del Reflection Engine.
  *
- * Almacena FailureRecord en un archivo JSON en ~/.deepseek-code/projects/{hash}/reflection/
+ * Almacena FailureRecord en un archivo JSON en ~/.{appName}/projects/{hash}/reflection/
  * y provee operaciones CRUD básicas más consultas por dominio, failureType y rango de fechas.
  *
  * @example
@@ -36,7 +36,7 @@ export class FailureCatalog {
   constructor(options?: { projectRoot?: string; useGlobalDir?: boolean; appName?: string }) {
     const root = options?.projectRoot ?? process.cwd();
     const useGlobal = options?.useGlobalDir ?? true;
-    const appName = options?.appName ?? 'agent-framework';
+    const appName = options?.appName ?? 'bk-agent';
 
     if (useGlobal) {
       const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();

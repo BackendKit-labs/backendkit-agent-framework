@@ -62,7 +62,7 @@ export class DomainRegistry {
 
   constructor(options?: { projectRoot?: string; appName?: string }) {
     const root = options?.projectRoot ?? process.cwd();
-    const appName = options?.appName ?? 'agent-framework';
+    const appName = options?.appName ?? 'bk-agent';
     const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
 
     this.globalCatalogPath = path.join(home, `.${appName}`, 'domains', CATALOG_FILENAME);

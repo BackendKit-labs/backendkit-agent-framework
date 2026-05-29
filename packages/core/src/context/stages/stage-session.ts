@@ -27,7 +27,7 @@ export async function runStageSession(
     appName: string
 ): Promise<{ checksum: string; data: SessionResult }> {
     const memoryDir = path.join(getProjectDir(appName, cwd), 'memory');
-    const filePath = path.join(memoryDir, 'sesion-actual.md');
+    const filePath = path.join(memoryDir, 'session.md');
 
     const fileResult = await run(() => fs.readFile(filePath, 'utf-8'));
     const content = isOk(fileResult) ? fileResult.value : null;

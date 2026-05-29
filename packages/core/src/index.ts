@@ -37,6 +37,9 @@ export * from './triggers';
 // Observability
 export * from './observability';
 
+// Advanced memory system
+export * from './agent-memory';
+
 // Typed tools
 export { defineTool, z } from './tools/defineTool';
 export type { TypedToolOptions } from './tools/defineTool';

@@ -18,6 +18,7 @@ import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { MCPServerConfig } from '../mcp/types';
 import { ObservabilityManager } from '../observability/ObservabilityManager';
 import type { ObservabilityConfig } from '../observability/types';
+import type { MemorySystem } from '../agent-memory/MemorySystem';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,20 @@ export interface BaseEngineOptions {
     observability?: ObservabilityConfig;
 
     /**
+     * Advanced three-tier memory system (episodic / semantic / procedural).
+     * When provided, memory tools are auto-registered and the context block
+     * is injected into every agent system prompt.
+     *
+     * @example
+     * memorySystem: createMemorySystem({
+     *   episodic:   { provider: 'json', path: '~/.bk/episodes.json' },
+     *   semantic:   { provider: 'json', path: '~/.bk/knowledge.json', embedFn: myEmbedder },
+     *   retention:  { maxEpisodes: 1000 },
+     * })
+     */
+    memorySystem?: MemorySystem;
+
+    /**
      * External MCP servers to connect to.
      * Tools are discovered on the first run() call (lazy connection) and
      * made available to all agents in the session.
@@ -151,6 +166,9 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
 
     const tools = new ToolRegistry();
     for (const tool of opts.tools ?? []) tools.register(tool);
+    if (opts.memorySystem) {
+        for (const tool of opts.memorySystem.getTools()) tools.register(tool);
+    }
 
     const providers = new ProviderRegistry();
     for (const [id, provider] of Object.entries(opts.providers)) {
@@ -199,5 +217,6 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             ? { mcpManager: new MCPClientManager(opts.mcpServers) }
             : {}),
         ...(obsManager ? { observabilityManager: obsManager } : {}),
+        ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
     });
 }

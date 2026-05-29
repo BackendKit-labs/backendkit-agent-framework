@@ -17,6 +17,7 @@ import { SessionMemory } from '../memory/SessionMemory';
 import { SkillActivator } from '../skills/activator';
 import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { ObservabilityManager } from '../observability/ObservabilityManager';
+import type { MemorySystem } from '../agent-memory/MemorySystem';
 import { WorkflowRunner } from '../workflow/WorkflowRunner';
 import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
@@ -53,6 +54,8 @@ export interface AgentEngineOptions extends EngineOptions {
     mcpManager?: MCPClientManager;
     /** Observability manager — pre-created and transport-wrapped by createBaseEngine */
     observabilityManager?: ObservabilityManager;
+    /** Advanced memory system — episodic/semantic/procedural */
+    memorySystem?: MemorySystem;
 }
 
 const ASK_AGENT_TOOL: ToolDefinition = {
@@ -84,6 +87,7 @@ export class AgentEngine {
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
     private mcpInitialized = false;
+    private memoryContextBlock = '';
 
     constructor(private readonly opts: AgentEngineOptions) {
         this.memory = opts.sessionMemory ?? new SessionMemory();
@@ -113,6 +117,11 @@ export class AgentEngine {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
         await this.ensureMCPInitialized();
+
+        // Pre-compute memory context block for this input
+        if (this.opts.memorySystem) {
+            this.memoryContextBlock = await this.opts.memorySystem.buildContextBlock(input).catch(() => '');
+        }
 
         // Lazy-load user YAML skills (global + packs + project) on first call
         if (!this.yamlSkillsLoaded && this.opts.loadSkills) {
@@ -206,6 +215,7 @@ export class AgentEngine {
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
+        if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
         return parts.join('\n\n');
     }
@@ -449,6 +459,7 @@ export class AgentEngine {
             workingDir: this.opts.workingDir,
             memory: this.memory,
             store: this.opts.store,
+            advancedMemory: this.opts.memorySystem,
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context });
                 return result.content;

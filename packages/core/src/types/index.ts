@@ -37,6 +37,8 @@ export interface ExecutionContext {
     memory: SessionMemoryData;
     store?: ProjectStoreData;
     askAgent(agentId: string, question: string, context?: string): Promise<string>;
+    /** Advanced three-tier memory (episodic/semantic/procedural). Present when configured via createBaseEngine({ memorySystem }). */
+    advancedMemory?: import('../agent-memory/MemorySystem').MemorySystem;
 }
 
 export interface SessionMemoryData {

@@ -5,7 +5,11 @@ import {
     AgentRegistry,
     ProviderRegistry,
     ToolRegistry,
+    SkillLoader,
+    GLOBAL_BUILTIN_SKILLS,
+    NODE_PACK_SKILLS,
     type Transport,
+    type Skill,
     StdoutTransport,
     getProjectDir,
 } from '@bk/agent-core';
@@ -240,6 +244,19 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         projectContext = projectContext ? `${projectContext}\n\n${stackSection}` : stackSection;
     }
 
+    // ── Skills ────────────────────────────────────────────────────────────────
+    // Start with the in-memory builtins (global + node pack).
+    // YAML skills (user global, installed packs, project-specific) are loaded
+    // lazily on the first engine.run() call to keep createCodingEngine() sync.
+    const builtinSkills: Skill[] = [...GLOBAL_BUILTIN_SKILLS, ...NODE_PACK_SKILLS];
+    const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
+    const loadSkills = skillLoader
+        ? async () => {
+            const loaded = await skillLoader.loadAll(cwd);
+            return [...loaded.global, ...loaded.packs, ...loaded.project];
+        }
+        : undefined;
+
     return new AgentEngine({
         model: { provider: opts.defaultProvider, id: opts.defaultProvider },
         agents,
@@ -253,6 +270,9 @@ export function createCodingEngine(opts: CodingEngineOptions): AgentEngine {
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         store,
         projectContext,
+        skills: builtinSkills,
+        detectedStack,
+        loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
     });
 }

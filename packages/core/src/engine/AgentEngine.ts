@@ -6,6 +6,7 @@ import type {
     LLMProvider,
     SessionMemoryData,
     ToolDefinition,
+    Skill,
 } from '../types';
 import type { Transport } from '../transport/Transport';
 import type { AgentRegistry } from './AgentRegistry';
@@ -13,6 +14,7 @@ import type { ToolRegistry } from './ToolRegistry';
 import { ProviderRegistry } from './ProviderRegistry';
 import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
+import { SkillActivator } from '../skills/activator';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { OrchestrationResult } from '../orchestration/types';
 import type { QAService } from '../qa/qa-service';
@@ -65,13 +67,18 @@ const ASK_AGENT_TOOL: ToolDefinition = {
 export class AgentEngine {
     private readonly memory: SessionMemoryData;
     private readonly bus: DelegationBus;
+    private readonly skillActivator = new SkillActivator();
     private currentAgentId: string;
     private messages: LLMMessage[] = [];
     private aborted = false;
+    private allSkills: Skill[];
+    private activeSkillAddition = '';
+    private yamlSkillsLoaded = false;
 
     constructor(private readonly opts: AgentEngineOptions) {
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
+        this.allSkills = opts.skills ?? [];
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
@@ -90,6 +97,25 @@ export class AgentEngine {
     async run(input: string): Promise<void> {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
+
+        // Lazy-load user YAML skills (global + packs + project) on first call
+        if (!this.yamlSkillsLoaded && this.opts.loadSkills) {
+            try {
+                const yamlSkills = await this.opts.loadSkills();
+                this.allSkills = [...this.allSkills, ...yamlSkills];
+            } catch { /* non-fatal: skip if filesystem skills unavailable */ }
+            this.yamlSkillsLoaded = true;
+        }
+
+        // Activate skills relevant to this specific input
+        if (this.allSkills.length > 0) {
+            const active = this.skillActivator.activate(
+                input,
+                this.allSkills,
+                this.opts.detectedStack ?? [],
+            );
+            this.activeSkillAddition = this.skillActivator.buildSystemPromptAddition(active);
+        }
 
         const profile = this.getCurrentProfile();
         if (!profile) throw new Error(`Default agent "${this.currentAgentId}" not registered`);
@@ -134,6 +160,7 @@ export class AgentEngine {
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
+        if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
         return parts.join('\n\n');
     }
 

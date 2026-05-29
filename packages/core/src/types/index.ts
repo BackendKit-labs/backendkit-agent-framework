@@ -124,14 +124,32 @@ export type AgentEvent =
 
 // ─── Engine Options ───────────────────────────────────────────────────────────
 
+import type { Skill } from '../skills/types';
+export type { Skill };
+
 export interface EngineOptions {
     model: ModelConfig;
     maxIterations?: number;
     maxParallelAgents?: number;
     workingDir?: string;
     sessionId?: string;
-    /** Context injected into the orchestrator system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */
+    /** Context injected into every agent system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */
     projectContext?: string;
     /** Persistent store for context, learnings, audits and logs */
     store?: ProjectStoreData;
+    /**
+     * Pre-loaded skills (builtins + any statically provided skills).
+     * Injected into the system prompt per-run based on trigger + stack matching.
+     */
+    skills?: Skill[];
+    /**
+     * Stack identifiers detected from the project (e.g. ['node', 'typescript']).
+     * Used as the language gate when activating pack skills.
+     */
+    detectedStack?: string[];
+    /**
+     * Called once on the first run() to load user YAML skills from disk
+     * (global, packs and project layers). Results are merged with skills[].
+     */
+    loadSkills?: () => Promise<Skill[]>;
 }

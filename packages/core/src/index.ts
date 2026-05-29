@@ -27,6 +27,10 @@ export * from './orchestration';
 
 // MCP Client
 export * from './mcp';
+
+// Typed tools
+export { defineTool, z } from './tools/defineTool';
+export type { TypedToolOptions } from './tools/defineTool';
 export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
 
 // QA

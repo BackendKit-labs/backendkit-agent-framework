@@ -1,0 +1,78 @@
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { ToolDefinition, ExecutionContext } from '../types';
+
+// ── Public re-export so consumers use the framework's zod instance ────────────
+export { z };
+
+// ── Typed tool definition ─────────────────────────────────────────────────────
+
+export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
+    name: string;
+    description: string;
+    /** Zod schema for the tool's input. Used for validation and JSON Schema generation. */
+    input: TInput;
+    /** Type-safe execute handler — args are already validated and typed. */
+    execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
+}
+
+/**
+ * Creates a fully type-safe ToolDefinition backed by a Zod schema.
+ *
+ * The input schema is converted to JSON Schema for the LLM, and args are
+ * validated at runtime before being passed to the execute handler.
+ * Validation errors are returned as tool result strings (not thrown).
+ *
+ * @example
+ * const readFileTool = defineTool({
+ *   name: 'read_file',
+ *   description: 'Read a file from disk',
+ *   input: z.object({
+ *     path:     z.string().describe('Absolute path to the file'),
+ *     encoding: z.enum(['utf-8', 'base64']).default('utf-8'),
+ *   }),
+ *   execute: async ({ path, encoding }, ctx) => {
+ *     // path: string, encoding: 'utf-8' | 'base64' — fully typed
+ *     return readFileSync(path, encoding);
+ *   },
+ * });
+ */
+export function defineTool<TInput extends z.ZodTypeAny>(
+    opts: TypedToolOptions<TInput>,
+): ToolDefinition {
+    // Cast to bypass TypeScript's deep-instantiation limit on generic Zod schemas
+    const toSchema = zodToJsonSchema as unknown as (s: z.ZodTypeAny, opts: object) => Record<string, unknown>;
+    const jsonSchema = toSchema(opts.input, {
+        target: 'openApi3',
+        $refStrategy: 'none',
+    });
+
+    // zodToJsonSchema wraps the schema in a root object with $schema etc.
+    // Extract just the inner schema if it wrapped a single type.
+    const parameters = stripTopLevelMeta(jsonSchema);
+
+    return {
+        name: opts.name,
+        description: opts.description,
+        parameters,
+        execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
+            const result = opts.input.safeParse(rawArgs);
+            if (!result.success) {
+                const issues = result.error.issues
+                    .map(i => `${i.path.join('.') || 'root'}: ${i.message}`)
+                    .join('; ');
+                return `Error: Invalid arguments for tool "${opts.name}" — ${issues}`;
+            }
+            return opts.execute(result.data, ctx);
+        },
+    };
+}
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+/** Remove top-level JSON Schema meta fields ($schema, definitions, etc.) */
+function stripTopLevelMeta(schema: Record<string, unknown>): Record<string, unknown> {
+    const { $schema, definitions, ...rest } = schema;
+    void $schema; void definitions;
+    return rest;
+}

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
-import type { ProjectStoreData } from '@bk/agent-core';
+import type { ProjectStoreData, SessionUpdates } from '@bk/agent-core';
 import { cwdToProjectKey } from '@bk/agent-core';
 
 export class ProjectStore implements ProjectStoreData {
@@ -35,6 +35,8 @@ export class ProjectStore implements ProjectStoreData {
             '## Decisions',
             '',
             '## Active Issues',
+            '',
+            '## Next Steps',
             '',
             '## Engine Learnings',
             '',
@@ -90,6 +92,42 @@ export class ProjectStore implements ProjectStoreData {
         return parts.join('\n\n');
     }
 
+    // ── memory/session.md ─────────────────────────────────────────────────────
+    updateSession(updates: SessionUpdates): void {
+        const sessionPath = join(this.projectDir, 'memory', 'session.md');
+        let content = '';
+        try { content = readFileSync(sessionPath, 'utf-8'); } catch { return; }
+
+        const date = new Date().toISOString().slice(0, 10);
+        content = content.replace(/^updated_at: .+$/m, `updated_at: ${date}`);
+
+        if (updates.feature !== undefined) {
+            content = this.setSection(content, 'Current Feature', updates.feature);
+        }
+        if (updates.decisions?.length) {
+            const bullets = updates.decisions.map(d => `- ${d}`).join('\n');
+            content = this.appendToSection(content, 'Decisions', bullets);
+        }
+        if (updates.issues !== undefined) {
+            const body = updates.issues.length
+                ? updates.issues.map((s, i) => `${i + 1}. ${s}`).join('\n')
+                : '*(none)*';
+            content = this.setSection(content, 'Active Issues', body);
+        }
+        if (updates.next_steps !== undefined) {
+            const body = updates.next_steps.length
+                ? updates.next_steps.map((s, i) => `${i + 1}. ${s}`).join('\n')
+                : '*(none)*';
+            content = this.setSection(content, 'Next Steps', body);
+        }
+        if (updates.learnings?.length) {
+            const bullets = updates.learnings.map(l => `- ${l}`).join('\n');
+            content = this.appendToSection(content, 'Engine Learnings', bullets);
+        }
+
+        writeFileSync(sessionPath, content, 'utf-8');
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
     private read(filename: string): string {
         return this.readAbs(join(this.projectDir, filename));
@@ -103,5 +141,25 @@ export class ProjectStore implements ProjectStoreData {
     private appendAbs(path: string, content: string): void {
         const existing = this.readAbs(path);
         writeFileSync(path, existing ? `${existing}\n\n${content}` : content, 'utf-8');
+    }
+
+    /** Replace entire content of a markdown section. Creates section if absent. */
+    private setSection(content: string, title: string, body: string): string {
+        const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(## ${escaped}\\n)[\\s\\S]*?(?=\\n## |$)`);
+        if (re.test(content)) return content.replace(re, `$1${body}\n`);
+        return `${content.trimEnd()}\n\n## ${title}\n${body}\n`;
+    }
+
+    /** Append lines to a markdown section, skipping placeholder text. Creates section if absent. */
+    private appendToSection(content: string, title: string, lines: string): string {
+        const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(## ${escaped}\\n)([\\s\\S]*?)(?=\\n## |$)`);
+        const match = re.exec(content);
+        if (!match) return `${content.trimEnd()}\n\n## ${title}\n${lines}\n`;
+        const existing = (match[2] ?? '').trim();
+        const isEmpty = !existing || existing === '*(none)*';
+        const newBody = isEmpty ? lines : `${existing}\n${lines}`;
+        return content.replace(re, `$1${newBody}\n`);
     }
 }

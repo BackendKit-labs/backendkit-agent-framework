@@ -45,6 +45,20 @@ export interface SessionMemoryData {
     getAll(): Record<string, string>;
 }
 
+/** Fields the agent can update in memory/session.md via the update_session tool. */
+export interface SessionUpdates {
+    /** Replace the Current Feature section — what is being worked on + progress */
+    feature?: string;
+    /** Append bullets to Decisions — key choices made (accumulates over time) */
+    decisions?: string[];
+    /** Replace Active Issues section — current blockers or open items */
+    issues?: string[];
+    /** Append bullets to Engine Learnings — non-obvious codebase discoveries (accumulates) */
+    learnings?: string[];
+    /** Replace Next Steps section — what needs to happen after this */
+    next_steps?: string[];
+}
+
 export interface ProjectStoreData {
     appendContext(content: string): void;
     appendLearning(content: string): void;
@@ -54,6 +68,7 @@ export interface ProjectStoreData {
     listAudits(): string[];
     getLatestAudit(agentId: string): string | null;
     appendUserPreference(content: string): void;
+    updateSession(updates: SessionUpdates): void;
 }
 
 // ─── LLM Provider ────────────────────────────────────────────────────────────

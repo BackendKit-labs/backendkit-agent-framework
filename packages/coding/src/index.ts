@@ -24,6 +24,7 @@ import { saveContextTool } from './tools/save-context';
 import { saveLearningTool } from './tools/save-learning';
 import { saveAuditTool, getLatestAuditTool, listAuditsTool } from './tools/save-audit';
 import { saveUserPreferenceTool } from './tools/save-user-preference';
+import { updateSessionTool } from './tools/update-session';
 import { ProjectStore } from './store/ProjectStore';
 import { PersistentMemory } from './store/PersistentMemory';
 import { ConfigLoader } from './config/ConfigLoader';
@@ -51,6 +52,7 @@ export * from './tools/save-context';
 export * from './tools/save-learning';
 export * from './tools/save-audit';
 export * from './tools/save-user-preference';
+export * from './tools/update-session';
 
 // ── Tool sets ─────────────────────────────────────────────────────────────────
 export const CODING_TOOLS = [
@@ -66,6 +68,7 @@ export const CODING_TOOLS = [
     getLatestAuditTool,
     listAuditsTool,
     saveUserPreferenceTool,
+    updateSessionTool,
 ];
 
 // ── Provider config types ─────────────────────────────────────────────────────

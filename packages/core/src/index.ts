@@ -79,6 +79,7 @@ export type {
     ExecutionContext,
     SessionMemoryData,
     ProjectStoreData,
+    SessionUpdates,
     ModelConfig,
     LLMMessage,
     LLMToolCall,

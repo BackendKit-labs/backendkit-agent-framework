@@ -16,6 +16,9 @@ import { DelegationBus } from '../delegation/DelegationBus';
 import { SessionMemory } from '../memory/SessionMemory';
 import { SkillActivator } from '../skills/activator';
 import { MCPClientManager } from '../mcp/MCPClientManager';
+import { WorkflowRunner } from '../workflow/WorkflowRunner';
+import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
+import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { OrchestrationResult } from '../orchestration/types';
 import type { QAService } from '../qa/qa-service';
@@ -101,22 +104,7 @@ export class AgentEngine {
     async run(input: string): Promise<void> {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
-
-        // Lazy-connect MCP servers on first run and register their tools
-        if (!this.mcpInitialized && this.opts.mcpManager) {
-            try {
-                await this.opts.mcpManager.initialize();
-                for (const tool of this.opts.mcpManager.getTools()) {
-                    this.opts.tools.register(tool);
-                }
-            } catch (err) {
-                this.opts.transport.emit({
-                    type: 'system', level: 'warn',
-                    text: `MCP initialization error: ${(err as Error).message}`,
-                });
-            }
-            this.mcpInitialized = true;
-        }
+        await this.ensureMCPInitialized();
 
         // Lazy-load user YAML skills (global + packs + project) on first call
         if (!this.yamlSkillsLoaded && this.opts.loadSkills) {
@@ -151,8 +139,38 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'done' });
     }
 
+    async runWorkflow(
+        defOrBuilder: WorkflowDef | WorkflowBuilder,
+        opts: WorkflowRunOptions = {},
+    ): Promise<WorkflowResult> {
+        await this.ensureMCPInitialized();
+        const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;
+        const runner = new WorkflowRunner(def, {
+            ...opts,
+            runAgent: (agentId, input, context) => this.runAgentInternal(agentId, input, context),
+            transport: this.opts.transport,
+        });
+        return runner.run();
+    }
+
     abort(): void {
         this.aborted = true;
+    }
+
+    private async ensureMCPInitialized(): Promise<void> {
+        if (this.mcpInitialized || !this.opts.mcpManager) return;
+        try {
+            await this.opts.mcpManager.initialize();
+            for (const tool of this.opts.mcpManager.getTools()) {
+                this.opts.tools.register(tool);
+            }
+        } catch (err) {
+            this.opts.transport.emit({
+                type: 'system', level: 'warn',
+                text: `MCP initialization error: ${(err as Error).message}`,
+            });
+        }
+        this.mcpInitialized = true;
     }
 
     switchAgent(agentId: string): void {

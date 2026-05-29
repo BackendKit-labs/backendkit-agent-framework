@@ -120,7 +120,12 @@ export type AgentEvent =
     | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number }
     | { type: 'done' }
     | { type: 'error'; message: string }
-    | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string };
+    | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }
+    | { type: 'workflow_start'; name: string }
+    | { type: 'workflow_step_start'; step: string; agent: string }
+    | { type: 'workflow_step_complete'; step: string; success: boolean }
+    | { type: 'workflow_approval_required'; step: string }
+    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' };
 
 // ─── Engine Options ───────────────────────────────────────────────────────────
 

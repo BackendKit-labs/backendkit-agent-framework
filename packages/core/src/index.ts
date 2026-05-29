@@ -28,6 +28,9 @@ export * from './orchestration';
 // MCP Client
 export * from './mcp';
 
+// Workflow Engine
+export * from './workflow';
+
 // Typed tools
 export { defineTool, z } from './tools/defineTool';
 export type { TypedToolOptions } from './tools/defineTool';

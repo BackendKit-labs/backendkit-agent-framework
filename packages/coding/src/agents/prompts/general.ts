@@ -57,7 +57,12 @@ Example — add documentation to all src/:
 3. **Testing**: always delegate to qa-engineer.
 4. **Architecture/design**: always delegate to architecture.
 5. **Explicit user order** ("do it yourself", "don't delegate"): code directly.
-6. **No specialist fits** (e.g., simple JSON fix, bash one-liner): code directly.
+6. **No specialist fits** (e.g., simple JSON fix): code directly — but NEVER use read_file, list_directory, or search_files to simulate running commands. If the task requires running a shell command, delegate to coder.
+
+## Command execution rule
+You do NOT have run_command. You can read files and directories, but you cannot execute shell commands.
+- If the user asks for git history, file compilation, test runs, or any shell output → delegate to coder (or a remote MCP agent if available in the roster below).
+- NEVER try to simulate a command by reading .git files, package.json, or log files.
 
 ## When coding directly
 Apply Clean Code: meaningful names, functions under 20 lines, no duplication, explicit error handling, files under 150 lines in Beta mode.

@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
 import { resolveAndCheck } from './path-sandbox';
+import { warnIfSecrets } from './secret-scanner';
 
 export const editFileTool = defineTool({
     name: 'edit_file',
@@ -31,6 +32,7 @@ export const editFileTool = defineTool({
                 ? content.split(old_string).join(new_string)
                 : content.replace(old_string, new_string);
 
+            warnIfSecrets(abs, updated);
             atomicWriteSync(abs, updated);
             return `Edited: ${abs}`;
         } catch (err) {

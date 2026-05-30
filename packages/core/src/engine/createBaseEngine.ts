@@ -173,6 +173,14 @@ export interface BaseEngineOptions {
      * ]
      */
     mcpServers?: MCPServerConfig[];
+
+    /**
+     * Path to an append-only NDJSON file for automatic tool call audit records.
+     * Each tool execution appends one JSON line: ts, session, agent, tool, input (truncated), success, durationMs.
+     * The directory is created automatically if it doesn't exist.
+     * When absent, no audit file is written.
+     */
+    auditLog?: string;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -247,6 +255,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             : {}),
         ...(obsManager ? { observabilityManager: obsManager } : {}),
         ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
+        ...(opts.auditLog ? { auditLog: opts.auditLog } : {}),
         ...(opts.agentDiscovery
             ? {
                 loadAgents: () => discoverAgents({

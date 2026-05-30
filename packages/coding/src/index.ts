@@ -271,10 +271,12 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     let store: ProjectStore | undefined;
     let memory: PersistentMemory | undefined;
     let projectContext: string | undefined;
+    let auditLog: string | undefined;
 
     if (!opts.disablePersistence) {
         store = new ProjectStore(cwd, appName);
         memory = new PersistentMemory(store.projectDir);
+        auditLog = join(store.projectDir, 'audits', 'tool-calls.ndjson');
 
         const agentMdPath = join(cwd, 'AGENT.md');
         const agentMd = existsSync(agentMdPath)
@@ -379,6 +381,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         detectedStack,
         loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
+        ...(auditLog ? { auditLog } : {}),
         ...(orchestrator ? { orchestrator } : {}),
         ...(qaService ? { qaService } : {}),
         ...(noQA !== undefined ? { noQA } : {}),

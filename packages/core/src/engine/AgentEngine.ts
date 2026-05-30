@@ -1,3 +1,5 @@
+import { appendFile, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import type {
     AgentProfile,
     EngineOptions,
@@ -58,7 +60,15 @@ export interface AgentEngineOptions extends EngineOptions {
     memorySystem?: MemorySystem;
     /** Called once on the first run/runWorkflow to load discovered agents from disk or remote. */
     loadAgents?: () => Promise<import('../types').AgentProfile[]>;
+    /**
+     * Path to an append-only NDJSON file for tool call audit records.
+     * Each executed tool call is appended as one JSON line with: ts, session, agent, tool, inputPreview, success, durationMs.
+     * Directory is created automatically. Optional — no audit file written when absent.
+     */
+    auditLog?: string;
 }
+
+const MAX_INPUT_BYTES = 100_000; // Fix #17: 100 KB hard cap on user input
 
 const ASK_AGENT_TOOL: ToolDefinition = {
     name: 'ask_agent',
@@ -96,6 +106,9 @@ export class AgentEngine {
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.allSkills = opts.skills ?? [];
+        if (opts.auditLog) {
+            try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
+        }
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
@@ -119,6 +132,17 @@ export class AgentEngine {
     async run(input: string): Promise<void> {
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
+
+        // Fix #17: reject inputs that exceed the hard cap to prevent prompt injection via huge payloads
+        if (Buffer.byteLength(input, 'utf-8') > MAX_INPUT_BYTES) {
+            this.opts.transport.emit({
+                type: 'error',
+                message: `Input too large (${Buffer.byteLength(input, 'utf-8').toLocaleString()} bytes). Maximum is ${MAX_INPUT_BYTES.toLocaleString()} bytes.`,
+            });
+            this.opts.transport.emit({ type: 'done' });
+            return;
+        }
+
         await this.ensureMCPInitialized();
         await this.ensureAgentsLoaded();
 
@@ -374,6 +398,7 @@ export class AgentEngine {
             for (const call of otherCalls) {
                 const toolDef = this.opts.tools.get(call.name);
                 let result: string;
+                const callStart = Date.now();
                 if (!toolDef) {
                     result = `Tool "${call.name}" not found`;
                 } else {
@@ -386,6 +411,7 @@ export class AgentEngine {
                     }
                 }
                 const success = !result.startsWith('Error:');
+                this.writeAuditRecord(currentProfile.id, call.name, call.args, success, Date.now() - callStart);
                 this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
@@ -480,6 +506,7 @@ export class AgentEngine {
             for (const call of toolCalls) {
                 const toolDef = this.opts.tools.get(call.name);
                 let result: string;
+                const callStart = Date.now();
                 if (!toolDef) {
                     result = `Tool "${call.name}" not found`;
                 } else {
@@ -492,6 +519,7 @@ export class AgentEngine {
                     }
                 }
                 const success = !result.startsWith('Error:');
+                this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
                 this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
@@ -501,6 +529,21 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
 
         return { agentId, content: finalContent, inputTokens: 0, outputTokens: 0, elapsedMs: Date.now() - start };
+    }
+
+    // Fix #15: fire-and-forget NDJSON audit record after each tool execution
+    private writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): void {
+        if (!this.opts.auditLog) return;
+        const line = JSON.stringify({
+            ts: new Date().toISOString(),
+            session: this.opts.sessionId ?? 'default',
+            agent: agentId,
+            tool,
+            input: inputPreview.slice(0, 200),
+            success,
+            durationMs,
+        });
+        appendFile(this.opts.auditLog, line + '\n', () => {});
     }
 
     private buildContext(): ExecutionContext {

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -108,6 +108,16 @@ export class ConfigLoader {
 
         let file: BkAgentConfig = {};
         if (existsSync(this.configPath)) {
+            // Fix #5: warn when config.json is readable by group or others
+            if (process.platform !== 'win32') {
+                const mode = statSync(this.configPath).mode & 0o777;
+                if (mode & 0o044) {
+                    console.warn(
+                        `[config] ⚠ ${this.configPath} has permissions ${mode.toString(8).padStart(3, '0')} — ` +
+                        `API keys are readable by others. Fix with: chmod 600 ${this.configPath}`,
+                    );
+                }
+            }
             try { file = JSON.parse(readFileSync(this.configPath, 'utf-8')); }
             catch { console.warn(`[config] Could not parse ${this.configPath} — using defaults`); }
         }
@@ -152,6 +162,10 @@ export class ConfigLoader {
 
         if (!existsSync(this.configPath)) {
             writeFileSync(this.configPath, CONFIG_TEMPLATE, 'utf-8');
+            // Fix #5: restrict config.json (contains API keys) to owner-only on POSIX
+            if (process.platform !== 'win32') {
+                chmodSync(this.configPath, 0o600);
+            }
         }
 
         const userMdPath = join(this.configDir, 'USER.md');

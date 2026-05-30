@@ -469,6 +469,12 @@ export class AgentEngine {
                 const callStart = Date.now();
                 if (!toolDef) {
                     result = `Tool "${call.name}" not found`;
+                } else if (
+                    currentProfile.allowedTools.length > 0 &&
+                    !currentProfile.allowedTools.includes(call.name)
+                ) {
+                    result = `Tool "${call.name}" is not authorized for agent "${currentProfile.id}". ` +
+                             `Use ask_agent to delegate to a specialist.`;
                 } else {
                     const ctx = this.buildContext();
                     try {

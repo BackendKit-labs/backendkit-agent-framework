@@ -266,10 +266,16 @@ async function main(): Promise<void> {
                 } else {
                     emit(col(c.bold, '\n  MCP Servers'));
                     emit('  ' + col(c.gray, '─'.repeat(50)));
+                    const mgr = engine.getMCPManager();
+                    const info = mgr?.getServerInfo() ?? [];
+                    const infoMap = new Map(info.map(i => [i.name, i]));
                     for (const s of mcpServers) {
-                        const cmd = [s.command, ...(s.args ?? [])].join(' ');
-                        emit(`  ${col(c.cyan, '◈')} ${col(c.white, s.name.padEnd(16))} ${col(c.gray, cmd.slice(0, 50))}`);
-                        if (s.timeoutMs) emit(col(c.gray, `    timeout: ${s.timeoutMs}ms`));
+                        const connected = infoMap.get(s.name);
+                        const target = s.url ?? [s.command, ...(s.args ?? [])].join(' ');
+                        const status = connected
+                            ? col(c.green, `${connected.transportUsed}  ${connected.toolCount} tools`)
+                            : col(c.gray, s.url ? 'remote' : 'stdio');
+                        emit(`  ${col(c.cyan, '◈')} ${col(c.white, s.name.padEnd(16))} ${col(c.gray, target.slice(0, 40))}  ${status}`);
                     }
                     emit('');
                 }

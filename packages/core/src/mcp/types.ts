@@ -1,12 +1,60 @@
+/**
+ * Configuration for a single MCP server connection.
+ *
+ * Two modes are supported:
+ *
+ * **Stdio** — spawns a local subprocess:
+ * ```json
+ * { "name": "github", "command": "npx", "args": ["@modelcontextprotocol/server-github"],
+ *   "env": { "GITHUB_TOKEN": "ghp_..." } }
+ * ```
+ *
+ * **Remote** — connects over HTTP (StreamableHTTP with SSE fallback):
+ * ```json
+ * { "name": "my-service", "url": "https://mcp.myservice.com/v1",
+ *   "headers": { "Authorization": "Bearer tok_..." } }
+ * ```
+ *
+ * When both `url` and `command` are provided, `url` (remote) takes priority.
+ */
 export interface MCPServerConfig {
-    /** Human-readable identifier used to namespace tool names: mcp:{name}:{tool} */
+    /** Human-readable identifier — used to namespace tool names: mcp:{name}:{tool} */
     name: string;
-    /** Executable to spawn (e.g. 'node', 'npx', 'python') */
-    command: string;
-    /** Arguments to the command (e.g. ['@modelcontextprotocol/server-github']) */
+
+    // ── Stdio transport (local subprocess) ───────────────────────────────────
+
+    /** Executable to spawn (e.g. 'node', 'npx', 'python'). Required for stdio mode. */
+    command?: string;
+    /** Arguments passed to the command. */
     args?: string[];
-    /** Extra environment variables merged with process.env */
+    /** Extra environment variables merged with process.env. */
     env?: Record<string, string>;
+
+    // ── Remote transport (HTTP) ───────────────────────────────────────────────
+
+    /**
+     * HTTP endpoint of the remote MCP server.
+     * When set, the client connects via StreamableHTTP with automatic SSE fallback.
+     */
+    url?: string;
+    /**
+     * HTTP headers sent on every request (e.g. Authorization, API keys).
+     * Values are passed as-is — merge secrets from environment variables before
+     * building the config.
+     */
+    headers?: Record<string, string>;
+    /**
+     * Force a specific remote transport instead of using auto-detection.
+     * - `'streamable-http'` — MCP Streamable HTTP (current spec, default)
+     * - `'sse'`             — legacy SSE transport (deprecated, pre-2025 servers)
+     *
+     * When omitted the client tries Streamable HTTP first and falls back to SSE
+     * automatically if the server returns 4xx on the initial request.
+     */
+    remoteTransport?: 'streamable-http' | 'sse';
+
+    // ── Shared ────────────────────────────────────────────────────────────────
+
     /** Timeout for individual tool calls in ms. Default: 30 000 */
     timeoutMs?: number;
 }

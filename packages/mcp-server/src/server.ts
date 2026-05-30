@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as path from 'path';
 import { getFrameworkDir } from '@bk/agent-core';
@@ -27,16 +30,26 @@ const store = new GraphStore(dbPath);
 const indexer = new CodeIndexer(store, CWD);
 const watcher = new FileWatcher();
 
-const server = new McpServer({
-    name: '@bk/mcp-server',
-    version: '0.2.0',
-});
+// ---------------------------------------------------------------------------
+// Server factory — creates a fresh McpServer with all tools registered.
+// Called once for stdio mode; called per-session in HTTP mode.
+// ---------------------------------------------------------------------------
+function buildServer(): McpServer {
+    const srv = new McpServer({
+        name: '@bk/mcp-server',
+        version: '0.2.0',
+    });
+    registerTools(srv);
+    return srv;
+}
+
+function registerTools(srv: McpServer): void {
 
 // ---------------------------------------------------------------------------
 // stack_detect
 // ---------------------------------------------------------------------------
 // @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
-server.tool(
+srv.tool(
     'stack_detect',
     'Detect the technology stack of the current project using the code index (languages, frameworks, libraries).',
     {
@@ -62,7 +75,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // skills_search
 // ---------------------------------------------------------------------------
-server.tool(
+srv.tool(
     'skills_search',
     'Search available skills by query. Returns matching skills and whether they are active for the current project.',
     {
@@ -94,7 +107,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // skills_install
 // ---------------------------------------------------------------------------
-server.tool(
+srv.tool(
     'skills_install',
     'Install a skill pack from a GitHub repository or local path.',
     {
@@ -119,7 +132,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // skills_list
 // ---------------------------------------------------------------------------
-server.tool(
+srv.tool(
     'skills_list',
     'List all installed skill packs including builtin packs.',
     {},
@@ -137,7 +150,7 @@ server.tool(
 // code_search
 // ---------------------------------------------------------------------------
 // @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
-server.tool(
+srv.tool(
     'code_search',
     'Search the codebase for symbols (functions, classes, interfaces, types) by name or keyword.',
     {
@@ -159,7 +172,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // code_context
 // ---------------------------------------------------------------------------
-server.tool(
+srv.tool(
     'code_context',
     'Get relevant code context for a task — finds the symbols most related to the task and returns their code, callers, and callees.',
     {
@@ -192,7 +205,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 // code_index (trigger manual re-index)
 // ---------------------------------------------------------------------------
-server.tool(
+srv.tool(
     'code_index',
     'Trigger a full re-index of the project codebase. Run this after installing new files or if search results seem stale.',
     {
@@ -211,11 +224,22 @@ server.tool(
     },
 );
 
+} // end registerTools
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+const args = process.argv.slice(2);
+const HTTP_MODE = args.includes('--http');
+const portEq    = args.find(a => a.startsWith('--port='))?.split('=')[1];
+const portSpace = args[args.indexOf('--port') + 1];
+const HTTP_PORT = parseInt(portEq ?? portSpace ?? '3001', 10);
+const MCP_PATH  = '/mcp';
+
 async function main() {
-    // Index on startup (non-blocking — don't await fully)
+    // Index on startup (non-blocking)
     indexer.indexDirectory(CWD).catch(() => undefined);
     watcher.start(CWD, indexer);
 
@@ -225,8 +249,91 @@ async function main() {
         process.exit(0);
     });
 
+    if (HTTP_MODE) {
+        await startHttp();
+    } else {
+        await startStdio();
+    }
+}
+
+async function startStdio() {
     const transport = new StdioServerTransport();
-    await server.connect(transport);
+    await buildServer().connect(transport);
+}
+
+async function startHttp() {
+    // Stateful mode — each client gets a session ID; the McpServer is shared but
+    // each transport instance tracks its own protocol state independently.
+    const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+    async function parseBody(req: IncomingMessage): Promise<unknown> {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        if (!raw) return undefined;
+        return JSON.parse(raw);
+    }
+
+    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.url !== MCP_PATH) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Use POST/GET ${MCP_PATH}` }));
+            return;
+        }
+
+        try {
+            const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+            // Existing session
+            if (sessionId && sessions.has(sessionId)) {
+                const body = req.method === 'POST' ? await parseBody(req) : undefined;
+                await sessions.get(sessionId)!.handleRequest(req, res, body);
+                return;
+            }
+
+            // New session — only allowed on POST (initialize request)
+            if (req.method !== 'POST') {
+                res.writeHead(400);
+                res.end('Session ID required for GET');
+                return;
+            }
+
+            const body = await parseBody(req);
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+            });
+
+            // Connect a fresh McpServer per session so each session has
+            // isolated protocol state (initialized, tool list, etc.)
+            const sessionServer = buildServer();
+            await sessionServer.connect(transport);
+
+            // handleRequest processes the initialize message and sets transport.sessionId
+            await transport.handleRequest(req, res, body);
+
+            // Store AFTER handleRequest so the session ID is available
+            if (transport.sessionId) {
+                sessions.set(transport.sessionId, transport);
+                transport.onclose = () => sessions.delete(transport.sessionId!);
+            }
+        } catch (err) {
+            if (!res.headersSent) {
+                res.writeHead(500);
+                res.end(String(err));
+            }
+        }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+        httpServer.once('error', reject);
+        httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
+            process.stderr.write(
+                `[bk-mcp] HTTP server listening on http://127.0.0.1:${HTTP_PORT}${MCP_PATH}\n` +
+                `[bk-mcp] cwd=${CWD}  app=${APP_NAME}\n`,
+            );
+            resolve();
+        });
+    });
 }
 
 main().catch(err => {

@@ -470,8 +470,11 @@ export class AgentEngine {
                 if (!toolDef) {
                     result = `Tool "${call.name}" not found`;
                 } else if (
-                    currentProfile.allowedTools.length > 0 &&
-                    !currentProfile.allowedTools.includes(call.name)
+                    // Block if: agent has an explicit allowedTools list that excludes this tool,
+                    // OR agent is a pure delegator (delegatesTo set, allowedTools empty)
+                    (!currentProfile.allowedTools.includes(call.name) &&
+                     (currentProfile.allowedTools.length > 0 ||
+                      (currentProfile.delegatesTo && currentProfile.delegatesTo.length > 0)))
                 ) {
                     result = `Tool "${call.name}" is not authorized for agent "${currentProfile.id}". ` +
                              `Use ask_agent to delegate to a specialist.`;

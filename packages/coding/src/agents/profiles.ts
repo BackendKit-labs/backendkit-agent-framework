@@ -11,8 +11,8 @@ import { DATA_PROMPT } from './prompts/data';
 import { PROJECT_MANAGER_PROMPT } from './prompts/project-manager';
 
 const MEMORY_TOOLS       = ['save_context', 'save_learning', 'save_user_preference', 'save_audit', 'get_latest_audit', 'list_audits', 'update_session'];
-const ORCHESTRATOR_TOOLS = ['read_file', 'list_directory', 'search_files', ...MEMORY_TOOLS];
-const READ_ONLY_TOOLS    = [...ORCHESTRATOR_TOOLS, 'run_command'];
+const ORCHESTRATOR_TOOLS = [...MEMORY_TOOLS];
+const READ_ONLY_TOOLS    = ['read_file', 'list_directory', 'search_files', 'run_command', ...MEMORY_TOOLS];
 const WRITE_TOOLS        = [...READ_ONLY_TOOLS, 'write_file', 'edit_file'];
 export const CODING_AGENTS: AgentProfile[] = [
     {

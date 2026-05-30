@@ -20,8 +20,8 @@ const server = new AgentMCPServer({
                 max_commits: z.number().optional().describe('Number of commits to analyze (default 20)'),
             },
             buildPrompt: ({ cwd, max_commits }: { cwd?: string; max_commits?: number }) =>
-                `Run "git log --oneline -${max_commits ?? 20}" in ${cwd ?? CWD} and write a concise summary ` +
-                `of the recent changes grouped by: Features, Bug Fixes, and Chores. Be brief.`,
+                `Run the command: git -C "${cwd ?? CWD}" log --oneline -${max_commits ?? 20}\n` +
+                `Then write a concise summary grouped by: Features, Bug Fixes, and Chores. Be brief.`,
         },
         {
             name:        'git_diff_review',
@@ -41,12 +41,14 @@ const server = new AgentMCPServer({
                 from_tag: z.string().optional().describe('Starting tag or commit SHA (e.g. v1.0.0)'),
             },
             buildPrompt: ({ cwd, from_tag }: { cwd?: string; from_tag?: string }) => {
+                const dir = cwd ?? CWD;
                 const logCmd = from_tag
-                    ? `git log --oneline ${from_tag}..HEAD`
-                    : `git log --oneline -30`;
+                    ? `git -C "${dir}" log --oneline ${from_tag}..HEAD`
+                    : `git -C "${dir}" log --oneline -30`;
                 return (
-                    `Run "${logCmd}" in ${cwd ?? CWD} and generate professional release notes ` +
-                    `in markdown format. Sections: ## Features, ## Bug Fixes, ## Breaking Changes. ` +
+                    `Run: ${logCmd}\n` +
+                    `Then generate professional release notes in markdown format. ` +
+                    `Sections: ## Features, ## Bug Fixes, ## Breaking Changes. ` +
                     `Skip commits with no user-facing impact.`
                 );
             },

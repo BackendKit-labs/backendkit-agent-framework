@@ -5,6 +5,7 @@ import {
     SkillLoader,
     Orchestrator,
     QAService,
+    ReflectionEngine,
     adaptProviderToLLMClient,
     type LLMProvider,
     type Transport,
@@ -179,6 +180,20 @@ export interface OrchestrationOptions {
     capabilityMatrix?: CapabilityMatrix;
     /** Extra policy rules merged with the default built-in rules. */
     customRules?: PolicyRule[];
+    /**
+     * Activa el Reflection Engine para auto-aprendizaje cross-sprint.
+     *
+     * - `true` — crea un ReflectionEngine con defaults (persiste en ~/.{appName}/)
+     * - `ReflectionEngine` — usa la instancia provista (control total sobre config y paths)
+     *
+     * Cuando está activo, al finalizar cada sprint con hallazgos:
+     *   1. Los findings se acumulan en el FailureCatalog por proyecto
+     *   2. Patrones con ≥3 ocurrencias (high/critical) se promueven a PolicyRules
+     *   3. lecciones-aprendidas.md se actualiza con historial cross-sprint
+     *
+     * Requiere que `orchestration` esté habilitado.
+     */
+    reflection?: boolean | ReflectionEngine;
 }
 
 export interface CodingEngineOptions {
@@ -346,6 +361,16 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             capabilityMatrix: orchOpts.capabilityMatrix ?? CODING_CAPABILITY_MATRIX,
             customRules: orchOpts.customRules,
         });
+
+        if (orchOpts.reflection) {
+            const re = orchOpts.reflection instanceof ReflectionEngine
+                ? orchOpts.reflection
+                : new ReflectionEngine({ projectRoot: cwd, appName });
+            // initialize() carga el catálogo desde disco; corre en background porque
+            // el primer completeSprint() no ocurre hasta después del primer run LLM.
+            re.initialize().catch(() => {});
+            orchestrator.getAuditReporter().connectReflectionEngine(re);
+        }
 
         noQA = orchOpts.noQA;
         onQAReview = orchOpts.onQAReview;

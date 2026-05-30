@@ -225,12 +225,55 @@ async function main(): Promise<void> {
         prompt: col(c.green, '❯') + ' ',
     });
 
+    // ── Multi-line buffer ─────────────────────────────────────────────────────
+    // Activated when input ends with ':' or '```'. Accumulates lines until an
+    // empty line is received, then sends the full block as a single message.
+    let multiBuffer: string[] = [];
+    let multiMode = false;
+
+    const flushMulti = (): string => {
+        const full = multiBuffer.join('\n').trimEnd();
+        multiBuffer = [];
+        multiMode   = false;
+        rl.setPrompt(col(c.green, '❯') + ' ');
+        return full;
+    };
+
     rl.prompt();
 
     rl.on('line', async (line) => {
-        const input = line.trim();
-        if (!input) { rl.prompt(); return; }
+        // ── Multi-line accumulation ───────────────────────────────────────────
+        if (multiMode) {
+            if (line === '') {
+                const input = flushMulti();
+                if (!input) { rl.prompt(); return; }
+                await handleInput(input);
+            } else {
+                multiBuffer.push(line);
+                rl.setPrompt(col(c.gray, '... '));
+                rl.prompt();
+            }
+            return;
+        }
 
+        const raw   = line.trimEnd();
+        const input = raw.trim();
+
+        // Enter multi-line mode when line ends with ':' or '```'
+        if (input && (raw.endsWith(':') || raw.endsWith('```'))) {
+            multiMode = true;
+            multiBuffer = [raw];
+            rl.setPrompt(col(c.gray, '... '));
+            rl.prompt();
+            return;
+        }
+        if (!input) { rl.prompt(); return; }
+        await handleInput(input);
+    });
+
+    rl.on('close', () => process.exit(0));
+
+    async function handleInput(input: string): Promise<void> {
         // ── /init ─────────────────────────────────────────────────────────────
         if (input === '/init' || input.startsWith('/init ')) {
             const mode = InitWorkflow.detectMode(currentCwd);
@@ -418,9 +461,7 @@ async function main(): Promise<void> {
             rl.resume();
             rl.prompt();
         }
-    });
-
-    rl.on('close', () => process.exit(0));
+    }
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

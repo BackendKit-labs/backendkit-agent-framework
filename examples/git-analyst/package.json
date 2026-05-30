@@ -1,0 +1,24 @@
+{
+  "name": "@bk/example-git-analyst",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Git repository analyst exposed as an MCP server",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bk/agent-core": "*",
+    "@bk/agent-coding": "*",
+    "@bk/mcp-server": "*",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.0"
+  }
+}

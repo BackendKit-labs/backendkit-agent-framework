@@ -2,8 +2,8 @@
   "name": "@bk/mcp-server",
   "version": "0.1.0",
   "description": "MCP server for agent-framework — skills, code intelligence, agent context",
-  "main": "dist/server.js",
-  "types": "dist/server.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "bk-mcp": "./dist/server.js"
   },

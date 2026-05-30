@@ -10,6 +10,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.13.0] — 2026-05-30
+
+### Added
+
+**MCP servers como agentes en el registry (`@bk/agent-core`)**
+
+- `AgentEngine.registerMCPAgent()` — registra cada servidor MCP conectado como un `AgentProfile` en el `AgentRegistry`; el orchestrador los rutea via `ask_agent` igual que a los agentes locales
+- `AgentProfile.source: 'mcp'` — nuevo valor en el union type para distinguir agentes remotos
+- `MCPServerConfig.agentName?`, `agentDescription?`, `icon?` — campos opcionales para personalizar el perfil del agente auto-generado
+- `MCPClientManager.reconnectFailed()` — reintenta solo los servidores offline; `getServerTools(name)` y `getConfig(name)` para inspección por servidor; `serverStates` Map para estado independiente por servidor
+- `MCPClientManager.getConfiguredNames()` — devuelve los nombres de todos los servidores configurados (conectados o no)
+
+### Fixed
+
+**`general` como orchestrador puro — sin herramientas de ejecución ni lectura**
+
+El agente `general` tenía `run_command` y herramientas de lectura (`read_file`, `list_directory`, `search_files`) que le permitían resolver tareas directamente sin delegar. Con múltiples agentes MCP registrados, el LLM elegía siempre el camino más corto (local) en lugar de rutear al especialista correcto.
+
+- `ORCHESTRATOR_TOOLS` — nueva constante con solo `MEMORY_TOOLS` (sin run_command, read_file, list_directory ni search_files); el agente `general` ahora solo tiene herramientas de memoria + `ask_agent`
+- `READ_ONLY_TOOLS` — restaurado con run_command para los agentes que sí lo necesitan (data, qa-engineer, etc.)
+- `GENERAL_PROMPT` — regla explícita: "nunca simular comandos con read_file; si la tarea requiere shell, delegar a coder"
+- `AgentEngine.runLoop()` — check de autorización a nivel de ejecución: bloquea tools no autorizadas incluso si el LLM las llama por nombre (DeepSeek ignora la lista de tools provista); también bloquea cuando `allowedTools` está vacío pero `delegatesTo` está configurado (patrón de delegador puro)
+
+**Nombres de tools MCP incompatibles con APIs (`@bk/agent-core`)**
+
+`mcp:git-analyst:git_summarize` usa `:` que no es válido en `^[a-zA-Z0-9_-]+$` (spec de function names de OpenAI/DeepSeek) → error `400 Invalid tools[0].function.name`.
+
+- `MCPClientManager.wrapTool()` — separador cambiado de `:` a `__`; nombres de servidor sanitizados (reemplaza caracteres no-alfanuméricos con `_`)
+- Formato nuevo: `mcp__git_analyst__git_summarize`
+- `AgentEngine.registerMCPAgent()` y `/mcp tools` en coding-assistant actualizados para parsear el nuevo formato con `split('__')`
+
+### Changed
+
+- `AgentEngine.ensureMCPInitialized()` — ya no registra tools en el registry global directamente; llama a `registerMCPAgent()` por cada servidor conectado que aún no fue registrado; reintenta servidores offline en runs subsiguientes via `reconnectFailed()`
+- `createCodingEngineFromConfig` — eliminado el hack `buildMCPContext()` que inyectaba instrucciones "PREFER MCP tools" en `projectContext`; el routing es ahora estructural (agentes en el registry)
+
+---
+
 ## [0.12.0] — 2026-05-30
 
 ### Fixed

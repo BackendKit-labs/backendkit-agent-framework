@@ -14,6 +14,7 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 6. [Packages](#packages)
 7. [Motor de agentes — @bk/agent-coding](#motor-de-agentes--bkagent-coding)
    - [Proveedores LLM](#proveedores-llm)
+   - [Seguridad integrada](#seguridad-integrada)
    - [Los 10 agentes especializados](#los-10-agentes-especializados)
    - [Prompts con modos de madurez](#prompts-con-modos-de-madurez)
    - [Orquestacion y delegacion paralela](#orquestacion-y-delegacion-paralela)
@@ -63,9 +64,10 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 
 | Problema | Solucion |
 |----------|----------|
-| Un solo agente no puede hacer todo bien | **9 agentes especializados** orquestados por un agente general |
+| Un solo agente no puede hacer todo bien | **10 agentes especializados** orquestados por un agente general |
 | Los agentes olvidan convenciones del proyecto | **Skills + ProjectStore + session.md**: contexto persistente entre sesiones |
-| Las llamadas a LLMs fallan o son lentas | **Resiliencia integrada**: CircuitBreaker, Retry, Bulkhead |
+| Las llamadas a LLMs fallan o son lentas | **Resiliencia integrada**: CircuitBreaker, Retry con backoff exponencial, Bulkhead |
+| El agente puede escribir secretos o recibir inputs maliciosos | **Seguridad integrada**: secret scanner en writes, limite de input 100 KB, permisos 600 en config |
 
 El framework no impone un LLM especifico. Funciona con DeepSeek, Anthropic (Claude), OpenAI, Kimi (Moonshot) o Grok.
 
@@ -553,6 +555,59 @@ const engine = createCodingEngine({
 
 ---
 
+### Seguridad integrada
+
+El framework incluye controles de seguridad activos por defecto — no requieren configuracion adicional.
+
+#### Permisos de archivo en config.json
+
+`config.json` contiene las API keys. Al crearse por primera vez, el framework aplica `chmod 600` automaticamente en sistemas POSIX (Linux/macOS). Al leer el archivo, verifica que los permisos no sean mas permisivos y avisa con el comando correctivo si lo son.
+
+```
+[config] ⚠ ~/.bk-agent/config.json has permissions 644 — API keys are readable by others.
+Fix with: chmod 600 ~/.bk-agent/config.json
+```
+
+En Windows los permisos de archivo se gestionan via ACLs del sistema operativo; la advertencia no aplica.
+
+#### Deteccion de secretos en writes
+
+Antes de escribir o editar cualquier archivo, `write_file` y `edit_file` escanan el contenido contra 7 patrones de secretos conocidos. La deteccion es **no bloqueante** — registra un warning pero no rechaza el write (el codigo legitimo puede contener ejemplos de patrones).
+
+Patrones detectados: Anthropic API key, OpenAI API key, AWS Access Key ID, GitHub PAT, GitLab token, bloques de clave privada (PEM), y asignaciones genericas de `password`/`secret`/`apiKey` con valores largos.
+
+```
+[SecretScanner] ⚠ Potential secret(s) detected in "config/db.ts": Generic secret value.
+Verify this is intentional and never commit secrets to version control.
+```
+
+#### Limite de tamano de input
+
+`AgentEngine.run()` rechaza inputs que excedan **100 KB** (`Buffer.byteLength`). Si el input supera el limite, el engine emite un evento `error` con el tamano real y retorna inmediatamente sin llamar al LLM. Esto previene ataques de prompt injection via payloads extremadamente grandes.
+
+#### Retry con backoff exponencial en providers
+
+`AnthropicProvider` y `OpenAICompatibleProvider` reintentan automaticamente errores 429 (rate limit) y 5xx con backoff exponencial (1s, 2s, 4s, 8s, cap en 16s). El reintento nunca ocurre si ya se emitio contenido al caller (mid-stream guard), evitando contenido duplicado.
+
+#### Audit trail automatico
+
+Cada tool call ejecutado se registra automaticamente en un archivo NDJSON append-only:
+
+```
+~/.{appName}/projects/{key}/audits/tool-calls.ndjson
+```
+
+Cada linea es un registro JSON con: timestamp, sessionId, agentId, nombre del tool, preview del input (≤200 chars), success, y duracion en ms. La escritura es fire-and-forget — no impacta la latencia de ejecucion.
+
+```json
+{"ts":"2026-05-29T14:30:00.000Z","session":"default","agent":"coder","tool":"write_file","input":"{\"file_path\":\"src/auth.ts\",...}","success":true,"durationMs":12}
+{"ts":"2026-05-29T14:30:01.000Z","session":"default","agent":"security","tool":"read_file","input":"{\"file_path\":\"src/auth.ts\"}","success":true,"durationMs":3}
+```
+
+Para desactivar el audit trail, pasar `auditLog: undefined` al crear el engine con `createBaseEngine`.
+
+---
+
 ### Los 10 agentes especializados
 
 El framework incluye 10 agentes con roles bien definidos. El agente **general** actua como orquestador y nunca escribe codigo directamente — delega a los especialistas.
@@ -655,6 +710,7 @@ Una vez ejecutado `/init`, el `AGENT.md` generado con la seccion `## Stack` tien
 | `save_audit` | Reporte de auditoria estructurado al finalizar un proceso | `audits/{agente}-{fecha}.md` |
 | `get_latest_audit` | Recupera el audit mas reciente de un agente especifico | `audits/` |
 | `list_audits` | Lista todos los audits guardados del proyecto | `audits/` |
+| *(automatico)* | Cada tool call ejecutado: agente, tool, input preview, success, duracion | `audits/tool-calls.ndjson` |
 
 ---
 
@@ -734,7 +790,8 @@ Todo el estado se guarda en `~/.{appName}/`. El directorio del proyecto del usua
         ├── audits/
         │   ├── security-2025-05-29.md
         │   ├── qa-engineer-2025-05-29.md
-        │   └── lecciones-aprendidas.md  ← Reflection engine
+        │   ├── lecciones-aprendidas.md  ← Reflection engine
+        │   └── tool-calls.ndjson        ← Audit trail automatico (append-only)
         │
         ├── checkpoints/
         │   ├── checkpoint-auth-login-2025-05-29-1430.md
@@ -2068,6 +2125,17 @@ async function handleInput(text: string, cwd: string, engine: AgentEngine) {
 ---
 
 ## Roadmap
+
+### Completado en v0.6.0
+
+- [x] **Permisos 600 en config.json**: `ConfigLoader._bootstrap()` aplica `chmod 600` al crear el archivo en sistemas POSIX; `load()` verifica permisos existentes y emite warning si son mas permisivos
+- [x] **Secret scanner en writes**: `warnIfSecrets()` integrado en `write_file` y `edit_file` — 7 patrones (Anthropic/OpenAI/AWS/GitHub/GitLab keys, bloques PEM, asignaciones genericas de secretos)
+- [x] **Input limit 100 KB**: `AgentEngine.run()` rechaza inputs que superen el limite con evento `error` + `done`, sin llegar al LLM
+- [x] **Retry con backoff exponencial**: `AnthropicProvider` y `OpenAICompatibleProvider` reintentan errores 429/5xx con backoff 1s→2s→4s→8s (cap 16s); mid-stream guard evita reintento si ya se emitio contenido
+- [x] **Token counting real**: `AnthropicProvider` lee `message_start`/`message_delta` del stream; `OpenAICompatibleProvider` usa `stream_options: { include_usage: true }`; ambos llaman `onMetrics(input, output)` para el cost tracker
+- [x] **Audit trail automatico NDJSON**: cada tool call ejecutado se registra en `audits/tool-calls.ndjson` — ts, session, agent, tool, input preview, success, durationMs; fire-and-forget, sin impacto en latencia
+- [x] **Fix multi-system messages**: `toAnthropicMessages()` colapsa multiples mensajes `role: 'system'` en un unico parametro `system` — previene errores de API cuando el contexto incluia varios system messages
+- [x] **Fix StdoutTransport listener leak**: interfaz `readline` singleton; `onInput()` reutiliza la instancia existente en lugar de crear una nueva en cada llamada; `close()` la destruye limpiamente
 
 ### Completado en v0.5.0
 

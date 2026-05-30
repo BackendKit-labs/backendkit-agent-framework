@@ -1,38 +1,37 @@
-import { execSync } from 'child_process';
-import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
+import { spawnSync } from 'child_process';
+import { defineTool, z } from '@bk/agent-core';
+import { resolveAndCheck } from './path-sandbox';
 
-export const searchFilesTool: ToolDefinition = {
+export const searchFilesTool = defineTool({
     name: 'search_files',
     description: 'Search for text patterns across files using grep. Returns matching lines with file paths and line numbers.',
-    parameters: {
-        type: 'object',
-        properties: {
-            pattern: { type: 'string', description: 'Regex or literal pattern to search for' },
-            path: { type: 'string', description: 'Directory or file to search in (default: working dir)' },
-            glob: { type: 'string', description: 'File glob filter (e.g. "*.ts", "**/*.json")' },
-            case_insensitive: { type: 'boolean', description: 'Case-insensitive search (default: false)' },
-        },
-        required: ['pattern'],
-    },
-    async execute(args: unknown, ctx: ExecutionContext) {
-        const { pattern, path, glob, case_insensitive } = args as {
-            pattern: string;
-            path?: string;
-            glob?: string;
-            case_insensitive?: boolean;
-        };
+    input: z.object({
+        pattern:          z.string().describe('Regex or literal pattern to search for'),
+        path:             z.string().optional().describe('Directory or file to search in (default: working dir)'),
+        glob:             z.string().optional().describe('File glob filter (e.g. "*.ts", "**/*.json")'),
+        case_insensitive: z.boolean().default(false).describe('Case-insensitive search'),
+    }),
+    execute: async ({ pattern, path, glob, case_insensitive }, ctx) => {
+        const cwd = ctx.workingDir ?? process.cwd();
+        const searchPath = path ? resolveAndCheck(cwd, path) : cwd;
 
-        const searchPath = path ?? ctx.workingDir ?? '.';
-        const flags = ['-rn', '--include', glob ?? '*'].concat(case_insensitive ? ['-i'] : []);
+        // Build args array — safe from shell injection because we never concatenate into a string
+        const args: string[] = ['-rn', '--include', glob ?? '*'];
+        if (case_insensitive) args.push('-i');
+        args.push('--', pattern, searchPath);  // '--' prevents pattern being parsed as a flag
 
-        try {
-            const cmd = `grep ${flags.join(' ')} "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`;
-            const output = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-            const lines = output.split('\n');
-            return lines.slice(0, 200).join('\n') + (lines.length > 200 ? `\n[${lines.length - 200} more results]` : '');
-        } catch (err: any) {
-            if (err.status === 1) return '(no matches found)';
-            throw new Error(`Search failed: ${err.message}`);
+        const result = spawnSync('grep', args, {
+            encoding: 'utf-8',
+            maxBuffer: 5 * 1024 * 1024,
+        });
+
+        if (result.error) {
+            return `Error: grep not available: ${result.error.message}`;
         }
+        if (result.status === 1) return '(no matches found)';
+        if (result.status !== 0) return `Error: grep exited with status ${result.status}: ${result.stderr}`;
+
+        const lines = (result.stdout ?? '').trim().split('\n').filter(Boolean);
+        return lines.slice(0, 200).join('\n') + (lines.length > 200 ? `\n[${lines.length - 200} more results]` : '');
     },
-};
+});

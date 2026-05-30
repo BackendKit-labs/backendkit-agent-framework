@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
+import { atomicWriteSync } from '@bk/agent-core';
 import type { SessionMemoryData } from '@bk/agent-core';
 
 export class PersistentMemory implements SessionMemoryData {
@@ -19,7 +20,7 @@ export class PersistentMemory implements SessionMemoryData {
 
     set(key: string, value: string): void {
         this.data[key] = value;
-        writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
+        atomicWriteSync(this.filePath, JSON.stringify(this.data, null, 2));
     }
 
     getAll(): Record<string, string> {

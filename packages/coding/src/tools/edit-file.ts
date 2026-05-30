@@ -1,53 +1,40 @@
-import { readFileSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
-import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
+import { readFileSync } from 'fs';
+import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
+import { resolveAndCheck } from './path-sandbox';
 
-export const editFileTool: ToolDefinition = {
+export const editFileTool = defineTool({
     name: 'edit_file',
     description: 'Replace an exact string in a file. Safer than write_file for partial edits.',
-    parameters: {
-        type: 'object',
-        properties: {
-            file_path: { type: 'string', description: 'Absolute path to the file' },
-            old_string: { type: 'string', description: 'Exact text to replace (must be unique in the file)' },
-            new_string: { type: 'string', description: 'Replacement text' },
-            replace_all: { type: 'boolean', description: 'Replace all occurrences. Default: false' },
-        },
-        required: ['file_path', 'old_string', 'new_string'],
-    },
-    async execute(args: unknown, ctx: ExecutionContext) {
-        const { file_path, old_string, new_string, replace_all } = args as {
-            file_path: string;
-            old_string: string;
-            new_string: string;
-            replace_all?: boolean;
-        };
-
-        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
-
-        let content: string;
+    input: z.object({
+        file_path:   z.string().describe('Path to the file'),
+        old_string:  z.string().describe('Exact text to replace (must be unique in the file)'),
+        new_string:  z.string().describe('Replacement text'),
+        replace_all: z.boolean().default(false).describe('Replace all occurrences (default: false)'),
+    }),
+    execute: async ({ file_path, old_string, new_string, replace_all }, ctx) => {
         try {
-            content = readFileSync(abs, 'utf-8');
-        } catch (err) {
-            throw new Error(`Cannot read "${abs}": ${(err as Error).message}`);
-        }
+            const abs = resolveAndCheck(ctx.workingDir, file_path);
+            const content = readFileSync(abs, 'utf-8');
 
-        if (!content.includes(old_string)) {
-            throw new Error(`old_string not found in "${abs}"`);
-        }
-
-        if (!replace_all) {
-            const occurrences = content.split(old_string).length - 1;
-            if (occurrences > 1) {
-                throw new Error(`old_string appears ${occurrences} times in "${abs}". Use replace_all: true or provide more context.`);
+            if (!content.includes(old_string)) {
+                return `Error: old_string not found in "${abs}"`;
             }
+
+            if (!replace_all) {
+                const count = content.split(old_string).length - 1;
+                if (count > 1) {
+                    return `Error: old_string appears ${count} times in "${abs}". Use replace_all: true or provide more context.`;
+                }
+            }
+
+            const updated = replace_all
+                ? content.split(old_string).join(new_string)
+                : content.replace(old_string, new_string);
+
+            atomicWriteSync(abs, updated);
+            return `Edited: ${abs}`;
+        } catch (err) {
+            return `Error: ${(err as Error).message}`;
         }
-
-        const updated = replace_all
-            ? content.split(old_string).join(new_string)
-            : content.replace(old_string, new_string);
-
-        writeFileSync(abs, updated, 'utf-8');
-        return `Edited: ${abs}`;
     },
-};
+});

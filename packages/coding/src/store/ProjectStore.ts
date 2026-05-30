@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import type { ProjectStoreData, SessionUpdates } from '@bk/agent-core';
-import { cwdToProjectKey } from '@bk/agent-core';
+import { cwdToProjectKey, atomicWriteSync } from '@bk/agent-core';
 
 export class ProjectStore implements ProjectStoreData {
     readonly homeDir: string;
@@ -41,7 +41,7 @@ export class ProjectStore implements ProjectStoreData {
             '## Engine Learnings',
             '',
         ].join('\n');
-        writeFileSync(sessionPath, template, 'utf-8');
+        atomicWriteSync(sessionPath, template);
     }
 
     // ── memory/contexto-proyecto.md ───────────────────────────────────────────
@@ -56,7 +56,7 @@ export class ProjectStore implements ProjectStoreData {
     saveAudit(agentId: string, content: string): void {
         const date = new Date().toISOString().slice(0, 10);
         const file = join(this.projectDir, 'audits', `${agentId}-${date}.md`);
-        writeFileSync(file, content, 'utf-8');
+        atomicWriteSync(file, content);
     }
     getLatestAudit(agentId: string): string | null {
         const dir = join(this.projectDir, 'audits');
@@ -125,7 +125,7 @@ export class ProjectStore implements ProjectStoreData {
             content = this.appendToSection(content, 'Engine Learnings', bullets);
         }
 
-        writeFileSync(sessionPath, content, 'utf-8');
+        atomicWriteSync(sessionPath, content);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export class ProjectStore implements ProjectStoreData {
     }
     private appendAbs(path: string, content: string): void {
         const existing = this.readAbs(path);
-        writeFileSync(path, existing ? `${existing}\n\n${content}` : content, 'utf-8');
+        atomicWriteSync(path, existing ? `${existing}\n\n${content}` : content);
     }
 
     /** Replace entire content of a markdown section. Creates section if absent. */

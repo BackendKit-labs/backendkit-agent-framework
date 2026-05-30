@@ -73,7 +73,9 @@ function applyPromptOverrides(dir: string, merged: Map<string, AgentProfile>): v
                 ...(fm.model       && { provider: fm.model }),  // model maps to provider
                 systemPrompt: body,
             });
-        } catch { /* skip */ }
+        } catch (err) {
+            console.warn(`[AgentLoader] Could not apply .md override for "${id}": ${(err as Error).message}`);
+        }
     }
 }
 

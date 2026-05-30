@@ -18,9 +18,10 @@ export class InitWorkflow {
     static detectMode(cwd: string): InitMode {
         const hasPrompt = existsSync(join(cwd, 'prompt.md'));
         const hasCode   = hasSourceCode(cwd);
-        if (hasPrompt && !hasCode) return 'new';
+        if (hasPrompt && !hasCode)  return 'new';
         if (!hasPrompt && hasCode)  return 'existing';
-        return 'hybrid';
+        if (hasPrompt && hasCode)   return 'hybrid';
+        return 'new'; // no prompt.md and no code → treat as new project
     }
 
     static buildPrompt(cwd: string, mode?: InitMode): string {

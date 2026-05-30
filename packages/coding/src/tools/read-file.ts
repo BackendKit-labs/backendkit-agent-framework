@@ -1,24 +1,19 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
+import { defineTool, z } from '@bk/agent-core';
+import { resolveAndCheck } from './path-sandbox';
 
-export const readFileTool: ToolDefinition = {
+export const readFileTool = defineTool({
     name: 'read_file',
-    description: 'Read the contents of a file',
-    parameters: {
-        type: 'object',
-        properties: {
-            file_path: { type: 'string', description: 'Absolute or relative path to the file' },
-        },
-        required: ['file_path'],
-    },
-    async execute(args: unknown, ctx: ExecutionContext) {
-        const { file_path } = args as { file_path: string };
-        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
+    description: 'Read the contents of a file inside the working directory.',
+    input: z.object({
+        file_path: z.string().describe('Relative or absolute path to the file'),
+    }),
+    execute: async ({ file_path }, ctx) => {
         try {
+            const abs = resolveAndCheck(ctx.workingDir, file_path);
             return readFileSync(abs, 'utf-8');
         } catch (err) {
-            throw new Error(`Cannot read "${abs}": ${(err as Error).message}`);
+            return `Error: ${(err as Error).message}`;
         }
     },
-};
+});

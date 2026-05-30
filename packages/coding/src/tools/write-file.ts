@@ -1,27 +1,23 @@
-import { writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
-import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
+import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
+import { resolveAndCheck } from './path-sandbox';
 
-export const writeFileTool: ToolDefinition = {
+export const writeFileTool = defineTool({
     name: 'write_file',
-    description: 'Write or overwrite a file with the given content. Creates parent directories if needed.',
-    parameters: {
-        type: 'object',
-        properties: {
-            file_path: { type: 'string', description: 'Absolute or relative path to the file' },
-            content: { type: 'string', description: 'Content to write' },
-        },
-        required: ['file_path', 'content'],
-    },
-    async execute(args: unknown, ctx: ExecutionContext) {
-        const { file_path, content } = args as { file_path: string; content: string };
-        const abs = resolve(ctx.workingDir ?? process.cwd(), file_path);
+    description: 'Write or overwrite a file inside the working directory. Creates parent directories if needed.',
+    input: z.object({
+        file_path: z.string().describe('Relative or absolute path to the file'),
+        content:   z.string().describe('Content to write'),
+    }),
+    execute: async ({ file_path, content }, ctx) => {
         try {
+            const abs = resolveAndCheck(ctx.workingDir, file_path);
             mkdirSync(dirname(abs), { recursive: true });
-            writeFileSync(abs, content, 'utf-8');
+            atomicWriteSync(abs, content);
             return `Written: ${abs}`;
         } catch (err) {
-            throw new Error(`Cannot write "${abs}": ${(err as Error).message}`);
+            return `Error: ${(err as Error).message}`;
         }
     },
-};
+});

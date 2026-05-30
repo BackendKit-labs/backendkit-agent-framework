@@ -309,13 +309,14 @@ export class AgentEngine {
 
         const toolList = tools
             .map(t => {
-                const shortName = t.name.split(':')[2] ?? t.name;
+                // name format: mcp__{server}__{tool}
+                const shortName = t.name.split('__')[2] ?? t.name;
                 const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
                 return `- ${shortName}: ${desc}`;
             })
             .join('\n');
 
-        const toolNames = tools.map(t => t.name.split(':')[2]).filter(Boolean).join(', ');
+        const toolNames = tools.map(t => t.name.split('__')[2]).filter(Boolean).join(', ');
 
         this.opts.agents.upsert({
             id:           config.name,

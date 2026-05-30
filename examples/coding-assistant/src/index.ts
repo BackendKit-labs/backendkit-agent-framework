@@ -294,7 +294,7 @@ async function main(): Promise<void> {
                             emit(col(c.bold, `\n  MCP Tools (${tools.length})`));
                             emit('  ' + col(c.gray, '─'.repeat(50)));
                             for (const t of tools) {
-                                const [, srv, name] = t.name.split(':');
+                                const [, srv, name] = t.name.split('__');
                                 emit(
                                     `  ${col(c.cyan, '◌')} ${col(c.white, name ?? t.name).padEnd(30)}` +
                                     col(c.gray, `[${srv}]`),

@@ -229,7 +229,9 @@ export class MCPClientManager {
         client: Client,
         mcpTool: { name: string; description?: string; inputSchema: unknown },
     ): ToolDefinition {
-        const namespacedName = `mcp:${config.name}:${mcpTool.name}`;
+        // Function names must match ^[a-zA-Z0-9_-]+$ — replace ':' and use '__' as separator
+        const safeName   = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const namespacedName = `mcp__${safeName}__${mcpTool.name}`;
         const timeoutMs = config.timeoutMs ?? 30_000;
 
         return {

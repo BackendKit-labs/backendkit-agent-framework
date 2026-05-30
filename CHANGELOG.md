@@ -10,6 +10,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.8.0] — 2026-05-30
+
+### Added
+
+**MCP remote transport — StreamableHTTP + SSE fallback (`@bk/agent-core`)**
+
+- `MCPServerConfig.url` — nuevo campo para conectar a servidores MCP remotos via HTTP; mutuamente excluyente con `command` (stdio), aunque si ambos están presentes `url` tiene prioridad
+- `MCPServerConfig.headers` — HTTP headers enviados en cada request (e.g. `Authorization: Bearer tok_...`)
+- `MCPServerConfig.remoteTransport` — fuerza un transporte específico: `'streamable-http'` (spec actual) o `'sse'` (servidores pre-2025); por defecto auto-detección
+- `MCPClientManager.connectRemote()` — intenta `StreamableHTTPClientTransport` primero; si el servidor responde con HTTP 4xx cae automáticamente a `SSEClientTransport` sin configuración adicional
+- `MCPClientManager.getServerInfo()` — devuelve `{ name, transportUsed, toolCount }` por servidor; expuesto públicamente para diagnósticos desde el REPL
+- `AgentEngine.getMCPManager()` — getter público que expone el `MCPClientManager` del engine; permite inspeccionar conexiones y tools desde fuera del engine
+
+**MCP wiring en `coding-assistant` + `/mcp` command**
+
+- `BkAgentConfig.mcpServers` — nuevo campo en el config file (`~/.coding-assistant/config.json`); leído por `ConfigLoader` y forwarded automáticamente a `createCodingEngine` por `createCodingEngineFromConfig`
+- `makeEngine()` — acepta `mcpServers?: MCPServerConfig[]` y los pasa al engine
+- `/mcp list` — muestra servidores configurados con modo (stdio/remote) y estado de conexión (transport usado + tool count una vez inicializados)
+- `/mcp tools` — inicializa las conexiones MCP y lista todas las tools descubiertas con nombre namespace (`mcp:{server}:{tool}`) y descripción
+- Banner del coding-assistant — muestra nombres de servidores MCP activos en el panel izquierdo cuando hay servidores configurados
+- `/mcp` agregado al panel de comandos del welcome screen
+
+**Fix de imports en `@bk/mcp-server`**
+
+- `tools/skills/list.ts` y `tools/skills/search.ts` — `GLOBAL_BUILTIN_SKILLS` y `NODE_PACK_SKILLS` movidos de `@bk/agent-core` a `@bk/agent-coding` (donde viven desde v0.5.0); imports actualizados
+- `@bk/agent-coding` agregado como dependencia de `@bk/mcp-server`
+
+### Changed
+
+- `MCPServerConfig` — `command` ya no es requerido (era `string`, ahora `string | undefined`); el campo es opcional cuando se usa `url`
+- `MCPClientManager.connectOne()` — despacha a `connectStdio()` o `connectRemote()` según la presencia de `url` vs `command`; lanza error descriptivo si ninguno está presente
+
+---
+
 ## [0.7.0] — 2026-05-29
 
 ### Added

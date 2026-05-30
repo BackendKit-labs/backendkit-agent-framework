@@ -10,6 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.12.0] — 2026-05-30
+
+### Fixed
+
+**MCP servers offline — falla silenciosa e imposibilidad de reintentar (`@bk/agent-core`)**
+
+Cuando los servidores MCP están caídos, `MCPClientManager.connectAll()` usa `Promise.allSettled` — las fallas individuales se engullen, `initialize()` nunca lanza, y el catch de `ensureMCPInitialized()` nunca se ejecuta. El resultado: 0 tools registradas, `mcpInitialized = true`, y el agente nunca reintenta.
+
+- `AgentEngine.ensureMCPInitialized()` — ya no setea `mcpInitialized = true` cuando `getTools()` retorna vacío; en su lugar emite un evento `system warn` con los nombres de los servidores offline y el número de intento
+- `mcpInitAttempts` — contador privado; después de 3 intentos fallidos setea `mcpInitialized = true` para dejar de reintentar
+- El warning visible al usuario: `MCP: no tools registered — git-analyst, code-explainer may be offline. Start the servers and retry (attempt N/3).`
+- Si los servidores se levantan durante la sesión, en el siguiente `run()` se reintenta automáticamente sin reiniciar el coding-assistant
+- `MCPClientManager.getConfiguredNames()` — nuevo método que retorna los nombres de todos los servidores configurados (conectados o no); necesario para el mensaje de warning antes de que haya conexión establecida
+
+---
+
 ## [0.11.0] — 2026-05-30
 
 ### Fixed

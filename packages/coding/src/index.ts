@@ -433,26 +433,11 @@ export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOpti
         if (cfg?.apiKey) providers[id] = cfg as OpenAICompatibleConfig;
     }
 
-    const mcpContext = config.mcpServers?.length
-        ? buildMCPContext(config.mcpServers)
-        : undefined;
-
     return createCodingEngine({
         providers,
         defaultProvider: config.defaultProvider,
         ...(config.mcpServers?.length ? { mcpServers: config.mcpServers } : {}),
-        ...(mcpContext ? { projectContext: mcpContext } : {}),
         ...overrides,
         appName,
     });
-}
-
-function buildMCPContext(servers: MCPServerConfig[]): string {
-    const names = servers!.map(s => s.name).join(', ');
-    return (
-        `## Remote Agent Tools (MCP)\n` +
-        `You have access to specialized remote agents: ${names}.\n` +
-        `ALWAYS prefer their tools over run_command or read_file when the task matches:\n` +
-        servers!.map(s => `- mcp:${s.name}:* — use for tasks described in each tool's description`).join('\n')
-    );
 }

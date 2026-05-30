@@ -57,4 +57,13 @@ export interface MCPServerConfig {
 
     /** Timeout for individual tool calls in ms. Default: 30 000 */
     timeoutMs?: number;
+
+    // ── Auto-generated agent profile ─────────────────────────────────────────
+
+    /** Display name for the auto-generated agent entry. Default: title-cased server name. */
+    agentName?: string;
+    /** Description shown in the agent roster and used by the orchestrator to decide routing. */
+    agentDescription?: string;
+    /** Icon for the agent entry. Default: ◎ */
+    icon?: string;
 }

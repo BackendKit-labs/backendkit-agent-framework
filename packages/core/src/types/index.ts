@@ -12,7 +12,7 @@ export interface AgentProfile {
     suppressDefaultOutput?: boolean;
     provider?: string;
     /** Where this agent was loaded from */
-    source?: 'builtin' | 'global' | 'project' | 'registry';
+    source?: 'builtin' | 'global' | 'project' | 'registry' | 'mcp';
     /** Additional instructions appended to the base system prompt when this agent is active. */
     systemPromptAddition?: string;
 }

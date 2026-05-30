@@ -13,7 +13,7 @@ const server = new AgentMCPServer({
     tools: [
         {
             name:        'explain',
-            description: 'PREFER this over read_file + analysis for explaining code. Pass a code snippet and get a plain-English explanation. Use when asked to explain, describe, or document what code does.',
+            description: 'Explain what a piece of code does in plain English, without jargon.',
             schema: {
                 code:     z.string().describe('The code to explain'),
                 language: z.string().optional().describe('Programming language (e.g. typescript, python)'),
@@ -25,7 +25,7 @@ const server = new AgentMCPServer({
         },
         {
             name:        'review',
-            description: 'PREFER this for code review tasks. Pass code and get structured feedback by section (Bugs, Security, Performance, Suggestions). Use when asked to review, audit, or find issues in code.',
+            description: 'Review code for bugs, security issues, and improvements. Returns structured sections.',
             schema: {
                 code:     z.string().describe('The code to review'),
                 language: z.string().optional().describe('Programming language'),
@@ -39,7 +39,7 @@ const server = new AgentMCPServer({
         },
         {
             name:        'add_docstrings',
-            description: 'PREFER this for adding documentation to code. Pass code and get back the same code with JSDoc/Google/Sphinx comments added. Use when asked to document, add comments, or add docstrings to code.',
+            description: 'Add JSDoc/Google/Sphinx documentation comments to code and return the documented version.',
             schema: {
                 code:     z.string().describe('The code to document'),
                 language: z.string().optional().describe('Programming language'),

@@ -14,7 +14,7 @@ const server = new AgentMCPServer({
     tools: [
         {
             name:        'git_summarize',
-            description: 'PREFER this over run_command for summarizing git history. Analyzes recent commits and returns a grouped summary (features/fixes/chores). Use when asked to summarize, describe, or explain recent changes in a repo.',
+            description: 'Summarize recent git commits grouped by features, bug fixes, and chores.',
             schema: {
                 cwd:         z.string().optional().describe('Repository path (defaults to server cwd)'),
                 max_commits: z.number().optional().describe('Number of commits to analyze (default 20)'),
@@ -25,7 +25,7 @@ const server = new AgentMCPServer({
         },
         {
             name:        'git_diff_review',
-            description: 'PREFER this over run_command for reviewing diffs. Pass the diff text and get structured feedback on bugs, security issues, and missing tests. Use when asked to review a diff or PR changes.',
+            description: 'Review a git diff and identify bugs, security issues, and missing tests.',
             schema: {
                 diff: z.string().describe('The output of git diff to review'),
             },
@@ -35,7 +35,7 @@ const server = new AgentMCPServer({
         },
         {
             name:        'git_release_notes',
-            description: 'PREFER this over run_command for generating release notes. Produces formatted markdown release notes from git history. Use when asked to generate release notes, a changelog, or version summary.',
+            description: 'Generate professional release notes in markdown from recent commits.',
             schema: {
                 cwd:      z.string().optional().describe('Repository path'),
                 from_tag: z.string().optional().describe('Starting tag or commit SHA (e.g. v1.0.0)'),

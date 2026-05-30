@@ -100,6 +100,7 @@ export class AgentEngine {
     private yamlSkillsLoaded = false;
     private mcpInitialized = false;
     private mcpInitAttempts = 0;
+    private mcpRegisteredServers = new Set<string>();
     private agentsLoaded = false;
     private memoryContextBlock = '';
 
@@ -255,30 +256,18 @@ export class AgentEngine {
     }
 
     private async ensureMCPInitialized(): Promise<void> {
-        if (this.mcpInitialized || !this.opts.mcpManager) return;
-        // Stop retrying after 3 failed attempts
-        if (this.mcpInitAttempts >= 3) {
-            this.mcpInitialized = true;
-            return;
-        }
+        if (!this.opts.mcpManager) return;
+        if (this.mcpInitAttempts >= 3) return;
+
         this.mcpInitAttempts++;
+
         try {
-            await this.opts.mcpManager.initialize();
-            const tools = this.opts.mcpManager.getTools();
-            if (tools.length > 0) {
-                for (const tool of tools) {
-                    this.opts.tools.register(tool);
-                }
+            if (!this.mcpInitialized) {
+                await this.opts.mcpManager.initialize();
                 this.mcpInitialized = true;
             } else {
-                // connectAll() swallows individual failures via allSettled —
-                // if we get 0 tools, the servers are likely down.
-                const names = this.opts.mcpManager.getConfiguredNames().join(', ') || 'configured MCP servers';
-                this.opts.transport.emit({
-                    type: 'system', level: 'warn',
-                    text: `MCP: no tools registered — ${names} may be offline. ` +
-                          `Start the servers and retry (attempt ${this.mcpInitAttempts}/3).`,
-                });
+                // Subsequent runs: retry only the servers that were offline
+                await this.opts.mcpManager.reconnectFailed();
             }
         } catch (err) {
             this.opts.transport.emit({
@@ -286,6 +275,61 @@ export class AgentEngine {
                 text: `MCP initialization error: ${(err as Error).message}`,
             });
         }
+
+        // Register newly connected servers as agents
+        for (const { name, toolCount } of this.opts.mcpManager.getServerInfo()) {
+            if (toolCount > 0 && !this.mcpRegisteredServers.has(name)) {
+                const tools  = this.opts.mcpManager.getServerTools(name);
+                const config = this.opts.mcpManager.getConfig(name)!;
+                this.registerMCPAgent(config, tools);
+                this.mcpRegisteredServers.add(name);
+            }
+        }
+
+        // Warn about servers still offline
+        const offline = this.opts.mcpManager.getConfiguredNames()
+            .filter(n => !this.mcpRegisteredServers.has(n));
+        if (offline.length > 0) {
+            this.opts.transport.emit({
+                type: 'system', level: 'warn',
+                text: `MCP agents offline (${this.mcpInitAttempts}/3): ${offline.join(', ')} — ` +
+                      `start their servers to enable them. Retrying on next message.`,
+            });
+        }
+    }
+
+    private registerMCPAgent(
+        config: import('../mcp/types').MCPServerConfig,
+        tools: import('../types').ToolDefinition[],
+    ): void {
+        // Register tools in the global ToolRegistry so they can execute
+        for (const tool of tools) {
+            this.opts.tools.register(tool);
+        }
+
+        const toolList = tools
+            .map(t => {
+                const shortName = t.name.split(':')[2] ?? t.name;
+                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
+                return `- ${shortName}: ${desc}`;
+            })
+            .join('\n');
+
+        const toolNames = tools.map(t => t.name.split(':')[2]).filter(Boolean).join(', ');
+
+        this.opts.agents.upsert({
+            id:           config.name,
+            name:         config.agentName ?? toTitleCase(config.name),
+            icon:         config.icon ?? '◎',
+            description:  config.agentDescription ?? `Remote agent (${config.name}): ${toolNames}`,
+            systemPrompt:
+                `You are a specialized remote agent: ${config.name}.\n` +
+                `Use ONLY your available tools to answer the request. ` +
+                `Do NOT use run_command, read_file, or other local tools.\n\n` +
+                `Your tools:\n${toolList}`,
+            allowedTools: tools.map(t => t.name),
+            source:       'mcp',
+        });
     }
 
     switchAgent(agentId: string): void {
@@ -584,4 +628,10 @@ export class AgentEngine {
             },
         };
     }
+}
+
+function toTitleCase(s: string): string {
+    return s
+        .replace(/[-_](.)/g, (_, c: string) => ' ' + c.toUpperCase())
+        .replace(/^(.)/, (c: string) => c.toUpperCase());
 }

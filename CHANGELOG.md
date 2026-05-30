@@ -10,6 +10,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.9.0] — 2026-05-30
+
+### Added
+
+**`@bk/mcp-server` — modo HTTP (`--http --port=N`)**
+
+- `buildServer()` — factory que crea un `McpServer` fresco con todas las tools registradas; reemplaza el singleton global; necesario para aislar el estado de protocolo por sesión
+- `registerTools(srv)` — registra los 7 tools (`stack_detect`, `skills_search`, `skills_install`, `skills_list`, `code_search`, `code_context`, `code_index`) sobre cualquier instancia de `McpServer`
+- `startHttp()` — inicia un servidor HTTP Node.js nativo usando `StreamableHTTPServerTransport` en modo **stateful** (session UUID via `randomUUID()`); gestiona un `Map<sessionId, transport>` por proceso
+- Sessions almacenadas **después** de `handleRequest()` para garantizar que el UUID ya esté asignado cuando llegan requests subsiguientes; `transport.onclose` las elimina al desconectar
+- `parseBody()` — helper interno que lee el cuerpo del POST antes de pasarlo a `handleRequest()`; evita que el transport trate de leer un stream ya consumido
+- `startStdio()` — modo original inalterado; sigue siendo el modo por defecto si no se pasa `--http`
+- CLI args: `--http` activa el modo HTTP; `--port=N` / `--port N` configuran el puerto (default `3001`); ambos compatibles con el arg existente `BK_CWD` / `BK_APP_NAME` vía env vars
+
+**`@bk/agent-coding` — dependencia de `@bk/mcp-server`**
+
+- `@bk/mcp-server` ahora depende de `@bk/agent-coding` para importar `GLOBAL_BUILTIN_SKILLS` y `NODE_PACK_SKILLS` (movidos a ese paquete en v0.5.0); `tools/skills/list.ts` y `tools/skills/search.ts` actualizados
+
+### Usage
+
+```bash
+# Modo HTTP — deployable como servicio remoto
+node packages/mcp-server/dist/server.js --http --port=3002
+
+# Config en ~/.coding-assistant/config.json
+{ "mcpServers": [{ "name": "bk-remote", "url": "http://127.0.0.1:3002/mcp" }] }
+
+# /mcp tools → 7 tools [bk-remote]  streamable-http
+```
+
+---
+
 ## [0.8.0] — 2026-05-30
 
 ### Added

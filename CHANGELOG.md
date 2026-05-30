@@ -10,6 +10,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.6.0] — 2026-05-29
+
+### Security
+
+**API key file hardening (`@bk/agent-coding`)**
+- `ConfigLoader._bootstrap()` — new `config.json` files are created with `chmod 600` (POSIX only); API keys are no longer world/group-readable by default
+- `ConfigLoader.load()` — detects existing files with overly permissive modes and emits a `console.warn` with the corrective `chmod 600` command
+
+**Secret detection in write paths (`@bk/agent-coding`)**
+- `secret-scanner.ts` — new module with `scanForSecrets()` and `warnIfSecrets()`; 7 patterns: Anthropic/OpenAI/AWS/GitHub/GitLab API keys, private key blocks, generic `password`/`secret`/`apiKey` assignments
+- `write_file` and `edit_file` tools call `warnIfSecrets()` before every write; detection is non-blocking (logs a warning, never rejects legitimate code examples)
+
+**Provider resilience (`@bk/agent-coding`)**
+- `AnthropicProvider` — exponential backoff retry (default 3 attempts, cap 16 s) on 429 / 5xx; mid-stream guard prevents retrying after content has already been emitted to the caller
+- `OpenAICompatibleProvider` — same retry + mid-stream guard; `stream_options: { include_usage: true }` for real token counting
+
+**Real token counting (`@bk/agent-coding`)**
+- `AnthropicProvider` — reads `message_start.usage.input_tokens` and `message_delta.usage.output_tokens` from the stream; calls `onMetrics(input, output)` at end of stream
+- `OpenAICompatibleProvider` — reads `chunk.usage` from the final stream chunk when `include_usage: true`; calls `onMetrics` accordingly
+
+**Input size guard (`@bk/agent-core`)**
+- `AgentEngine.run()` — rejects inputs exceeding 100 KB (`Buffer.byteLength`); emits `error` + `done` events and returns early without touching the LLM; prevents prompt-injection via oversized payloads
+
+**Automatic audit trail (`@bk/agent-core`)**
+- Every tool execution in `runLoop` and `runAgentInternal` appends one NDJSON line to `auditLog` path: `{ ts, session, agent, tool, input (≤200 chars), success, durationMs }`
+- `AgentEngineOptions.auditLog?: string` — optional path; directory is created automatically
+- `BaseEngineOptions.auditLog?: string` — forwarded through `createBaseEngine`
+- `createCodingEngine` defaults to `{projectDir}/audits/tool-calls.ndjson` when persistence is enabled
+- Writes are fire-and-forget (`appendFile` callback) — zero impact on tool execution latency
+
+**Multi-system message handling (`@bk/agent-coding`)**
+- `toAnthropicMessages()` — collapses all `role: 'system'` messages scattered across the conversation into a single `system` parameter (joined with `\n\n`); prevents API errors when multiple system messages were present
+
+**StdoutTransport listener leak fix (`@bk/agent-core`)**
+- `StdoutTransport` — singleton `readline.Interface`; `onInput()` reuses the existing interface instead of creating a new one on each call; `close()` disposes it and resets the singleton; eliminates listener accumulation on workspace switches
+
+---
+
 ## [0.5.0] — 2026-05-29
 
 ### Added — Motor autonomo (`@bk/agent-core`)
@@ -216,7 +254,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 **`examples/coding-assistant`**
 - Interactive REPL with readline, full slash command integration, streaming output
 
-[Unreleased]: https://github.com/backendkit-dev/agent-framework/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/backendkit-dev/agent-framework/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.2.0...v0.3.0

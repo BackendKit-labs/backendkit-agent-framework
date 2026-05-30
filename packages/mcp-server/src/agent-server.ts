@@ -151,11 +151,15 @@ export class AgentMCPServer {
         await this.buildMcpServer().connect(transport);
     }
 
-    /** Gracefully shut down the HTTP server. */
+    /** Gracefully shut down the HTTP server, force-closing open connections. */
     async stop(): Promise<void> {
         if (!this.httpServer) return;
-        await new Promise<void>((resolve, reject) =>
-            this.httpServer!.close(err => err ? reject(err) : resolve())
+        // closeAllConnections() drops keep-alive sockets immediately (Node 18.2+)
+        if (typeof this.httpServer.closeAllConnections === 'function') {
+            this.httpServer.closeAllConnections();
+        }
+        await new Promise<void>(resolve =>
+            this.httpServer!.close(() => resolve())
         );
         this.httpServer = undefined;
     }

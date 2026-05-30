@@ -55,6 +55,10 @@ const server = new AgentMCPServer({
         createCodingEngineFromConfig({ appName: 'code-explainer', transport }),
 });
 
-process.on('SIGINT', async () => { await server.stop(); process.exit(0); });
+process.on('SIGINT', () => {
+    process.stderr.write('\n[code-explainer] shutting down…\n');
+    setTimeout(() => process.exit(0), 1000);
+    server.stop().then(() => process.exit(0)).catch(() => process.exit(1));
+});
 
 server.start().catch(err => { console.error(err); process.exit(1); });

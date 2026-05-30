@@ -140,6 +140,16 @@ export interface EngineOptions {
     model: ModelConfig;
     maxIterations?: number;
     maxParallelAgents?: number;
+    /**
+     * Maximum number of messages to keep in the conversation history.
+     * When exceeded, the oldest messages are dropped at the next user-turn boundary
+     * to avoid orphaning tool call / tool result pairs.
+     * Emits a 'system' warn event when trimming occurs.
+     * Default: unlimited (undefined).
+     *
+     * Recommended: 100–200 for interactive agents; 40–60 for long-running autonomous agents.
+     */
+    maxContextMessages?: number;
     workingDir?: string;
     sessionId?: string;
     /** Context injected into every agent system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */

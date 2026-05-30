@@ -179,6 +179,32 @@ export class AgentEngine {
         this.aborted = true;
     }
 
+    /**
+     * Trim conversation history to maxContextMessages by dropping oldest messages
+     * at a user-turn boundary. Preserves all assistant↔tool pairs intact.
+     */
+    private trimHistory(): void {
+        const max = this.opts.maxContextMessages;
+        if (!max || this.messages.length <= max) return;
+
+        // Walk forward from the target offset to find the next 'user' message.
+        // Cutting there avoids orphaning assistant tool_calls / tool results.
+        const target = this.messages.length - max;
+        let cutAt = target;
+        while (cutAt < this.messages.length && this.messages[cutAt].role !== 'user') {
+            cutAt++;
+        }
+
+        if (cutAt > 0 && cutAt < this.messages.length) {
+            this.messages = this.messages.slice(cutAt);
+            this.opts.transport.emit({
+                type: 'system',
+                level: 'warn',
+                text: `[ContextWindow] Dropped ${cutAt} messages — history capped at ${max} (maxContextMessages)`,
+            });
+        }
+    }
+
     private async ensureAgentsLoaded(): Promise<void> {
         if (this.agentsLoaded || !this.opts.loadAgents) return;
         this.agentsLoaded = true; // set early to prevent concurrent double-loads
@@ -276,6 +302,7 @@ export class AgentEngine {
 
         while (iterations < maxIter && !this.aborted) {
             iterations++;
+            this.trimHistory();
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile) };
             const tools = this.getToolsForAgent(currentProfile);

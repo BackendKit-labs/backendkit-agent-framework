@@ -56,6 +56,15 @@ export interface BaseEngineOptions {
     /** Max parallel agent delegations via ask_agent. Default: 6. */
     maxParallelAgents?: number;
 
+    /**
+     * Maximum number of messages to keep in conversation history (sliding window).
+     * Oldest messages are dropped at user-turn boundaries to avoid orphaning tool
+     * call / result pairs. A 'system' warn event is emitted when trimming occurs.
+     * Default: unlimited. Recommended: 100 for interactive agents, 40–60 for
+     * long-running autonomous agents.
+     */
+    maxContextMessages?: number;
+
     /** Absolute path used as the working directory for tool calls. */
     workingDir?: string;
 
@@ -221,6 +230,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         workingDir: opts.workingDir,
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
+        ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
         projectContext: opts.projectContext,
         skills: opts.skills,
         detectedStack: opts.detectedStack,

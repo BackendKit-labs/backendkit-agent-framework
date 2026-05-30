@@ -99,6 +99,7 @@ export class AgentEngine {
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
     private mcpInitialized = false;
+    private mcpInitAttempts = 0;
     private agentsLoaded = false;
     private memoryContextBlock = '';
 
@@ -255,10 +256,29 @@ export class AgentEngine {
 
     private async ensureMCPInitialized(): Promise<void> {
         if (this.mcpInitialized || !this.opts.mcpManager) return;
+        // Stop retrying after 3 failed attempts
+        if (this.mcpInitAttempts >= 3) {
+            this.mcpInitialized = true;
+            return;
+        }
+        this.mcpInitAttempts++;
         try {
             await this.opts.mcpManager.initialize();
-            for (const tool of this.opts.mcpManager.getTools()) {
-                this.opts.tools.register(tool);
+            const tools = this.opts.mcpManager.getTools();
+            if (tools.length > 0) {
+                for (const tool of tools) {
+                    this.opts.tools.register(tool);
+                }
+                this.mcpInitialized = true;
+            } else {
+                // connectAll() swallows individual failures via allSettled —
+                // if we get 0 tools, the servers are likely down.
+                const names = this.opts.mcpManager.getConfiguredNames().join(', ') || 'configured MCP servers';
+                this.opts.transport.emit({
+                    type: 'system', level: 'warn',
+                    text: `MCP: no tools registered — ${names} may be offline. ` +
+                          `Start the servers and retry (attempt ${this.mcpInitAttempts}/3).`,
+                });
             }
         } catch (err) {
             this.opts.transport.emit({
@@ -266,7 +286,6 @@ export class AgentEngine {
                 text: `MCP initialization error: ${(err as Error).message}`,
             });
         }
-        this.mcpInitialized = true;
     }
 
     switchAgent(agentId: string): void {

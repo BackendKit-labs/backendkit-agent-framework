@@ -54,6 +54,11 @@ export class MCPClientManager {
         return this.servers.flatMap(s => s.tools);
     }
 
+    /** Returns the names of all configured servers (connected or not). */
+    getConfiguredNames(): string[] {
+        return this.configs.map(c => c.name);
+    }
+
     /**
      * Returns a summary of connected servers for diagnostics (/mcp list, etc.).
      */

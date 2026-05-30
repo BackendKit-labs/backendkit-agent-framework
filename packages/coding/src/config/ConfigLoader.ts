@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { MCPServerConfig } from '@bk/agent-core';
 
 export interface ProviderFileConfig {
     apiKey?: string;
@@ -14,6 +15,7 @@ export interface BkAgentConfig {
     providers?: Record<string, ProviderFileConfig>;
     defaultProvider?: string;
     agents?: Record<string, { provider?: string }>;
+    mcpServers?: MCPServerConfig[];
 }
 
 const ENV_KEYS: Record<string, string> = {

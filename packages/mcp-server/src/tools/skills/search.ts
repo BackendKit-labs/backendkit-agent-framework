@@ -1,4 +1,5 @@
-import { SkillActivator, SkillLoader, GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-core';
+import { SkillActivator, SkillLoader } from '@bk/agent-core';
+import { GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-coding';
 import type { Skill } from '@bk/agent-core';
 
 export interface SkillSearchResult {

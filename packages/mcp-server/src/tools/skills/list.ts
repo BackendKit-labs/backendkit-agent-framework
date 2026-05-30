@@ -1,4 +1,5 @@
-import { SkillManager, GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-core';
+import { SkillManager } from '@bk/agent-core';
+import { GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@bk/agent-coding';
 import type { Skill, InstalledPack } from '@bk/agent-core';
 
 export interface PackSummary {

@@ -436,6 +436,7 @@ export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOpti
     return createCodingEngine({
         providers,
         defaultProvider: config.defaultProvider,
+        ...(config.mcpServers?.length ? { mcpServers: config.mcpServers } : {}),
         ...overrides,
         appName,
     });

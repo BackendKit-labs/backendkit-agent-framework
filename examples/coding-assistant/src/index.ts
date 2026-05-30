@@ -15,6 +15,7 @@ import {
     SlashCommandRegistry,
     registerBuiltinCommands,
     getProjectDir,
+    type MCPServerConfig,
 } from '@bk/agent-core';
 import { renderEvent } from './display';
 
@@ -97,6 +98,12 @@ function printBanner(): void {
     L.push('');
     L.push(col(c.gray, `  [+] ${tilde(dirs.global).slice(0, LW - 7)}`));
     L.push(col(c.gray, `  [*] ${tilde(dirs.project).slice(0, LW - 7)}`));
+
+    const mcpCfg = config.mcpServers ?? [];
+    if (mcpCfg.length > 0) {
+        L.push('');
+        L.push(col(c.gray, `  MCP  `) + col(c.cyan, mcpCfg.map(s => s.name).join('  ')));
+    }
     L.push('');
 
     // ── Right panel ───────────────────────────────────────────────────────────
@@ -107,6 +114,7 @@ function printBanner(): void {
     const cmds: Array<[string, string]> = [
         ['/init',         'analyze & document the project'],
         ['/agent',        'list · switch · create agents'],
+        ['/mcp',          'list servers  /mcp tools'],
         ['/skills',       'view loaded skills'],
         ['/status',       'current agent & model'],
         ['/checkpoint',   'save & restore session state'],
@@ -148,13 +156,14 @@ function printBanner(): void {
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
-function makeEngine(agentId: string, cwd: string) {
+function makeEngine(agentId: string, cwd: string, mcpServers?: MCPServerConfig[]) {
     const transport = new CallbackTransport(renderEvent);
     const engine = createCodingEngineFromConfig({
         appName:      APP_NAME,
         defaultAgent: agentId,
         workingDir:   cwd,
         transport,
+        ...(mcpServers?.length ? { mcpServers } : {}),
         orchestration: {
             enableQA:   true,
             reflection: true,
@@ -201,9 +210,11 @@ function buildCtx(
 async function main(): Promise<void> {
     printBanner();
 
+    const mcpServers = config.mcpServers ?? [];
+
     let currentAgent = AGENT_ID;
     let currentCwd   = WORKING_DIR;
-    let { engine }   = makeEngine(currentAgent, currentCwd);
+    let { engine }   = makeEngine(currentAgent, currentCwd, mcpServers);
     let running      = false;
 
     const emit = (s: string) => console.log(s);
@@ -229,7 +240,7 @@ async function main(): Promise<void> {
                 rl.prompt();
                 return;
             }
-            const { engine: initEng } = makeEngine('project-manager', currentCwd);
+            const { engine: initEng } = makeEngine('project-manager', currentCwd, mcpServers);
             running = true;
             rl.pause();
             try {
@@ -244,10 +255,65 @@ async function main(): Promise<void> {
             return;
         }
 
+        // ── /mcp ──────────────────────────────────────────────────────────────
+        if (input === '/mcp' || input.startsWith('/mcp ')) {
+            const sub = input.split(/\s+/)[1] ?? 'list';
+
+            if (sub === 'list' || sub === '') {
+                if (mcpServers.length === 0) {
+                    emit(col(c.gray, '\n  No MCP servers configured.'));
+                    emit(col(c.gray, `  Add "mcpServers": [...] to ${loader.configPath}\n`));
+                } else {
+                    emit(col(c.bold, '\n  MCP Servers'));
+                    emit('  ' + col(c.gray, '─'.repeat(50)));
+                    for (const s of mcpServers) {
+                        const cmd = [s.command, ...(s.args ?? [])].join(' ');
+                        emit(`  ${col(c.cyan, '◈')} ${col(c.white, s.name.padEnd(16))} ${col(c.gray, cmd.slice(0, 50))}`);
+                        if (s.timeoutMs) emit(col(c.gray, `    timeout: ${s.timeoutMs}ms`));
+                    }
+                    emit('');
+                }
+            } else if (sub === 'tools') {
+                const mgr = engine.getMCPManager();
+                if (!mgr) {
+                    emit(col(c.gray, '\n  No MCP manager (no servers configured).\n'));
+                } else {
+                    emit(col(c.gray, '\n  Initializing MCP connections…'));
+                    try {
+                        await mgr.initialize();
+                        const tools = mgr.getTools();
+                        if (tools.length === 0) {
+                            emit(col(c.yellow, '  No tools discovered from MCP servers.\n'));
+                        } else {
+                            emit(col(c.bold, `\n  MCP Tools (${tools.length})`));
+                            emit('  ' + col(c.gray, '─'.repeat(50)));
+                            for (const t of tools) {
+                                const [, srv, name] = t.name.split(':');
+                                emit(
+                                    `  ${col(c.cyan, '◌')} ${col(c.white, name ?? t.name).padEnd(30)}` +
+                                    col(c.gray, `[${srv}]`),
+                                );
+                                if (t.description) {
+                                    const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '');
+                                    emit(col(c.gray, `    ${desc.slice(0, 70)}`));
+                                }
+                            }
+                            emit('');
+                        }
+                    } catch (err) {
+                        emit(`  ${col(c.red, '✗')} MCP init failed: ${(err as Error).message}\n`);
+                    }
+                }
+            } else {
+                emit(col(c.gray, '  Usage: /mcp [list|tools]'));
+            }
+            rl.prompt();
+            return;
+        }
+
         // ── /agent ────────────────────────────────────────────────────────────
         if (input.startsWith('/agent')) {
             const [, sub, ...rest] = input.split(/\s+/);
-            const arg = rest.join(' ');
 
             if (!sub || sub === 'list') {
                 const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
@@ -275,7 +341,7 @@ async function main(): Promise<void> {
                 if (!all.find(a => a.id === sub)) emit(`  Unknown agent "${sub}". Run /agent list.`);
                 else {
                     currentAgent = sub;
-                    ({ engine } = makeEngine(currentAgent, currentCwd));
+                    ({ engine } = makeEngine(currentAgent, currentCwd, mcpServers));
                     emit(col(c.gray, `  switched to ${sub}`));
                 }
             }
@@ -289,7 +355,7 @@ async function main(): Promise<void> {
             if (!arg) emit(`  ${currentCwd}`);
             else {
                 currentCwd = path.resolve(arg);
-                ({ engine } = makeEngine(currentAgent, currentCwd));
+                ({ engine } = makeEngine(currentAgent, currentCwd, mcpServers));
                 emit(col(c.gray, `  cwd: ${currentCwd}`));
             }
             rl.prompt();
@@ -298,7 +364,7 @@ async function main(): Promise<void> {
 
         // ── /clear ────────────────────────────────────────────────────────────
         if (input === '/clear') {
-            ({ engine } = makeEngine(currentAgent, currentCwd));
+            ({ engine } = makeEngine(currentAgent, currentCwd, mcpServers));
             console.clear();
             printBanner();
             rl.prompt();
@@ -307,6 +373,8 @@ async function main(): Promise<void> {
 
         // ── /quit /exit /q ────────────────────────────────────────────────────
         if (input === '/quit' || input === '/exit' || input === '/q') {
+            const mgr = engine.getMCPManager();
+            if (mgr) await mgr.disconnect().catch(() => {});
             emit(col(c.gray, '  bye\n'));
             rl.close();
             process.exit(0);
@@ -318,7 +386,7 @@ async function main(): Promise<void> {
                 (p) => engine.run(p),
                 (newCwd) => {
                     currentCwd = newCwd;
-                    ({ engine } = makeEngine(currentAgent, currentCwd));
+                    ({ engine } = makeEngine(currentAgent, currentCwd, mcpServers));
                 },
             );
             const handled = await registry.dispatch(input, ctx);

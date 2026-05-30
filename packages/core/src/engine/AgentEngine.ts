@@ -125,6 +125,11 @@ export class AgentEngine {
         return this.opts.observabilityManager;
     }
 
+    /** Access the MCP client manager to inspect connected servers and their tools. */
+    getMCPManager(): MCPClientManager | undefined {
+        return this.opts.mcpManager;
+    }
+
     private getProviderForProfile(profile: AgentProfile): LLMProvider {
         return this.opts.providers.resolve(profile.provider, this.opts.defaultProvider);
     }

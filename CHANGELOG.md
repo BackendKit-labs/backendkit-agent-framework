@@ -10,6 +10,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.10.0] — 2026-05-30
+
+### Added
+
+**`AgentMCPServer` — exponer cualquier agente como servicio MCP (`@bk/mcp-server`)**
+
+- `AgentMCPServer` — nueva clase que envuelve un `AgentEngine` como servidor MCP completo; exportada desde `@bk/mcp-server` (entrada principal del paquete ahora es `dist/index.js`)
+- `AgentEngineFactory` — tipo `(transport: CallbackTransport) => AgentEngine`; invocado una vez por tool call para aislar estado de ejecución y capturar el output del agente
+- `AgentToolDef<S>` — interfaz con `name`, `description`, `schema` (Zod), y `buildPrompt(args) → string`
+- `AgentMCPServer.start()` — HTTP con `StreamableHTTPServerTransport` estático (misma lógica de sesiones que el server base)
+- `AgentMCPServer.startStdio()` — modo stdio para clientes subprocess
+- `AgentMCPServer.stop()` — shutdown graceful del servidor HTTP
+- `runWithEngine(prompt)` — crea un `CallbackTransport` por llamada, acumula eventos `token`, resuelve en `done`, rechaza en `error`
+- `@bk/mcp-server/package.json` — `main` y `types` actualizados a `dist/index.js` / `dist/index.d.ts`
+
+**`examples/git-analyst`** (puerto 3010)
+
+- `git_summarize` — ejecuta `git log` y resume commits agrupados por feature/fix/chore
+- `git_diff_review` — revisa un diff provisto, detecta bugs, security issues y missing tests
+- `git_release_notes` — genera release notes en markdown desde un tag o los últimos 30 commits
+
+**`examples/code-explainer`** (puerto 3011)
+
+- `explain` — explica código en inglés plain, sin jerga técnica
+- `review` — revisa código por secciones: Bugs / Security / Performance / Suggestions
+- `add_docstrings` — agrega comentarios de documentación (JSDoc, Google, Sphinx) y devuelve solo el código documentado
+
+### Changed
+
+- Ambos ejemplos se conectan al `coding-assistant` vía `mcpServers` en `config.json`, exponiendo 6 tools remotas bajo `mcp:git-analyst:*` y `mcp:code-explainer:*`
+
+### Fixed (tsconfig)
+
+- `"ignoreDeprecations": "5.0"` en los 6 tsconfigs suprime el warning `moduleResolution=node10 is deprecated` durante la compilación con `tsc`
+- `"types": ["node"]` agregado explícitamente a todos los tsconfigs; `"jest"` incluido en `packages/core` y `packages/coding` que tienen suites de tests
+- `.vscode/settings.json` — apunta el language server de VS Code a `node_modules/typescript/lib` (TS 5.9.3) para que el IDE use el mismo compiler que `tsc` y no muestre warnings de versiones bundled
+
+---
+
 ## [0.9.0] — 2026-05-30
 
 ### Added

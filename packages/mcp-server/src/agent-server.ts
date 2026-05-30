@@ -170,8 +170,12 @@ export class AgentMCPServer {
 
         for (const tool of this.opts.tools) {
             srv.tool(tool.name, tool.description, tool.schema, async (args: Record<string, unknown>) => {
-                const prompt = tool.buildPrompt(args);
-                const result = await this.runWithEngine(prompt);
+                const start   = Date.now();
+                const preview = JSON.stringify(args).slice(0, 80);
+                process.stderr.write(`[${this.opts.name}] ← ${tool.name}  ${preview}\n`);
+                const prompt  = tool.buildPrompt(args);
+                const result  = await this.runWithEngine(prompt);
+                process.stderr.write(`[${this.opts.name}] → ${tool.name}  ${Date.now() - start}ms\n`);
                 return { content: [{ type: 'text' as const, text: result }] };
             });
         }

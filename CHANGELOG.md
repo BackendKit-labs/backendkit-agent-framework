@@ -10,6 +10,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.11.0] — 2026-05-30
+
+### Fixed
+
+**LLM prefería herramientas locales sobre MCP remotas**
+
+El motor elegía `run_command git log` en lugar de `mcp:git-analyst:git_summarize` porque no tenía instrucción explícita de preferir las tools remotas, y las locales son más familiares para el modelo.
+
+- `createCodingEngineFromConfig` (`@bk/agent-coding`) — cuando hay `mcpServers` configurados, inyecta un bloque `## Remote Agent Tools (MCP)` en `projectContext`; el bloque lista los servidores remotos disponibles e instruye al LLM con `ALWAYS prefer their tools over run_command or read_file when the task matches`; se propaga al system prompt de todos los agentes (general, coder, backend, etc.)
+- `examples/git-analyst` — descripciones de las 3 tools actualizadas con prefijo `PREFER this over run_command` y cláusula explícita `Use when asked to...`
+- `examples/code-explainer` — ídem para las 3 tools
+
+**`AgentMCPServer` — Ctrl+C no cerraba el proceso (`@bk/mcp-server`)**
+
+`httpServer.close()` espera que todas las conexiones existentes terminen, pero las sesiones MCP mantienen streams SSE de keep-alive indefinidamente.
+
+- `AgentMCPServer.stop()` — llama `closeAllConnections()` (Node 18.2+) antes de `close()` para forzar el cierre inmediato de todos los sockets
+- `examples/git-analyst` y `examples/code-explainer` — handler SIGINT actualizado: emite log de shutdown, timeout de 1 segundo como fuerza de salida, y llama `server.stop()`
+
+**`examples/git-analyst` — `cd` rechazado por la allowlist de `run_command`**
+
+El prompt generaba `cd /ruta && git log`, pero `cd` es un builtin de shell y no existe en la allowlist de binarios permitidos.
+
+- Prompts de `git_summarize` y `git_release_notes` cambiados a `git -C "<dir>"` que ejecuta git directamente en el directorio sin necesitar `cd`
+
+### Added
+
+- `AgentMCPServer` — log a stderr al recibir y completar cada tool call: `[nombre] ← tool_name {args_preview}` y `[nombre] → tool_name {ms}ms`; permite verificar visualmente que el agente remoto está respondiendo
+
+---
+
 ## [0.10.0] — 2026-05-30
 
 ### Added

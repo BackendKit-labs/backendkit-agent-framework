@@ -1,51 +1,200 @@
 import * as readline from 'readline';
 import * as path from 'path';
-import { createCodingEngineFromConfig, ConfigLoader, AgentLoader, InitWorkflow, CODING_AGENTS } from '@bk/agent-coding';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import {
+    createCodingEngineFromConfig,
+    ConfigLoader,
+    AgentLoader,
+    InitWorkflow,
+    CODING_AGENTS,
+} from '@bk/agent-coding';
 import type { AgentProfile } from '@bk/agent-core';
-import { CallbackTransport } from '@bk/agent-core';
+import {
+    CallbackTransport,
+    SlashCommandRegistry,
+    registerBuiltinCommands,
+    getProjectDir,
+} from '@bk/agent-core';
 import { renderEvent } from './display';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const APP_NAME    = process.env.AGENT_APP_NAME ?? 'coding-assistant';
-const loader      = new ConfigLoader(APP_NAME);
-const config      = loader.load();
-const AGENT_ID    = process.env.AGENT_ID    ?? 'general';
-const WORKING_DIR = process.env.WORKING_DIR ?? process.cwd();
+const AGENT_ID    = process.env.AGENT_ID       ?? 'general';
+const WORKING_DIR = process.env.WORKING_DIR    ?? process.cwd();
+
+const loader = new ConfigLoader(APP_NAME);
+const config = loader.load();
 
 if (!config.defaultProvider) {
-    console.error('Error: set at least one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY');
-    console.error(`       or add providers to ${loader.configPath}`);
+    console.error('\n  Error: no provider configured.');
+    console.error(`  Set ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY`);
+    console.error(`  or edit ${loader.configPath}\n`);
     process.exit(1);
 }
 
+const DEFAULT_MODELS: Record<string, string> = {
+    anthropic: 'claude-sonnet-4-6',
+    deepseek:  'deepseek-chat',
+    openai:    'gpt-4o',
+    kimi:      'moonshot-v1-8k',
+    grok:      'grok-3',
+};
+
+// ── ANSI helpers ──────────────────────────────────────────────────────────────
+const c = {
+    reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
+    green: '\x1b[32m', cyan: '\x1b[36m', yellow: '\x1b[33m',
+    red: '\x1b[31m', gray: '\x1b[90m', white: '\x1b[97m',
+};
+const col  = (clr: string, s: string) => `${clr}${s}${c.reset}`;
+const ANSI = /\x1b\[[0-9;]*m/g;
+const vlen = (s: string) => s.replace(ANSI, '').length;
+const padR = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - vlen(s)));
+const hr   = (n: number) => col(c.gray, '─'.repeat(n));
+
 // ── Banner ────────────────────────────────────────────────────────────────────
 function printBanner(): void {
+    const W   = Math.min(Math.max(process.stdout.columns ?? 100, 88), 120);
+    const DIV = Math.floor(W * 0.44);
+    // Body: │ LW │ RW │  → 2 + LW + 3 + RW + 2 = W  → LW + RW = W - 7
+    const LW  = DIV - 3;
+    const RW  = W - DIV - 4;
+
     const allAgents = AgentLoader.load({ appName: APP_NAME, cwd: WORKING_DIR, builtins: CODING_AGENTS });
-    const agentList = allAgents.map((a: AgentProfile) => {
-        const tag = a.source === 'project' ? '*' : a.source === 'global' ? '+' : '';
-        return `${a.icon} ${a.id}${tag}`;
-    }).join('  ');
-    const dirs = AgentLoader.dirs(APP_NAME, WORKING_DIR);
-    console.log('\n\x1b[1m\x1b[36m  bk-agent-coding\x1b[0m\x1b[2m  v0.1.0\x1b[0m');
-    console.log(`\x1b[90m  app:      ${APP_NAME}  provider: ${config.defaultProvider}\x1b[0m`);
-    console.log(`\x1b[90m  config:   ${loader.configPath}\x1b[0m`);
-    console.log(`\x1b[90m  agent:    ${AGENT_ID}\x1b[0m`);
-    console.log(`\x1b[90m  cwd:      ${WORKING_DIR}\x1b[0m`);
-    console.log(`\x1b[90m  agents:   ${agentList}\x1b[0m`);
-    console.log(`\x1b[90m  [+] global: ${dirs.global}  [*] project: ${dirs.project}\x1b[0m`);
-    console.log('\x1b[90m\n  Commands: /init  /agent list | new <id> [--global] | <id>  /cwd <path>  /clear  /quit\x1b[0m\n');
+    const dirs      = AgentLoader.dirs(APP_NAME, WORKING_DIR);
+    const provider  = config.defaultProvider!;
+    const model     = config.providers?.[provider]?.model ?? DEFAULT_MODELS[provider] ?? provider;
+    const home      = process.env.USERPROFILE ?? process.env.HOME ?? '';
+    const tilde     = (s: string) => s.startsWith(home) ? '~' + s.slice(home.length) : s;
+
+    // ── Left panel ────────────────────────────────────────────────────────────
+    const L: string[] = [''];
+    L.push(col(c.bold + c.cyan, '  ◆  Coding Assistant'));
+    L.push(col(c.gray,          '     v0.7.0'));
+    L.push('');
+    L.push(col(c.gray, '  provider   ') + col(c.white, provider));
+    L.push(col(c.gray, '  model      ') + col(c.white, model));
+    L.push(col(c.gray, '  agent      ') + col(c.cyan,  '◈ ' + AGENT_ID));
+    L.push(col(c.gray, '  cwd        ') + col(c.dim,   tilde(WORKING_DIR).slice(0, LW - 14)));
+    L.push('');
+
+    const shown = allAgents.slice(0, 6);
+    const extra = allAgents.length - shown.length;
+    const fmtAgent = (a: AgentProfile) => {
+        const ic = a.source === 'project'
+            ? col(c.yellow, a.icon)
+            : a.source === 'global' ? col(c.green, a.icon) : col(c.cyan, a.icon);
+        return `${ic} ${a.id}`;
+    };
+    const row1     = shown.slice(0, 3).map(fmtAgent).join('  ');
+    const row2rest = shown.slice(3).map(fmtAgent);
+    if (extra > 0) row2rest.push(col(c.gray, `+${extra} more`));
+
+    L.push(col(c.gray, `  ${allAgents.length} agents`));
+    L.push('  ' + row1);
+    if (row2rest.length) L.push('  ' + row2rest.join('  '));
+    L.push('');
+    L.push(col(c.gray, `  [+] ${tilde(dirs.global).slice(0, LW - 7)}`));
+    L.push(col(c.gray, `  [*] ${tilde(dirs.project).slice(0, LW - 7)}`));
+    L.push('');
+
+    // ── Right panel ───────────────────────────────────────────────────────────
+    const R: string[] = [''];
+    R.push(col(c.bold, '  Commands'));
+    R.push('  ' + hr(RW - 2));
+
+    const cmds: Array<[string, string]> = [
+        ['/init',         'analyze & document the project'],
+        ['/agent',        'list · switch · create agents'],
+        ['/skills',       'view loaded skills'],
+        ['/status',       'current agent & model'],
+        ['/checkpoint',   'save & restore session state'],
+        ['/workspace',    'multi-project context'],
+        ['/help',         'AI guidance on what I can do'],
+        ['/cwd <path>',   'change working directory'],
+        ['/clear  /quit', ''],
+    ];
+    for (const [cmd, desc] of cmds) {
+        R.push(col(c.white, `  ${cmd.padEnd(14)}`) + col(c.gray, desc));
+    }
+    R.push('');
+    R.push(col(c.bold, '  Features'));
+    R.push('  ' + hr(RW - 2));
+    R.push('  ' + col(c.green, '✓') + col(c.gray, ' Orchestrator + QA auto-review'));
+    R.push('  ' + col(c.green, '✓') + col(c.gray, ' Reflection Engine (cross-sprint)'));
+    R.push('  ' + col(c.green, '✓') + col(c.gray, ' 33 builtin skills'));
+    R.push('');
+
+    // ── Box render ────────────────────────────────────────────────────────────
+    // Top:  ╭─── agent-framework ──...──┬──...──╮
+    // Body: │ content                   │ content │
+    // Bot:  ╰──...──┴──...──╯
+    const title   = 'agent-framework';
+    const topFill = `─── ${title} `;
+    const topL    = topFill + '─'.repeat(Math.max(0, LW + 2 - topFill.length));
+    const topR    = '─'.repeat(RW + 2);
+    const botL    = '─'.repeat(LW + 2);
+    const botR    = '─'.repeat(RW + 2);
+
+    const rows = Math.max(L.length, R.length);
+    const lines: string[] = [];
+    lines.push('╭' + topL + '┬' + topR + '╮');
+    for (let i = 0; i < rows; i++) {
+        lines.push(`│ ${padR(L[i] ?? '', LW)} │ ${padR(R[i] ?? '', RW)} │`);
+    }
+    lines.push('╰' + botL + '┴' + botR + '╯');
+    console.log('\n' + lines.join('\n'));
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
 function makeEngine(agentId: string, cwd: string) {
     const transport = new CallbackTransport(renderEvent);
     const engine = createCodingEngineFromConfig({
-        appName: APP_NAME,
+        appName:      APP_NAME,
         defaultAgent: agentId,
-        workingDir: cwd,
+        workingDir:   cwd,
         transport,
+        orchestration: {
+            enableQA:   true,
+            reflection: true,
+        },
     });
     return { engine, transport };
+}
+
+// ── Slash command registry ────────────────────────────────────────────────────
+const registry = new SlashCommandRegistry();
+registerBuiltinCommands(registry);
+
+function buildCtx(
+    emit:      (s: string) => void,
+    cwd:       string,
+    agentId:   string,
+    runFn:     (p: string) => Promise<void>,
+    cwdChange: (newCwd: string) => void,
+) {
+    const projectDir = getProjectDir(APP_NAME, cwd);
+    let sessionContent = '';
+    try { sessionContent = readFileSync(join(projectDir, 'memory', 'session.md'), 'utf-8'); } catch {}
+
+    const provider = config.defaultProvider!;
+    const model    = config.providers?.[provider]?.model ?? DEFAULT_MODELS[provider] ?? provider;
+    const agents   = AgentLoader.load({ appName: APP_NAME, cwd, builtins: CODING_AGENTS })
+        .map(a => ({ id: a.id, name: a.name, description: a.description }));
+
+    return {
+        emit,
+        appName:          APP_NAME,
+        projectDir,
+        sessionContent,
+        effectiveAgentId: agentId,
+        model,
+        agents,
+        injectContext:    (msg: string) => emit(col(c.gray, `  [ctx] ${msg}`)),
+        onCwdChange:      cwdChange,
+        runEngine:        runFn,
+    };
 }
 
 // ── REPL ──────────────────────────────────────────────────────────────────────
@@ -57,10 +206,12 @@ async function main(): Promise<void> {
     let { engine }   = makeEngine(currentAgent, currentCwd);
     let running      = false;
 
+    const emit = (s: string) => console.log(s);
+
     const rl = readline.createInterface({
-        input: process.stdin,
+        input:  process.stdin,
         output: process.stdout,
-        prompt: '\x1b[32m❯\x1b[0m ',
+        prompt: col(c.green, '❯') + ' ',
     });
 
     rl.prompt();
@@ -69,128 +220,125 @@ async function main(): Promise<void> {
         const input = line.trim();
         if (!input) { rl.prompt(); return; }
 
-        // ── Slash commands ────────────────────────────────────────────────────
-        if (input.startsWith('/')) {
-            const [cmd, ...rest] = input.slice(1).split(' ');
-            const arg = rest.join(' ').trim();
-
-            switch (cmd) {
-                case 'agent': {
-                    const [sub, ...subArgs] = arg ? arg.split(' ') : ['list'];
-
-                    if (sub === 'list' || !sub) {
-                        const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
-                        const bySource: Record<string, AgentProfile[]> = { project: [], global: [], builtin: [] };
-                        for (const a of all) bySource[a.source ?? 'builtin'].push(a);
-                        const fmt = (a: AgentProfile) => `${a.icon} ${a.id}`;
-                        if (bySource.project.length) console.log(`  \x1b[1mproject\x1b[0m  ${bySource.project.map(fmt).join('  ')}`);
-                        if (bySource.global.length)  console.log(`  \x1b[1mglobal \x1b[0m  ${bySource.global.map(fmt).join('  ')}`);
-                        if (bySource.builtin.length) console.log(`  \x1b[1mbuiltin\x1b[0m  ${bySource.builtin.map(fmt).join('  ')}`);
-                        const dirs = AgentLoader.dirs(APP_NAME, currentCwd);
-                        console.log(`\x1b[90m  global:  ${dirs.global}\x1b[0m`);
-                        console.log(`\x1b[90m  project: ${dirs.project}\x1b[0m`);
-
-                    } else if (sub === 'new') {
-                        const newId   = subArgs.find(s => !s.startsWith('--'));
-                        const isGlobal = subArgs.includes('--global');
-                        if (!newId) {
-                            console.log('  Usage: /agent new <id> [--global]');
-                        } else {
-                            const scope = isGlobal ? 'global' : 'project';
-                            AgentLoader.scaffold(newId, { appName: APP_NAME, cwd: currentCwd, scope });
-                            const dirs = AgentLoader.dirs(APP_NAME, currentCwd);
-                            const dir  = isGlobal ? dirs.global : dirs.project;
-                            console.log(`\x1b[90m  created ${dir}\\${newId}.json\x1b[0m`);
-                            console.log(`\x1b[90m          ${dir}\\${newId}.md\x1b[0m`);
-                            console.log(`\x1b[90m  edit the .md to write the system prompt — restart to load\x1b[0m`);
-                        }
-
-                    } else {
-                        const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
-                        if (!all.find((a: AgentProfile) => a.id === sub)) {
-                            console.log(`  Unknown agent "${sub}". Run /agent list to see available agents.`);
-                        } else {
-                            currentAgent = sub;
-                            ({ engine } = makeEngine(currentAgent, currentCwd));
-                            console.log(`\x1b[90m  switched to ${sub}\x1b[0m`);
-                        }
-                    }
-                    break;
-                }
-
-                case 'cwd':
-                    if (!arg) {
-                        console.log(`  cwd: ${currentCwd}`);
-                    } else {
-                        currentCwd = path.resolve(arg);
-                        ({ engine } = makeEngine(currentAgent, currentCwd));
-                        console.log(`\x1b[90m  cwd: ${currentCwd}\x1b[0m`);
-                    }
-                    break;
-
-                case 'init': {
-                    const mode = InitWorkflow.detectMode(currentCwd);
-                    const modeLabel = { new: 'new project', existing: 'existing project', hybrid: 'hybrid' }[mode];
-                    console.log(`\x1b[90m  /init — detected: ${modeLabel}\x1b[0m`);
-                    if (mode === 'new') {
-                        const hasPrompt = require('fs').existsSync(require('path').join(currentCwd, 'prompt.md'));
-                        if (!hasPrompt) {
-                            console.log(`\x1b[33m  No prompt.md found. Create one describing what you want to build, then run /init again.\x1b[0m`);
-                            rl.prompt();
-                            return;
-                        }
-                    }
-                    const initPrompt = InitWorkflow.buildPrompt(currentCwd, mode);
-                    const { engine: initEngine } = makeEngine('project-manager', currentCwd);
-                    running = true;
-                    rl.pause();
-                    try {
-                        await initEngine.run(initPrompt);
-                    } catch (err) {
-                        console.error(`\n  \x1b[31mInit error:\x1b[0m ${(err as Error).message}\n`);
-                    } finally {
-                        running = false;
-                        rl.resume();
-                        rl.prompt();
-                    }
-                    return;
-                }
-
-                case 'clear':
-                    ({ engine } = makeEngine(currentAgent, currentCwd));
-                    console.clear();
-                    printBanner();
-                    break;
-
-                case 'quit':
-                case 'exit':
-                case 'q':
-                    console.log('\x1b[90m  bye\x1b[0m\n');
-                    rl.close();
-                    process.exit(0);
-                    break;
-
-                default:
-                    console.log(`  Unknown command: /${cmd}`);
+        // ── /init ─────────────────────────────────────────────────────────────
+        if (input === '/init' || input.startsWith('/init ')) {
+            const mode = InitWorkflow.detectMode(currentCwd);
+            emit(col(c.gray, `\n  /init — detected: ${{ new: 'new project', existing: 'existing project', hybrid: 'hybrid' }[mode]}`));
+            if (mode === 'new' && !existsSync(join(currentCwd, 'prompt.md'))) {
+                emit(col(c.yellow, '  No prompt.md found. Create one describing what to build, then run /init again.'));
+                rl.prompt();
+                return;
             }
+            const { engine: initEng } = makeEngine('project-manager', currentCwd);
+            running = true;
+            rl.pause();
+            try {
+                await initEng.run(InitWorkflow.buildPrompt(currentCwd, mode));
+            } catch (err) {
+                emit(`\n  ${col(c.red, 'Init error:')} ${(err as Error).message}\n`);
+            } finally {
+                running = false;
+                rl.resume();
+                rl.prompt();
+            }
+            return;
+        }
 
+        // ── /agent ────────────────────────────────────────────────────────────
+        if (input.startsWith('/agent')) {
+            const [, sub, ...rest] = input.split(/\s+/);
+            const arg = rest.join(' ');
+
+            if (!sub || sub === 'list') {
+                const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
+                const grp: Record<string, AgentProfile[]> = { project: [], global: [], builtin: [] };
+                for (const a of all) grp[a.source ?? 'builtin'].push(a);
+                const fmt = (a: AgentProfile) =>
+                    `  ${a.icon}  ${a.id.padEnd(20)} ${col(c.gray, (a.description ?? '').slice(0, 44))}`;
+                for (const [src, list] of Object.entries(grp)) {
+                    if (list.length) { emit(col(c.bold, `\n  ${src}`)); list.forEach(a => emit(fmt(a))); }
+                }
+                emit('');
+            } else if (sub === 'new') {
+                const id       = rest.find(s => !s.startsWith('--'));
+                const isGlobal = rest.includes('--global');
+                if (!id) { emit('  Usage: /agent new <id> [--global]'); }
+                else {
+                    AgentLoader.scaffold(id, { appName: APP_NAME, cwd: currentCwd, scope: isGlobal ? 'global' : 'project' });
+                    const dirs = AgentLoader.dirs(APP_NAME, currentCwd);
+                    const dir  = isGlobal ? dirs.global : dirs.project;
+                    emit(col(c.gray, `  created ${dir}/${id}.json\n          ${dir}/${id}.md`));
+                    emit(col(c.gray, '  edit the .md to write the system prompt — restart to load'));
+                }
+            } else {
+                const all = AgentLoader.load({ appName: APP_NAME, cwd: currentCwd, builtins: CODING_AGENTS });
+                if (!all.find(a => a.id === sub)) emit(`  Unknown agent "${sub}". Run /agent list.`);
+                else {
+                    currentAgent = sub;
+                    ({ engine } = makeEngine(currentAgent, currentCwd));
+                    emit(col(c.gray, `  switched to ${sub}`));
+                }
+            }
+            rl.prompt();
+            return;
+        }
+
+        // ── /cwd ──────────────────────────────────────────────────────────────
+        if (input.startsWith('/cwd')) {
+            const arg = input.slice(4).trim();
+            if (!arg) emit(`  ${currentCwd}`);
+            else {
+                currentCwd = path.resolve(arg);
+                ({ engine } = makeEngine(currentAgent, currentCwd));
+                emit(col(c.gray, `  cwd: ${currentCwd}`));
+            }
+            rl.prompt();
+            return;
+        }
+
+        // ── /clear ────────────────────────────────────────────────────────────
+        if (input === '/clear') {
+            ({ engine } = makeEngine(currentAgent, currentCwd));
+            console.clear();
+            printBanner();
+            rl.prompt();
+            return;
+        }
+
+        // ── /quit /exit /q ────────────────────────────────────────────────────
+        if (input === '/quit' || input === '/exit' || input === '/q') {
+            emit(col(c.gray, '  bye\n'));
+            rl.close();
+            process.exit(0);
+        }
+
+        // ── Built-in registry: /help /skills /status /checkpoint /workspace ───
+        if (input.startsWith('/')) {
+            const ctx = buildCtx(emit, currentCwd, currentAgent,
+                (p) => engine.run(p),
+                (newCwd) => {
+                    currentCwd = newCwd;
+                    ({ engine } = makeEngine(currentAgent, currentCwd));
+                },
+            );
+            const handled = await registry.dispatch(input, ctx);
+            if (!handled) emit(col(c.gray, `  Unknown command. Type /help to see all commands.`));
             rl.prompt();
             return;
         }
 
         // ── Run agent ─────────────────────────────────────────────────────────
         if (running) {
-            console.log('\x1b[90m  (busy — wait for current task to finish)\x1b[0m');
+            emit(col(c.gray, '  (busy — wait for current task to finish)'));
             return;
         }
 
         running = true;
         rl.pause();
-
         try {
             await engine.run(input);
         } catch (err) {
-            console.error(`\n  \x1b[31mFatal:\x1b[0m ${(err as Error).message}\n`);
+            emit(`\n  ${col(c.red, 'Error:')} ${(err as Error).message}\n`);
         } finally {
             running = false;
             rl.resume();
@@ -201,7 +349,4 @@ async function main(): Promise<void> {
     rl.on('close', () => process.exit(0));
 }
 
-main().catch(err => {
-    console.error(err);
-    process.exit(1);
-});
+main().catch(err => { console.error(err); process.exit(1); });

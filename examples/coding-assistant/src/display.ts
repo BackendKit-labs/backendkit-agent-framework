@@ -1,6 +1,6 @@
 import type { AgentEvent } from '@bk/agent-core';
 
-// ── ANSI colors ───────────────────────────────────────────────────────────────
+// ── ANSI ──────────────────────────────────────────────────────────────────────
 const c = {
     reset:   '\x1b[0m',
     bold:    '\x1b[1m',
@@ -10,16 +10,17 @@ const c = {
     yellow:  '\x1b[33m',
     red:     '\x1b[31m',
     magenta: '\x1b[35m',
-    blue:    '\x1b[34m',
     gray:    '\x1b[90m',
 };
-
-const col = (color: string, text: string) => `${color}${text}${c.reset}`;
+const col = (clr: string, s: string) => `${clr}${s}${c.reset}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentAgent = '';
-let isStreaming   = false;
-let streamBuffer  = '';
+let isStreaming    = false;
+let streamBuffer   = '';
+let blockStart     = 0;
+let runInput       = 0;
+let runOutput      = 0;
+let runCost        = 0;
 
 function flushStream(): void {
     if (streamBuffer) {
@@ -34,28 +35,22 @@ export function renderEvent(event: AgentEvent): void {
     switch (event.type) {
 
         case 'ready':
-            console.log(col(c.gray, '\n  system ready\n'));
+            runInput = runOutput = runCost = 0;
             break;
 
         case 'block_start':
             flushStream();
-            currentAgent = event.agent_name ?? event.agent_id;
-            const icon   = event.agent_icon ?? '◆';
-            console.log(`\n${col(c.bold + c.cyan, `  ${icon}  ${currentAgent}`)}`);
+            blockStart = Date.now();
+            console.log(`\n${col(c.bold + c.cyan, `  ${event.agent_icon ?? '◆'}  ${event.agent_name ?? event.agent_id}`)}`);
             console.log(col(c.gray, '  ' + '─'.repeat(50)));
             break;
 
-        case 'block_end':
+        case 'block_end': {
             flushStream();
-            console.log(col(c.gray, '  ' + '─'.repeat(50)));
+            const elapsed = blockStart ? ` ${((Date.now() - blockStart) / 1000).toFixed(1)}s` : '';
+            console.log(col(c.gray, '  ' + '─'.repeat(50) + elapsed));
             break;
-
-        case 'agent_switch':
-            flushStream();
-            const from = event.from === 'orchestrator' ? 'orchestrator' : event.from;
-            const to   = event.to_name ?? event.to;
-            console.log(col(c.gray, `\n  ${from} → ${col(c.cyan, to)}`));
-            break;
+        }
 
         case 'token':
             if (!isStreaming) {
@@ -68,45 +63,78 @@ export function renderEvent(event: AgentEvent): void {
 
         case 'tool_call':
             flushStream();
-            const preview = event.args_preview ? col(c.gray, `  ${event.args_preview.slice(0, 60)}`) : '';
-            console.log(`  ${col(c.yellow, '◌')} ${col(c.dim, event.name)}${preview}`);
+            console.log(
+                `  ${col(c.yellow, '◌')} ${col(c.dim, event.name)}` +
+                (event.args_preview ? col(c.gray, `  ${event.args_preview.slice(0, 64)}`) : ''),
+            );
             break;
 
         case 'tool_result':
-            const resultIcon = event.success
-                ? col(c.green, '◈')
-                : col(c.red, '✗');
-            const resultText = event.preview
-                ? col(c.gray, `  ${event.preview.slice(0, 80)}`)
-                : '';
-            console.log(`  ${resultIcon} ${col(c.dim, event.name)}${resultText}`);
+            console.log(
+                `  ${event.success ? col(c.green, '◈') : col(c.red, '✗')} ${col(c.dim, event.name)}` +
+                (event.preview ? col(c.gray, `  ${event.preview.slice(0, 80)}`) : ''),
+            );
+            break;
+
+        case 'metrics':
+            runInput  += event.input_tokens;
+            runOutput += event.output_tokens;
+            if (event.cost_usd) runCost += event.cost_usd;
+            break;
+
+        case 'done':
+            flushStream();
+            if (runInput + runOutput > 0) {
+                const costStr = runCost > 0 ? `  $${runCost.toFixed(4)}` : '';
+                console.log(col(c.gray, `  ↑${runInput.toLocaleString()} ↓${runOutput.toLocaleString()} tokens${costStr}`));
+            }
+            console.log(col(c.green, '\n  ✓ done\n'));
+            break;
+
+        case 'error':
+            flushStream();
+            console.log(`\n  ${col(c.red, '✗')} ${event.message}\n`);
+            break;
+
+        case 'system':
+            flushStream();
+            if (event.level === 'info') break;
+            console.log(`  ${event.level === 'error' ? col(c.red, '✗') : col(c.yellow, '⚠')} ${col(c.gray, event.text)}`);
             break;
 
         case 'thinking':
             console.log(`  ${col(c.gray, `… ${event.label}`)}`);
             break;
 
-        case 'metrics':
-            const cost = event.cost_usd !== undefined
-                ? `  $${event.cost_usd.toFixed(4)}`
-                : '';
-            console.log(col(c.gray, `\n  ↑${event.input_tokens.toLocaleString()} ↓${event.output_tokens.toLocaleString()} tokens${cost}`));
-            break;
+        // ── Workflow events ───────────────────────────────────────────────────
 
-        case 'done':
+        case 'workflow_start':
             flushStream();
-            console.log(col(c.green, '\n  ✓ done\n'));
+            console.log(`\n  ${col(c.bold + c.magenta, '⬡')} ${col(c.bold, `workflow: ${event.name}`)}`);
+            console.log(col(c.gray, '  ' + '─'.repeat(50)));
             break;
 
-        case 'error':
+        case 'workflow_step_start':
             flushStream();
-            console.log(`\n  ${col(c.red, '✗ error:')} ${event.message}\n`);
+            console.log(`  ${col(c.magenta, '→')} ${col(c.dim, `${event.step}  (${event.agent})`)}`);
             break;
 
-        case 'system':
-            if (event.level === 'info') break;
-            const levelColor = event.level === 'error' ? c.red : c.yellow;
-            console.log(`  ${col(levelColor, `⚠ ${event.text}`)}`);
+        case 'workflow_step_complete':
+            flushStream();
+            console.log(`  ${event.success ? col(c.green, '✓') : col(c.red, '✗')} ${col(c.dim, event.step)}`);
+            break;
+
+        case 'workflow_approval_required':
+            flushStream();
+            console.log(`\n  ${col(c.yellow, '⏸')} ${col(c.bold, `approval required: ${event.step}`)}\n`);
+            break;
+
+        case 'workflow_complete':
+            flushStream();
+            console.log(
+                `\n  ${event.status === 'completed' ? col(c.green, '✓') : col(c.red, '✗')}` +
+                ` ${col(c.bold, `workflow ${event.name}: ${event.status}`)}\n`,
+            );
             break;
     }
 }

@@ -10,6 +10,107 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.14.0] — 2026-05-31
+
+### Security
+
+**Sandbox de rutas — cross-drive y UNC en Windows (`@bk/agent-coding`)**
+
+`path-sandbox.ts` usaba `path.relative()` para verificar contención de rutas. En Windows, `relative('C:\\work', 'D:\\secrets')` retorna `'D:\\secrets'` (no comienza con `..`), permitiendo que cualquier ruta absoluta en otra unidad escape el sandbox.
+
+- `resolveAndCheck()` — reemplaza la verificación con prefix-check (`abs === cwd || abs.startsWith(cwd + sep)`); normaliza a minúsculas en Windows para comparación case-insensitive; bloquea cross-drive y UNC
+
+**Validación de cadenas en `run_command` (`@bk/agent-coding`)**
+
+`extractBin()` solo validaba el primer binario de la cadena. Con `shell: true`, todo lo que sigue a `&&`, `|`, `;`, `` ` `` o `$()` se ejecuta sin restricción: `echo ok && sh exploit.sh` pasaba el allowlist (bin = `echo`).
+
+- `extractAllBins()` — neutraliza strings entre comillas y tokeniza por operadores de shell; valida el binario de cada segmento contra el allowlist
+- La descripción del tool actualizada para reflejar que todos los binarios de la cadena deben estar en el allowlist
+
+**`cwd` de `run_command` sin sandbox (`@bk/agent-coding`)**
+
+El parámetro `cwd` y el pattern `cd dir && cmd` se resolvían con `path.resolve()` directamente sin pasar por `resolveAndCheck()`. `cwd: "../../secrets"` ejecutaba el comando fuera del working directory.
+
+- `run_command` — llama `resolveAndCheck(baseDir, effectiveCdDir)` antes de construir `workDir`; retorna `Error: Access denied` si la ruta escapa el sandbox
+
+**Gate de aprobación unificado — cubre sub-agentes (`@bk/agent-core`)**
+
+El gate `onToolApproval` y el check de `allowedTools` existían en `runLoop` (agente principal) pero no en `runAgentInternal` (sub-agentes invocados via `ask_agent`). Toda escritura/ejecución real en el flujo general→especialista→coder omitía el gate.
+
+- `executeToolCall(call, profile)` — método privado unificado con la cadena completa: `allowedTools` check → `onToolApproval` gate → ejecutar → `writeAuditRecord` → emit transport; usado en `runLoop` y `runAgentInternal`
+
+**`run_command` en `READ_ONLY_TOOLS` (`@bk/agent-coding`)**
+
+`run_command` estaba incluido en `READ_ONLY_TOOLS`, dándole al agente `data` capacidad de ejecución no intencionada y creando una etiqueta semánticamente engañosa.
+
+- `READ_ONLY_TOOLS` — eliminado `run_command`; ahora incluye solo filesystem read + memory tools
+- `EXEC_TOOLS` — nuevo set explícito (`READ_ONLY_TOOLS` + `run_command`) para agentes que necesitan ejecutar comandos
+- `WRITE_TOOLS` — construido sobre `EXEC_TOOLS` (+ `write_file`, `edit_file`)
+- Agente `data` — actualizado a `EXEC_TOOLS` (intencional: ETL, queries, pipelines)
+
+**Normalización de comandos Windows corrompe argumentos (`@bk/agent-coding`)**
+
+Los `.replace(/\bcat\b/g, 'type')`, `.replace(/\bls\b/, 'dir')`, etc. actuaban sobre toda la cadena de comando. `grep cat file.ts` → `grep type file.ts`; `ls my-catalog/` → corrupto.
+
+- `WIN_BIN_MAP` — mapa de remplazo `{ pwd, ls, which, cat, touch, sleep }`; la normalización se aplica solo al binario inicial, nunca a los argumentos que le siguen
+
+**`ConfigLoader.save()` no aplicaba chmod 600 (`@bk/agent-coding`)**
+
+`_bootstrap()` creaba `config.json` con `chmod 600`, pero `save()` podía sobrescribirlo sin restringir permisos, dejando las API keys expuestas en POSIX.
+
+- `ConfigLoader.save()` — llama `chmodSync(this.configPath, 0o600)` al finalizar la escritura en plataformas no-Windows
+
+**WebhookServer sin límite de body (`@bk/agent-core`)**
+
+`readBody()` acumulaba chunks sin tope; un POST gigante agotaba memoria antes de que se verificara la firma HMAC.
+
+- `WebhookServer` constructor — acepta `opts?: { maxBodyBytes?: number }` (default 1 MB)
+- `readBody()` — trackea bytes acumulados; llama `req.destroy()` y rechaza con `code: 413` al superar el límite
+- `handleRequest()` — responde HTTP 413 `Payload Too Large` para errores de tamaño; distingue de errores genéricos 500
+
+### Fixed
+
+**Separador MCP y safeName inconsistente (`@bk/agent-core`)**
+
+`AgentEngine.registerMCPAgent()` registraba el perfil del agente con `id: config.name` (sin sanear), pero `MCPClientManager.wrapTool()` construía el nombre de tool con el `safeName` saneado. Si el nombre del servidor tenía caracteres especiales, `mcp__${agentId}__${tool}` nunca resolvía.
+
+- `registerMCPAgent()` — calcula `safeName = config.name.replace(/[^a-zA-Z0-9_-]/g, '_')` y lo usa como `id` del perfil, `mcpTriggers` key y `mcpToolTriggers` agentId
+- Comentarios en `MCPClientManager` y `MCPServerConfig.name` actualizados: `mcp:{name}:{tool}` → `mcp__{safeName}__{tool}`
+
+**Registro de servidores MCP bloqueado por contador de reintentos (`@bk/agent-core`)**
+
+`mcpInitAttempts` se incrementaba en cada `run()`. Tras 3 mensajes, el bloque `if (mcpInitAttempts >= 3) return` impedía que servidores que arrancaban tarde se registraran como agentes, aunque ya estuvieran online.
+
+- `ensureMCPInitialized()` — registro de servidores conectados (`registerMCPAgent`) ocurre siempre, independiente del contador de reintentos; el tope de 3 aplica solo al bloque `reconnectFailed()` sobre servidores que siguen offline
+
+**Tokens de sub-agentes siempre 0 (`@bk/agent-core`)**
+
+`runAgentInternal` retornaba `inputTokens: 0, outputTokens: 0` hardcodeados en `DelegationResult`, aunque `onMetrics` emitía los valores reales por transport.
+
+- Acumula `totalInputTokens` / `totalOutputTokens` dentro del loop de `runAgentInternal`; retorna los valores reales
+
+**`buildContext()` reportaba agentId incorrecto en sub-agentes (`@bk/agent-core`)**
+
+`buildContext()` siempre usaba `this.currentAgentId` (el orquestador), lo que generaba audit records con el agente incorrecto para tool calls de sub-agentes.
+
+- `buildContext(agentId?: string)` — acepta override; `executeToolCall` y `runToolDef` pasan el `profile.id` del agente ejecutor
+
+**Audit trail con appendFileSync (`@bk/agent-core`)**
+
+`appendFile(..., () => {})` (fire-and-forget) no garantizaba el orden de escritura bajo ejecución paralela de sub-agentes.
+
+- `writeAuditRecord()` — usa `appendFileSync` para orden garantizado
+
+### Changed
+
+- `ask_agent` tool description — actualizada para reflejar el modelo real de concurrencia (bulkhead continuo) en lugar de "waves de max 6 agentes"
+- `DelegationBus` — eliminado campo `parentMessages` de `DelegationBusOptions` (era acoplamiento muerto; la referencia quedaba obsoleta tras `trimHistory()`)
+- `warnIfSecrets()` — ahora retorna el mensaje de warning; `write_file` y `edit_file` lo incluyen en el resultado del tool para que el LLM lo vea y pueda informar al usuario
+- `qa-orchestrator` — `defaultAgentId` y `qaAgentId` se inyectan desde `AgentEngine` via `QaContext`; el core ya no depende de strings literales del paquete `coding`
+- `processQaEngineerResponse` / `processInlineQaReview` — lógica FSM + `completeSprint` extraída a helper privado `applyQaDecision`
+
+---
+
 ## [0.13.0] — 2026-05-30
 
 ### Added
@@ -465,7 +566,14 @@ node packages/mcp-server/dist/server.js --http --port=3002
 **`examples/coding-assistant`**
 - Interactive REPL with readline, full slash command integration, streaming output
 
-[Unreleased]: https://github.com/backendkit-dev/agent-framework/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/backendkit-dev/agent-framework/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/backendkit-dev/agent-framework/compare/v0.4.0...v0.5.0

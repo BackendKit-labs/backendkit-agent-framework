@@ -12,12 +12,16 @@ export interface LoadedSkills {
 }
 
 /**
- * Loads skills from the 3-layer hierarchy stored under the app directory.
+ * Loads skills from the 3-layer hierarchy.
  *
- * Layer structure (appName = 'deepseek-code'):
- *   ~/.deepseek-code/skills/global/      ← language-agnostic, always active
- *   ~/.deepseek-code/skills/packs/{pack}/ ← installed language packs
- *   ~/.deepseek-code/projects/{key}/skills/ ← project-specific
+ * Layer structure (appName = 'bk-agent'):
+ *   ~/.bk-agent/skills/global/        ← language-agnostic, loaded for every project
+ *   ~/.bk-agent/skills/packs/{pack}/  ← installed language packs
+ *   {cwd}/.bk-agent/skills/           ← project-specific, git-tracked, only loaded
+ *                                        when cwd is that project
+ *
+ * On a name collision, precedence is project > pack > global > builtin
+ * (resolved by the consumer's merge order + SkillActivator.buildSystemPromptAddition).
  */
 export class SkillLoader {
     constructor(private readonly appName: string) {}

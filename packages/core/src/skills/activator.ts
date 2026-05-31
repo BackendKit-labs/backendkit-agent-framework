@@ -71,15 +71,27 @@ export class SkillActivator {
 
     /**
      * Builds the combined systemPromptAddition for a set of active skills.
-     * Deduplicates by skill name.
+     *
+     * Deduplicates by skill name. On a name collision the LAST occurrence wins,
+     * so that higher-priority scopes override lower ones — matching the documented
+     * precedence (project > pack > global > builtin), since callers merge skills
+     * in that ascending order. Output position follows first appearance to keep
+     * the prompt order stable.
      */
     buildSystemPromptAddition(activeSkills: Skill[]): string {
+        // Last write wins: a project skill overrides a global/builtin with the same name.
+        const contentByName = new Map<string, string>();
+        for (const skill of activeSkills) {
+            if (!skill.systemPromptAddition) continue;
+            contentByName.set(skill.name, skill.systemPromptAddition.trim());
+        }
+
         const seen = new Set<string>();
         const parts: string[] = [];
         for (const skill of activeSkills) {
-            if (seen.has(skill.name) || !skill.systemPromptAddition) continue;
+            if (seen.has(skill.name) || !contentByName.has(skill.name)) continue;
             seen.add(skill.name);
-            parts.push(skill.systemPromptAddition.trim());
+            parts.push(contentByName.get(skill.name)!);
         }
         return parts.join('\n\n');
     }

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
-import { resolveAndCheck } from './path-sandbox';
+import { resolveAndCheck, checkFrameworkProtection } from './path-sandbox';
 import { warnIfSecrets } from './secret-scanner';
 
 export const writeFileTool = defineTool({
@@ -14,6 +14,8 @@ export const writeFileTool = defineTool({
     execute: async ({ file_path, content }, ctx) => {
         try {
             const abs = resolveAndCheck(ctx.workingDir, file_path);
+            const fwWarn = checkFrameworkProtection(abs, ctx.workingDir);
+            if (fwWarn) return `Error: ${fwWarn}`;
             const warning = warnIfSecrets(abs, content);
             mkdirSync(dirname(abs), { recursive: true });
             atomicWriteSync(abs, content);

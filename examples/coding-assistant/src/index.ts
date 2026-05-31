@@ -22,7 +22,10 @@ import { renderEvent } from './display';
 // ── Config ────────────────────────────────────────────────────────────────────
 const APP_NAME    = process.env.AGENT_APP_NAME ?? 'coding-assistant';
 const AGENT_ID    = process.env.AGENT_ID       ?? 'general';
-const WORKING_DIR = process.env.WORKING_DIR    ?? process.cwd();
+// Default to the directory where the script lives, not process.cwd().
+// This prevents the agent from touching sibling packages when the assistant
+// is started from a monorepo root (e.g. `node examples/coding-assistant/dist/index.js`).
+const WORKING_DIR = process.env.WORKING_DIR ?? __dirname.replace(/[\\/]dist$/, '').replace(/[\\/]src$/, '');
 
 const loader = new ConfigLoader(APP_NAME);
 const config = loader.load();

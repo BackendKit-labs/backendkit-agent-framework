@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
-import { resolveAndCheck } from './path-sandbox';
+import { resolveAndCheck, checkFrameworkProtection } from './path-sandbox';
 import { warnIfSecrets } from './secret-scanner';
 
 export const editFileTool = defineTool({
@@ -15,6 +15,8 @@ export const editFileTool = defineTool({
     execute: async ({ file_path, old_string, new_string, replace_all }, ctx) => {
         try {
             const abs = resolveAndCheck(ctx.workingDir, file_path);
+            const fwWarn = checkFrameworkProtection(abs, ctx.workingDir);
+            if (fwWarn) return `Error: ${fwWarn}`;
             const content = readFileSync(abs, 'utf-8');
 
             if (!content.includes(old_string)) {

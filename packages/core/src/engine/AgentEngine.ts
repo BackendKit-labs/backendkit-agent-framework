@@ -113,6 +113,20 @@ export class AgentEngine {
     private approvalDisabled = false; // set to true after 'approve_all'
 
     private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
+
+    /**
+     * Commands that always require user approval regardless of iteration mode or
+     * approvalDisabled flag. These are irreversible or high-blast-radius operations:
+     * installing new packages, removing packages, running destructive npm scripts.
+     */
+    private static readonly ALWAYS_ASK_PATTERNS: RegExp[] = [
+        /^\s*npm\s+(install|i|add)\s+[^-]/i,     // npm install <pkg> — new package install
+        /^\s*npm\s+uninstall\b/i,                  // npm uninstall
+        /^\s*yarn\s+add\s+[^-]/i,                  // yarn add <pkg>
+        /^\s*pnpm\s+add\s+[^-]/i,                  // pnpm add <pkg>
+        /^\s*pip\s+install\b/i,                    // pip install
+        /^\s*pip3\s+install\b/i,
+    ];
     private agentsLoaded = false;
     private memoryContextBlock = '';
 
@@ -863,6 +877,20 @@ export class AgentEngine {
         ) {
             result = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
                      `Use ask_agent to delegate to a specialist.`;
+        } else if (this.opts.onToolApproval && this.requiresAlwaysAsk(call)) {
+            // High-blast-radius operations (npm install, pip install, etc.) always
+            // require approval — cannot be bypassed by approve_all or auto mode.
+            const preview = call.args.slice(0, 200);
+            this.opts.transport.emit({
+                type: 'tool_approval_request',
+                tool_name: call.name,
+                agent_id: profile.id,
+                args_preview: preview,
+            });
+            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
+            result = decision === 'reject'
+                ? `Tool call "${call.name}" was rejected by the user.`
+                : await this.runToolDef(call, toolDef, profile.id);
         } else if (
             !this.approvalDisabled &&
             this.opts.onToolApproval &&
@@ -901,6 +929,22 @@ export class AgentEngine {
             return await toolDef.execute(args, ctx);
         } catch (err) {
             return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+    }
+
+    /**
+     * Returns true when a tool call matches a high-blast-radius pattern that
+     * always requires explicit approval — cannot be bypassed by approve_all or
+     * auto iteration mode.
+     */
+    private requiresAlwaysAsk(call: { name: string; args: string }): boolean {
+        if (call.name !== 'run_command') return false;
+        try {
+            const { command } = JSON.parse(call.args) as { command?: string };
+            if (!command) return false;
+            return AgentEngine.ALWAYS_ASK_PATTERNS.some(re => re.test(command));
+        } catch {
+            return false;
         }
     }
 

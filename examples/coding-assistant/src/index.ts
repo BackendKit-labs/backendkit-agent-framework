@@ -102,7 +102,11 @@ function printBanner(): void {
     const mcpCfg = config.mcpServers ?? [];
     if (mcpCfg.length > 0) {
         L.push('');
-        L.push(col(c.gray, `  MCP  `) + col(c.cyan, mcpCfg.map(s => s.name).join('  ')));
+        const mcpLabels = mcpCfg.map(s => {
+            const dot = s.mode === 'tools' ? col(c.yellow, '◇') : col(c.cyan, '◈');
+            return `${dot}${s.name}`;
+        });
+        L.push(col(c.gray, '  MCP  ') + mcpLabels.join('  '));
     }
     L.push('');
 
@@ -155,6 +159,9 @@ function printBanner(): void {
     console.log('\n' + lines.join('\n'));
 }
 
+// ── Iteration mode ────────────────────────────────────────────────────────────
+let iterationMode: 'auto' | 'manual' = 'auto';
+
 // ── Engine factory ────────────────────────────────────────────────────────────
 function makeEngine(agentId: string, cwd: string, mcpServers?: MCPServerConfig[]) {
     const transport = new CallbackTransport(renderEvent);
@@ -167,6 +174,35 @@ function makeEngine(agentId: string, cwd: string, mcpServers?: MCPServerConfig[]
         orchestration: {
             enableQA:   true,
             reflection: true,
+        },
+        onToolApproval: async (toolName, agentId, argsPreview) => {
+            if (iterationMode !== 'manual') return 'approve';
+
+            return new Promise<import('@bk/agent-core').ToolApprovalDecision>(resolve => {
+                const preview = argsPreview.length > 120 ? argsPreview.slice(0, 120) + '…' : argsPreview;
+                process.stdout.write(
+                    `\n  ${col(c.yellow, '⚠')} ${col(c.white, agentId)} → ${col(c.cyan, toolName)}\n` +
+                    `  ${col(c.gray, preview)}\n` +
+                    `  ${col(c.green, '[a]')} aprobar  ${col(c.yellow, '[t]')} aprobar todo  ${col(c.red, '[r]')} rechazar  > `
+                );
+                const onKey = (_str: string, key: { name?: string; sequence?: string }) => {
+                    const k = key?.name ?? key?.sequence ?? '';
+                    if (k === 'a' || k === 'return') {
+                        process.stdout.write('\n');
+                        process.stdin.removeListener('keypress', onKey);
+                        resolve('approve');
+                    } else if (k === 't') {
+                        process.stdout.write('\n');
+                        process.stdin.removeListener('keypress', onKey);
+                        resolve('approve_all');
+                    } else if (k === 'r' || k === 'escape') {
+                        process.stdout.write('\n');
+                        process.stdin.removeListener('keypress', onKey);
+                        resolve('reject');
+                    }
+                };
+                process.stdin.on('keypress', onKey);
+            });
         },
     });
     return { engine, transport };
@@ -182,6 +218,7 @@ function buildCtx(
     agentId:   string,
     runFn:     (p: string) => Promise<void>,
     cwdChange: (newCwd: string) => void,
+    engineRef?: { current: ReturnType<typeof makeEngine>['engine'] },
 ) {
     const projectDir = getProjectDir(APP_NAME, cwd);
     let sessionContent = '';
@@ -203,6 +240,29 @@ function buildCtx(
         injectContext:    (msg: string) => emit(col(c.gray, `  [ctx] ${msg}`)),
         onCwdChange:      cwdChange,
         runEngine:        runFn,
+        mcpList: async () => {
+            const mgr  = engineRef?.current?.getMCPManager?.();
+            const info = mgr?.getServerInfo() ?? [];
+            return (config.mcpServers ?? []).map(s => {
+                const live = info.find(i => i.name === s.name);
+                return { name: s.name, url: s.url, connected: !!live, toolCount: live?.toolCount ?? 0 };
+            });
+        },
+        mcpAdd: async (cfg: import('@bk/agent-core').MCPServerConfig) => {
+            const current = loader.load();
+            const servers = current.mcpServers ?? [];
+            if (!servers.find(s => s.name === cfg.name)) {
+                loader.save({ ...current, mcpServers: [...servers, cfg] });
+                emit(col(c.gray, `  Restart to connect "${cfg.name}".`));
+            }
+        },
+        mcpRemove: async (name: string) => {
+            const current = loader.load();
+            loader.save({ ...current, mcpServers: (current.mcpServers ?? []).filter(s => s.name !== name) });
+            emit(col(c.gray, `  Restart to disconnect "${name}".`));
+        },
+        getIterationMode: () => iterationMode,
+        setIterationMode: (mode: 'auto' | 'manual') => { iterationMode = mode; },
     };
 }
 
@@ -300,28 +360,37 @@ async function main(): Promise<void> {
 
         // ── /mcp ──────────────────────────────────────────────────────────────
         if (input === '/mcp' || input.startsWith('/mcp ')) {
-            const sub = input.split(/\s+/)[1] ?? 'list';
+            const parts = input.split(/\s+/);
+            const sub   = parts[1] ?? 'list';
 
+            // ── /mcp list ─────────────────────────────────────────────────────
             if (sub === 'list' || sub === '') {
-                if (mcpServers.length === 0) {
+                const cfg = loader.load();
+                const all = cfg.mcpServers ?? [];
+                if (all.length === 0) {
                     emit(col(c.gray, '\n  No MCP servers configured.'));
-                    emit(col(c.gray, `  Add "mcpServers": [...] to ${loader.configPath}\n`));
+                    emit(col(c.gray, `  Use: /mcp add <name> <url> [--mode tools|agent] [--assign agent1,agent2]\n`));
                 } else {
                     emit(col(c.bold, '\n  MCP Servers'));
-                    emit('  ' + col(c.gray, '─'.repeat(50)));
-                    const mgr = engine.getMCPManager();
-                    const info = mgr?.getServerInfo() ?? [];
+                    emit('  ' + col(c.gray, '─'.repeat(60)));
+                    const mgr     = engine.getMCPManager();
+                    const info    = mgr?.getServerInfo() ?? [];
                     const infoMap = new Map(info.map(i => [i.name, i]));
-                    for (const s of mcpServers) {
+                    for (const s of all) {
                         const connected = infoMap.get(s.name);
-                        const target = s.url ?? [s.command, ...(s.args ?? [])].join(' ');
-                        const status = connected
+                        const target    = s.url ?? [s.command, ...(s.args ?? [])].join(' ');
+                        const status    = connected
                             ? col(c.green, `${connected.transportUsed}  ${connected.toolCount} tools`)
-                            : col(c.gray, s.url ? 'remote' : 'stdio');
-                        emit(`  ${col(c.cyan, '◈')} ${col(c.white, s.name.padEnd(16))} ${col(c.gray, target.slice(0, 40))}  ${status}`);
+                            : col(c.gray, s.url ? 'remote (offline)' : 'stdio (offline)');
+                        const mode      = s.mode === 'tools'
+                            ? col(c.yellow, `tools→[${(s.assignTo ?? ['all']).join(',')}]`)
+                            : s.mode === 'agent' ? col(c.cyan, 'agent') : '';
+                        emit(`  ${col(c.cyan, '◈')} ${col(c.white, s.name.padEnd(16))} ${col(c.gray, target.slice(0, 38).padEnd(40))} ${status}  ${mode}`);
                     }
                     emit('');
                 }
+
+            // ── /mcp tools ────────────────────────────────────────────────────
             } else if (sub === 'tools') {
                 const mgr = engine.getMCPManager();
                 if (!mgr) {
@@ -335,11 +404,11 @@ async function main(): Promise<void> {
                             emit(col(c.yellow, '  No tools discovered from MCP servers.\n'));
                         } else {
                             emit(col(c.bold, `\n  MCP Tools (${tools.length})`));
-                            emit('  ' + col(c.gray, '─'.repeat(50)));
+                            emit('  ' + col(c.gray, '─'.repeat(60)));
                             for (const t of tools) {
                                 const [, srv, name] = t.name.split('__');
                                 emit(
-                                    `  ${col(c.cyan, '◌')} ${col(c.white, name ?? t.name).padEnd(30)}` +
+                                    `  ${col(c.cyan, '◌')} ${col(c.white, (name ?? t.name).padEnd(28))}` +
                                     col(c.gray, `[${srv}]`),
                                 );
                                 if (t.description) {
@@ -353,9 +422,71 @@ async function main(): Promise<void> {
                         emit(`  ${col(c.red, '✗')} MCP init failed: ${(err as Error).message}\n`);
                     }
                 }
+
+            // ── /mcp add <name> <url|command> [flags] ─────────────────────────
+            // flags: --mode tools|agent   --assign backend,data   --stdio
+            } else if (sub === 'add') {
+                const name = parts[2];
+                const target = parts[3];
+                if (!name || !target) {
+                    emit(col(c.gray, '  Usage: /mcp add <name> <url|command> [--mode tools|agent] [--assign agent1,agent2] [--stdio]'));
+                    emit(col(c.gray, '  Examples:'));
+                    emit(col(c.gray, '    /mcp add pg-dev http://127.0.0.1:3012/mcp --mode tools --assign backend,data'));
+                    emit(col(c.gray, '    /mcp add github npx @modelcontextprotocol/server-github --stdio --mode tools --assign backend'));
+                } else {
+                    const isStdio  = parts.includes('--stdio');
+                    const modeIdx  = parts.indexOf('--mode');
+                    const mode     = modeIdx !== -1 ? (parts[modeIdx + 1] as 'tools' | 'agent') : undefined;
+                    const assignIdx = parts.indexOf('--assign');
+                    const assignTo = assignIdx !== -1 ? parts[assignIdx + 1]?.split(',') : undefined;
+
+                    const cfg: MCPServerConfig = isStdio
+                        ? { name, command: target, args: parts.slice(4).filter(p => !p.startsWith('--') && p !== mode && p !== parts[assignIdx + 1]) }
+                        : { name, url: target };
+
+                    if (mode)     cfg.mode     = mode;
+                    if (assignTo) cfg.assignTo  = assignTo;
+
+                    const current = loader.load();
+                    const existing = (current.mcpServers ?? []).findIndex(s => s.name === name);
+                    const servers  = [...(current.mcpServers ?? [])];
+                    if (existing !== -1) {
+                        servers[existing] = cfg;
+                        emit(col(c.yellow, `  Updated "${name}" — restart to reconnect.`));
+                    } else {
+                        servers.push(cfg);
+                        emit(col(c.green, `  Added "${name}" — restart to connect.`));
+                    }
+                    loader.save({ ...current, mcpServers: servers });
+
+                    const modeLabel  = mode ? `  mode: ${mode}` : '';
+                    const assignLabel = assignTo ? `  assign→[${assignTo.join(',')}]` : '';
+                    emit(col(c.gray, `  ${isStdio ? 'stdio' : target}${modeLabel}${assignLabel}`));
+                }
+
+            // ── /mcp remove <name> ────────────────────────────────────────────
+            } else if (sub === 'remove' || sub === 'rm') {
+                const name = parts[2];
+                if (!name) {
+                    emit(col(c.gray, '  Usage: /mcp remove <name>'));
+                } else {
+                    const current = loader.load();
+                    const before  = (current.mcpServers ?? []).length;
+                    const servers = (current.mcpServers ?? []).filter(s => s.name !== name);
+                    if (servers.length === before) {
+                        emit(col(c.yellow, `  Server "${name}" not found.`));
+                    } else {
+                        loader.save({ ...current, mcpServers: servers });
+                        emit(col(c.green, `  Removed "${name}" — restart to disconnect.`));
+                    }
+                }
+
             } else {
-                emit(col(c.gray, '  Usage: /mcp [list|tools]'));
+                emit(col(c.gray, '  Usage: /mcp [list|tools|add|remove]'));
+                emit(col(c.gray, '    /mcp add <name> <url> [--mode tools|agent] [--assign agent1,agent2]'));
+                emit(col(c.gray, '    /mcp remove <name>'));
             }
+
             rl.prompt();
             return;
         }
@@ -437,6 +568,7 @@ async function main(): Promise<void> {
                     currentCwd = newCwd;
                     ({ engine } = makeEngine(currentAgent, currentCwd, mcpServers));
                 },
+                { current: engine },
             );
             const handled = await registry.dispatch(input, ctx);
             if (!handled) emit(col(c.gray, `  Unknown command. Type /help to see all commands.`));

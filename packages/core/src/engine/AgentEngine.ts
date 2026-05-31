@@ -114,6 +114,13 @@ export class AgentEngine {
 
     private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
 
+    /** Tracks what each MCP server blocked/assigned so it can be fully reverted on disconnect. */
+    private mcpAgentBlocks = new Map<string, Array<{
+        agentId: string;
+        toolNames: string[];
+        blockedCmds: string[];
+    }>>();
+
     /**
      * Commands that always require user approval regardless of iteration mode or
      * approvalDisabled flag. These are irreversible or high-blast-radius operations:
@@ -419,8 +426,10 @@ export class AgentEngine {
 
     /**
      * mode='tools' (default): assigns MCP tools directly to local agent allowedTools.
-     * No wrapper agent is created — the specialist that already has project context
-     * composes the external capability inline, in a single LLM hop.
+     * Also applies blocksCommands to those agents while the server is connected —
+     * forcing them to use the MCP tools instead of equivalent shell commands.
+     * Both tool assignments and command blocks are tracked so they can be
+     * fully reverted when the server disconnects via unregisterMCPServer().
      */
     private registerMCPToolPack(
         config: import('../mcp/types').MCPServerConfig,
@@ -428,12 +437,15 @@ export class AgentEngine {
         safeName: string,
     ): void {
         const toolNames = tools.map(t => t.name);
+        const blocksCommands = config.blocksCommands ?? [];
 
         // Resolve target agents: explicit assignTo list, or all registered agents
         const assignTo = config.assignTo?.filter(id => id !== '*') ?? [];
         const targets = assignTo.length > 0
             ? assignTo
             : this.opts.agents.getAll().map(a => a.id);
+
+        const blockRecord: Array<{ agentId: string; toolNames: string[]; blockedCmds: string[] }> = [];
 
         for (const agentId of targets) {
             const agent = this.opts.agents.get(agentId);
@@ -447,8 +459,12 @@ export class AgentEngine {
             this.opts.agents.upsert({
                 ...agent,
                 allowedTools: [...new Set([...agent.allowedTools, ...toolNames])],
+                blockedCommands: [...new Set([...(agent.blockedCommands ?? []), ...blocksCommands])],
             });
+            blockRecord.push({ agentId, toolNames, blockedCmds: blocksCommands });
         }
+
+        this.mcpAgentBlocks.set(safeName, blockRecord);
 
         if (config.triggers?.length) {
             this.opts.transport.emit({
@@ -459,9 +475,10 @@ export class AgentEngine {
 
         const shortNames = tools.map(t => t.name.split('__')[2] ?? t.name).join(', ');
         const agentList = targets.join(', ') || 'all agents';
+        const blockedLabel = blocksCommands.length ? `  blocked: [${blocksCommands.join(', ')}]` : '';
         this.opts.transport.emit({
             type: 'system', level: 'info',
-            text: `[MCP:${config.name}] tools [${shortNames}] assigned to: ${agentList}`,
+            text: `[MCP:${config.name}] tools [${shortNames}] assigned to: ${agentList}${blockedLabel}`,
         });
     }
 
@@ -946,6 +963,51 @@ export class AgentEngine {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * Disconnects an MCP server at runtime — reverts all tool assignments and
+     * command blocks it applied to local agents. After calling this, agents that
+     * had tools from this server lose them from allowedTools, and any commands
+     * that were blocked via blocksCommands are unblocked.
+     *
+     * For mode='agent' servers, the wrapper agent is also removed from the roster.
+     * For mode='tools' servers, agents fall back to shell commands automatically.
+     */
+    unregisterMCPServer(serverName: string): void {
+        const safeName = serverName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+        // Revert tool assignments and command blocks on affected agents
+        const records = this.mcpAgentBlocks.get(safeName) ?? [];
+        for (const { agentId, toolNames, blockedCmds } of records) {
+            const agent = this.opts.agents.get(agentId);
+            if (agent) {
+                this.opts.agents.upsert({
+                    ...agent,
+                    allowedTools: agent.allowedTools.filter(t => !toolNames.includes(t)),
+                    blockedCommands: (agent.blockedCommands ?? []).filter(c => !blockedCmds.includes(c)),
+                });
+            }
+            for (const toolName of toolNames) {
+                this.opts.tools.unregister(toolName);
+            }
+        }
+        this.mcpAgentBlocks.delete(safeName);
+
+        // Remove wrapper agent if mode='agent'
+        this.opts.agents.delete(safeName);
+
+        // Clean up routing tables
+        this.mcpTriggers.delete(safeName);
+        for (const [keyword, route] of this.mcpToolTriggers) {
+            if (route.agentId === safeName) this.mcpToolTriggers.delete(keyword);
+        }
+        this.mcpRegisteredServers.delete(serverName);
+
+        this.opts.transport.emit({
+            type: 'system', level: 'info',
+            text: `[MCP:${serverName}] unregistered — tools removed, commands unblocked.`,
+        });
     }
 
     /** Disable approval gate for the rest of this session (approve_all). */

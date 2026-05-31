@@ -33,4 +33,8 @@ export class AgentRegistry {
     has(id: string): boolean {
         return this.agents.has(id);
     }
+
+    delete(id: string): boolean {
+        return this.agents.delete(id);
+    }
 }

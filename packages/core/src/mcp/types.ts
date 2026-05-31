@@ -101,6 +101,20 @@ export interface MCPServerConfig {
      */
     assignTo?: string[];
 
+    /**
+     * Shell binaries to block on agents in assignTo while this MCP server is
+     * connected. Forces those agents to use the MCP tools instead of equivalent
+     * shell commands. Automatically unblocked when the server disconnects or is
+     * removed — agents fall back to the shell commands transparently.
+     *
+     * Has no effect when mode='agent'.
+     *
+     * @example
+     * blocksCommands: ['docker', 'docker-compose']
+     * // data and backend cannot run docker directly — they must use pg_create
+     */
+    blocksCommands?: string[];
+
     // ── Direct routing ────────────────────────────────────────────────────────
 
     /**

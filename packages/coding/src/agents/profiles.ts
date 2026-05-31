@@ -54,6 +54,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: BACKEND_PROMPT,
         allowedTools: WRITE_TOOLS,
         delegatesTo: ['coder'],
+        blockedCommands: ['docker', 'docker-compose'],
         source: 'builtin',
     },
     {
@@ -114,6 +115,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         systemPrompt: DATA_PROMPT,
         allowedTools: EXEC_TOOLS,
         delegatesTo: ['coder'],
+        blockedCommands: ['docker', 'docker-compose'],
         source: 'builtin',
     },
 ];

@@ -137,6 +137,19 @@ export const runCommandTool = defineTool({
                    `Allowed: ${[...COMMAND_ALLOWLIST].join(', ')}`;
         }
 
+        // C3: per-agent command blocklist — steers agents toward MCP tools
+        const agentBlocked = ctx.blockedCommands ?? [];
+        if (agentBlocked.length > 0) {
+            const forbidden = allBins.find(b => agentBlocked.includes(b));
+            if (forbidden) {
+                return (
+                    `Error: Command "${forbidden}" is not available for agent "${ctx.agentId}". ` +
+                    `This agent uses MCP tools for this capability instead of running shell commands directly. ` +
+                    `Use the appropriate MCP tool (e.g. pg_create, pg_run_sql) to accomplish this task.`
+                );
+            }
+        }
+
         const result = spawnSync(effectiveCommand, {
             shell: true,
             cwd:   workDir,

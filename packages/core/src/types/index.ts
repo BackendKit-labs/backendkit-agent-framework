@@ -15,6 +15,14 @@ export interface AgentProfile {
     source?: 'builtin' | 'global' | 'project' | 'registry' | 'mcp';
     /** Additional instructions appended to the base system prompt when this agent is active. */
     systemPromptAddition?: string;
+    /**
+     * Shell binaries this agent is NOT allowed to execute via run_command,
+     * even if they are on the global COMMAND_ALLOWLIST.
+     * Used to steer agents toward MCP tools when an equivalent capability exists.
+     * Example: blockedCommands: ['docker'] forces data/backend to use pg_create
+     * instead of running docker commands directly.
+     */
+    blockedCommands?: string[];
 }
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────
@@ -39,6 +47,11 @@ export interface ExecutionContext {
     askAgent(agentId: string, question: string, context?: string): Promise<string>;
     /** Advanced three-tier memory (episodic/semantic/procedural). Present when configured via createBaseEngine({ memorySystem }). */
     advancedMemory?: import('../agent-memory/MemorySystem').MemorySystem;
+    /**
+     * Shell binaries this agent is not allowed to run. Populated from the
+     * agent profile's blockedCommands field. Enforced by run_command.
+     */
+    blockedCommands?: string[];
 }
 
 export interface SessionMemoryData {

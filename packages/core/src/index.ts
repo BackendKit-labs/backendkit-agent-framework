@@ -113,4 +113,5 @@ export type {
     AgentEvent,
     EngineOptions,
     JSONSchema,
+    ToolApprovalDecision,
 } from './types';

@@ -969,13 +969,16 @@ export class AgentEngine {
     }
 
     private buildContext(agentId?: string): ExecutionContext {
+        const id = agentId ?? this.currentAgentId;
+        const profile = this.opts.agents.get(id);
         return {
-            agentId: agentId ?? this.currentAgentId,
+            agentId: id,
             sessionId: this.opts.sessionId ?? 'default',
             workingDir: this.opts.workingDir,
             memory: this.memory,
             store: this.opts.store,
             advancedMemory: this.opts.memorySystem,
+            ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context });
                 return result.content;

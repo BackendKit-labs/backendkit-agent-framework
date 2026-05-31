@@ -148,6 +148,15 @@ export interface BaseEngineOptions {
     agentDiscovery?: AgentDiscoveryConfig;
 
     /**
+     * Number of recent messages from the orchestrator's conversation to inject
+     * into each sub-agent call. Gives specialists visibility into previously
+     * gathered data (file reads, command outputs) without requiring the
+     * orchestrator to copy it manually into the ask_agent context field.
+     * Sliced at a user-turn boundary. Default: 0.
+     */
+    subAgentContextMessages?: number;
+
+    /**
      * Advanced three-tier memory system (episodic / semantic / procedural).
      * When provided, memory tools are auto-registered and the context block
      * is injected into every agent system prompt.
@@ -239,6 +248,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
+        ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         projectContext: opts.projectContext,
         skills: opts.skills,
         detectedStack: opts.detectedStack,

@@ -224,6 +224,14 @@ export interface CodingEngineOptions {
      */
     mcpServers?: MCPServerConfig[];
     /**
+     * Number of recent messages from the orchestrator's conversation to inject
+     * into each sub-agent call. Gives specialists visibility into previously
+     * gathered data (file reads, command outputs) without requiring the
+     * orchestrator to copy it manually. Sliced at a user-turn boundary.
+     * Default: 0. Recommended: 10–20 for complex multi-turn tasks.
+     */
+    subAgentContextMessages?: number;
+    /**
      * Called before executing write/execute tools (write_file, edit_file, run_command) when
      * iteration mode is manual. Return 'approve', 'approve_all', or 'reject'.
      */
@@ -421,6 +429,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(onQAReview ? { onQAReview } : {}),
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
+        ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
     });
 }
 

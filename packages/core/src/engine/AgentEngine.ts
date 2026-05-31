@@ -480,6 +480,20 @@ export class AgentEngine {
         return tools;
     }
 
+    /**
+     * Merges the orchestrator's current-turn analysis with the explicit context the
+     * LLM provided in the ask_agent call. The analysis (streamBuffer) gives specialists
+     * the reasoning and data the orchestrator gathered before delegating.
+     */
+    private buildSubAgentContext(explicit: string | undefined, orchestratorAnalysis: string): string | undefined {
+        const trimmed = orchestratorAnalysis.trim();
+        if (!explicit && !trimmed) return undefined;
+        const parts: string[] = [];
+        if (explicit) parts.push(explicit);
+        if (trimmed) parts.push(`## Análisis del orquestador\n${trimmed}`);
+        return parts.join('\n\n');
+    }
+
     private async runLoop(profile: AgentProfile, orchestrationResult?: OrchestrationResult): Promise<void> {
         const maxIter = this.opts.maxIterations ?? 100;
         let iterations = 0;
@@ -546,7 +560,7 @@ export class AgentEngine {
                 const requests = askAgentCalls.map(c => ({
                     agentId: c.agentId,
                     question: c.question,
-                    context: c.context,
+                    context: this.buildSubAgentContext(c.context, streamBuffer),
                 }));
 
                 const results = askAgentCalls.length >= 2
@@ -617,8 +631,23 @@ export class AgentEngine {
         if (!profile) throw new Error(`Agent "${agentId}" not registered`);
 
         const start = Date.now();
+
+        // Inject recent history from the orchestrator's conversation so specialists
+        // can see previously gathered data (file reads, command outputs, etc.)
+        // without requiring the orchestrator to manually copy it into context.
+        let historySlice: LLMMessage[] = [];
+        const maxCtxMsgs = this.opts.subAgentContextMessages;
+        if (maxCtxMsgs && maxCtxMsgs > 0 && this.messages.length > 0) {
+            historySlice = this.messages.slice(-maxCtxMsgs);
+            // Trim to the first user-turn boundary to avoid orphaning tool results.
+            const firstUser = historySlice.findIndex(m => m.role === 'user');
+            if (firstUser > 0) historySlice = historySlice.slice(firstUser);
+            else if (firstUser < 0) historySlice = [];
+        }
+
         const messages: LLMMessage[] = [
             { role: 'system', content: this.buildSystemPrompt(profile) },
+            ...historySlice,
             { role: 'user', content: context ? `${question}\n\nContexto:\n${context}` : question },
         ];
 

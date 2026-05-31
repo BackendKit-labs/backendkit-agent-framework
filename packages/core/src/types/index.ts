@@ -112,11 +112,14 @@ export interface LLMProvider {
 
 // ─── Events (transport-agnostic) ─────────────────────────────────────────────
 
+export type ToolApprovalDecision = 'approve' | 'approve_all' | 'reject';
+
 export type AgentEvent =
     | { type: 'ready' }
     | { type: 'token'; content: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     | { type: 'tool_result'; name: string; success: boolean; preview?: string }
+    | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }
     | { type: 'agent_switch'; from: string; to: string; to_name?: string; to_icon?: string }
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
     | { type: 'block_end'; status: 'ok' | 'error'; agent_id?: string }
@@ -171,4 +174,15 @@ export interface EngineOptions {
      * (global, packs and project layers). Results are merged with skills[].
      */
     loadSkills?: () => Promise<Skill[]>;
+    /**
+     * Number of recent messages from the orchestrator's conversation to inject
+     * into each sub-agent call before the delegated question. Gives specialist
+     * agents visibility into previous tool results (file reads, command outputs,
+     * prior LLM responses) without requiring the orchestrator to copy-paste data.
+     *
+     * Sliced at a user-turn boundary to avoid orphaning tool call/result pairs.
+     * Default: 0 (sub-agents only see their own question + explicit context).
+     * Recommended: 10–20 for complex multi-turn tasks.
+     */
+    subAgentContextMessages?: number;
 }

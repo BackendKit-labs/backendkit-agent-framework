@@ -72,6 +72,8 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 
 El framework no impone un LLM especifico. Funciona con DeepSeek, Anthropic (Claude), OpenAI, Kimi (Moonshot) o Grok.
 
+> **Vocabulario:** en este framework un **agente** es la unidad ejecutable con loop (itera, llama tools, delega), y una **skill** es solo conocimiento inyectable al system prompt (no ejecuta nada por si misma). Esto difiere del uso popular donde "skill" describe al agente completo. Ver [Nota de terminologia](#sistema-de-skills).
+
 ---
 
 ## Arquitectura
@@ -1197,6 +1199,25 @@ const context = await buildWorkspaceContext('mi-sistema', updated['mi-sistema'],
 ---
 
 ## Sistema de Skills
+
+> ### ⚠️ Nota de terminologia — "Skill" aqui NO es lo mismo que en ChatGPT/Claude "skills"
+>
+> En buena parte del contenido divulgativo (y en productos como ChatGPT o Claude), una **"skill"** se describe como una **unidad ejecutable con su propio loop**: recibe un prompt, evalua → ejecuta → verifica → responde, accede a MCP/CLI y registra logs. Es decir, *la skill es el agente*.
+>
+> **En este framework la separacion es deliberada y los dos conceptos viven en capas distintas:**
+>
+> | Concepto del video / otros ecosistemas | Equivalente real en este framework |
+> |---|---|
+> | "Skill" = unidad ejecutable **con el loop** | **Agente** (`AgentProfile` + `AgentEngine.runLoop`) — el que itera, llama tools y delega |
+> | El "SKILL Logic Loop" (Evalua→Ejecuta→Verifica→Responde) | **`runLoop`** del `AgentEngine` (while: LLM → tool calls → results → repeat) |
+> | MCP / CLI-Local dentro de la skill | **Tools** del `ToolRegistry` (filesystem) + **`MCPClientManager`** |
+> | Auditoria & Logs | **`auditLog` NDJSON** + **`AuditReporter`** + tool `save_audit` |
+>
+> **Una _skill_ en este framework es solo conocimiento inyectable** — un fragmento de instruccion (YAML con `triggers` + `language` gate) que se **agrega al system prompt** cuando el input hace match. No tiene loop, no ejecuta nada por si misma, no llama tools. Es contexto activado bajo demanda.
+>
+> **La unidad que ejecuta, itera y delega es el _agente_** (ver [Los 10 agentes especializados](#los-10-agentes-especializados) y [Orquestacion y delegacion paralela](#orquestacion-y-delegacion-paralela)).
+>
+> Si vienes con el modelo mental de "skill = el agente con su loop", lee **"agente"** donde ese material dice "skill", y entende las skills de este framework como el **"Repositorio de Skills"** de ese mismo diagrama: la fuente de conocimiento que _alimenta_ al agente, no el agente en si.
 
 Las skills son el mecanismo para inyectar conocimiento contextual en los agentes. Cuando el input del usuario hace match con los triggers de una skill, su contenido se inyecta automaticamente en el system prompt del agente activo.
 

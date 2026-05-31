@@ -8,7 +8,8 @@ Framework multi-agente para asistentes de codigo, construido en TypeScript con a
 
 1. [Vision general](#vision-general)
 2. [Arquitectura](#arquitectura)
-3. [Instalacion](#instalacion)
+3. [Ciclo de vida de un agente](#ciclo-de-vida-de-un-agente)
+4. [Instalacion](#instalacion)
 4. [Construir un agente de codificacion desde cero](#construir-un-agente-de-codificacion-desde-cero)
 5. [Quickstart — REPL interactivo](#quickstart--repl-interactivo)
 6. [Packages](#packages)
@@ -126,6 +127,146 @@ agent-framework/
 │  Tree-sitter (6 lenguajes)  ·  SQLite FTS5  ·  chokidar    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Ciclo de vida de un agente
+
+A diferencia del modelo "skill con loop" de otros ecosistemas (ver [Nota de terminologia](#sistema-de-skills)), aqui la unidad que ejecuta es el **agente**, y el ciclo no termina al responder: cada run **aprende y persiste**, de modo que la proxima sesion arranca recordando la conversacion, la memoria y las politicas aprendidas.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  DISPARADORES                                                          │
+│  Usuario → engine.run(input)   ·   Trigger Event (webhook / cron)      │
+│  Workflow (pasos deterministas)                                        │
+└────────────────────────────────┬───────────────────────────────────────┘
+                                 │
+                 ┌───────────────▼─────────────────────────────┐
+                 │  CARGA DE CONTEXTO  (pre-LLM)                │
+                 │  • history.json → restaura mensajes previos  │
+                 │  • orchestrate(): intent → domain → risk →   │
+                 │      policy  └─ lee manifest.yaml (aprendido) │
+                 │  • memorySystem.buildContextBlock(input)     │
+                 │  • skillActivator.activate(trigger + stack)  │
+                 │  • buildSystemPrompt: AGENT.md + stack +     │
+                 │      session + lecciones + memoria + skills  │
+                 └───────────────┬─────────────────────────────┘
+                                 │
+        ┌────────────────────────▼──────────────────────────────┐
+        │  AGENTE general — LOOP (runLoop)              ⟲ while   │
+        │  LLM razona → tool calls → resultados → repite  maxIter │
+        │                                                        │
+        │   ┌─ Tools locales (CLI) ─┐   ┌─ MCP (externo) ─┐      │
+        │   │ read/write/edit_file  │   │ Gmail · GitHub · │      │
+        │   │ run_command · search  │   │ APIs vía MCP     │      │
+        │   └───────────────────────┘   └─────────────────┘      │
+        │                                                        │
+        │   ask_agent  →  DelegationBus  (Bulkhead máx 6)        │
+        │        ├─▶ backend    ┐                                │
+        │        ├─▶ security   ├ PARALELO (Promise.all)         │
+        │        └─▶ qa-engineer ┘ c/u: prompt + slice historial │
+        │                          + análisis del orquestador    │
+        └────────────────────────┬──────────────────────────────┘
+                                 │  respuesta final (sin tool calls)
+                 ┌───────────────▼─────────────────────────────┐
+                 │  GATES DE CALIDAD  (si hay código ≥ 8 líneas)│
+                 │  architecture · security · qa                │
+                 │  qa-engineer → veredicto GO / NO-GO          │
+                 └───────────────┬─────────────────────────────┘
+                      GO         │        NO-GO → rework (vuelve al loop ↑)
+                                 │
+                 ┌───────────────▼─────────────────────────────┐
+                 │  AUTO-APRENDIZAJE  (completeSprint)          │
+                 │  findings → FailureCatalog (cross-sprint)    │
+                 │  patrón ≥ 3 (high/critical)                  │
+                 │     → PolicyRule en manifest.yaml ───────────┼──┐
+                 │     → lecciones-aprendidas.md                │  │
+                 └───────────────┬─────────────────────────────┘  │
+                                 │                                 │
+                 ┌───────────────▼─────────────────────────────┐  │
+                 │  PERSISTENCIA EN DISCO                       │  │
+                 │  history.json · episodes/knowledge/patterns  │  │
+                 │  session.md · audits · manifest.yaml         │  │
+                 └───────────────┬─────────────────────────────┘  │
+                                 │                                 │
+                                 ▼                                 │
+                  PRÓXIMA SESIÓN ── recupera todo y continúa ──────┘
+                  (el manifest.yaml aprendido vuelve a orchestrate)
+```
+
+El mismo ciclo en Mermaid (se renderiza como grafico en GitHub):
+
+```mermaid
+flowchart TD
+    subgraph TRIG[Disparadores]
+        U[Usuario: engine.run]
+        T[Trigger Event: webhook / cron]
+        W[Workflow deterministico]
+    end
+
+    TRIG --> CTX
+
+    subgraph CTX[Carga de contexto - pre-LLM]
+        H[history.json: restaura mensajes previos]
+        O["orchestrate: intent -> domain -> risk -> policy<br/>lee manifest.yaml aprendido"]
+        M[memorySystem.buildContextBlock]
+        SK[skillActivator: triggers + stack gate]
+        SP[buildSystemPrompt: AGENT.md + stack + session + lecciones + memoria + skills]
+    end
+
+    CTX --> LOOP
+
+    subgraph LOOP["Agente general - runLoop (while maxIter)"]
+        direction TB
+        L1[LLM razona] --> L2{tool calls?}
+        L2 -->|tools locales| TL[read/write/edit_file · run_command · search]
+        L2 -->|MCP| MCP[Gmail · GitHub · APIs externas]
+        L2 -->|ask_agent| DB[DelegationBus - Bulkhead max 6]
+        DB --> P1[backend]
+        DB --> P2[security]
+        DB --> P3[qa-engineer]
+        TL --> L1
+        MCP --> L1
+        P1 --> L1
+        P2 --> L1
+        P3 --> L1
+    end
+
+    LOOP -->|respuesta final| GATE
+
+    subgraph GATE[Gates de calidad - si hay codigo]
+        G2{qa-engineer: GO / NO-GO}
+    end
+
+    GATE -->|NO-GO: rework| LOOP
+    GATE -->|GO| REF
+
+    subgraph REF[Auto-aprendizaje - completeSprint]
+        R1[findings -> FailureCatalog]
+        R2[patron >=3 high/critical]
+        R3[PolicyRule -> manifest.yaml]
+        R4[lecciones-aprendidas.md]
+        R1 --> R2 --> R3
+        R2 --> R4
+    end
+
+    REF --> DISK
+
+    subgraph DISK[Persistencia en disco]
+        D1[history.json]
+        D2[episodes / knowledge / patterns.json]
+        D3[session.md · audits · manifest.yaml]
+    end
+
+    DISK --> NEXT[Proxima sesion: recupera todo y continua]
+    NEXT -. manifest.yaml aprendido .-> CTX
+```
+
+**Las tres cosas que este ciclo añade sobre un agente de un solo turno:**
+
+1. **Orquestacion multi-agente** — el loop puede abrir 2-5 especialistas en paralelo (`DelegationBus` + `Bulkhead`), cada uno con su prompt + contexto compartido del orquestador.
+2. **Gates con poder de bloqueo** — `qa-engineer`/`security`/`architecture` emiten GO/NO-GO; un NO-GO devuelve al loop en vez de responder.
+3. **Aprendizaje que persiste** — al aprobar, los hallazgos se destilan en `PolicyRule` (manifest.yaml) y lecciones; la **proxima sesion arranca recordando** la conversacion (history.json), la memoria 3-tier y las politicas aprendidas.
 
 ---
 

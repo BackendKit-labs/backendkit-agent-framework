@@ -97,7 +97,7 @@ agent-framework/
 ┌──────────────────────────▼──────────────────────────────────┐
 │                   @bk/agent-coding                          │
 │                                                             │
-│  createCodingEngine()  ·  9 Agent Profiles                  │
+│  createCodingEngine()  ·  10 Agent Profiles                 │
 │  InitWorkflow (/init)  ·  AgentLoader                       │
 │  Filesystem Tools      ·  Memory Tools                      │
 │  LLM Providers: DeepSeek · OpenAI · Anthropic · Kimi · Grok │
@@ -562,7 +562,7 @@ El framework incluye controles de seguridad activos por defecto — no requieren
 
 #### Permisos de archivo en config.json
 
-`config.json` contiene las API keys. Al crearse por primera vez, el framework aplica `chmod 600` automaticamente en sistemas POSIX (Linux/macOS). Al leer el archivo, verifica que los permisos no sean mas permisivos y avisa con el comando correctivo si lo son.
+`config.json` contiene las API keys. Al crearse por primera vez, el framework aplica `chmod 600` automaticamente en sistemas POSIX (Linux/macOS). `ConfigLoader.save()` tambien re-aplica `chmod 600` despues de cada escritura, evitando que una actualizacion programatica relaje los permisos. Al leer el archivo, verifica que los permisos no sean mas permisivos y avisa con el comando correctivo si lo son.
 
 ```
 [config] ⚠ ~/.bk-agent/config.json has permissions 644 — API keys are readable by others.
@@ -571,9 +571,33 @@ Fix with: chmod 600 ~/.bk-agent/config.json
 
 En Windows los permisos de archivo se gestionan via ACLs del sistema operativo; la advertencia no aplica.
 
+#### Sandbox de rutas
+
+Todas las herramientas de filesystem (`read_file`, `write_file`, `edit_file`, `search_files`, `run_command`) resuelven las rutas contra el `workingDir` del engine y rechazan cualquier intento de acceder fuera de el. La implementacion usa comparacion de prefijo en lugar de `path.relative()`, lo que corrige correctamente rutas cross-drive (`D:\outside`) y UNC (`\\server\share`) en Windows donde `relative()` no retorna `..`.
+
+```
+Error: Access denied: "../../secrets/.env" resolves outside the working directory.
+```
+
+#### Validacion de comandos en cadena
+
+`run_command` mantiene un allowlist de binarios autorizados. La validacion se aplica a **todos** los binarios en la cadena del comando — no solo al primero — inspeccionando cada segmento separado por `&&`, `||`, `|`, `;` y subshells `$(`. Los strings entre comillas se neutralizan antes de la inspeccion para evitar falsos positivos.
+
+```
+# Rechazado: "sh" no esta en el allowlist aunque "echo" si lo este
+run_command("echo ok && sh exploit.sh")
+→ Error: Command "sh" is not in the allowed list.
+```
+
+El directorio de ejecucion (`cwd`) tambien pasa por el sandbox de rutas — `cwd: "../../outside"` retorna error antes de ejecutar el comando.
+
+#### Gate de aprobacion humana (modo manual)
+
+Cuando `onToolApproval` esta configurado, el gate de aprobacion se aplica a **todos** los agentes — incluyendo los sub-agentes invocados via `ask_agent`. La ejecucion de tools sigue un camino unificado (`executeToolCall`) que garantiza: autorizacion por `allowedTools` → gate de aprobacion → ejecucion → audit trail. Esto cierra el caso donde el agente orquestador delega a un especialista que luego escribe archivos sin pasar por el gate.
+
 #### Deteccion de secretos en writes
 
-Antes de escribir o editar cualquier archivo, `write_file` y `edit_file` escanan el contenido contra 7 patrones de secretos conocidos. La deteccion es **no bloqueante** — registra un warning pero no rechaza el write (el codigo legitimo puede contener ejemplos de patrones).
+Antes de escribir o editar cualquier archivo, `write_file` y `edit_file` escanan el contenido contra 7 patrones de secretos conocidos. El warning aparece tanto en la consola del operador como en el resultado devuelto al LLM — el agente lo ve y puede informar al usuario.
 
 Patrones detectados: Anthropic API key, OpenAI API key, AWS Access Key ID, GitHub PAT, GitLab token, bloques de clave privada (PEM), y asignaciones genericas de `password`/`secret`/`apiKey` con valores largos.
 
@@ -585,6 +609,10 @@ Verify this is intentional and never commit secrets to version control.
 #### Limite de tamano de input
 
 `AgentEngine.run()` rechaza inputs que excedan **100 KB** (`Buffer.byteLength`). Si el input supera el limite, el engine emite un evento `error` con el tamano real y retorna inmediatamente sin llamar al LLM. Esto previene ataques de prompt injection via payloads extremadamente grandes.
+
+#### Limite de body en WebhookServer
+
+`WebhookServer` rechaza requests que superen **1 MB** de body (configurable via `opts.maxBodyBytes`) con HTTP 413. Esto previene agotamiento de memoria ante requests maliciosos antes de que se procese la firma HMAC.
 
 #### Retry con backoff exponencial en providers
 
@@ -598,7 +626,7 @@ Cada tool call ejecutado se registra automaticamente en un archivo NDJSON append
 ~/.{appName}/projects/{key}/audits/tool-calls.ndjson
 ```
 
-Cada linea es un registro JSON con: timestamp, sessionId, agentId, nombre del tool, preview del input (≤200 chars), success, y duracion en ms. La escritura es fire-and-forget — no impacta la latencia de ejecucion.
+Cada linea es un registro JSON con: timestamp, sessionId, agentId, nombre del tool, preview del input (≤200 chars), success, y duracion en ms. La escritura usa `appendFileSync` — garantiza el orden correcto bajo ejecucion paralela de sub-agentes.
 
 ```json
 {"ts":"2026-05-29T14:30:00.000Z","session":"default","agent":"coder","tool":"write_file","input":"{\"file_path\":\"src/auth.ts\",...}","success":true,"durationMs":12}
@@ -712,7 +740,7 @@ Cada agente incluye un checklist de **self-audit** que ejecuta antes de entregar
 
 ### Orquestacion y delegacion paralela
 
-El **DelegationBus** permite que el agente general coordine multiples especialistas en paralelo. Cuando el agente emite varios `ask_agent` en la misma respuesta, se ejecutan simultaneamente (hasta `maxParallelAgents`).
+El **DelegationBus** permite que el agente general coordine multiples especialistas en paralelo. Cuando el agente emite varios `ask_agent` en la misma respuesta, se ejecutan concurrentemente via un `Bulkhead` que limita la concurrencia a `maxParallelAgents` (default: 6). Los slots se liberan individualmente al terminar cada agente — no hay espera de ola completa.
 
 ```
 Usuario: "Agregar sistema de notificaciones en tiempo real"
@@ -763,7 +791,7 @@ Una vez ejecutado `/init`, el `AGENT.md` generado con la seccion `## Stack` tien
 | `edit_file` | Reemplaza un string exacto dentro de un archivo |
 | `list_directory` | Lista el directorio recursivamente hasta profundidad 3 |
 | `search_files` | Grep recursivo con soporte de glob y case-insensitive |
-| `run_command` | Ejecuta un comando shell con timeout configurable (default 30s) |
+| `run_command` | Ejecuta un comando shell con timeout configurable (default 30s). Todos los binarios de la cadena deben estar en el allowlist. El `cwd` pasa por el sandbox de rutas. |
 
 ---
 
@@ -1624,8 +1652,8 @@ const engine = createBaseEngine({
   ],
 });
 
-// Los agentes pueden llamar a "mcp:github:create_pull_request",
-// "mcp:postgres:query", etc. — sin codigo adicional
+// Los agentes pueden llamar a "mcp__github__create_pull_request",
+// "mcp__postgres__query", etc. — sin codigo adicional
 await engine.run('Abri una PR con los cambios del dia');
 ```
 
@@ -2194,6 +2222,25 @@ async function handleInput(text: string, cwd: string, engine: AgentEngine) {
 ---
 
 ## Roadmap
+
+### Completado en v0.8.0
+
+- [x] **Sandbox de rutas Windows**: `path-sandbox` usa prefix-check en lugar de `path.relative()` — corrige escape via rutas cross-drive (`D:\outside`) y UNC (`\\server\share`)
+- [x] **Validacion de cadenas en run_command**: todos los binarios separados por `&&`, `|`, `;`, `$()` se validan contra el allowlist — cierra bypass de allowlist via shell chaining
+- [x] **Sandbox de cwd en run_command**: el parametro `cwd`/`cd` pasa por `resolveAndCheck` antes de ejecutar
+- [x] **Normalizacion Windows limitada al binario**: los remapeos `ls→dir`, `cat→type`, etc. solo afectan al binario inicial, nunca a los argumentos que le siguen
+- [x] **Gate de aprobacion unificado**: `executeToolCall` centraliza autorizacion + `onToolApproval` + audit — cubre sub-agentes invocados via `ask_agent`, no solo el agente orquestador
+- [x] **run_command fuera de READ_ONLY_TOOLS**: separacion explicita entre `READ_ONLY_TOOLS` (filesystem + memoria), `EXEC_TOOLS` (+ run_command) y `WRITE_TOOLS` (+ write_file/edit_file)
+- [x] **ConfigLoader.save() aplica chmod 600**: los permisos del archivo de configuracion se mantienen tras cada escritura programatica en POSIX
+- [x] **WebhookServer: limite de body 1 MB**: rechaza con HTTP 413 antes de procesar la firma HMAC — previene agotamiento de memoria
+- [x] **MCP safeName consistente**: `registerMCPAgent` usa el nombre saneado como agent id, garantizando que `mcp__{safeName}__{tool}` siempre resuelva correctamente
+- [x] **MCP registro independiente del tope de reintentos**: servidores que arrancan tarde se registran automaticamente en cualquier run, sin estar bloqueados por el contador de intentos
+- [x] **Tokens de sub-agentes reales**: `runAgentInternal` acumula y retorna los tokens reales en `DelegationResult` en lugar de `0/0`
+- [x] **Audit trail con `appendFileSync`**: orden garantizado bajo concurrencia paralela de sub-agentes
+- [x] **warnIfSecrets visible en el LLM**: el warning de secretos detectados se propaga al resultado del tool — el agente lo ve y puede informar al usuario
+- [x] **qa-orchestrator parametrizado**: `defaultAgentId` y `qaAgentId` se inyectan desde el engine — el core ya no depende de los IDs de string del paquete `coding`
+- [x] **parentMessages eliminado de DelegationBus**: campo muerto que quedaba obsoleto tras `trimHistory()`
+- [x] **applyQaDecision**: helper compartido elimina duplicacion FSM+completeSprint entre `processQaEngineerResponse` y `processInlineQaReview`
 
 ### Completado en v0.7.0
 

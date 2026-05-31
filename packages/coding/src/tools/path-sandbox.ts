@@ -46,32 +46,49 @@ const PROTECTED_SEGMENTS = [
 ];
 
 /**
- * Warns when the resolved path falls inside a protected framework directory.
- * Returns a warning string when protection is triggered, undefined otherwise.
+ * Blocks writes to framework source directories when the agent is running in a
+ * project context (workingDir is NOT a framework package directory).
  *
- * This is a soft guard (warn, not throw) because there are legitimate cases
- * where an agent DOES work on the framework source. The caller decides whether
- * to block or surface the warning to the user.
+ * Returns an error string when protection triggers, undefined when the write
+ * is safe.
+ *
+ * Protection is SKIPPED when:
+ * - workingDir itself is inside a protected segment (user is developing the
+ *   framework — all writes to framework source are intentional).
+ * - workingDir is the monorepo root (user has explicitly scoped to the full
+ *   repo; checkFrameworkProtection cannot tell which project they intend to
+ *   work on, so it defers to path-sandbox alone and the startup warning).
  */
 export function checkFrameworkProtection(abs: string, workingDir: string | undefined): string | undefined {
     if (!workingDir) return undefined;
 
-    // Only apply when workingDir looks like a project subdirectory (examples/, apps/, etc.)
-    // — not when the user explicitly set workingDir to the framework root itself.
-    const rel = relative(workingDir, abs).replace(/\\/g, '/');
-
-    // If the relative path starts with .. it's already outside workingDir (caught above).
-    // Here we care about paths like: packages/core/src/... which are siblings inside the root.
+    const cwdNorm = workingDir.replace(/\\/g, '/').toLowerCase();
     const absNorm = abs.replace(/\\/g, '/').toLowerCase();
+
+    // Skip protection when workingDir IS a framework package directory.
+    // The user is deliberately developing the framework.
+    const workingOnFramework = PROTECTED_SEGMENTS.some(seg =>
+        cwdNorm.includes(seg.replace(/\\/g, '/').toLowerCase())
+    );
+    if (workingOnFramework) return undefined;
+
+    // Skip protection when the target is not inside a protected segment.
     const triggered = PROTECTED_SEGMENTS.find(seg =>
         absNorm.includes(seg.replace(/\\/g, '/').toLowerCase())
     );
-
     if (!triggered) return undefined;
 
+    // Skip protection when workingDir is a direct ancestor of the protected
+    // segment — i.e., the monorepo root. Use /cwd or WORKING_DIR to narrow scope.
+    const triggerNorm = triggered.replace(/\\/g, '/').toLowerCase();
+    const isAncestor = triggerNorm.startsWith(cwdNorm.replace(/\\/g, '/')) ||
+                       cwdNorm.split('/').length <= 2; // very short path = likely root
+    if (isAncestor) return undefined;
+
+    const rel = relative(workingDir, abs).replace(/\\/g, '/');
     return (
-        `⛔ Framework protection: "${rel}" is inside a protected source directory (${triggered}). ` +
+        `⛔ Framework protection: "${rel}" is inside a protected source directory. ` +
         `Agents should not modify framework source files while working on a project. ` +
-        `If you intended to work on the framework itself, set workingDir to the repo root explicitly.`
+        `Use /cwd <framework-root> or set WORKING_DIR to the repo root if you intend to develop the framework.`
     );
 }

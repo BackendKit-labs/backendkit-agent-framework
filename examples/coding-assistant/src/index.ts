@@ -22,10 +22,7 @@ import { renderEvent } from './display';
 // ── Config ────────────────────────────────────────────────────────────────────
 const APP_NAME    = process.env.AGENT_APP_NAME ?? 'coding-assistant';
 const AGENT_ID    = process.env.AGENT_ID       ?? 'general';
-// Default to the directory where the script lives, not process.cwd().
-// This prevents the agent from touching sibling packages when the assistant
-// is started from a monorepo root (e.g. `node examples/coding-assistant/dist/index.js`).
-const WORKING_DIR = process.env.WORKING_DIR ?? __dirname.replace(/[\\/]dist$/, '').replace(/[\\/]src$/, '');
+const WORKING_DIR = process.env.WORKING_DIR ?? process.cwd();
 
 const loader = new ConfigLoader(APP_NAME);
 const config = loader.load();
@@ -270,8 +267,30 @@ function buildCtx(
 }
 
 // ── REPL ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Warn when the working directory looks like a framework/monorepo root.
+ * Agents working from a monorepo root have write access to all packages,
+ * which is rarely what you want when assisting on a specific project.
+ * Set WORKING_DIR env var or use /cwd <path> to scope to a specific project.
+ */
+function warnIfMonorepoRoot(cwd: string): void {
+    const { existsSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const looksLikeMonorepo =
+        existsSync(join(cwd, 'packages')) &&
+        existsSync(join(cwd, 'package.json'));
+    if (!looksLikeMonorepo) return;
+    console.warn(
+        `\n  ${col(c.yellow, '⚠')}  Working directory is a monorepo root: ${col(c.dim, cwd)}` +
+        `\n     Agents can write to ALL packages from here.` +
+        `\n     Set ${col(c.white, 'WORKING_DIR=/your/project')} or use ${col(c.white, '/cwd <path>')} to scope to a specific project.\n`
+    );
+}
+
 async function main(): Promise<void> {
     printBanner();
+    warnIfMonorepoRoot(WORKING_DIR);
 
     const mcpServers = config.mcpServers ?? [];
 

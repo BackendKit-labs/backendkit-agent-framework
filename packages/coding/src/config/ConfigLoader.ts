@@ -185,6 +185,13 @@ export class ConfigLoader {
         }
     }
 
+    save(config: BkAgentConfig): void {
+        writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+        if (process.platform !== 'win32') {
+            chmodSync(this.configPath, 0o600);
+        }
+    }
+
     initTemplate(): void {
         this._bootstrap();
     }

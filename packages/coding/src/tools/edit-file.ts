@@ -32,9 +32,9 @@ export const editFileTool = defineTool({
                 ? content.split(old_string).join(new_string)
                 : content.replace(old_string, new_string);
 
-            warnIfSecrets(abs, updated);
+            const warning = warnIfSecrets(abs, updated);
             atomicWriteSync(abs, updated);
-            return `Edited: ${abs}`;
+            return warning ? `Edited: ${abs}\n⚠ ${warning}` : `Edited: ${abs}`;
         } catch (err) {
             return `Error: ${(err as Error).message}`;
         }

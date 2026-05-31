@@ -1,11 +1,13 @@
 import { spawnSync } from 'child_process';
+import * as path from 'path';
 import { defineTool, z } from '@bk/agent-core';
+import { resolveAndCheck } from './path-sandbox';
 
 const MAX_OUTPUT = 20_000;
 
 /**
- * Allowed base binaries. Shell features (pipes, redirects, &&) are still
- * permitted when the first binary is in this list.
+ * Allowed base binaries. ALL binaries in a chained command (pipes, &&, ;)
+ * must be present here — not just the first one.
  */
 const COMMAND_ALLOWLIST = new Set([
     // Node / JS ecosystem
@@ -23,9 +25,12 @@ const COMMAND_ALLOWLIST = new Set([
     // JVM
     'mvn', 'gradle', 'gradlew', 'java', 'javac', 'kotlin', 'kotlinc',
     // Shell utilities (safe subset)
-    'echo', 'cat', 'ls', 'pwd', 'which', 'env', 'printenv',
+    'echo', 'cat', 'ls', 'pwd', 'which', 'where', 'env', 'printenv',
     'head', 'tail', 'grep', 'find', 'wc', 'sort', 'uniq', 'diff', 'jq', 'yq',
     'mkdir', 'cp', 'mv', 'rm', 'touch', 'chmod',
+    'sleep', 'timeout', 'date', 'xargs',
+    // Windows equivalents
+    'dir', 'type', 'copy', 'move', 'del', 'rd', 'md', 'icacls', 'attrib',
     // Containers / infra
     'docker', 'docker-compose', 'kubectl', 'helm',
     'terraform', 'pulumi', 'ansible', 'ansible-playbook',
@@ -35,7 +40,7 @@ const COMMAND_ALLOWLIST = new Set([
     'make', 'act',
 ]);
 
-/** Extract the base binary name from a shell command string. */
+/** Extract the base binary name from a single command segment. */
 function extractBin(command: string): string {
     // Strip leading env var assignments like KEY=val CMD ...
     const stripped = command.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '');
@@ -44,26 +49,97 @@ function extractBin(command: string): string {
     return first.split('/').pop()?.split('\\').pop() ?? '';
 }
 
+/**
+ * C1: Split a shell command at operator boundaries and return the binary of
+ * each segment. Quoted strings are neutralized first so operators inside
+ * quotes are not treated as delimiters.
+ */
+function extractAllBins(command: string): string[] {
+    const noQuotes = command.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""');
+    const segments = noQuotes.split(/&&|\|\||[|;&`]|\$\(/).map(s => s.trim()).filter(Boolean);
+    return segments.map(extractBin).filter(Boolean);
+}
+
+/**
+ * Parse `cd <dir> && <rest>` pattern and return the target cwd + real command.
+ * Handles both Unix (`cd dir && cmd`) and Windows (`cd /D dir && cmd`) forms.
+ */
+function parseCdAndCommand(command: string): { resolvedCd?: string; command: string } {
+    const match = command.trim().match(/^cd(?:\s+\/D)?\s+([^\s&]+)\s*&&\s*(.+)$/i);
+    if (match) {
+        return { resolvedCd: match[1].trim(), command: match[2].trim() };
+    }
+    return { command };
+}
+
+/** A1: Windows binary-only remap — applied to the leading binary, never to args. */
+const WIN_BIN_MAP: Record<string, string> = {
+    pwd:   'echo %cd%',
+    ls:    'dir',
+    which: 'where',
+    cat:   'type',
+    touch: 'type nul >>',
+};
+
 export const runCommandTool = defineTool({
     name: 'run_command',
     description:
         'Execute a shell command in the working directory. ' +
+        'Use the optional `cwd` parameter to run in a subdirectory instead of `cd dir && cmd`. ' +
         'Allowed binaries: npm, git, node, python, go, cargo, docker, kubectl, and common build/test/lint tools. ' +
-        'Shell features (pipes, &&, redirects) are supported when the leading command is on the allowlist.',
+        'Shell features (pipes, &&, redirects) are supported when ALL commands in the chain are on the allowlist.',
     input: z.object({
         command:    z.string().describe('Shell command to execute'),
+        cwd:        z.string().optional().describe('Subdirectory to run in, relative to the working directory (e.g. "frontend", "packages/api")'),
         timeout_ms: z.number().int().min(1000).max(300_000).default(30_000).describe('Timeout in ms (default: 30 000)'),
     }),
-    execute: async ({ command, timeout_ms }, ctx) => {
-        const bin = extractBin(command);
-        if (!COMMAND_ALLOWLIST.has(bin)) {
-            return `Error: Command "${bin}" is not in the allowed list. ` +
+    execute: async ({ command, cwd, timeout_ms }, ctx) => {
+        const baseDir = ctx.workingDir ?? process.cwd();
+
+        // Parse `cd dir && cmd` patterns transparently
+        const { resolvedCd, command: realCommand } = parseCdAndCommand(command);
+        const effectiveCdDir = resolvedCd ?? cwd;
+
+        // C2: apply path sandbox to cwd — prevents running outside the working directory
+        let workDir: string;
+        if (effectiveCdDir) {
+            try {
+                workDir = resolveAndCheck(baseDir, effectiveCdDir);
+            } catch (err) {
+                return `Error: ${(err as Error).message}`;
+            }
+        } else {
+            workDir = baseDir;
+        }
+
+        // A1: Windows binary normalization — only the leading binary, not args
+        let effectiveCommand = realCommand;
+        const bin = extractBin(effectiveCommand);
+
+        if (process.platform === 'win32') {
+            const envVarMatch = effectiveCommand.match(/^((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)/);
+            const envVarPrefix = envVarMatch?.[0] ?? '';
+            const afterEnvVars = effectiveCommand.slice(envVarPrefix.length);
+
+            if (bin === 'sleep') {
+                const seconds = afterEnvVars.slice(bin.length).trim().split(/\s+/)[0] ?? '1';
+                effectiveCommand = `${envVarPrefix}timeout /t ${seconds} /nobreak >nul`;
+            } else if (bin in WIN_BIN_MAP) {
+                effectiveCommand = envVarPrefix + WIN_BIN_MAP[bin] + afterEnvVars.slice(bin.length);
+            }
+        }
+
+        // C1: validate ALL binaries in the chain, not just the first
+        const allBins = extractAllBins(effectiveCommand);
+        const blockedBin = allBins.find(b => !COMMAND_ALLOWLIST.has(b));
+        if (blockedBin) {
+            return `Error: Command "${blockedBin}" is not in the allowed list. ` +
                    `Allowed: ${[...COMMAND_ALLOWLIST].join(', ')}`;
         }
 
-        const result = spawnSync(command, {
+        const result = spawnSync(effectiveCommand, {
             shell: true,
-            cwd:  ctx.workingDir,
+            cwd:   workDir,
             timeout: timeout_ms,
             encoding: 'utf-8',
             maxBuffer: MAX_OUTPUT * 2,

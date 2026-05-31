@@ -1,4 +1,4 @@
-import { appendFile, mkdirSync } from 'fs';
+import { appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type {
     AgentProfile,
@@ -54,6 +54,12 @@ export interface AgentEngineOptions extends EngineOptions {
     onQAReview?: (review: string) => void;
     /** MCP client manager — connects to external MCP servers and registers their tools */
     mcpManager?: MCPClientManager;
+    /**
+     * Called before executing write/execute tools (write_file, edit_file, run_command) when
+     * iteration mode is 'manual'. Return 'approve' to run, 'approve_all' to run and disable
+     * further prompts this session, 'reject' to skip the tool call.
+     */
+    onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('../types').ToolApprovalDecision>;
     /** Observability manager — pre-created and transport-wrapped by createBaseEngine */
     observabilityManager?: ObservabilityManager;
     /** Advanced memory system — episodic/semantic/procedural */
@@ -73,9 +79,9 @@ const MAX_INPUT_BYTES = 100_000; // Fix #17: 100 KB hard cap on user input
 const ASK_AGENT_TOOL: ToolDefinition = {
     name: 'ask_agent',
     description:
-        'Invokes another AI agent in the system. If you emit 2 or more ask_agent calls ' +
-        'in the same response they run IN PARALLEL. Use to split large independent tasks ' +
-        'into batches of 2-5 items per agent (max 6 agents per wave).',
+        'Invokes another AI agent in the system. Multiple ask_agent calls in the same response ' +
+        'run concurrently (up to 6 at a time via a bulkhead). Use to split large independent ' +
+        'tasks across 2-5 specialist agents per response.',
     parameters: {
         type: 'object',
         properties: {
@@ -101,6 +107,11 @@ export class AgentEngine {
     private mcpInitialized = false;
     private mcpInitAttempts = 0;
     private mcpRegisteredServers = new Set<string>();
+    private mcpTriggers = new Map<string, string[]>();                        // agentId → triggers
+    private mcpToolTriggers = new Map<string, { agentId: string; tool: string }>(); // keyword → {agentId, tool}
+    private approvalDisabled = false; // set to true after 'approve_all'
+
+    private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
     private agentsLoaded = false;
     private memoryContextBlock = '';
 
@@ -116,7 +127,6 @@ export class AgentEngine {
             agents: opts.agents,
             tools: opts.tools,
             transport: opts.transport,
-            parentMessages: this.messages,
             workingDir: opts.workingDir,
             runAgent: (id, question, context) => this.runAgentInternal(id, question, context),
         });
@@ -152,6 +162,37 @@ export class AgentEngine {
 
         await this.ensureMCPInitialized();
         await this.ensureAgentsLoaded();
+
+        // Direct MCP routing: bypass general when input matches a configured trigger
+        const mcpRoute = this.findMCPRoute(input);
+        if (mcpRoute) {
+            if (mcpRoute.tool) {
+                // Tool trigger: call the MCP tool directly — no intermediate LLM
+                const toolName = `mcp__${mcpRoute.agentId}__${mcpRoute.tool}`;
+                const toolDef = this.opts.tools.get(toolName);
+                if (toolDef) {
+                    const required = (toolDef.parameters as { required?: string[] }).required;
+                    const firstParam = required?.[0] ?? 'input';
+                    const ctx = this.buildContext();
+                    const profile = this.opts.agents.get(mcpRoute.agentId);
+                    this.opts.transport.emit({
+                        type: 'block_start',
+                        agent_id: mcpRoute.agentId,
+                        agent_name: profile?.name ?? mcpRoute.agentId,
+                        agent_icon: profile?.icon ?? '◎',
+                    });
+                    const result = await toolDef.execute({ [firstParam]: input }, ctx);
+                    this.opts.transport.emit({ type: 'token', content: result });
+                    this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: mcpRoute.agentId });
+                    this.opts.transport.emit({ type: 'done' });
+                    return;
+                }
+            }
+            // Agent trigger fallback: route to the agent's LLM session
+            await this.runAgentInternal(mcpRoute.agentId, input);
+            this.opts.transport.emit({ type: 'done' });
+            return;
+        }
 
         // Pre-compute memory context block for this input
         if (this.opts.memorySystem) {
@@ -257,17 +298,19 @@ export class AgentEngine {
 
     private async ensureMCPInitialized(): Promise<void> {
         if (!this.opts.mcpManager) return;
-        if (this.mcpInitAttempts >= 3) return;
-
-        this.mcpInitAttempts++;
 
         try {
             if (!this.mcpInitialized) {
                 await this.opts.mcpManager.initialize();
                 this.mcpInitialized = true;
             } else {
-                // Subsequent runs: retry only the servers that were offline
-                await this.opts.mcpManager.reconnectFailed();
+                // Subsequent runs: retry only servers that are still offline — bounded by their own counter
+                const offline = this.opts.mcpManager.getConfiguredNames()
+                    .filter(n => !this.mcpRegisteredServers.has(n));
+                if (offline.length > 0 && this.mcpInitAttempts < 3) {
+                    this.mcpInitAttempts++;
+                    await this.opts.mcpManager.reconnectFailed();
+                }
             }
         } catch (err) {
             this.opts.transport.emit({
@@ -276,7 +319,8 @@ export class AgentEngine {
             });
         }
 
-        // Register newly connected servers as agents
+        // Always register any server that is now connected but not yet registered as agent.
+        // This runs regardless of the retry counter so late-starting servers get picked up.
         for (const { name, toolCount } of this.opts.mcpManager.getServerInfo()) {
             if (toolCount > 0 && !this.mcpRegisteredServers.has(name)) {
                 const tools  = this.opts.mcpManager.getServerTools(name);
@@ -286,14 +330,17 @@ export class AgentEngine {
             }
         }
 
-        // Warn about servers still offline
-        const offline = this.opts.mcpManager.getConfiguredNames()
+        // Warn about servers still offline (only while retries remain)
+        const stillOffline = this.opts.mcpManager.getConfiguredNames()
             .filter(n => !this.mcpRegisteredServers.has(n));
-        if (offline.length > 0) {
+        if (stillOffline.length > 0) {
+            const retriesLeft = 3 - this.mcpInitAttempts;
+            const suffix = retriesLeft > 0
+                ? `Retrying on next message (${retriesLeft} attempts left).`
+                : `No more automatic retries — call engine.getMCPManager()?.reconnectFailed() to retry manually.`;
             this.opts.transport.emit({
                 type: 'system', level: 'warn',
-                text: `MCP agents offline (${this.mcpInitAttempts}/3): ${offline.join(', ')} — ` +
-                      `start their servers to enable them. Retrying on next message.`,
+                text: `MCP agents offline: ${stillOffline.join(', ')} — start their servers to enable them. ${suffix}`,
             });
         }
     }
@@ -302,6 +349,10 @@ export class AgentEngine {
         config: import('../mcp/types').MCPServerConfig,
         tools: import('../types').ToolDefinition[],
     ): void {
+        // safeName mirrors the sanitization done by MCPClientManager.wrapTool() so that
+        // tool lookup `mcp__${agentId}__${tool}` always resolves correctly.
+        const safeName = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+
         // Register tools in the global ToolRegistry so they can execute
         for (const tool of tools) {
             this.opts.tools.register(tool);
@@ -309,20 +360,27 @@ export class AgentEngine {
 
         const toolList = tools
             .map(t => {
-                // name format: mcp__{server}__{tool}
+                // name format: mcp__{safeName}__{tool}
                 const shortName = t.name.split('__')[2] ?? t.name;
                 const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
                 return `- ${shortName}: ${desc}`;
             })
             .join('\n');
 
-        const toolNames = tools.map(t => t.name.split('__')[2]).filter(Boolean).join(', ');
+        const enrichedDesc = tools
+            .map(t => {
+                const shortName = t.name.split('__')[2] ?? t.name;
+                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 70);
+                return `${shortName}: ${desc}`;
+            })
+            .join(' | ');
 
+        // Use safeName as agent id so tool lookup `mcp__${agentId}__${tool}` always resolves.
         this.opts.agents.upsert({
-            id:           config.name,
+            id:           safeName,
             name:         config.agentName ?? toTitleCase(config.name),
             icon:         config.icon ?? '◎',
-            description:  config.agentDescription ?? `Remote agent (${config.name}): ${toolNames}`,
+            description:  config.agentDescription ?? `External specialist — ${enrichedDesc}`,
             systemPrompt:
                 `You are a specialized remote agent: ${config.name}.\n` +
                 `Use ONLY your available tools to answer the request. ` +
@@ -331,6 +389,27 @@ export class AgentEngine {
             allowedTools: tools.map(t => t.name),
             source:       'mcp',
         });
+
+        if (config.triggers?.length) {
+            this.mcpTriggers.set(safeName, config.triggers);
+        }
+
+        if (config.toolTriggers) {
+            for (const [keyword, tool] of Object.entries(config.toolTriggers)) {
+                this.mcpToolTriggers.set(keyword.toLowerCase(), { agentId: safeName, tool });
+            }
+        }
+    }
+
+    private findMCPRoute(input: string): { agentId: string; tool?: string } | undefined {
+        const lower = input.toLowerCase();
+        for (const [keyword, route] of this.mcpToolTriggers) {
+            if (lower.includes(keyword)) return route;
+        }
+        for (const [agentId, triggers] of this.mcpTriggers) {
+            if (triggers.some(t => lower.includes(t.toLowerCase()))) return { agentId };
+        }
+        return undefined;
     }
 
     switchAgent(agentId: string): void {
@@ -343,20 +422,40 @@ export class AgentEngine {
     }
 
     private buildAgentRoster(excludeId: string): string {
-        const entries = this.opts.agents.getAll()
-            .filter(a => a.id !== excludeId)
-            .map(a => {
-                const tag = a.source === 'project' ? ' [PROJECT]' : a.source === 'global' ? ' [GLOBAL]' : '';
-                return `- ${a.id} (${a.icon}): ${a.description}${tag}`;
-            })
-            .join('\n');
-        return `## Available Agents\nUse ask_agent to delegate tasks:\n${entries}`;
+        const all = this.opts.agents.getAll().filter(a => a.id !== excludeId);
+        const mcp   = all.filter(a => a.source === 'mcp');
+        const local = all.filter(a => a.source !== 'mcp');
+
+        const parts: string[] = [];
+
+        if (mcp.length > 0) {
+            parts.push('## External Agents [MCP] — CHECK FIRST. If the task matches any of these, you MUST delegate to them via ask_agent before considering local agents.');
+            for (const a of mcp) {
+                parts.push(`- ${a.id} (${a.icon}): ${a.description} [MCP]`);
+            }
+        }
+
+        parts.push('## Local Agents — use only when no [MCP] agent covers the task.');
+        for (const a of local) {
+            const tag = a.source === 'project' ? ' [PROJECT]' : a.source === 'global' ? ' [GLOBAL]' : '';
+            parts.push(`- ${a.id} (${a.icon}): ${a.description}${tag}`);
+        }
+
+        return parts.join('\n');
     }
 
     private buildSystemPrompt(profile: AgentProfile): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
+        if (this.opts.workingDir) {
+            parts.push(
+                `## Working Directory\n` +
+                `\`${this.opts.workingDir}\`\n\n` +
+                `ALWAYS use RELATIVE paths with tools (e.g. \`src/index.ts\`, \`package.json\`). ` +
+                `NEVER invent absolute paths like \`/workspace/...\` or \`/home/...\`.`
+            );
+        }
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
         if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
@@ -465,37 +564,13 @@ export class AgentEngine {
 
             // ── other tools: sequential ───────────────────────────────────────
             for (const call of otherCalls) {
-                const toolDef = this.opts.tools.get(call.name);
-                let result: string;
-                const callStart = Date.now();
-                if (!toolDef) {
-                    result = `Tool "${call.name}" not found`;
-                } else if (
-                    // Block if: agent has an explicit allowedTools list that excludes this tool,
-                    // OR agent is a pure delegator (delegatesTo set, allowedTools empty)
-                    (!currentProfile.allowedTools.includes(call.name) &&
-                     (currentProfile.allowedTools.length > 0 ||
-                      (currentProfile.delegatesTo && currentProfile.delegatesTo.length > 0)))
-                ) {
-                    result = `Tool "${call.name}" is not authorized for agent "${currentProfile.id}". ` +
-                             `Use ask_agent to delegate to a specialist.`;
-                } else {
-                    const ctx = this.buildContext();
-                    try {
-                        const args = JSON.parse(call.args);
-                        result = await toolDef.execute(args, ctx);
-                    } catch (err) {
-                        result = `Error: ${err instanceof Error ? err.message : String(err)}`;
-                    }
-                }
-                const success = !result.startsWith('Error:');
-                this.writeAuditRecord(currentProfile.id, call.name, call.args, success, Date.now() - callStart);
-                this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
+                const result = await this.executeToolCall(call, currentProfile);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
 
             // ── QA orchestration: runs when response is final (no tool calls) ─
             if (toolResults.length === 0 && this.opts.orchestrator && this.opts.qaService && orchestrationResult) {
+                const qaAgentId = this.opts.agents.has('qa-engineer') ? 'qa-engineer' : undefined;
                 const qaCtx = {
                     clean: streamBuffer,
                     orchestrationResult,
@@ -504,6 +579,8 @@ export class AgentEngine {
                     allAgents: this.opts.agents.getAll(),
                     messages: this.messages,
                     effectiveAgentId: currentProfile.id,
+                    defaultAgentId: this.opts.defaultAgentId,
+                    qaAgentId,
                     noQA: this.opts.noQA,
                     onQAReview: this.opts.onQAReview,
                     setEffectiveAgent: (agentId: string) => {
@@ -520,7 +597,7 @@ export class AgentEngine {
                     continue; // re-enter loop as qa-engineer
                 }
 
-                if (currentProfile.id === 'qa-engineer') {
+                if (qaAgentId && currentProfile.id === qaAgentId) {
                     await processQaEngineerResponse(qaCtx);
                     currentProfile = profile; // reset to original agent
                 } else {
@@ -546,6 +623,8 @@ export class AgentEngine {
         ];
 
         let finalContent = '';
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
         const maxIter = 30;
         let iter = 0;
 
@@ -570,6 +649,8 @@ export class AgentEngine {
                 onDone: (msg) => { finalMessage = msg; },
                 onError: (err) => { throw err; },
                 onMetrics: (inputTokens, outputTokens) => {
+                    totalInputTokens += inputTokens;
+                    totalOutputTokens += outputTokens;
                     this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
                 },
             });
@@ -582,23 +663,7 @@ export class AgentEngine {
 
             const toolResults: LLMMessage[] = [];
             for (const call of toolCalls) {
-                const toolDef = this.opts.tools.get(call.name);
-                let result: string;
-                const callStart = Date.now();
-                if (!toolDef) {
-                    result = `Tool "${call.name}" not found`;
-                } else {
-                    const ctx = this.buildContext();
-                    try {
-                        const args = JSON.parse(call.args);
-                        result = await toolDef.execute(args, ctx);
-                    } catch (err) {
-                        result = `Error: ${err instanceof Error ? err.message : String(err)}`;
-                    }
-                }
-                const success = !result.startsWith('Error:');
-                this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
-                this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
+                const result = await this.executeToolCall(call, profile);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
             messages.push(...toolResults);
@@ -606,10 +671,77 @@ export class AgentEngine {
 
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
 
-        return { agentId, content: finalContent, inputTokens: 0, outputTokens: 0, elapsedMs: Date.now() - start };
+        return { agentId, content: finalContent, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, elapsedMs: Date.now() - start };
     }
 
-    // Fix #15: fire-and-forget NDJSON audit record after each tool execution
+    /**
+     * Unified tool execution used by both runLoop (primary agent) and
+     * runAgentInternal (sub-agents via ask_agent).
+     * Handles: allowedTools authorization → onToolApproval gate → execute → audit → transport.
+     */
+    private async executeToolCall(
+        call: { name: string; args: string },
+        profile: import('../types').AgentProfile,
+    ): Promise<string> {
+        const callStart = Date.now();
+        const toolDef = this.opts.tools.get(call.name);
+        let result: string;
+
+        if (!toolDef) {
+            result = `Tool "${call.name}" not found`;
+        } else if (
+            !profile.allowedTools.includes(call.name) &&
+            (profile.allowedTools.length > 0 || (profile.delegatesTo && profile.delegatesTo.length > 0))
+        ) {
+            result = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
+                     `Use ask_agent to delegate to a specialist.`;
+        } else if (
+            !this.approvalDisabled &&
+            this.opts.onToolApproval &&
+            AgentEngine.WRITE_TOOLS.has(call.name)
+        ) {
+            const preview = call.args.slice(0, 200);
+            this.opts.transport.emit({
+                type: 'tool_approval_request',
+                tool_name: call.name,
+                agent_id: profile.id,
+                args_preview: preview,
+            });
+            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
+            if (decision === 'approve_all') this.approvalDisabled = true;
+            result = decision === 'reject'
+                ? `Tool call "${call.name}" was rejected by the user.`
+                : await this.runToolDef(call, toolDef, profile.id);
+        } else {
+            result = await this.runToolDef(call, toolDef, profile.id);
+        }
+
+        const success = !result.startsWith('Error:');
+        this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
+        this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
+        return result;
+    }
+
+    private async runToolDef(
+        call: { name: string; args: string },
+        toolDef: import('../types').ToolDefinition,
+        agentId: string,
+    ): Promise<string> {
+        const ctx = this.buildContext(agentId);
+        try {
+            const args = JSON.parse(call.args);
+            return await toolDef.execute(args, ctx);
+        } catch (err) {
+            return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+    }
+
+    /** Disable approval gate for the rest of this session (approve_all). */
+    disableToolApproval(): void { this.approvalDisabled = true; }
+
+    /** Re-enable approval gate (e.g. after /iteration manual). */
+    enableToolApproval(): void { this.approvalDisabled = false; }
+
     private writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): void {
         if (!this.opts.auditLog) return;
         const line = JSON.stringify({
@@ -621,12 +753,12 @@ export class AgentEngine {
             success,
             durationMs,
         });
-        appendFile(this.opts.auditLog, line + '\n', () => {});
+        appendFileSync(this.opts.auditLog, line + '\n');
     }
 
-    private buildContext(): ExecutionContext {
+    private buildContext(agentId?: string): ExecutionContext {
         return {
-            agentId: this.currentAgentId,
+            agentId: agentId ?? this.currentAgentId,
             sessionId: this.opts.sessionId ?? 'default',
             workingDir: this.opts.workingDir,
             memory: this.memory,

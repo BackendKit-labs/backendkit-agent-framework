@@ -17,6 +17,17 @@ function normalizeFindings(raw: ReflectionFinding[]): AuditFinding[] {
 
 const MIN_CODE_LINES = 8;
 
+const INFORMATIONAL_PATTERNS = [
+    /\bexplain\b/i, /\bexplica(me)?\b/i, /\bdescribe\b/i, /\bqué hace\b/i,
+    /\bcómo funciona\b/i, /\bwhat (is|does|are)\b/i, /\bhow does\b/i,
+    /\bwhat('s| is) this\b/i,
+];
+
+function isInformationalRequest(rawPrompt?: string): boolean {
+    if (!rawPrompt) return false;
+    return INFORMATIONAL_PATTERNS.some(p => p.test(rawPrompt));
+}
+
 export interface QaContext {
     clean: string;
     orchestrationResult: OrchestrationResult;
@@ -25,6 +36,10 @@ export interface QaContext {
     allAgents: AgentProfile[];
     messages: LLMMessage[];
     effectiveAgentId: string;
+    /** Agent ID to restore after QA finishes. Defaults to 'general' when omitted. */
+    defaultAgentId?: string;
+    /** Agent ID for the QA reviewer. Defaults to 'qa-engineer' when omitted. */
+    qaAgentId?: string;
     noQA?: boolean;
     onQAReview?: (review: string) => void;
     setEffectiveAgent: (agentId: string) => void;
@@ -38,11 +53,13 @@ export interface QaContext {
 export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
     const { orchestrationResult, orchestrator, qaService, clean } = ctx;
     if (qaService.countCodeLines(clean) < MIN_CODE_LINES) return;
+    if (isInformationalRequest(orchestrationResult.task.rawPrompt)) return;
 
+    const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
     const gates: Array<{ status: TaskStatus; gateName: string; agentId: string }> = [
         { status: 'design_review',   gateName: 'architecture', agentId: 'architecture' },
         { status: 'security_review', gateName: 'security',     agentId: 'security' },
-        { status: 'qa_review',       gateName: 'qa',           agentId: 'qa-engineer' },
+        { status: 'qa_review',       gateName: 'qa',           agentId: qaAgentId },
     ];
 
     const reporter = orchestrator.getAuditReporter();
@@ -67,15 +84,17 @@ export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
  */
 export function activateQaEngineerIfNeeded(ctx: QaContext): AgentProfile | null {
     const { orchestrationResult, allAgents, noQA, clean, qaService, effectiveAgentId } = ctx;
+    const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
 
     if (
         orchestrationResult.task.status !== 'qa_review' ||
-        effectiveAgentId === 'qa-engineer' ||
+        effectiveAgentId === qaAgentId ||
         noQA ||
-        qaService.countCodeLines(clean) < MIN_CODE_LINES
+        qaService.countCodeLines(clean) < MIN_CODE_LINES ||
+        isInformationalRequest(orchestrationResult.task.rawPrompt)
     ) return null;
 
-    const qaProfile = allAgents.find(a => a.id === 'qa-engineer');
+    const qaProfile = allAgents.find(a => a.id === qaAgentId);
     if (!qaProfile) return null;
 
     ctx.messages.push({
@@ -83,102 +102,88 @@ export function activateQaEngineerIfNeeded(ctx: QaContext): AgentProfile | null 
         content: `Revisa el siguiente codigo generado y determina si es apto para commit. ` +
                  `Tu revision es la ultima palabra y sera visible para el usuario.\n\n${clean}`,
     });
-    ctx.setEffectiveAgent('qa-engineer');
+    ctx.setEffectiveAgent(qaAgentId);
     return qaProfile;
+}
+
+/** Shared FSM transition + sprint completion logic for both QA paths. */
+async function applyQaDecision(
+    ctx: QaContext,
+    approved: boolean,
+    findings: AuditFinding[],
+    gateNote: string,
+    prependQaReview = false,
+): Promise<void> {
+    const { orchestrationResult, orchestrator } = ctx;
+    const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
+    const reporter = orchestrator.getAuditReporter();
+
+    reporter.recordGate(
+        'qa', qaAgentId,
+        approved ? 'GO' : 'NO-GO condicional',
+        findings,
+        orchestrationResult.task,
+        gateNote,
+        true,
+    ).catch(() => undefined);
+
+    if (approved) {
+        if (prependQaReview) {
+            const toQa = orchestrator.transitionTask(orchestrationResult.task, 'qa_review');
+            if (toQa.allowed && toQa.task) orchestrationResult.task = toQa.task;
+        }
+        const toApproved = orchestrator.transitionTask(orchestrationResult.task, 'approved');
+        if (toApproved.allowed && toApproved.task) {
+            orchestrationResult.task = toApproved.task;
+            reporter.completeSprint({
+                name:          orchestrationResult.task.rawPrompt?.slice(0, 48) ?? 'sprint',
+                version:       '1.0.0',
+                purpose:       orchestrationResult.task.rawPrompt ?? 'Implementacion automatica',
+                newFiles:      [],
+                modifiedFiles: [],
+                testCount:     0,
+                testTime:      '0s',
+            }).catch(() => undefined);
+        }
+    } else {
+        const rework = orchestrator.transitionTask(orchestrationResult.task, 'rework_required');
+        if (rework.allowed && rework.task) orchestrationResult.task = rework.task;
+    }
 }
 
 /**
  * Procesa la respuesta del agente qa-engineer: registra el gate en AuditReporter,
  * transiciona el FSM a approved o rework_required, completa el sprint si aprueba
- * y resetea el agente efectivo a general.
+ * y resetea el agente efectivo al agente por defecto.
  */
 export async function processQaEngineerResponse(ctx: QaContext): Promise<void> {
-    const { orchestrationResult, orchestrator, qaService, clean } = ctx;
+    const { qaService, clean } = ctx;
 
     ctx.onQAReview?.(clean);
 
-    const reporter = orchestrator.getAuditReporter();
-    const findings: AuditFinding[] = normalizeFindings(qaService.extractFindings(clean));
+    const findings = normalizeFindings(qaService.extractFindings(clean));
     const approved = qaService.evaluateReview(clean);
 
-    reporter.recordGate(
-        'qa', 'qa-engineer',
-        approved ? 'GO' : 'NO-GO condicional',
-        findings,
-        orchestrationResult.task,
-        'QA review del agente qa-engineer (auto-activado)',
-        true,
-    ).catch(() => undefined);
+    await applyQaDecision(ctx, approved, findings, 'QA review del agente qa-engineer (auto-activado)');
 
-    if (approved) {
-        const toApproved = orchestrator.transitionTask(orchestrationResult.task, 'approved');
-        if (toApproved.allowed && toApproved.task) {
-            orchestrationResult.task = toApproved.task;
-            reporter.completeSprint({
-                name:          orchestrationResult.task.rawPrompt?.slice(0, 48) ?? 'sprint',
-                version:       '1.0.0',
-                purpose:       orchestrationResult.task.rawPrompt ?? 'Implementacion automatica',
-                newFiles:      [],
-                modifiedFiles: [],
-                testCount:     0,
-                testTime:      '0s',
-            }).catch(() => undefined);
-        }
-    } else {
-        const rework = orchestrator.transitionTask(orchestrationResult.task, 'rework_required');
-        if (rework.allowed && rework.task) orchestrationResult.task = rework.task;
-    }
-
-    // Resetear al agente original
-    ctx.setEffectiveAgent('general');
+    ctx.setEffectiveAgent(ctx.defaultAgentId ?? 'general');
 }
 
 /**
  * Procesa QA review inline (sin activar qa-engineer como agente dedicado).
  * Usa QAService.reviewResponse() para obtener la revision y registra el gate.
- * Fallback para cuando qa-engineer no esta disponible o noQA es false por
- * el agente actual pero la respuesta tiene codigo sustancial.
+ * Fallback para cuando qa-engineer no esta disponible o noQA es false.
  */
 export async function processInlineQaReview(ctx: QaContext): Promise<void> {
-    const { orchestrationResult, orchestrator, qaService, clean } = ctx;
+    const { qaService } = ctx;
 
-    const review = await qaService.reviewResponse(clean);
+    const review = await qaService.reviewResponse(ctx.clean);
     if (!review) return;
 
     ctx.onQAReview?.(review);
 
-    const reporter = orchestrator.getAuditReporter();
-    const findings: AuditFinding[] = normalizeFindings(qaService.extractFindings(review));
+    const findings = normalizeFindings(qaService.extractFindings(review));
     const approved = qaService.evaluateReview(review);
 
-    reporter.recordGate(
-        'qa', 'qa-engineer',
-        approved ? 'GO' : 'NO-GO condicional',
-        findings,
-        orchestrationResult.task,
-        'QA review inline post-respuesta',
-        true,
-    ).catch(() => undefined);
-
-    if (approved) {
-        const toQa = orchestrator.transitionTask(orchestrationResult.task, 'qa_review');
-        if (toQa.allowed && toQa.task) orchestrationResult.task = toQa.task;
-
-        const toApproved = orchestrator.transitionTask(orchestrationResult.task, 'approved');
-        if (toApproved.allowed && toApproved.task) {
-            orchestrationResult.task = toApproved.task;
-            reporter.completeSprint({
-                name:          orchestrationResult.task.rawPrompt?.slice(0, 48) ?? 'sprint',
-                version:       '1.0.0',
-                purpose:       orchestrationResult.task.rawPrompt ?? 'Implementacion automatica',
-                newFiles:      [],
-                modifiedFiles: [],
-                testCount:     0,
-                testTime:      '0s',
-            }).catch(() => undefined);
-        }
-    } else {
-        const rework = orchestrator.transitionTask(orchestrationResult.task, 'rework_required');
-        if (rework.allowed && rework.task) orchestrationResult.task = rework.task;
-    }
+    await applyQaDecision(ctx, approved, findings, 'QA review inline post-respuesta', true);
 }

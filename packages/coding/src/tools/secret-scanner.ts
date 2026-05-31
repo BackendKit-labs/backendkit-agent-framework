@@ -28,14 +28,14 @@ export function scanForSecrets(content: string): string[] {
     return found;
 }
 
-/** Log a non-blocking warning when secrets are detected. */
-export function warnIfSecrets(filePath: string, content: string): void {
+/** Log a non-blocking warning when secrets are detected. Always logs to stderr. */
+export function warnIfSecrets(filePath: string, content: string): string | undefined {
     const matches = scanForSecrets(content);
-    if (matches.length > 0) {
-        console.warn(
-            `[SecretScanner] ⚠ Potential secret(s) detected in "${filePath}": ` +
-            `${matches.join(', ')}. ` +
-            `Verify this is intentional and never commit secrets to version control.`,
-        );
-    }
+    if (matches.length === 0) return undefined;
+    const msg =
+        `[SecretScanner] ⚠ Potential secret(s) detected in "${filePath}": ` +
+        `${matches.join(', ')}. ` +
+        `Verify this is intentional and never commit secrets to version control.`;
+    console.warn(msg);
+    return msg;
 }

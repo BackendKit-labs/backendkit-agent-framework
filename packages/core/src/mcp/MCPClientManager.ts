@@ -27,7 +27,8 @@ interface ConnectedServer {
  * Per-server state is tracked independently so a failed server doesn't block
  * others. Call reconnectFailed() to retry only the servers that are offline.
  *
- * Tool names are namespaced as `mcp:{serverName}:{originalToolName}`.
+ * Tool names are namespaced as `mcp__{safeName}__{originalToolName}` where
+ * safeName replaces non-alphanumeric/dash/underscore characters with `_`.
  */
 export class MCPClientManager {
     private servers: ConnectedServer[] = [];

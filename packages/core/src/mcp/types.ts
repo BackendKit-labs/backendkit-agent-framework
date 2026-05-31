@@ -18,7 +18,7 @@
  * When both `url` and `command` are provided, `url` (remote) takes priority.
  */
 export interface MCPServerConfig {
-    /** Human-readable identifier — used to namespace tool names: mcp:{name}:{tool} */
+    /** Human-readable identifier — used to namespace tool names: mcp__{safeName}__{tool} */
     name: string;
 
     // ── Stdio transport (local subprocess) ───────────────────────────────────
@@ -66,4 +66,38 @@ export interface MCPServerConfig {
     agentDescription?: string;
     /** Icon for the agent entry. Default: ◎ */
     icon?: string;
+
+    // ── Direct routing ────────────────────────────────────────────────────────
+
+    /**
+     * Keywords that trigger direct routing to this MCP agent, bypassing the
+     * orchestrator entirely. Matching is case-insensitive substring search on
+     * the user input. When a match is found the engine calls this agent directly
+     * without going through `general`.
+     *
+     * Use `toolTriggers` instead when you want to invoke a specific tool directly
+     * (no intermediate LLM call). Plain `triggers` still routes through the agent's
+     * own LLM session.
+     *
+     * @example
+     * triggers: ["explicame", "explain"]
+     */
+    triggers?: string[];
+
+    /**
+     * Maps keywords to specific tool names on this MCP server. When a keyword
+     * matches the user input, the corresponding tool is executed directly —
+     * no LLM intermediary, no guessing.
+     *
+     * Tool name must match the short name (without the mcp__{server}__ prefix).
+     *
+     * @example
+     * toolTriggers: {
+     *   "explicame": "explain",
+     *   "explain":   "explain",
+     *   "review this": "review",
+     *   "add docstring": "add_docstrings"
+     * }
+     */
+    toolTriggers?: Record<string, string>;
 }

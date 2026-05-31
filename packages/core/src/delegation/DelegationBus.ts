@@ -1,7 +1,6 @@
 import { Bulkhead, BulkheadRejectedError, BulkheadTimeoutError } from '@backendkit-labs/bulkhead';
 import type { AgentRegistry } from '../engine/AgentRegistry';
 import type { ToolRegistry } from '../engine/ToolRegistry';
-import type { LLMMessage } from '../types';
 import type { Transport } from '../transport/Transport';
 
 export interface DelegationRequest {
@@ -25,7 +24,6 @@ export interface DelegationBusOptions {
     agents: AgentRegistry;
     tools: ToolRegistry;
     transport: Transport;
-    parentMessages: LLMMessage[];
     workingDir?: string;
     runAgent(agentId: string, question: string, context?: string): Promise<DelegationResult>;
 }

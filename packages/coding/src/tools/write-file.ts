@@ -14,10 +14,10 @@ export const writeFileTool = defineTool({
     execute: async ({ file_path, content }, ctx) => {
         try {
             const abs = resolveAndCheck(ctx.workingDir, file_path);
-            warnIfSecrets(abs, content);
+            const warning = warnIfSecrets(abs, content);
             mkdirSync(dirname(abs), { recursive: true });
             atomicWriteSync(abs, content);
-            return `Written: ${abs}`;
+            return warning ? `Written: ${abs}\n⚠ ${warning}` : `Written: ${abs}`;
         } catch (err) {
             return `Error: ${(err as Error).message}`;
         }

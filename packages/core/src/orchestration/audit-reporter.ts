@@ -283,6 +283,7 @@ export class AuditReporter {
     });
 
     this.silentBuffer.clear();
+    this.gates = [];
     return { reportPath, pendingIssues: issues, silentReportPath };
   }
 

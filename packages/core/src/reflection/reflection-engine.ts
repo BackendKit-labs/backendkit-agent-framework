@@ -45,6 +45,7 @@ export class ReflectionEngine {
   private config: ReflectionConfig;
   private registry?: DomainRegistry;
   private appName: string;
+  private projectRoot: string;
   private onProjectContextUpdate?: (projectDir: string, data: { notas: string }) => Promise<void>;
   private onEngineInsights?: (projectDir: string, insights: unknown[]) => Promise<void>;
 
@@ -65,6 +66,7 @@ export class ReflectionEngine {
     const projectRoot = options?.projectRoot ?? process.cwd();
     const useGlobal = options?.useGlobalDir ?? true;
     this.appName = options?.appName ?? 'bk-agent';
+    this.projectRoot = projectRoot;
     this.onProjectContextUpdate = options?.onProjectContextUpdate;
     this.onEngineInsights = options?.onEngineInsights;
 
@@ -287,7 +289,7 @@ export class ReflectionEngine {
     );
     if (promoted.length === 0) return;
 
-    const agentMdPath = join(process.cwd(), 'AGENT.md');
+    const agentMdPath = join(this.projectRoot, 'AGENT.md');
     const lesson = this.formatLessonsBlock(promoted);
 
     // Leer, verificar duplicados y escribir en una sola operacion atomica
@@ -347,9 +349,8 @@ export class ReflectionEngine {
    * Util para que el AgentLoop pueda cargar el memo e inyectarlo en los agentes.
    */
   getLessonsMemoPath(): string {
-    const cwd = process.cwd();
     const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
-    const projectKey = cwd
+    const projectKey = this.projectRoot
       .replace(/[/\\]$/, '')
       .replace(/:[/\\]/g, '--')
       .replace(/[^a-zA-Z0-9-]/g, '-');

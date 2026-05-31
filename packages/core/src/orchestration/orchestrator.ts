@@ -147,6 +147,7 @@ export class Orchestrator {
   private capabilityMatrix?: CapabilityMatrix;
   private fsm: TaskFSM;
   private auditReporter: AuditReporter;
+  private appName: string;
 
   constructor(options?: {
     client?: LLMChatClient;
@@ -162,11 +163,12 @@ export class Orchestrator {
     this.config = options?.config ?? defaultOrchestratorConfig();
     this.customRules = options?.customRules;
     this.capabilityMatrix = options?.capabilityMatrix;
+    this.appName = options?.appName ?? 'bk-agent';
     this.fsm = new TaskFSM();
     this.auditReporter = new AuditReporter({
       projectRoot: options?.projectRoot ?? process.cwd(),
       useGlobalDir: true,
-      appName: options?.appName ?? 'bk-agent',
+      appName: this.appName,
     });
   }
 
@@ -495,7 +497,7 @@ export class Orchestrator {
   private async loadManifestPolicyRules(): Promise<PolicyRule[]> {
     try {
       const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
-      const manifestPath = path.join(home, '.deepseek-code', 'manifest.yaml');
+      const manifestPath = path.join(home, `.${this.appName}`, 'manifest.yaml');
       const content = await fs.promises.readFile(manifestPath, 'utf-8');
       const manifest = yaml.parse(content);
       const rules: Array<{ if?: unknown; then?: unknown }> = manifest?.policyRules ?? [];

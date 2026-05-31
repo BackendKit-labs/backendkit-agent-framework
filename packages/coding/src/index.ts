@@ -224,6 +224,11 @@ export interface CodingEngineOptions {
      */
     mcpServers?: MCPServerConfig[];
     /**
+     * Called before executing write/execute tools (write_file, edit_file, run_command) when
+     * iteration mode is manual. Return 'approve', 'approve_all', or 'reject'.
+     */
+    onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('@bk/agent-core').ToolApprovalDecision>;
+    /**
      * Activate the Orchestrator pipeline:
      * intent detection → domain detection → risk scoring → policy engine → FSM gates.
      *
@@ -362,9 +367,12 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             customRules: orchOpts.customRules,
         });
 
-        if (orchOpts.reflection) {
-            const re = orchOpts.reflection instanceof ReflectionEngine
-                ? orchOpts.reflection
+        // reflection defaults to true when orchestration is on — the feedback loop
+    // (findings → catalog → patterns → manifest.yaml → PolicyStep) is now complete.
+    const reflectionOpt = orchOpts.reflection ?? true;
+        if (reflectionOpt) {
+            const re = reflectionOpt instanceof ReflectionEngine
+                ? reflectionOpt
                 : new ReflectionEngine({ projectRoot: cwd, appName });
             // initialize() carga el catálogo desde disco; corre en background porque
             // el primer completeSprint() no ocurre hasta después del primer run LLM.
@@ -412,6 +420,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(noQA !== undefined ? { noQA } : {}),
         ...(onQAReview ? { onQAReview } : {}),
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
+        ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
     });
 }
 

@@ -11,6 +11,7 @@ import {
     runSQL,
     stopContainer,
     getContainerStatus,
+    getContainerCredentials,
     type PostgresContainer,
 } from './docker.js';
 import { entitiesToMigration, type EntityDef } from './sql-generator.js';
@@ -250,6 +251,101 @@ srv.tool(
                 isError: true,
             };
         }
+    },
+);
+
+// ---------------------------------------------------------------------------
+// pg_get_env — return credentials ready for .env / connection pool config
+// ---------------------------------------------------------------------------
+srv.tool(
+    'pg_get_env',
+    'Return the credentials of a running PostgreSQL container in multiple formats: ' +
+    '.env file content, individual variables, and connection string. ' +
+    'Use this after pg_create so other agents (backend, infrastructure) can configure ' +
+    'database connections without needing the credentials to be passed manually.',
+    {
+        container_name: z.string().describe('Name of the running postgres container'),
+        format: z.enum(['env', 'json', 'url', 'all']).optional()
+            .describe('Output format — env (.env file), json (object), url (connection string only), all (default: all)'),
+    },
+    ({ container_name, format = 'all' }) => {
+        // Try in-memory map first (container created in this session)
+        const cached = containers.get(container_name);
+        const creds = cached
+            ? {
+                containerName: cached.containerName,
+                host:          'localhost',
+                port:          cached.port,
+                dbName:        cached.dbName,
+                user:          cached.user,
+                password:      cached.password,
+                connectionString: cached.connectionString,
+            }
+            : getContainerCredentials(container_name);
+
+        if (!creds) {
+            return {
+                content: [{
+                    type: 'text' as const,
+                    text: `❌ Container "${container_name}" not found or not running. Run pg_create first.`,
+                }],
+                isError: true,
+            };
+        }
+
+        const envBlock = [
+            `DATABASE_URL=${creds.connectionString}`,
+            `POSTGRES_HOST=${creds.host}`,
+            `POSTGRES_PORT=${creds.port}`,
+            `POSTGRES_DB=${creds.dbName}`,
+            `POSTGRES_USER=${creds.user}`,
+            `POSTGRES_PASSWORD=${creds.password}`,
+        ].join('\n');
+
+        const jsonBlock = JSON.stringify({
+            host:     creds.host,
+            port:     creds.port,
+            database: creds.dbName,
+            user:     creds.user,
+            password: creds.password,
+        }, null, 2);
+
+        if (format === 'url') {
+            return { content: [{ type: 'text' as const, text: creds.connectionString }] };
+        }
+
+        if (format === 'env') {
+            return { content: [{ type: 'text' as const, text: `\`\`\`env\n${envBlock}\n\`\`\`` }] };
+        }
+
+        if (format === 'json') {
+            return { content: [{ type: 'text' as const, text: `\`\`\`json\n${jsonBlock}\n\`\`\`` }] };
+        }
+
+        // 'all' — return everything so any agent can pick what it needs
+        return {
+            content: [{
+                type: 'text' as const,
+                text: [
+                    `## Credentials — ${container_name}`,
+                    '',
+                    '### .env',
+                    '```env',
+                    envBlock,
+                    '```',
+                    '',
+                    '### Connection string',
+                    '```',
+                    creds.connectionString,
+                    '```',
+                    '',
+                    '### JSON (for pg Pool config)',
+                    '```json',
+                    jsonBlock,
+                    '```',
+                ].join('\n'),
+            }],
+        };
     },
 );
 

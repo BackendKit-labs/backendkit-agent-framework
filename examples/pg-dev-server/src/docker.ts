@@ -115,6 +115,50 @@ export function getContainerStatus(containerName: string, connectionString?: str
     return { exists: true, running, healthy, connectionString };
 }
 
+export interface ContainerCredentials {
+    containerName: string;
+    host: string;
+    port: number;
+    dbName: string;
+    user: string;
+    password: string;
+    connectionString: string;
+}
+
+/**
+ * Inspects a running container and reconstructs its PostgreSQL credentials
+ * from Docker environment variables and port bindings.
+ * Works even for containers created in a previous server session.
+ */
+export function getContainerCredentials(containerName: string): ContainerCredentials | null {
+    // Get env vars set at docker run time
+    const envResult = spawnSync('docker', [
+        'inspect', '--format', '{{range .Config.Env}}{{.}}\n{{end}}', containerName,
+    ], { encoding: 'utf-8' });
+
+    if (envResult.status !== 0) return null;
+
+    const env: Record<string, string> = {};
+    for (const line of envResult.stdout.split('\n')) {
+        const idx = line.indexOf('=');
+        if (idx === -1) continue;
+        env[line.slice(0, idx)] = line.slice(idx + 1);
+    }
+
+    // Get host port binding for container port 5432
+    const portResult = spawnSync('docker', [
+        'inspect', '--format', '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}', containerName,
+    ], { encoding: 'utf-8' });
+
+    const port = parseInt(portResult.stdout.trim(), 10) || 5432;
+    const dbName   = env['POSTGRES_DB']       ?? 'postgres';
+    const user     = env['POSTGRES_USER']     ?? 'postgres';
+    const password = env['POSTGRES_PASSWORD'] ?? 'postgres';
+    const connectionString = `postgresql://${user}:${password}@localhost:${port}/${dbName}`;
+
+    return { containerName, host: 'localhost', port, dbName, user, password, connectionString };
+}
+
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }

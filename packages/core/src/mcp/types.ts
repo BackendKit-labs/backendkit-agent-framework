@@ -67,37 +67,61 @@ export interface MCPServerConfig {
     /** Icon for the agent entry. Default: ◎ */
     icon?: string;
 
+    // ── Integration mode ──────────────────────────────────────────────────────
+
+    /**
+     * How the MCP server is integrated into the agent system.
+     *
+     * **'tools'** (default) — The MCP tools are registered directly in the
+     * ToolRegistry and assigned to the agents listed in `assignTo`. No wrapper
+     * agent is created. The specialist that already has project context composes
+     * the external capability inline — one LLM hop, full project awareness.
+     * Use this for: APIs, databases, side-effect services (GitHub, Postgres, Slack).
+     *
+     * **'agent'** — A wrapper agent is created in the roster and the orchestrator
+     * can delegate to it via ask_agent. Use only when the remote service has its
+     * own reasoning layer (e.g. a deep-research service, a specialist from another
+     * org) or when the tool output is so large it needs its own summarization turn.
+     *
+     * @default 'tools'
+     */
+    mode?: 'tools' | 'agent';
+
+    /**
+     * When mode='tools': which local agent IDs receive these MCP tools in their
+     * allowedTools list. The tools become callable by those agents during execution.
+     *
+     * When omitted or empty: tools are assigned to ALL registered agents.
+     *
+     * Has no effect when mode='agent'.
+     *
+     * @example
+     * assignTo: ['backend', 'data']    // only backend and data can use these tools
+     * assignTo: ['*']                  // same as omitting — all agents
+     */
+    assignTo?: string[];
+
     // ── Direct routing ────────────────────────────────────────────────────────
 
     /**
-     * Keywords that trigger direct routing to this MCP agent, bypassing the
-     * orchestrator entirely. Matching is case-insensitive substring search on
-     * the user input. When a match is found the engine calls this agent directly
-     * without going through `general`.
-     *
-     * Use `toolTriggers` instead when you want to invoke a specific tool directly
-     * (no intermediate LLM call). Plain `triggers` still routes through the agent's
-     * own LLM session.
+     * Keywords that trigger direct routing to this MCP server, bypassing the
+     * orchestrator entirely. In mode='agent' routes to the wrapper agent's LLM
+     * session. In mode='tools' has no effect (use toolTriggers for direct calls).
      *
      * @example
-     * triggers: ["explicame", "explain"]
+     * triggers: ["deploy now", "rollback"]
      */
     triggers?: string[];
 
     /**
      * Maps keywords to specific tool names on this MCP server. When a keyword
      * matches the user input, the corresponding tool is executed directly —
-     * no LLM intermediary, no guessing.
+     * zero LLM calls. Works in both modes.
      *
      * Tool name must match the short name (without the mcp__{server}__ prefix).
      *
      * @example
-     * toolTriggers: {
-     *   "explicame": "explain",
-     *   "explain":   "explain",
-     *   "review this": "review",
-     *   "add docstring": "add_docstrings"
-     * }
+     * toolTriggers: { "explicame": "explain", "review this": "review" }
      */
     toolTriggers?: Record<string, string>;
 }

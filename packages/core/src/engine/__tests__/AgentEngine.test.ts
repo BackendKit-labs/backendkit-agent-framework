@@ -504,3 +504,130 @@ describe('AgentEngine — token events carry agent_id', () => {
         expect(orchestratorTokens.some(e => e.content === 'orchestrator-final')).toBe(true);
     });
 });
+
+// ── MCP integration modes ─────────────────────────────────────────────────────
+
+describe('AgentEngine — MCP mode=tools (default)', () => {
+    function buildEngineWithMCPTools(assignTo?: string[]) {
+        const provider = createTextProvider('done');
+        const { agents, tools, providers } = buildRegistries(provider);
+        const { transport, events } = createMockTransport();
+
+        // A second agent that we can assign tools to
+        const specialist: AgentProfile = {
+            id: 'backend',
+            name: 'Backend',
+            icon: '⚙',
+            description: 'Backend specialist',
+            systemPrompt: 'You are a backend specialist.',
+            allowedTools: ['local-tool'],
+            delegatesTo: [],
+        };
+        agents.upsert(specialist);
+
+        const engine = new AgentEngine({
+            model: { provider: 'mock', id: 'mock' },
+            agents, tools, providers,
+            defaultProvider: 'mock',
+            transport,
+            defaultAgentId: 'test-agent',
+            maxIterations: 1,
+        });
+
+        // Simulate what ensureMCPInitialized does: call registerMCPAgent via the private path.
+        // We test via the public surface: after registering, check allowedTools on agents.
+        // Access private method via cast for testing purposes.
+        const mcpTool: ToolDefinition = {
+            name: 'mcp__github__get_issue',
+            description: '[MCP:github] Get a GitHub issue by number',
+            parameters: { type: 'object', properties: { number: { type: 'number' } }, required: ['number'] },
+            execute: async () => 'issue content',
+        };
+
+        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
+            .registerMCPAgent(
+                { name: 'github', mode: 'tools', assignTo },
+                [mcpTool],
+            );
+
+        return { engine, agents, events };
+    }
+
+    it('does NOT create a wrapper agent entry in the roster', () => {
+        const { agents } = buildEngineWithMCPTools(['backend']);
+        expect(agents.has('github')).toBe(false);
+    });
+
+    it('assigns the MCP tool to the specified agent allowedTools', () => {
+        const { agents } = buildEngineWithMCPTools(['backend']);
+        const backend = agents.get('backend')!;
+        expect(backend.allowedTools).toContain('mcp__github__get_issue');
+    });
+
+    it('preserves existing allowedTools when merging', () => {
+        const { agents } = buildEngineWithMCPTools(['backend']);
+        const backend = agents.get('backend')!;
+        expect(backend.allowedTools).toContain('local-tool');
+    });
+
+    it('assigns to all agents when assignTo is omitted', () => {
+        const { agents } = buildEngineWithMCPTools(undefined);
+        // Both test-agent and backend should receive the tool
+        const testAgent = agents.get('test-agent')!;
+        const backend = agents.get('backend')!;
+        expect(testAgent.allowedTools).toContain('mcp__github__get_issue');
+        expect(backend.allowedTools).toContain('mcp__github__get_issue');
+    });
+
+    it('does not duplicate tools when the same server is re-registered (reconnect scenario)', () => {
+        const { engine, agents } = buildEngineWithMCPTools(['backend']);
+        const mcpTool: ToolDefinition = {
+            name: 'mcp__github__get_issue',
+            description: '[MCP:github] Get a GitHub issue by number',
+            parameters: { type: 'object', properties: { number: { type: 'number' } }, required: ['number'] },
+            execute: async () => 'issue content',
+        };
+        // Same server re-registered (simulates a reconnect) — allowedTools should still have it once
+        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
+            .registerMCPAgent({ name: 'github', mode: 'tools', assignTo: ['backend'] }, [mcpTool]);
+
+        const backend = agents.get('backend')!;
+        const count = backend.allowedTools.filter(t => t === 'mcp__github__get_issue').length;
+        expect(count).toBe(1);
+    });
+});
+
+describe('AgentEngine — MCP mode=agent', () => {
+    it('creates a wrapper agent in the roster', () => {
+        const provider = createTextProvider('done');
+        const { agents, tools, providers } = buildRegistries(provider);
+        const { transport } = createMockTransport();
+
+        const engine = new AgentEngine({
+            model: { provider: 'mock', id: 'mock' },
+            agents, tools, providers,
+            defaultProvider: 'mock',
+            transport,
+            defaultAgentId: 'test-agent',
+            maxIterations: 1,
+        });
+
+        const mcpTool: ToolDefinition = {
+            name: 'mcp__deep_research__search',
+            description: '[MCP:deep-research] Search research papers',
+            parameters: { type: 'object', properties: { query: { type: 'string' } } },
+            execute: async () => 'results',
+        };
+
+        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
+            .registerMCPAgent(
+                { name: 'deep-research', mode: 'agent', agentDescription: 'External research service with own reasoning' },
+                [mcpTool],
+            );
+
+        expect(agents.has('deep-research')).toBe(true);
+        const wrapper = agents.get('deep-research')!;
+        expect(wrapper.source).toBe('mcp');
+        expect(wrapper.allowedTools).toContain('mcp__deep_research__search');
+    });
+});

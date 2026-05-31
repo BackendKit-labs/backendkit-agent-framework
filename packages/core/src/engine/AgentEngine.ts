@@ -376,17 +376,93 @@ export class AgentEngine {
         tools: import('../types').ToolDefinition[],
     ): void {
         // safeName mirrors the sanitization done by MCPClientManager.wrapTool() so that
-        // tool lookup `mcp__${agentId}__${tool}` always resolves correctly.
+        // tool lookup `mcp__${safeName}__${tool}` always resolves correctly.
         const safeName = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
 
-        // Register tools in the global ToolRegistry so they can execute
+        // Register tools in the ToolRegistry — skip already-registered ones
+        // (safe for reconnection scenarios; mcpRegisteredServers normally prevents duplicates)
         for (const tool of tools) {
-            this.opts.tools.register(tool);
+            if (!this.opts.tools.has(tool.name)) {
+                this.opts.tools.register(tool);
+            }
         }
 
+        // toolTriggers work in both modes — direct keyword → tool execution, zero LLM hops
+        if (config.toolTriggers) {
+            for (const [keyword, tool] of Object.entries(config.toolTriggers)) {
+                this.mcpToolTriggers.set(keyword.toLowerCase(), { agentId: safeName, tool });
+            }
+        }
+
+        const mode = config.mode ?? 'tools';
+
+        if (mode === 'tools') {
+            this.registerMCPToolPack(config, tools, safeName);
+        } else {
+            this.registerMCPAgentWrapper(config, tools, safeName);
+        }
+    }
+
+    /**
+     * mode='tools' (default): assigns MCP tools directly to local agent allowedTools.
+     * No wrapper agent is created — the specialist that already has project context
+     * composes the external capability inline, in a single LLM hop.
+     */
+    private registerMCPToolPack(
+        config: import('../mcp/types').MCPServerConfig,
+        tools: import('../types').ToolDefinition[],
+        safeName: string,
+    ): void {
+        const toolNames = tools.map(t => t.name);
+
+        // Resolve target agents: explicit assignTo list, or all registered agents
+        const assignTo = config.assignTo?.filter(id => id !== '*') ?? [];
+        const targets = assignTo.length > 0
+            ? assignTo
+            : this.opts.agents.getAll().map(a => a.id);
+
+        for (const agentId of targets) {
+            const agent = this.opts.agents.get(agentId);
+            if (!agent) {
+                this.opts.transport.emit({
+                    type: 'system', level: 'warn',
+                    text: `[MCP:${config.name}] assignTo agent "${agentId}" not found — skipped.`,
+                });
+                continue;
+            }
+            this.opts.agents.upsert({
+                ...agent,
+                allowedTools: [...new Set([...agent.allowedTools, ...toolNames])],
+            });
+        }
+
+        if (config.triggers?.length) {
+            this.opts.transport.emit({
+                type: 'system', level: 'warn',
+                text: `[MCP:${config.name}] 'triggers' is ignored in mode='tools'. Use 'toolTriggers' for direct keyword routing.`,
+            });
+        }
+
+        const shortNames = tools.map(t => t.name.split('__')[2] ?? t.name).join(', ');
+        const agentList = targets.join(', ') || 'all agents';
+        this.opts.transport.emit({
+            type: 'system', level: 'info',
+            text: `[MCP:${config.name}] tools [${shortNames}] assigned to: ${agentList}`,
+        });
+    }
+
+    /**
+     * mode='agent': wraps the MCP server as a delegatable agent in the roster.
+     * Use only when the remote service has its own reasoning layer or its output
+     * is so large it needs a dedicated summarization turn.
+     */
+    private registerMCPAgentWrapper(
+        config: import('../mcp/types').MCPServerConfig,
+        tools: import('../types').ToolDefinition[],
+        safeName: string,
+    ): void {
         const toolList = tools
             .map(t => {
-                // name format: mcp__{safeName}__{tool}
                 const shortName = t.name.split('__')[2] ?? t.name;
                 const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
                 return `- ${shortName}: ${desc}`;
@@ -401,7 +477,6 @@ export class AgentEngine {
             })
             .join(' | ');
 
-        // Use safeName as agent id so tool lookup `mcp__${agentId}__${tool}` always resolves.
         this.opts.agents.upsert({
             id:           safeName,
             name:         config.agentName ?? toTitleCase(config.name),
@@ -418,12 +493,6 @@ export class AgentEngine {
 
         if (config.triggers?.length) {
             this.mcpTriggers.set(safeName, config.triggers);
-        }
-
-        if (config.toolTriggers) {
-            for (const [keyword, tool] of Object.entries(config.toolTriggers)) {
-                this.mcpToolTriggers.set(keyword.toLowerCase(), { agentId: safeName, tool });
-            }
         }
     }
 

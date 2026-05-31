@@ -6,6 +6,7 @@ import {
     Orchestrator,
     QAService,
     ReflectionEngine,
+    createMemorySystem,
     adaptProviderToLLMClient,
     type LLMProvider,
     type Transport,
@@ -300,10 +301,17 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     let memory: PersistentMemory | undefined;
     let projectContext: string | undefined;
     let auditLog: string | undefined;
+    let memorySystem: ReturnType<typeof createMemorySystem> | undefined;
 
     if (!opts.disablePersistence) {
         store = new ProjectStore(cwd, appName);
         memory = new PersistentMemory(store.projectDir);
+        memorySystem = createMemorySystem({
+            episodic:   { provider: 'json', path: join(store.projectDir, 'memory', 'episodes.json') },
+            semantic:   { provider: 'json', path: join(store.projectDir, 'memory', 'knowledge.json') },
+            procedural: { provider: 'json', path: join(store.projectDir, 'memory', 'patterns.json') },
+            retention:  { maxEpisodes: 500 },
+        });
         auditLog = join(store.projectDir, 'audits', 'tool-calls.ndjson');
 
         const agentMdPath = join(cwd, 'AGENT.md');
@@ -430,6 +438,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
+        ...(memorySystem ? { memorySystem } : {}),
     });
 }
 

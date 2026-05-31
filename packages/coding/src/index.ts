@@ -301,18 +301,20 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     let memory: PersistentMemory | undefined;
     let projectContext: string | undefined;
     let auditLog: string | undefined;
+    let historyPath: string | undefined;
     let memorySystem: ReturnType<typeof createMemorySystem> | undefined;
 
     if (!opts.disablePersistence) {
         store = new ProjectStore(cwd, appName);
         memory = new PersistentMemory(store.projectDir);
+        auditLog = join(store.projectDir, 'audits', 'tool-calls.ndjson');
+        historyPath = join(store.projectDir, 'memory', 'history.json');
         memorySystem = createMemorySystem({
             episodic:   { provider: 'json', path: join(store.projectDir, 'memory', 'episodes.json') },
             semantic:   { provider: 'json', path: join(store.projectDir, 'memory', 'knowledge.json') },
             procedural: { provider: 'json', path: join(store.projectDir, 'memory', 'patterns.json') },
             retention:  { maxEpisodes: 500 },
         });
-        auditLog = join(store.projectDir, 'audits', 'tool-calls.ndjson');
 
         const agentMdPath = join(cwd, 'AGENT.md');
         const agentMd = existsSync(agentMdPath)
@@ -439,6 +441,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(memorySystem ? { memorySystem } : {}),
+        ...(historyPath ? { historyPath } : {}),
     });
 }
 

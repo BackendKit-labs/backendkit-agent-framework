@@ -157,6 +157,13 @@ export interface BaseEngineOptions {
     subAgentContextMessages?: number;
 
     /**
+     * Path to a JSON file where conversation history is persisted between sessions.
+     * Loaded on construction; saved after each run() capped at maxContextMessages.
+     * Use engine.clearHistory() to wipe both in-memory and on-disk state.
+     */
+    historyPath?: string;
+
+    /**
      * Advanced three-tier memory system (episodic / semantic / procedural).
      * When provided, memory tools are auto-registered and the context block
      * is injected into every agent system prompt.
@@ -249,6 +256,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
+        ...(opts.historyPath ? { historyPath: opts.historyPath } : {}),
         projectContext: opts.projectContext,
         skills: opts.skills,
         detectedStack: opts.detectedStack,

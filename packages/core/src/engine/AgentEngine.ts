@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync } from 'fs';
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { dirname } from 'path';
+import { atomicWriteSync } from '../shared/utils/atomic-write';
 import type {
     AgentProfile,
     EngineOptions,
@@ -122,6 +123,12 @@ export class AgentEngine {
         if (opts.auditLog) {
             try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
         }
+        if (opts.historyPath && existsSync(opts.historyPath)) {
+            try {
+                const raw = JSON.parse(readFileSync(opts.historyPath, 'utf-8')) as LLMMessage[];
+                this.messages = raw.filter(m => m.role !== 'system');
+            } catch { /* corrupt or missing — start fresh */ }
+        }
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
@@ -229,6 +236,7 @@ export class AgentEngine {
 
         this.messages.push({ role: 'user', content: input });
         await this.runLoop(profile, orchestrationResult);
+        this.saveHistory();
         this.opts.transport.emit({ type: 'done' });
     }
 
@@ -249,6 +257,24 @@ export class AgentEngine {
 
     abort(): void {
         this.aborted = true;
+    }
+
+    /** Delete persisted history file and reset in-memory conversation. */
+    clearHistory(): void {
+        this.messages = [];
+        if (!this.opts.historyPath) return;
+        try { atomicWriteSync(this.opts.historyPath, '[]'); } catch { /* non-fatal */ }
+    }
+
+    /** Serialize current conversation to disk (called automatically after each run). */
+    private saveHistory(): void {
+        if (!this.opts.historyPath) return;
+        const cap = this.opts.maxContextMessages ?? 100;
+        const toSave = this.messages.filter(m => m.role !== 'system').slice(-cap);
+        try {
+            mkdirSync(dirname(this.opts.historyPath), { recursive: true });
+            atomicWriteSync(this.opts.historyPath, JSON.stringify(toSave, null, 2));
+        } catch { /* non-fatal — history loss is preferable to a crash */ }
     }
 
     /**

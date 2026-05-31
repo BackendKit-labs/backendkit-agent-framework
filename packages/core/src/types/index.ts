@@ -175,6 +175,14 @@ export interface EngineOptions {
      */
     loadSkills?: () => Promise<Skill[]>;
     /**
+     * Path to a JSON file where conversation history is persisted between sessions.
+     * On construction the engine loads the file into this.messages (non-system messages only).
+     * After each run() the conversation is saved, capped at maxContextMessages (default 100).
+     * Use engine.clearHistory() to wipe both in-memory and on-disk state.
+     * When absent, conversation history is lost when the engine is destroyed.
+     */
+    historyPath?: string;
+    /**
      * Number of recent messages from the orchestrator's conversation to inject
      * into each sub-agent call before the delegated question. Gives specialist
      * agents visibility into previous tool results (file reads, command outputs,

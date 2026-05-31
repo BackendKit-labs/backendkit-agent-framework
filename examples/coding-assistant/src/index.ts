@@ -299,6 +299,24 @@ async function main(): Promise<void> {
         return full;
     };
 
+    // ── Ctrl+C — abort current run, keep REPL alive ───────────────────────────
+    rl.on('SIGINT', () => {
+        if (running) {
+            engine.abort();
+            emit(col(c.yellow, '\n  ⚠ Abortando… (Ctrl+C de nuevo para salir)'));
+            running = false;
+            multiBuffer = [];
+            multiMode = false;
+            rl.setPrompt(col(c.green, '❯') + ' ');
+            rl.resume();
+            rl.prompt();
+        } else {
+            emit(col(c.gray, '  bye\n'));
+            rl.close();
+            process.exit(0);
+        }
+    });
+
     rl.prompt();
 
     rl.on('line', async (line) => {

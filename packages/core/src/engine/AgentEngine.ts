@@ -189,7 +189,7 @@ export class AgentEngine {
                         agent_icon: profile?.icon ?? '◎',
                     });
                     const result = await toolDef.execute({ [firstParam]: input }, ctx);
-                    this.opts.transport.emit({ type: 'token', content: result });
+                    this.opts.transport.emit({ type: 'token', content: result, agent_id: mcpRoute.agentId });
                     this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: mcpRoute.agentId });
                     this.opts.transport.emit({ type: 'done' });
                     return;
@@ -594,7 +594,7 @@ export class AgentEngine {
                 {
                     onChunk: (delta) => {
                         streamBuffer += delta;
-                        this.opts.transport.emit({ type: 'token', content: delta });
+                        this.opts.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
                     },
                     onToolCall: (name, args, id) => {
                         this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 80) });
@@ -739,7 +739,7 @@ export class AgentEngine {
             await this.getProviderForProfile(profile).chat(messages, this.getToolsForAgent(profile), {
                 onChunk: (delta) => {
                     streamContent += delta;
-                    this.opts.transport.emit({ type: 'token', content: delta });
+                    this.opts.transport.emit({ type: 'token', content: delta, agent_id: profile.id });
                 },
                 onToolCall: (name, args, id) => {
                     this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 80) });

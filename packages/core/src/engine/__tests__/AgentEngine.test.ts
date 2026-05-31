@@ -383,3 +383,124 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
         expect(systemPrompt).not.toContain('Recommended agents');
     });
 });
+
+// ── Token agent_id tagging ─────────────────────────────────────────────────────
+
+describe('AgentEngine — token events carry agent_id', () => {
+    it('token events from the main agent carry its agent_id', async () => {
+        const provider = createTextProvider('hello world');
+        const { agents, tools, providers } = buildRegistries(provider);
+        const { transport, events } = createMockTransport();
+
+        const engine = new AgentEngine({
+            model: { provider: 'mock', id: 'mock' },
+            agents, tools, providers,
+            defaultProvider: 'mock',
+            transport,
+            defaultAgentId: 'test-agent',
+        });
+
+        await engine.run('say hello');
+
+        const tokenEvents = events.filter(e => e.type === 'token');
+        expect(tokenEvents.length).toBeGreaterThan(0);
+        for (const evt of tokenEvents) {
+            // All tokens from the main agent must be tagged
+            expect((evt as { type: 'token'; content: string; agent_id?: string }).agent_id)
+                .toBe('test-agent');
+        }
+    });
+
+    it('token events from sub-agents carry the sub-agent id, not the orchestrator id', async () => {
+        // Orchestrator delegates to 'specialist' via ask_agent, then gives a final reply.
+        let callCount = 0;
+        const orchestratorProvider: LLMProvider = {
+            async chat(_messages, _tools, callbacks) {
+                callCount++;
+                if (callCount === 1) {
+                    // First call: delegate to specialist
+                    callbacks.onToolCall?.(
+                        'ask_agent',
+                        JSON.stringify({ agent_id: 'specialist', question: 'compute' }),
+                        'tc1',
+                    );
+                    callbacks.onDone({
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [{
+                            id: 'tc1',
+                            type: 'function',
+                            function: { name: 'ask_agent', arguments: JSON.stringify({ agent_id: 'specialist', question: 'compute' }) },
+                        }],
+                    });
+                } else {
+                    // Second call: final response after getting specialist result
+                    callbacks.onChunk?.('orchestrator-final');
+                    callbacks.onDone({ role: 'assistant', content: 'orchestrator-final' });
+                }
+            },
+        };
+
+        const specialistProvider: LLMProvider = {
+            async chat(_messages, _tools, callbacks) {
+                callbacks.onChunk?.('specialist-token');
+                callbacks.onDone({ role: 'assistant', content: 'specialist-result' });
+            },
+        };
+
+        const specialist: AgentProfile = {
+            id: 'specialist',
+            name: 'Specialist',
+            icon: '🔬',
+            description: 'A specialist',
+            systemPrompt: 'You are a specialist.',
+            allowedTools: [],
+            delegatesTo: [],
+        };
+
+        const orchestratorAgent: AgentProfile = {
+            ...testAgent,
+            delegatesTo: ['specialist'],
+        };
+
+        const { agents, tools, providers } = buildRegistries(orchestratorProvider, orchestratorAgent);
+        agents.upsert(specialist);
+        providers.register('specialist-provider', specialistProvider);
+        specialist.provider = 'specialist-provider';
+        agents.upsert(specialist);
+
+        const { transport, events } = createMockTransport();
+
+        const engine = new AgentEngine({
+            model: { provider: 'mock', id: 'mock' },
+            agents, tools, providers,
+            defaultProvider: 'mock',
+            transport,
+            defaultAgentId: 'test-agent',
+            maxIterations: 10,
+        });
+
+        await engine.run('delegate to specialist');
+
+        const tokenEvents = events.filter(
+            e => e.type === 'token'
+        ) as Array<{ type: 'token'; content: string; agent_id?: string }>;
+
+        expect(tokenEvents.length).toBeGreaterThan(0);
+
+        // Every token must carry an agent_id
+        for (const evt of tokenEvents) {
+            expect(evt.agent_id).toBeDefined();
+        }
+
+        // Specialist tokens are tagged with 'specialist'
+        const specialistTokens = tokenEvents.filter(e => e.agent_id === 'specialist');
+        expect(specialistTokens.length).toBeGreaterThan(0);
+        expect(specialistTokens.some(e => e.content === 'specialist-token')).toBe(true);
+
+        // Orchestrator final tokens are tagged with the orchestrator id
+        const orchestratorTokens = tokenEvents.filter(e => e.agent_id === 'test-agent');
+        expect(orchestratorTokens.length).toBeGreaterThan(0);
+        expect(orchestratorTokens.some(e => e.content === 'orchestrator-final')).toBe(true);
+    });
+});

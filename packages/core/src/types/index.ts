@@ -116,7 +116,7 @@ export type ToolApprovalDecision = 'approve' | 'approve_all' | 'reject';
 
 export type AgentEvent =
     | { type: 'ready' }
-    | { type: 'token'; content: string }
+    | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     | { type: 'tool_result'; name: string; success: boolean; preview?: string }
     | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }

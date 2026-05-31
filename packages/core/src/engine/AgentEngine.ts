@@ -470,7 +470,7 @@ export class AgentEngine {
         return parts.join('\n');
     }
 
-    private buildSystemPrompt(profile: AgentProfile): string {
+    private buildSystemPrompt(profile: AgentProfile, orchestrationResult?: OrchestrationResult): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
@@ -485,7 +485,51 @@ export class AgentEngine {
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
         if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
+        if (isOrchestrator && orchestrationResult) {
+            parts.push(this.buildOrchestrationBrief(orchestrationResult));
+        }
         return parts.join('\n\n');
+    }
+
+    /**
+     * Converts an OrchestrationResult into a system-prompt section that tells the
+     * default agent which specialists to use, in what order, and what gates apply.
+     * This closes the gap between the deterministic policy layer and the LLM layer.
+     */
+    private buildOrchestrationBrief(result: OrchestrationResult): string {
+        const { task, selectedAgents, agentPipeline, requiredGates } = result;
+
+        const lines: string[] = ['## Orchestrator Analysis — Current Task'];
+
+        const domains = task.domains.length > 0 ? task.domains.join(', ') : 'general';
+        lines.push(`**Intent:** ${task.actionType} | **Risk:** ${task.riskLevel} | **Domains:** ${domains}`);
+
+        // Only surface non-trivial agent selections (skip sole-fallback case)
+        const nonFallback = selectedAgents.filter(a => !(a.agentId === 'general' && a.score <= 50));
+        if (nonFallback.length > 0) {
+            lines.push('\n**Recommended agents for this task (highest priority first):**');
+            for (const a of nonFallback) {
+                lines.push(`- ${a.agentId} — ${a.reason}`);
+            }
+            lines.push(
+                '\nWhen delegating via ask_agent, prioritize the agents listed above. ' +
+                'Do not delegate to unlisted agents unless the task explicitly requires it.'
+            );
+        }
+
+        if (agentPipeline && agentPipeline.length > 0) {
+            lines.push('\n**Suggested execution pipeline (respect this order):**');
+            agentPipeline.forEach((phase, i) => {
+                lines.push(`${i + 1}. [${phase.phase}] ${phase.agentId} — ${phase.purpose}`);
+            });
+        }
+
+        if (requiredGates.length > 0) {
+            lines.push(`\n**Required gates before commit:** ${requiredGates.join(', ')}`);
+            lines.push('Ensure each gate is satisfied before considering the task complete.');
+        }
+
+        return lines.join('\n');
     }
 
     private resolvesDelegateTo(profile: AgentProfile): string[] {
@@ -536,7 +580,7 @@ export class AgentEngine {
             iterations++;
             this.trimHistory();
 
-            const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile) };
+            const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
 
             let streamBuffer = '';

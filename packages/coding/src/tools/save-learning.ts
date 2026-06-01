@@ -28,7 +28,6 @@ export const saveLearningTool = defineTool({
         const result = await routeLearning(content, {
             projectDir: store.projectDir,
             homeDir:    store.homeDir,
-            cwd:        ctx.workingDir ?? process.cwd(),
             llm:        ctx.llmCall,
             emit:       ctx.emitCompacting,
         });

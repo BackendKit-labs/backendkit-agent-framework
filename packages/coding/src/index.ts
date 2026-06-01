@@ -355,8 +355,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
     const loadSkills = skillLoader
         ? async () => {
-            const loaded = await skillLoader.loadAll(cwd);
-            return [...loaded.global, ...loaded.packs, ...loaded.project];
+            const loaded = await skillLoader.loadAll(cwd, store?.projectDir);
+            return [...loaded.global, ...loaded.packs, ...loaded.projectConfig, ...loaded.project];
         }
         : undefined;
 

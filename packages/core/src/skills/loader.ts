@@ -8,7 +8,8 @@ import type { Skill, SkillScope } from './types';
 export interface LoadedSkills {
     global: Skill[];
     packs: Skill[];
-    project: Skill[];
+    projectConfig: Skill[];  // ~/.{app}/projects/{key}/skills/ — generated, not git-tracked
+    project: Skill[];        // {cwd}/.{app}/skills/ — manual, git-tracked
 }
 
 /**
@@ -64,14 +65,25 @@ export class SkillLoader {
         return this.loadFromDir(dir, 'project');
     }
 
-    /** Loads all 3 layers at once */
-    async loadAll(cwd?: string): Promise<LoadedSkills> {
-        const [global, packs, project] = await Promise.all([
+    /**
+     * Loads skills from ~/.{appName}/projects/{key}/skills/.
+     * These are auto-generated skills (from save_learning) — not git-tracked.
+     * Precedence: above packs/global, below project cwd skills.
+     */
+    async loadProjectConfig(projectDir: string): Promise<Skill[]> {
+        const dir = path.join(projectDir, 'skills');
+        return this.loadFromDir(dir, 'project');
+    }
+
+    /** Loads all 4 layers at once */
+    async loadAll(cwd?: string, projectDir?: string): Promise<LoadedSkills> {
+        const [global, packs, projectConfig, project] = await Promise.all([
             this.loadGlobal(),
             this.loadPacks(),
+            projectDir ? this.loadProjectConfig(projectDir) : Promise.resolve([]),
             cwd ? this.loadProject(cwd) : Promise.resolve([]),
         ]);
-        return { global, packs, project };
+        return { global, packs, projectConfig, project };
     }
 
     private async loadFromDir(

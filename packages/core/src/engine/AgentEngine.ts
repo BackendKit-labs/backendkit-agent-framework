@@ -727,22 +727,33 @@ export class AgentEngine {
 
             // ── ask_agent: parallel if 2+ calls ──────────────────────────────
             if (askAgentCalls.length > 0) {
-                const requests = askAgentCalls.map(c => ({
-                    agentId: c.agentId,
-                    question: c.question,
-                    context: this.buildSubAgentContext(c.context, streamBuffer),
-                }));
+                const validCalls = askAgentCalls.filter(c => c.agentId !== currentProfile.id);
+                const selfCalls  = askAgentCalls.filter(c => c.agentId === currentProfile.id);
 
-                const results = askAgentCalls.length >= 2
-                    ? await this.bus.runParallel(requests)
-                    : [await this.bus.runSingle(requests[0])];
+                for (const call of selfCalls) {
+                    const msg = `Self-delegation blocked: agent "${currentProfile.id}" cannot delegate to itself. Execute the task directly.`;
+                    this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: false, preview: msg });
+                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
+                }
 
-                for (let i = 0; i < askAgentCalls.length; i++) {
-                    const call = askAgentCalls[i];
-                    const result = results[i];
-                    const content = result.error ? `Error: ${result.error}` : result.content;
-                    this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: !result.error, preview: content.slice(0, 120) });
-                    toolResults.push({ role: 'tool', tool_call_id: call.id, content });
+                if (validCalls.length > 0) {
+                    const requests = validCalls.map(c => ({
+                        agentId: c.agentId,
+                        question: c.question,
+                        context: this.buildSubAgentContext(c.context, streamBuffer),
+                    }));
+
+                    const results = validCalls.length >= 2
+                        ? await this.bus.runParallel(requests)
+                        : [await this.bus.runSingle(requests[0])];
+
+                    for (let i = 0; i < validCalls.length; i++) {
+                        const call = validCalls[i];
+                        const result = results[i];
+                        const content = result.error ? `Error: ${result.error}` : result.content;
+                        this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: !result.error, preview: content.slice(0, 120) });
+                        toolResults.push({ role: 'tool', tool_call_id: call.id, content });
+                    }
                 }
             }
 

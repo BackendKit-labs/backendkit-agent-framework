@@ -15,8 +15,9 @@ interface Classification {
 }
 
 export interface RouterCtx {
-    projectDir: string;
-    homeDir:    string;
+    projectDir: string;   // ~/.coding-assistant/projects/{key}/
+    homeDir:    string;   // ~/.coding-assistant/
+    cwd:        string;   // working directory of the project (for project-scoped skills)
     llm:        LLMFn;
     /** Emit a compacting event to show progress bar in display */
     emit?: (phase: 'start' | 'done' | 'fail', label: string) => void;
@@ -149,9 +150,11 @@ export async function routeLearning(content: string, ctx: RouterCtx): Promise<Ro
 
     if (cls.type === 'skill') {
         const name = cls.skill_name || `skill-${Date.now()}`;
+        // SkillLoader expects: global → ~/.{app}/skills/global/
+        //                      project → {cwd}/.{app}/skills/
         const dir  = cls.scope === 'global'
-            ? join(ctx.homeDir, 'skills')
-            : join(ctx.projectDir, 'skills');
+            ? join(ctx.homeDir, 'skills', 'global')
+            : join(ctx.cwd, '.coding-assistant', 'skills');
         const path = join(dir, `${name}.yaml`);
 
         if (existsSync(path)) {

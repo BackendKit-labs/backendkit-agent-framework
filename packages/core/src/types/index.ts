@@ -45,6 +45,10 @@ export interface ExecutionContext {
     memory: SessionMemoryData;
     store?: ProjectStoreData;
     askAgent(agentId: string, question: string, context?: string): Promise<string>;
+    /** Direct LLM call — single user prompt, returns text. Used by routing/compaction tools. */
+    llmCall?(prompt: string): Promise<string>;
+    /** Emit a compacting progress event to the display layer. */
+    emitCompacting?(phase: 'start' | 'done' | 'fail', label: string): void;
     /** Advanced three-tier memory (episodic/semantic/procedural). Present when configured via createBaseEngine({ memorySystem }). */
     advancedMemory?: import('../agent-memory/MemorySystem').MemorySystem;
     /**
@@ -80,6 +84,8 @@ export interface ProjectStoreData {
     saveAudit(agentId: string, content: string): void;
     getContext(): string;
     getLearnings(): string;
+    /** Returns combined global + project agent-notes for a given agent id. */
+    getAgentNotes?(agentId: string): string;
     listAudits(): string[];
     getLatestAudit(agentId: string): string | null;
     appendUserPreference(content: string): void;
@@ -145,7 +151,8 @@ export type AgentEvent =
     | { type: 'workflow_step_start'; step: string; agent: string }
     | { type: 'workflow_step_complete'; step: string; success: boolean }
     | { type: 'workflow_approval_required'; step: string }
-    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' };
+    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' }
+    | { type: 'compacting'; label: string; phase: 'start' | 'done' | 'fail' };
 
 // ─── Engine Options ───────────────────────────────────────────────────────────
 

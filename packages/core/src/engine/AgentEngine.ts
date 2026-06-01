@@ -583,6 +583,9 @@ export class AgentEngine {
             );
         }
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
+        // Per-agent session notes (tool quirks, learnings routed by LearningRouter)
+        const agentNotes = this.opts.store?.getAgentNotes?.(profile.id);
+        if (agentNotes) parts.push(`## Agent Session Notes\n${agentNotes}`);
         if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
         if (isOrchestrator && orchestrationResult) {
@@ -1055,6 +1058,26 @@ export class AgentEngine {
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context });
                 return result.content;
+            },
+            emitCompacting: (phase, label) => {
+                this.opts.transport.emit({ type: 'compacting', phase, label });
+            },
+            llmCall: async (prompt: string): Promise<string> => {
+                const profile = this.opts.agents.get(this.currentAgentId);
+                if (!profile) return '';
+                const provider = this.getProviderForProfile(profile);
+                let result = '';
+                await provider.chat(
+                    [{ role: 'user', content: prompt }],
+                    [],
+                    {
+                        onChunk:   (d) => { result += d; },
+                        onToolCall: () => {},
+                        onDone:    () => {},
+                        onError:   () => {},
+                    },
+                );
+                return result.trim();
             },
         };
     }

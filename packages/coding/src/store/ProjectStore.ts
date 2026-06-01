@@ -48,9 +48,18 @@ export class ProjectStore implements ProjectStoreData {
     getContext(): string { return this.read(join('memory', 'contexto-proyecto.md')); }
     appendContext(content: string): void { this.append(join('memory', 'contexto-proyecto.md'), content); }
 
-    // ── learnings.md ──────────────────────────────────────────────────────────
+    // ── learnings.md (legacy fallback only) ──────────────────────────────────
     getLearnings(): string { return this.read('learnings.md'); }
     appendLearning(content: string): void { this.append('learnings.md', content); }
+
+    // ── agent-notes/{agent}.md ─────────────────────────────────────────────────
+    getAgentNotes(agentId: string): string {
+        // project-specific notes take priority over global
+        const projectNote = this.read(join('agent-notes', `${agentId}.md`));
+        const globalNote  = this.readAbs(join(this.homeDir, 'agent-notes', `${agentId}.md`));
+        const parts = [globalNote, projectNote].filter(Boolean);
+        return parts.join('\n');
+    }
 
     // ── audits/ ───────────────────────────────────────────────────────────────
     saveAudit(agentId: string, content: string): void {
@@ -87,9 +96,17 @@ export class ProjectStore implements ProjectStoreData {
         if (agentMd) parts.push(`## Project Instructions\n${agentMd}`);
         const context = this.getContext();
         if (context) parts.push(`## Project Context\n${context}`);
-        const learnings = this.getLearnings();
-        if (learnings) parts.push(`## Learned Preferences\n${learnings}`);
+        // learnings.md kept for legacy compatibility but no longer primary channel
+        // agent-notes are injected per-agent via AgentLoader
         return parts.join('\n\n');
+    }
+
+    // ── System prompt builder for a specific agent (includes agent-notes) ──────
+    buildAgentContext(agentId: string, agentMd?: string): string {
+        const base  = this.buildSystemContext(agentMd);
+        const notes = this.getAgentNotes(agentId);
+        if (!notes) return base;
+        return base ? `${base}\n\n## Agent Session Notes\n${notes}` : `## Agent Session Notes\n${notes}`;
     }
 
     // ── memory/session.md ─────────────────────────────────────────────────────

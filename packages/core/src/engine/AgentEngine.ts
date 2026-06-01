@@ -644,7 +644,7 @@ export class AgentEngine {
 
     private getToolsForAgent(profile: AgentProfile): ToolDefinition[] {
         const tools = this.opts.tools.getForAgent(profile.allowedTools);
-        if (this.resolvesDelegateTo(profile).length > 0) {
+        if (profile.id === this.opts.defaultAgentId) {
             tools.push(ASK_AGENT_TOOL);
         }
         return tools;

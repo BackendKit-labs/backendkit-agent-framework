@@ -12,10 +12,47 @@ import {
     saveWorkspaces,
     createWorkspace,
     addProject,
+    importProject,
     removeProject,
     deleteWorkspace,
+    setActiveProject,
     buildWorkspaceContext,
+    deriveProjectName,
 } from '../workspace';
+
+// ── Internal helper ───────────────────────────────────────────────────────────
+
+async function doSwitch(
+    wsName: string,
+    projectName: string,
+    config: import('../workspace').WorkspacesConfig,
+    appName: string,
+    emit: (text: string) => void,
+    injectContext?: (message: string) => void,
+    onCwdChange?: (cwd: string) => void,
+): Promise<void> {
+    const ws = config[wsName];
+    if (!ws) { emit(`Workspace "${wsName}" not found.`); return; }
+    const target = ws.projects.find(p => p.name === projectName);
+    if (!target) { emit(`Project "${projectName}" not found in workspace "${wsName}".`); return; }
+
+    // Persist the new active state
+    const updated = setActiveProject(config, wsName, target.name);
+    await saveWorkspaces(appName, updated);
+
+    // Inject workspace context into agent memory
+    const context = await buildWorkspaceContext(wsName, updated[wsName]!, appName);
+    injectContext?.(context);
+
+    if (onCwdChange) {
+        onCwdChange(target.cwd);
+        emit(`Switched to workspace "${wsName}" — project: ${target.name}`);
+    } else {
+        emit(`Workspace "${wsName}" loaded — project: ${target.name} (${target.cwd})`);
+    }
+}
+
+// ── Registry ──────────────────────────────────────────────────────────────────
 
 /**
  * Registers the framework's built-in slash commands into the given registry.
@@ -139,15 +176,32 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         const parts = (args ?? '').split(' ').filter(Boolean);
         const sub = parts[0];
 
-        // /workspace  or  /workspace list
+        // ── /workspace  or  /workspace list ──────────────────────────────────
         if (!sub || sub === 'list') {
             const config = await loadWorkspaces(appName);
             const names = Object.keys(config);
             if (!names.length) { emit('No workspaces. Use: /workspace create <name>'); return; }
+
+            if (ctx.prompt && !sub) {
+                // Interactive: let the user pick a workspace+project to switch to directly
+                const options = names.flatMap(wsName => {
+                    const ws = config[wsName]!;
+                    return ws.projects.map(p => ({
+                        label: `${wsName.padEnd(18)} ${p.name}${p.name === ws.active ? ' *' : ''}`,
+                        value: `${wsName}::${p.name}`,
+                    }));
+                });
+                const selected = await ctx.prompt('Workspaces — select to switch:', options);
+                if (!selected) return;
+                const [wsName, projectName] = selected.split('::');
+                sub === undefined && await doSwitch(wsName, projectName, config, appName, emit, injectContext, onCwdChange);
+                return;
+            }
+
             const lines = names.map(n => {
                 const ws = config[n]!;
                 const projects = ws.projects
-                    .map(p => p.name === ws.active ? `${p.name}*` : p.name)
+                    .map(p => `${p.name}${p.name === ws.active ? '*' : ''}`)
                     .join(', ') || '(empty)';
                 return `  ${n.padEnd(20)} ${projects}`;
             });
@@ -155,7 +209,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
-        // /workspace create <name>
+        // ── /workspace create <name> ──────────────────────────────────────────
         if (sub === 'create') {
             const name = parts[1];
             if (!name) { emit('Usage: /workspace create <name>'); return; }
@@ -166,31 +220,54 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
-        // /workspace add <workspace> <cwd> [projectName]
+        // ── /workspace add <workspace> <cwd> [name] ──────────────────────────
         if (sub === 'add') {
             const [, wsName, cwd, projectName] = parts;
             if (!wsName || !cwd) { emit('Usage: /workspace add <workspace> <cwd> [name]'); return; }
-            const name = projectName ?? path.basename(cwd);
-            let config = await loadWorkspaces(appName);
-            if (!config[wsName]) config = createWorkspace(config, wsName);
-            config = addProject(config, wsName, { name, cwd: path.resolve(cwd) });
-            await saveWorkspaces(appName, config);
-            emit(`Added "${name}" to workspace "${wsName}".\n  cwd: ${path.resolve(cwd)}`);
+            const resolvedCwd = path.resolve(cwd);
+            const name = projectName ?? deriveProjectName(resolvedCwd);
+            try {
+                const config = await loadWorkspaces(appName);
+                await saveWorkspaces(appName, addProject(
+                    config[wsName] ? config : createWorkspace(config, wsName),
+                    wsName,
+                    { name, cwd: resolvedCwd },
+                ));
+                emit(`Added "${name}" to workspace "${wsName}".\n  cwd: ${resolvedCwd}`);
+            } catch (e) { emit(`Error: ${(e as Error).message}`); }
             return;
         }
 
-        // /workspace remove <workspace> <project>
+        // ── /workspace import <cwd> [workspace] [name] ───────────────────────
+        // Like add but auto-creates the workspace if missing. Useful for quick onboarding.
+        if (sub === 'import') {
+            const [, cwd, wsName, projectName] = parts;
+            if (!cwd) { emit('Usage: /workspace import <cwd> [workspace] [name]'); return; }
+            const resolvedCwd = path.resolve(cwd);
+            const name = projectName ?? deriveProjectName(resolvedCwd);
+            const ws   = wsName ?? name;
+            try {
+                const config = await loadWorkspaces(appName);
+                await saveWorkspaces(appName, importProject(config, ws, { name, cwd: resolvedCwd }));
+                emit(`Imported "${name}" into workspace "${ws}".\n  cwd: ${resolvedCwd}`);
+            } catch (e) { emit(`Error: ${(e as Error).message}`); }
+            return;
+        }
+
+        // ── /workspace remove <workspace> <project> ───────────────────────────
         if (sub === 'remove') {
             const [, wsName, projectName] = parts;
             if (!wsName || !projectName) { emit('Usage: /workspace remove <workspace> <project>'); return; }
             const config = await loadWorkspaces(appName);
             if (!config[wsName]) { emit(`Workspace "${wsName}" not found.`); return; }
-            await saveWorkspaces(appName, removeProject(config, wsName, projectName));
-            emit(`Removed "${projectName}" from workspace "${wsName}".`);
+            try {
+                await saveWorkspaces(appName, removeProject(config, wsName, projectName));
+                emit(`Removed "${projectName}" from workspace "${wsName}".`);
+            } catch (e) { emit(`Error: ${(e as Error).message}`); }
             return;
         }
 
-        // /workspace delete <name>
+        // ── /workspace delete <name> ──────────────────────────────────────────
         if (sub === 'delete') {
             const name = parts[1];
             if (!name) { emit('Usage: /workspace delete <name>'); return; }
@@ -201,29 +278,40 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
-        // /workspace switch <name> [project]
+        // ── /workspace switch <workspace> [project] ───────────────────────────
         if (sub === 'switch') {
             const [, wsName, projectName] = parts;
-            if (!wsName) { emit('Usage: /workspace switch <name> [project]'); return; }
             const config = await loadWorkspaces(appName);
+
+            // No args after switch → interactive picker
+            if (!wsName && ctx.prompt) {
+                const names = Object.keys(config);
+                if (!names.length) { emit('No workspaces configured.'); return; }
+                const options = names.flatMap(wn => {
+                    const ws = config[wn]!;
+                    return ws.projects.map(p => ({
+                        label: `${wn.padEnd(18)} ${p.name}${p.name === ws.active ? ' *' : ''}`,
+                        value: `${wn}::${p.name}`,
+                    }));
+                });
+                const selected = await ctx.prompt('Switch to:', options);
+                if (!selected) return;
+                const [selWs, selProject] = selected.split('::');
+                await doSwitch(selWs, selProject, config, appName, emit, injectContext, onCwdChange);
+                return;
+            }
+
+            if (!wsName) { emit('Usage: /workspace switch <workspace> [project]'); return; }
             const ws = config[wsName];
             if (!ws) { emit(`Workspace "${wsName}" not found.`); return; }
             if (!ws.projects.length) { emit(`Workspace "${wsName}" has no projects.`); return; }
-
-            const context = await buildWorkspaceContext(wsName, ws, appName);
-            injectContext?.(context);
 
             const target = projectName
                 ? ws.projects.find(p => p.name === projectName)
                 : (ws.projects.find(p => p.name === ws.active) ?? ws.projects[0]);
 
-            if (target && onCwdChange) {
-                onCwdChange(target.cwd);
-                emit(`Switched to workspace "${wsName}" — active: ${target.name}`);
-            } else {
-                const note = target ? ` Active project: ${target.name} (${target.cwd})` : '';
-                emit(`Workspace "${wsName}" context loaded.${note}`);
-            }
+            if (!target) { emit(`Project "${projectName}" not found in workspace "${wsName}".`); return; }
+            await doSwitch(wsName, target.name, config, appName, emit, injectContext, onCwdChange);
             return;
         }
 
@@ -232,9 +320,10 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             '  /workspace list',
             '  /workspace create <name>',
             '  /workspace add <workspace> <cwd> [name]',
+            '  /workspace import <cwd> [workspace] [name]',
             '  /workspace remove <workspace> <project>',
             '  /workspace delete <name>',
-            '  /workspace switch <name> [project]',
+            '  /workspace switch [workspace] [project]',
         ].join('\n'));
     });
 

@@ -80,10 +80,13 @@ export {
     saveWorkspaces,
     createWorkspace,
     addProject,
+    importProject,
     removeProject,
     deleteWorkspace,
     setActiveProject,
     buildWorkspaceContext,
+    deriveProjectName,
+    migrateFromLegacy,
 } from './workspace';
 export type { WorkspaceProject, WorkspaceEntry, WorkspacesConfig } from './workspace';
 

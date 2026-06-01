@@ -123,6 +123,12 @@ export interface LLMStreamCallbacks {
     onError(err: Error): void;
     /** Optional — providers that know token usage should call this so cost tracking works. */
     onMetrics?(inputTokens: number, outputTokens: number): void;
+    /**
+     * Optional AbortSignal. Pass to the underlying HTTP request so that
+     * AgentEngine.abort() cancels the in-flight stream immediately.
+     * Providers that don't support it can safely ignore it.
+     */
+    signal?: AbortSignal;
 }
 
 export interface LLMProvider {

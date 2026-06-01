@@ -27,6 +27,7 @@ import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { OrchestrationResult } from '../orchestration/types';
 import type { QAService } from '../qa/qa-service';
+import { IterationManager, type IterationMode, type IterationStats } from './IterationManager';
 import {
     advanceRequiredGates,
     activateQaEngineerIfNeeded,
@@ -61,6 +62,24 @@ export interface AgentEngineOptions extends EngineOptions {
      * further prompts this session, 'reject' to skip the tool call.
      */
     onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('../types').ToolApprovalDecision>;
+    /**
+     * Iteration mode. Default: 'interactive'.
+     *   interactive  — pauses every maxIterations steps and calls onIterationLimit so the
+     *                  user can inspect progress and decide whether to continue (+batchSize more)
+     *   auto         — never pauses; runs until the agent finishes or hits the global cap (1000)
+     *   step-by-step — calls onStep after every single iteration; maximum user control
+     */
+    iterationMode?: IterationMode;
+    /**
+     * Called when maxIterations is reached in interactive mode.
+     * Return true to continue (+25 iterations), false to stop.
+     */
+    onIterationLimit?: (stats: IterationStats) => Promise<boolean>;
+    /**
+     * Called after every iteration in step-by-step mode.
+     * Return true to continue, false to stop.
+     */
+    onStep?: (stats: IterationStats) => Promise<boolean>;
     /** Observability manager — pre-created and transport-wrapped by createBaseEngine */
     observabilityManager?: ObservabilityManager;
     /** Advanced memory system — episodic/semantic/procedural */
@@ -102,7 +121,9 @@ export class AgentEngine {
     private currentAgentId: string;
     private messages: LLMMessage[] = [];
     private aborted = false;
+    private abortController: AbortController | null = null;
     private allSkills: Skill[];
+    private iterationManager: IterationManager;
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
     private mcpInitialized = false;
@@ -141,6 +162,12 @@ export class AgentEngine {
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.allSkills = opts.skills ?? [];
+        this.iterationManager = new IterationManager({
+            mode: opts.iterationMode ?? 'interactive',
+            maxIterations: opts.maxIterations ?? 100,
+            onLimitReached: opts.onIterationLimit,
+            onStep: opts.onStep,
+        });
         if (opts.auditLog) {
             try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
         }
@@ -278,6 +305,18 @@ export class AgentEngine {
 
     abort(): void {
         this.aborted = true;
+        this.abortController?.abort();
+        this.abortController = null;
+    }
+
+    /** Change the iteration mode at runtime — takes effect on the next run(). */
+    setIterationMode(mode: IterationMode): void {
+        this.iterationManager.setMode(mode);
+    }
+
+    /** Returns the current iteration mode. */
+    getIterationMode(): IterationMode {
+        return this.iterationManager.mode;
     }
 
     /** Delete persisted history file and reset in-memory conversation. */
@@ -668,9 +707,10 @@ export class AgentEngine {
     }
 
     private async runLoop(profile: AgentProfile, orchestrationResult?: OrchestrationResult): Promise<void> {
-        const maxIter = this.opts.maxIterations ?? 100;
-        let iterations = 0;
         let currentProfile = profile;
+
+        this.iterationManager.reset();
+        const iterManager = this.iterationManager;
 
         this.opts.transport.emit({
             type: 'block_start',
@@ -679,8 +719,10 @@ export class AgentEngine {
             agent_icon: profile.icon,
         });
 
-        while (iterations < maxIter && !this.aborted) {
-            iterations++;
+        while (!this.aborted) {
+            const shouldContinue = await iterManager.advance();
+            if (!shouldContinue) break;
+
             this.trimHistory();
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
@@ -690,6 +732,9 @@ export class AgentEngine {
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
             const otherCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
+
+            this.abortController = new AbortController();
+            const signal = this.abortController.signal;
 
             await this.getProviderForProfile(currentProfile).chat(
                 [systemMsg, ...this.messages],
@@ -714,13 +759,17 @@ export class AgentEngine {
                     },
                     onDone: (msg) => { finalMessage = msg; },
                     onError: (err) => {
-                        this.opts.transport.emit({ type: 'error', message: err.message });
+                        if (!this.aborted) this.opts.transport.emit({ type: 'error', message: err.message });
                     },
                     onMetrics: (inputTokens, outputTokens) => {
                         this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
                     },
+                    signal,
                 }
             );
+
+            this.abortController = null;
+            if (this.aborted) break;
 
             if (!finalMessage) break;
 
@@ -762,6 +811,8 @@ export class AgentEngine {
 
             // ── other tools: sequential ───────────────────────────────────────
             for (const call of otherCalls) {
+                if (this.aborted) break;
+                iterManager.recordToolCall();
                 const result = await this.executeToolCall(call, currentProfile);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }

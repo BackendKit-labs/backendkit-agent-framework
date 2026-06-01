@@ -10,6 +10,7 @@ export interface CommandSkillInfo {
     name: string;
     description: string;
     triggers: string[];
+    language?: string[];
 }
 
 export interface CommandContext {
@@ -35,6 +36,21 @@ export interface CommandContext {
     onCwdChange?: (cwd: string) => void;
     /** Run the LLM engine with a given prompt. Used by commands that need AI interpretation (e.g. /help). */
     runEngine?: (prompt: string) => Promise<void>;
+    /**
+     * Solicita input interactivo al usuario.
+     * El agente conecta su propia implementación (Terminal.filteredSelect, web modal, etc.)
+     * Cuando no está presente, el comando hace fallback a ctx.emit() con texto plano.
+     *
+     * @param question  Pregunta a mostrar
+     * @param options   Si se proveen, el usuario elige entre estas opciones.
+     *                  Si no, es entrada de texto libre.
+     * @returns El valor elegido/escrito, o null si el usuario cancela.
+     */
+    prompt?: (question: string, options?: Array<{ label: string; value: string }>) => Promise<string | null>;
+    /** Change the engine's iteration mode at runtime. */
+    setIterationMode?: (mode: 'interactive' | 'auto' | 'step-by-step') => void;
+    /** Returns the current iteration mode. */
+    getIterationMode?: () => 'interactive' | 'auto' | 'step-by-step';
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

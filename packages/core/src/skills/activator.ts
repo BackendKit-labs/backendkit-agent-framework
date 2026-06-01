@@ -35,7 +35,7 @@ export class SkillActivator {
                 if (!matches) return false;
             }
             // Trigger match
-            return skill.triggers.some(trigger =>
+            return Array.isArray(skill.triggers) && skill.triggers.some(trigger =>
                 lower.includes(trigger.toLowerCase())
             );
         });

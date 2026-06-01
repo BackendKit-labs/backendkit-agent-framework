@@ -1,10 +1,14 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as yaml from 'yaml';
-import { run, isOk, fromThrowable } from '@backendkit-labs/result';
+import { run, isOk } from '@backendkit-labs/result';
 import { getFrameworkDir } from '../shared/utils/project-key';
 import { atomicWrite } from '../shared/utils/atomic-write';
-import type { Skill, SkillPackSource } from './types';
+import { skillToMd } from './parse-md-skill';
+import { GitHubProvider } from './providers/github';
+import { LocalProvider } from './providers/local';
+import { SkillsShProvider } from './providers/skills-sh';
+import type { SkillSourceProvider } from './providers/types';
+import type { Skill, SkillPackSource, TrustConfig } from './types';
 
 export interface InstallOptions {
     /** Only install this specific skill from the source (by name) */
@@ -20,31 +24,55 @@ export interface InstalledPack extends SkillPackSource {
     skills: string[];
 }
 
-type SourceKind = 'github' | 'local' | 'unsupported';
-
-interface RemoteFile {
-    name: string;
-    download_url: string;
-}
+const DEFAULT_MAX_PROMPT_BYTES = 20_000;
 
 /**
- * Manages lifecycle of external skill packs:
- * install, uninstall, list, update.
+ * Manages lifecycle of external skill packs: install, uninstall, list, update.
+ *
+ * Skills are stored as .md files with YAML frontmatter.
  *
  * Safety guarantee: disk is only modified after ALL network fetches succeed.
  * If a fetch fails mid-way, existing packs are untouched.
+ *
+ * Security: pass a TrustConfig to restrict which sources can be installed.
+ *   const manager = new SkillManager('my-app', {
+ *     allowedSources: ['https://github.com/my-org/', 'https://skills.sh/'],
+ *   })
+ *
+ * Extend with custom sources:
+ *   manager.use(new MyProvider())
  */
 export class SkillManager {
     private readonly packsDir: string;
     private readonly sourcesFile: string;
+    private readonly providers: SkillSourceProvider[];
+    private readonly trust: TrustConfig;
 
-    constructor(private readonly appName: string) {
+    constructor(private readonly appName: string, trust: TrustConfig = {}) {
         const skillsDir = path.join(getFrameworkDir(appName), 'skills');
         this.packsDir = path.join(skillsDir, 'packs');
         this.sourcesFile = path.join(skillsDir, 'sources.json');
+        this.trust = trust;
+        this.providers = [
+            new GitHubProvider(appName),
+            new SkillsShProvider(appName),
+            new LocalProvider(),
+        ];
+    }
+
+    /**
+     * Registers an additional source provider.
+     * Registered providers take precedence over built-in ones.
+     */
+    use(provider: SkillSourceProvider): this {
+        this.providers.unshift(provider);
+        return this;
     }
 
     async install(source: string, options: InstallOptions = {}): Promise<void> {
+        // Security gate — checked before any network activity
+        this.assertTrusted(source);
+
         const packName = options.pack ?? this.derivePackName(source);
         const packDir = this.packDir(packName);
 
@@ -57,31 +85,34 @@ export class SkillManager {
             }
         }
 
-        // --- Fetch everything into memory first (safe: no disk writes yet) ---
-        const kind = this.detectSource(source);
-        let skills: Skill[];
-
-        if (kind === 'github') {
-            skills = await this.fetchFromGitHub(source, options.skill);
-        } else if (kind === 'local') {
-            skills = await this.fetchFromLocal(source, options.skill);
-        } else {
+        const provider = this.providers.find(p => p.canHandle(source));
+        if (!provider) {
             throw new Error(
-                `Unsupported source: '${source}'. Supported: GitHub URLs (https://github.com/...), local paths (/abs or ./rel).`,
+                `No provider found for source: '${source}'.\n` +
+                `Built-in providers: GitHub URLs (https://github.com/...), local paths (/abs or ./rel).\n` +
+                `Register custom providers with manager.use(new MyProvider()).`,
             );
         }
 
-        if (skills.length === 0) {
-            throw new Error(`No valid skills found in '${source}'${options.skill ? ` matching skill '${options.skill}'` : ''}.`);
+        // Fetch everything into memory first — no disk writes until all succeed
+        const raw = await provider.fetch(source, { skill: options.skill });
+
+        if (raw.length === 0) {
+            throw new Error(
+                `No valid skills found in '${source}'` +
+                (options.skill ? ` matching skill '${options.skill}'` : '') + '.',
+            );
         }
 
-        // --- Write to disk only after successful fetch ---
+        // Content sanitization — even trusted sources are bounded
+        const skills = this.sanitize(raw, source);
+
+        // Write to disk only after successful fetch and sanitization
         await fs.mkdir(packDir, { recursive: true });
         await Promise.all(
             skills.map(skill => {
-                const filePath = path.join(packDir, `${skill.name}.yaml`);
-                const content = yaml.stringify({ ...skill, scope: 'pack', pack: packName });
-                return atomicWrite(filePath, content);
+                const filePath = path.join(packDir, `${skill.name}.md`);
+                return atomicWrite(filePath, skillToMd(skill));
             }),
         );
 
@@ -108,8 +139,8 @@ export class SkillManager {
                 const filesResult = await run(() => fs.readdir(this.packDir(src.pack)));
                 const skills = isOk(filesResult)
                     ? filesResult.value
-                        .filter(f => /\.ya?ml$/.test(f))
-                        .map(f => f.replace(/\.ya?ml$/, ''))
+                        .filter(f => /\.(ya?ml|md)$/.test(f))
+                        .map(f => f.replace(/\.(ya?ml|md)$/, ''))
                     : [];
                 return { ...src, skills };
             }),
@@ -124,150 +155,76 @@ export class SkillManager {
     }
 
     // ---------------------------------------------------------------------------
-    // Private — source detection
+    // Security
     // ---------------------------------------------------------------------------
 
-    private detectSource(source: string): SourceKind {
-        if (/^https?:\/\/github\.com\//i.test(source)) return 'github';
-        if (source.startsWith('/') || source.startsWith('.')) return 'local';
-        return 'unsupported';
+    /**
+     * Throws if the source is not in the allowlist.
+     * When allowedSources is undefined the manager is in open mode — any source is accepted.
+     */
+    private assertTrusted(source: string): void {
+        const { allowedSources } = this.trust;
+        if (!allowedSources) return; // open mode
+
+        const trusted = allowedSources.some(prefix => source.startsWith(prefix));
+        if (!trusted) {
+            throw new Error(
+                `Source '${source}' is not in the trusted allowlist.\n` +
+                `Allowed prefixes: ${allowedSources.join(', ')}\n` +
+                `Pass the source to TrustConfig.allowedSources to authorize it.`,
+            );
+        }
     }
+
+    /**
+     * Validates content bounds on all skills from a source.
+     * Prevents prompt-flooding even from trusted sources.
+     */
+    private sanitize(skills: Skill[], source: string): Skill[] {
+        const maxBytes = this.trust.maxPromptBytes ?? DEFAULT_MAX_PROMPT_BYTES;
+        for (const skill of skills) {
+            if (!skill.systemPromptAddition) continue;
+            const bytes = Buffer.byteLength(skill.systemPromptAddition, 'utf-8');
+            if (bytes > maxBytes) {
+                throw new Error(
+                    `Skill '${skill.name}' from '${source}' exceeds the allowed prompt size.\n` +
+                    `Got ${bytes} bytes, limit is ${maxBytes} bytes.\n` +
+                    `Raise TrustConfig.maxPromptBytes if this source is intentionally verbose.`,
+                );
+            }
+        }
+        return skills;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private
+    // ---------------------------------------------------------------------------
 
     private derivePackName(source: string): string {
         const githubMatch = source.match(/github\.com\/([^/]+)\/([^/?#]+)/i);
         if (githubMatch) return `@${githubMatch[1]}`;
+        const skillsShMatch = source.match(/skills\.sh\/([^/?#]+)\/([^/?#]+)/i);
+        if (skillsShMatch) return `@${skillsShMatch[1]}/${skillsShMatch[2]}`;
+        if (source.startsWith('obsidian://')) {
+            const params = new URLSearchParams(source.split('?')[1] ?? '');
+            return `obsidian-${params.get('folder')?.replace(/\//g, '-') ?? 'vault'}`;
+        }
         return path.basename(source);
     }
 
-    /** Filesystem-safe directory name: replace / with - */
     private packDir(packName: string): string {
         return path.join(this.packsDir, packName.replace(/\//g, '-'));
     }
 
-    // ---------------------------------------------------------------------------
-    // Private — GitHub fetcher
-    // ---------------------------------------------------------------------------
-
-    private async fetchFromGitHub(repoUrl: string, onlySkill?: string): Promise<Skill[]> {
-        const match = repoUrl.match(/github\.com\/([^/]+)\/([^/?#]+)/i);
-        if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
-        const [, owner, repo] = match;
-        const cleanRepo = repo.replace(/\.git$/, '');
-
-        // Try skills/ subfolder first, then repo root
-        for (const folder of ['skills', '']) {
-            const apiUrl = `https://api.github.com/repos/${owner}/${cleanRepo}/contents/${folder}`;
-            const files = await this.githubListYamlFiles(apiUrl);
-            if (files.length > 0) {
-                return this.downloadAndParseSkills(files, onlySkill);
-            }
-        }
-
-        return [];
-    }
-
-    private async githubListYamlFiles(apiUrl: string): Promise<RemoteFile[]> {
-        let res: Response;
-        try {
-            res = await fetch(apiUrl, {
-                headers: {
-                    Accept: 'application/vnd.github.v3+json',
-                    'User-Agent': this.appName,
-                },
-            });
-        } catch (e) {
-            throw new Error(`Network error reaching GitHub API: ${String(e)}`);
-        }
-
-        if (res.status === 404) return [];
-        if (!res.ok) throw new Error(`GitHub API error ${res.status}: ${apiUrl}`);
-
-        const data = fromThrowable(() => res.json() as Promise<unknown>);
-        if (!isOk(data)) return [];
-
-        const items = await data.value;
-        if (!Array.isArray(items)) return [];
-
-        return (items as Array<Record<string, unknown>>)
-            .filter(f => f['type'] === 'file' && typeof f['name'] === 'string' && /\.ya?ml$/i.test(f['name'] as string))
-            .map(f => ({ name: f['name'] as string, download_url: f['download_url'] as string }));
-    }
-
-    private async downloadAndParseSkills(files: RemoteFile[], onlySkill?: string): Promise<Skill[]> {
-        const results = await Promise.allSettled(
-            files.map(async file => {
-                let res: Response;
-                try {
-                    res = await fetch(file.download_url);
-                } catch (e) {
-                    throw new Error(`Network error fetching ${file.name}: ${String(e)}`);
-                }
-                if (!res.ok) throw new Error(`Failed to download ${file.name}: HTTP ${res.status}`);
-
-                const text = await res.text();
-                const parsed = fromThrowable(() => yaml.parse(text) as Skill);
-                if (!isOk(parsed)) throw new Error(`Invalid YAML in ${file.name}`);
-
-                const skill = parsed.value;
-                if (!skill?.name || !Array.isArray(skill.triggers)) {
-                    throw new Error(`Skill ${file.name} missing required fields (name, triggers)`);
-                }
-                if (onlySkill && skill.name !== onlySkill) return null;
-                return skill;
-            }),
-        );
-
-        const skills: Skill[] = [];
-        const errors: string[] = [];
-
-        for (const r of results) {
-            if (r.status === 'rejected') errors.push(String(r.reason));
-            else if (r.value !== null && r.value !== undefined) skills.push(r.value);
-        }
-
-        if (errors.length > 0 && skills.length === 0) {
-            throw new Error(`All skill downloads failed:\n${errors.join('\n')}`);
-        }
-
-        return skills;
-    }
-
-    // ---------------------------------------------------------------------------
-    // Private — local fetcher
-    // ---------------------------------------------------------------------------
-
-    private async fetchFromLocal(sourcePath: string, onlySkill?: string): Promise<Skill[]> {
-        const dir = path.resolve(sourcePath);
-        const filesResult = await run(() => fs.readdir(dir));
-        if (!isOk(filesResult)) throw new Error(`Cannot read directory: ${dir}`);
-
-        const skills: Skill[] = [];
-        for (const file of filesResult.value) {
-            if (!/\.ya?ml$/i.test(file)) continue;
-            const filePath = path.join(dir, file);
-            const contentResult = await run(() => fs.readFile(filePath, 'utf-8'));
-            if (!isOk(contentResult)) continue;
-
-            const parsed = fromThrowable(() => yaml.parse(contentResult.value) as Skill);
-            if (!isOk(parsed)) continue;
-
-            const skill = parsed.value;
-            if (!skill?.name || !Array.isArray(skill.triggers)) continue;
-            if (onlySkill && skill.name !== onlySkill) continue;
-            skills.push(skill);
-        }
-        return skills;
-    }
-
-    // ---------------------------------------------------------------------------
-    // Private — sources.json
-    // ---------------------------------------------------------------------------
-
     private async loadSources(): Promise<SkillPackSource[]> {
         const result = await run(() => fs.readFile(this.sourcesFile, 'utf-8'));
         if (!isOk(result)) return [];
-        const parsed = fromThrowable(() => JSON.parse(result.value) as SkillPackSource[]);
-        return isOk(parsed) && Array.isArray(parsed.value) ? parsed.value : [];
+        try {
+            const parsed = JSON.parse(result.value) as SkillPackSource[];
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
     }
 
     private async upsertSource(entry: SkillPackSource): Promise<void> {
@@ -284,4 +241,48 @@ export class SkillManager {
         const filtered = sources.filter(s => s.pack !== packName);
         await atomicWrite(this.sourcesFile, JSON.stringify(filtered, null, 2));
     }
+}
+
+/**
+ * Standard factory for SkillManager.
+ * Use this instead of `new SkillManager()` in agent implementations.
+ *
+ * - Reads TrustConfig from env vars so security is configured at the host level:
+ *     BK_TRUSTED_SOURCES  — comma-separated source prefixes (open mode if unset)
+ *     BK_MAX_PROMPT_BYTES — max bytes for systemPromptAddition (default: 20 000)
+ *
+ * - ObsidianProvider is NOT registered by default — call `.use(new ObsidianProvider())`
+ *   when the agent needs vault access (it requires a user-specific vault path).
+ *
+ * @example
+ * // Basic — open mode, all built-in sources
+ * const manager = createSkillManager('my-app');
+ *
+ * // With allowlist
+ * const manager = createSkillManager('my-app', {
+ *   allowedSources: ['https://github.com/my-org/', 'https://skills.sh/'],
+ * });
+ *
+ * // With Obsidian support
+ * const manager = createSkillManager('my-app').use(new ObsidianProvider());
+ */
+export function createSkillManager(appName: string, trust?: TrustConfig): SkillManager {
+    const resolvedTrust: TrustConfig = { ...trust };
+
+    if (!resolvedTrust.allowedSources) {
+        const env = process.env.BK_TRUSTED_SOURCES;
+        if (env) {
+            resolvedTrust.allowedSources = env.split(',').map(s => s.trim()).filter(Boolean);
+        }
+    }
+
+    if (!resolvedTrust.maxPromptBytes) {
+        const env = process.env.BK_MAX_PROMPT_BYTES;
+        if (env) {
+            const parsed = parseInt(env, 10);
+            if (!isNaN(parsed)) resolvedTrust.maxPromptBytes = parsed;
+        }
+    }
+
+    return new SkillManager(appName, resolvedTrust);
 }

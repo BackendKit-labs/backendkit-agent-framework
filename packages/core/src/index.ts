@@ -6,6 +6,8 @@ export { ToolRegistry } from './engine/ToolRegistry';
 export { ProviderRegistry } from './engine/ProviderRegistry';
 export { createBaseEngine } from './engine/createBaseEngine';
 export type { BaseEngineOptions } from './engine/createBaseEngine';
+export { IterationManager, DEFAULT_MAX_ITERATIONS, DEFAULT_BATCH_SIZE, GLOBAL_LIMIT } from './engine/IterationManager';
+export type { IterationMode, IterationStats, IterationManagerOptions } from './engine/IterationManager';
 
 // Delegation
 export { DelegationBus } from './delegation/DelegationBus';

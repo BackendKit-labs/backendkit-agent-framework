@@ -1,4 +1,4 @@
-import { SkillManager } from '@bk/agent-core';
+import { createSkillManager } from '@bk/agent-core';
 
 export interface InstallResult {
     ok: boolean;
@@ -12,7 +12,7 @@ export async function skillsInstall(
     appName: string,
     options: { skill?: string; pack?: string } = {},
 ): Promise<InstallResult> {
-    const manager = new SkillManager(appName);
+    const manager = createSkillManager(appName);
 
     try {
         await manager.install(source, options);

@@ -22,42 +22,114 @@ import {
  * Call this once when bootstrapping the app — before registering app-specific commands.
  */
 export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
-    registry.register('/help', 'List commands and get AI guidance on what I can help with', async (ctx) => {
+    registry.register('/help', 'List available commands', async (ctx) => {
         const cmds = registry.getAll();
         const list = cmds.map(c => `- ${c.name.padEnd(22)} ${c.description}`).join('\n');
         ctx.emit(`Available commands:\n${list}`);
-
-        if (ctx.runEngine) {
-            await ctx.runEngine(
-                `The user ran /help. Available commands:\n${list}\n\n` +
-                `Based on these commands and your capabilities as a coding assistant, ` +
-                `briefly tell the user what you can help them with today. ` +
-                `Be concise, friendly, and mention specific things you can do for the current project.`
-            );
-        }
     });
 
     registry.register('/agents', 'List available agents', async (ctx) => {
         if (!ctx.agents?.length) { ctx.emit('No agents loaded.'); return; }
-        const lines = ctx.agents.map(a =>
-            `  ${a.id.padEnd(18)} ${a.name} — ${a.description}`,
-        );
-        ctx.emit('Agents:\n' + lines.join('\n'));
+
+        if (ctx.prompt) {
+            const selected = await ctx.prompt(
+                'Agents disponibles:',
+                ctx.agents.map(a => ({ label: `${a.id.padEnd(18)} ${a.name} — ${a.description}`, value: a.id })),
+            );
+            if (selected) ctx.emit(`Agent: ${selected}`);
+        } else {
+            const lines = ctx.agents.map(a => `  ${a.id.padEnd(18)} ${a.name} — ${a.description}`);
+            ctx.emit('Agents:\n' + lines.join('\n'));
+        }
     });
 
     registry.register('/skills', 'List loaded skills', async (ctx) => {
         if (!ctx.skills?.length) { ctx.emit('No skills loaded.'); return; }
-        const lines = ctx.skills.map(s =>
-            `  ${s.name.padEnd(24)} ${s.description}`,
-        );
-        ctx.emit('Skills:\n' + lines.join('\n'));
+
+        if (ctx.prompt) {
+            const options = ctx.skills.map(s => ({
+                label: `${s.name.padEnd(24)} ${s.description}`,
+                value: s.name,
+            }));
+            const INSTALL = '__install__';
+            const selected = await ctx.prompt('Skills disponibles:', [
+                ...options,
+                { label: '+ Instalar pack desde URL...', value: INSTALL },
+            ]);
+
+            if (!selected || selected === INSTALL) {
+                ctx.emit(
+                    selected === INSTALL
+                        ? 'Para instalar un pack escribí:\n  /skills install https://skills.sh/owner/repo\no pedime que te guíe.'
+                        : '',
+                );
+                return;
+            }
+
+            const skill = ctx.skills.find(s => s.name === selected);
+            if (skill) {
+                ctx.emit([
+                    `Skill: ${skill.name}`,
+                    `Descripción: ${skill.description}`,
+                    skill.triggers.length ? `Triggers: ${skill.triggers.join(', ')}` : '',
+                    skill.language?.length ? `Lenguajes: ${skill.language.join(', ')}` : '',
+                ].filter(Boolean).join('\n'));
+            }
+        } else {
+            const lines = ctx.skills.map(s => `  ${s.name.padEnd(24)} ${s.description}`);
+            ctx.emit('Skills:\n' + lines.join('\n'));
+        }
     });
 
     registry.register('/status', 'Show current agent and model', async (ctx) => {
         ctx.emit([
-            `Agent : ${ctx.effectiveAgentId ?? '—'}`,
-            `Model : ${ctx.model ?? '—'}`,
+            `Agent     : ${ctx.effectiveAgentId ?? '—'}`,
+            `Model     : ${ctx.model ?? '—'}`,
+            `Iteration : ${ctx.getIterationMode?.() ?? '—'}`,
         ].join('\n'));
+    });
+
+    registry.register('/iteration', 'Change or show the iteration mode', async (ctx) => {
+        type Mode = 'interactive' | 'auto' | 'step-by-step';
+        const MODES: Array<{ label: string; value: Mode; description: string }> = [
+            { value: 'interactive', label: 'interactive', description: 'Pauses every N iterations — you decide whether to continue' },
+            { value: 'auto',        label: 'auto',        description: 'Never pauses — runs until done or global cap (1000)' },
+            { value: 'step-by-step',label: 'step-by-step',description: 'Pauses after every single iteration for maximum control' },
+        ];
+
+        const current = ctx.getIterationMode?.();
+
+        // Arg directo: /iteration auto | /iteration step-by-step | /iteration interactive
+        if (ctx.args) {
+            const arg = ctx.args.trim() as Mode;
+            if (MODES.some(m => m.value === arg)) {
+                ctx.setIterationMode?.(arg);
+                ctx.emit(`Iteration mode → ${arg}`);
+            } else {
+                ctx.emit(`Unknown mode "${arg}". Options: interactive | auto | step-by-step`);
+            }
+            return;
+        }
+
+        // Sin arg: mostrar modo actual y permitir elegir
+        if (ctx.prompt) {
+            const selected = await ctx.prompt(
+                `Iteration mode (current: ${current ?? '—'}):`,
+                MODES.map(m => ({
+                    label: `${m.value.padEnd(16)} ${m.description}`,
+                    value: m.value,
+                })),
+            );
+            if (selected) {
+                ctx.setIterationMode?.(selected as Mode);
+                ctx.emit(`Iteration mode → ${selected}`);
+            }
+        } else {
+            const lines = MODES.map(m =>
+                `  ${(current === m.value ? '▶ ' : '  ')}${m.value.padEnd(16)} ${m.description}`
+            );
+            ctx.emit(`Iteration mode (current: ${current ?? '—'}):\n${lines.join('\n')}\n\nUse /iteration <mode> to change.`);
+        }
     });
 
     registry.register('/workspace', 'Manage multi-project workspaces', async (ctx) => {

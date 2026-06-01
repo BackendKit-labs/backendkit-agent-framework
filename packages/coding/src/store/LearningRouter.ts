@@ -100,21 +100,29 @@ async function compact(content: string, maxBytes: number, label: string, ctx: Ro
     return result.trim();
 }
 
-async function generateSkillYaml(content: string, agent: string, name: string, llm: LLMFn): Promise<string> {
-    const prompt = `Generate a YAML skill file. Output YAML only, no markdown fences.
+async function generateSkillMd(content: string, agent: string, name: string, llm: LLMFn): Promise<string> {
+    const prompt = `Generate a skill file in .md format with YAML frontmatter. Output the raw file content only, no extra explanation.
 
+Format:
+---
 name: ${name}
-description: # one concise line
-triggers: # comma-separated activation keywords
-content: |
-  # Step-by-step instructions derived from this learning
+version: 1.0.0
+description: <one concise line>
+triggers:
+  - <keyword1>
+  - <keyword2>
+agents:
+  - ${agent}
+---
 
-Learning: "${content.slice(0, 500)}"
-Target agent: ${agent}`;
+<Step-by-step instructions derived from this learning, written in markdown>
+
+Learning: "${content.slice(0, 500)}"`;
 
     const raw = await llm(prompt).catch(() => '');
-    return raw.replace(/^```ya?ml\n?/im, '').replace(/```\s*$/m, '').trim()
-        || `name: ${name}\ndescription: ${content.slice(0, 80)}\ntriggers: []\ncontent: |\n  ${content}\n`;
+    const cleaned = raw.replace(/^```(?:md|markdown)?\n?/im, '').replace(/```\s*$/m, '').trim();
+    return cleaned ||
+        `---\nname: ${name}\nversion: 1.0.0\ndescription: ${content.slice(0, 80)}\ntriggers: []\nagents:\n  - ${agent}\n---\n\n${content}\n`;
 }
 
 // ── Main router ───────────────────────────────────────────────────────────────
@@ -149,22 +157,20 @@ export async function routeLearning(content: string, ctx: RouterCtx): Promise<Ro
 
     if (cls.type === 'skill') {
         const name = cls.skill_name || `skill-${Date.now()}`;
-        // SkillLoader expects: global  → ~/.{app}/skills/global/
-        //                      project → ~/.{app}/projects/{key}/skills/  (auto-generated, not git-tracked)
         const dir  = cls.scope === 'global'
             ? join(ctx.homeDir, 'skills', 'global')
             : join(ctx.projectDir, 'skills');
-        const path = join(dir, `${name}.yaml`);
+        const filePath = join(dir, `${name}.md`);
 
-        if (existsSync(path)) {
-            return { type: 'skill', target: `skills/${name}.yaml`, skipped: true };
+        if (existsSync(filePath)) {
+            return { type: 'skill', target: `skills/${name}.md`, skipped: true };
         }
 
         ctx.emit?.('start', `Generating skill "${name}"`);
-        const yaml = await generateSkillYaml(content, agent, name, ctx.llm);
+        const md = await generateSkillMd(content, agent, name, ctx.llm);
         ctx.emit?.('done', `Generating skill "${name}"`);
-        safeWrite(path, yaml);
-        return { type: 'skill', target: `skills/${name}.yaml`, skipped: false };
+        safeWrite(filePath, md);
+        return { type: 'skill', target: `skills/${name}.md`, skipped: false };
     }
 
     if (cls.type === 'project') {

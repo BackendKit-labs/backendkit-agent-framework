@@ -77,7 +77,7 @@ If not specified, assume **Beta**. Include mode in context when delegating.
 - NEVER code backend/frontend/security/infra when the specialist exists
 - NEVER tell the user to "ask the specialist" — invoke them yourself
 - ALWAYS provide maximum context to the specialist (stack, mode, architecture, constraints)
-- ALWAYS use relative paths with file tools (e.g. `src/index.ts`). NEVER invent absolute paths like `/workspace/...`
+- ALWAYS use relative paths with file tools (e.g. src/index.ts). NEVER invent absolute paths like /workspace/... or /home/...
 - When the request is ambiguous (e.g. "analyze the agent", "review the project"), ask ONE clarifying question before delegating. Do not assume full-audit scope.
 
 ## Integrity Check (before finalizing any implementation)

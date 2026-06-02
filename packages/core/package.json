@@ -4,6 +4,52 @@
   "description": "Generic multi-agent engine — model-agnostic, transport-agnostic",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./orchestration": {
+      "types": "./dist/orchestration/index.d.ts",
+      "default": "./dist/orchestration/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow/index.d.ts",
+      "default": "./dist/workflow/index.js"
+    },
+    "./triggers": {
+      "types": "./dist/triggers/index.d.ts",
+      "default": "./dist/triggers/index.js"
+    },
+    "./observability": {
+      "types": "./dist/observability/index.d.ts",
+      "default": "./dist/observability/index.js"
+    },
+    "./memory": {
+      "types": "./dist/agent-memory/index.d.ts",
+      "default": "./dist/agent-memory/index.js"
+    },
+    "./discovery": {
+      "types": "./dist/agent-discovery/index.d.ts",
+      "default": "./dist/agent-discovery/index.js"
+    },
+    "./reflection": {
+      "types": "./dist/reflection/index.d.ts",
+      "default": "./dist/reflection/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "default": "./dist/context/index.js"
+    },
+    "./skills": {
+      "types": "./dist/skills/index.d.ts",
+      "default": "./dist/skills/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

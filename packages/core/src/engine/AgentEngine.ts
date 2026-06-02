@@ -35,6 +35,49 @@ import {
     processInlineQaReview,
 } from './qa-orchestrator';
 
+/**
+ * Remove messages that would cause a 400 from any OpenAI-compatible provider:
+ * - `tool` messages that are not part of an active assistant→tool chain
+ * - `assistant` messages that declare tool_calls but have no following tool results
+ *   (only stripped when the next non-tool message is NOT another turn of the same chain)
+ *
+ * Walking forward: we track whether we're "inside" a tool_calls chain.
+ * A chain starts with assistant(tool_calls) and ends once all IDs have a result.
+ * Any `tool` result that arrives outside an open chain is dropped.
+ */
+function sanitizeMessages(messages: LLMMessage[]): LLMMessage[] {
+    const out: LLMMessage[] = [];
+    // IDs still waiting for a tool result in the current chain
+    let pendingIds = new Set<string>();
+
+    for (const msg of messages) {
+        if (msg.role === 'assistant') {
+            // A new assistant message closes any previous chain (even if incomplete)
+            // and optionally opens a new one.
+            pendingIds = new Set<string>();
+            if (msg.tool_calls?.length) {
+                for (const tc of msg.tool_calls) {
+                    if (tc.id) pendingIds.add(tc.id);
+                }
+            }
+            out.push(msg);
+        } else if (msg.role === 'tool') {
+            if (pendingIds.size === 0) {
+                // Orphaned tool result — no open chain. Drop it.
+                continue;
+            }
+            if (msg.tool_call_id) pendingIds.delete(msg.tool_call_id);
+            out.push(msg);
+        } else {
+            // user / system — close any open chain
+            pendingIds = new Set<string>();
+            out.push(msg);
+        }
+    }
+
+    return out;
+}
+
 export interface AgentEngineOptions extends EngineOptions {
     agents: AgentRegistry;
     tools: ToolRegistry;
@@ -727,6 +770,7 @@ export class AgentEngine {
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
+            const safeHistory = sanitizeMessages(this.messages);
 
             let streamBuffer = '';
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
@@ -737,7 +781,7 @@ export class AgentEngine {
             const signal = this.abortController.signal;
 
             await this.getProviderForProfile(currentProfile).chat(
-                [systemMsg, ...this.messages],
+                [systemMsg, ...safeHistory],
                 tools,
                 {
                     onChunk: (delta) => {
@@ -878,6 +922,8 @@ export class AgentEngine {
             const firstUser = historySlice.findIndex(m => m.role === 'user');
             if (firstUser > 0) historySlice = historySlice.slice(firstUser);
             else if (firstUser < 0) historySlice = [];
+            // Sanitize: drop any tool messages whose assistant(tool_calls) was cut off
+            historySlice = sanitizeMessages(historySlice);
         }
 
         const messages: LLMMessage[] = [

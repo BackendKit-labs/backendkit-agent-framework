@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import * as path from 'path';
 import { defineTool, z } from '@bk/agent-core';
 import { resolveAndCheck } from './path-sandbox';
@@ -153,28 +153,55 @@ export const runCommandTool = defineTool({
             }
         }
 
-        const result = spawnSync(effectiveCommand, {
-            shell: true,
-            cwd:   workDir,
-            timeout: timeout_ms,
-            encoding: 'utf-8',
-            maxBuffer: MAX_OUTPUT * 2,
+        // Use async spawn — spawnSync blocks the entire main process thread,
+        // which freezes Electron's IPC channel for the duration of the command.
+        const output = await new Promise<string>((resolve) => {
+            const chunks: string[] = [];
+            let totalLen = 0;
+            let timedOut = false;
+
+            const proc = spawn(effectiveCommand, {
+                shell: true,
+                cwd:   workDir,
+                timeout: timeout_ms,
+            });
+
+            const collect = (data: Buffer) => {
+                if (totalLen >= MAX_OUTPUT * 2) return;
+                const s = data.toString('utf-8');
+                chunks.push(s);
+                totalLen += s.length;
+            };
+
+            proc.stdout.on('data', collect);
+            proc.stderr.on('data', collect);
+
+            const timer = setTimeout(() => {
+                timedOut = true;
+                proc.kill();
+                resolve(`Error: Command timed out after ${timeout_ms}ms`);
+            }, timeout_ms);
+
+            proc.on('error', (err) => {
+                clearTimeout(timer);
+                resolve(`Error: ${err.message}`);
+            });
+
+            proc.on('close', (code) => {
+                if (timedOut) return;
+                clearTimeout(timer);
+                const raw = chunks.join('').trim();
+                const truncated = raw.length > MAX_OUTPUT
+                    ? raw.slice(0, MAX_OUTPUT) + `\n[truncated — ${raw.length} total chars]`
+                    : raw;
+                if (code !== 0 && !truncated) {
+                    resolve(`Error: Command exited with status ${code}`);
+                } else {
+                    resolve(truncated || '(no output)');
+                }
+            });
         });
 
-        if (result.error) {
-            const msg = result.error.message;
-            return msg.includes('ETIMEDOUT') || msg.includes('timeout')
-                ? `Error: Command timed out after ${timeout_ms}ms`
-                : `Error: ${msg}`;
-        }
-
-        const output = ((result.stdout ?? '') + (result.stderr ?? '')).trim();
-        if (result.status !== 0 && !output) {
-            return `Error: Command exited with status ${result.status}`;
-        }
-
-        return output.length > MAX_OUTPUT
-            ? output.slice(0, MAX_OUTPUT) + `\n[truncated — ${output.length} total chars]`
-            : output || '(no output)';
+        return output;
     },
 });

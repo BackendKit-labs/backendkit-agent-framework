@@ -17,6 +17,14 @@ export interface InstallOptions {
     pack?: string;
     /** Overwrite if already installed */
     force?: boolean;
+    /**
+     * Install into a project-scoped directory instead of global packs.
+     * Skills are written flat to {projectDir}/skills/ and tracked in
+     * {projectDir}/skills/sources.json.
+     * This covers: internet-installed skills, LearningRouter auto-generated skills,
+     * and manually created project skills — all non-git-tracked.
+     */
+    projectDir?: string;
 }
 
 export interface InstalledPack extends SkillPackSource {
@@ -74,11 +82,21 @@ export class SkillManager {
         this.assertTrusted(source);
 
         const packName = options.pack ?? this.derivePackName(source);
-        const packDir = this.packDir(packName);
+
+        // Project-scoped: flat install into {projectDir}/skills/
+        // Global-scoped: install into ~/.{appName}/skills/packs/{pack}/
+        const { projectDir } = options;
+        const installDir = projectDir
+            ? path.join(projectDir, 'skills')
+            : this.packDir(packName);
 
         if (!options.force) {
-            const alreadyInstalled = await run(() => fs.access(packDir));
-            if (isOk(alreadyInstalled)) {
+            // For project-scoped, check if source is already in project sources.json
+            const existingSources = projectDir
+                ? await this.loadSourcesFrom(path.join(projectDir, 'skills', 'sources.json'))
+                : await this.loadSources();
+            const alreadyInstalled = existingSources.some(s => s.pack === packName);
+            if (alreadyInstalled) {
                 throw new Error(
                     `Pack '${packName}' is already installed. Use force: true or call update() to refresh.`,
                 );
@@ -108,19 +126,20 @@ export class SkillManager {
         const skills = this.sanitize(raw, source);
 
         // Write to disk only after successful fetch and sanitization
-        await fs.mkdir(packDir, { recursive: true });
+        await fs.mkdir(installDir, { recursive: true });
         await Promise.all(
             skills.map(skill => {
-                const filePath = path.join(packDir, `${skill.name}.md`);
+                const filePath = path.join(installDir, `${skill.name}.md`);
                 return atomicWrite(filePath, skillToMd(skill));
             }),
         );
 
-        await this.upsertSource({
-            pack: packName,
-            source,
-            installedAt: new Date().toISOString(),
-        });
+        const entry: SkillPackSource = { pack: packName, source, installedAt: new Date().toISOString() };
+        if (projectDir) {
+            await this.upsertSourceTo(path.join(projectDir, 'skills', 'sources.json'), entry);
+        } else {
+            await this.upsertSource(entry);
+        }
     }
 
     async uninstall(packName: string): Promise<void> {
@@ -217,7 +236,11 @@ export class SkillManager {
     }
 
     private async loadSources(): Promise<SkillPackSource[]> {
-        const result = await run(() => fs.readFile(this.sourcesFile, 'utf-8'));
+        return this.loadSourcesFrom(this.sourcesFile);
+    }
+
+    private async loadSourcesFrom(file: string): Promise<SkillPackSource[]> {
+        const result = await run(() => fs.readFile(file, 'utf-8'));
         if (!isOk(result)) return [];
         try {
             const parsed = JSON.parse(result.value) as SkillPackSource[];
@@ -228,12 +251,16 @@ export class SkillManager {
     }
 
     private async upsertSource(entry: SkillPackSource): Promise<void> {
-        const sources = await this.loadSources();
+        return this.upsertSourceTo(this.sourcesFile, entry);
+    }
+
+    private async upsertSourceTo(file: string, entry: SkillPackSource): Promise<void> {
+        const sources = await this.loadSourcesFrom(file);
         const idx = sources.findIndex(s => s.pack === entry.pack);
         if (idx >= 0) sources[idx] = entry;
         else sources.push(entry);
-        await fs.mkdir(path.dirname(this.sourcesFile), { recursive: true });
-        await atomicWrite(this.sourcesFile, JSON.stringify(sources, null, 2));
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        await atomicWrite(file, JSON.stringify(sources, null, 2));
     }
 
     private async removeSource(packName: string): Promise<void> {

@@ -179,6 +179,7 @@ export async function runGlobalSeed(
         projectDir,
         path.join(projectDir, 'memory'),
         path.join(projectDir, 'audits'),
+        path.join(projectDir, 'skills'),
     ];
     await Promise.all(coreDirs.map(d => ensureDir(d, result.createdDirs)));
 

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { SlashCommandRegistry } from './SlashCommandRegistry';
+import { createSkillManager } from '../skills/manager';
 import {
     createCheckpoint,
     listCheckpoints,
@@ -80,8 +81,43 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         }
     });
 
-    registry.register('/skills', 'List loaded skills', async (ctx) => {
-        if (!ctx.skills?.length) { ctx.emit('No skills loaded.'); return; }
+    registry.register('/skills', 'List loaded skills or install a pack', async (ctx) => {
+        const parts = ctx.args.trim().split(/\s+/);
+        const sub = parts[0];
+
+        // ── /skills install <url> [--global] ─────────────────────────────────
+        if (sub === 'install') {
+            const source = parts[1];
+            if (!source) {
+                ctx.emit(
+                    'Uso: /skills install <url>\n' +
+                    '  /skills install https://skills.sh/owner/repo\n' +
+                    '  /skills install https://github.com/owner/repo\n' +
+                    '  /skills install https://skills.sh/owner/repo --global\n\n' +
+                    'Sin --global, la skill se instala solo para este proyecto.',
+                );
+                return;
+            }
+
+            const isGlobal = parts.includes('--global');
+            const appName = ctx.appName ?? 'bk-agent';
+            const manager = createSkillManager(appName);
+
+            try {
+                ctx.emit(`Instalando skill desde: ${source}…`);
+                await manager.install(source, {
+                    projectDir: isGlobal ? undefined : ctx.projectDir,
+                });
+                const scope = isGlobal ? 'global' : 'proyecto';
+                ctx.emit(`✓ Skill instalada (scope: ${scope}). Reinicia para activarla.`);
+            } catch (err) {
+                ctx.emit(`✗ Error al instalar: ${(err as Error).message}`);
+            }
+            return;
+        }
+
+        // ── /skills list (default) ────────────────────────────────────────────
+        if (!ctx.skills?.length) { ctx.emit('No skills cargadas.'); return; }
 
         if (ctx.prompt) {
             const options = ctx.skills.map(s => ({
@@ -97,7 +133,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             if (!selected || selected === INSTALL) {
                 ctx.emit(
                     selected === INSTALL
-                        ? 'Para instalar un pack escribí:\n  /skills install https://skills.sh/owner/repo\no pedime que te guíe.'
+                        ? 'Para instalar un pack escribí:\n  /skills install https://skills.sh/owner/repo'
                         : '',
                 );
                 return;
@@ -110,10 +146,13 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                     `Descripción: ${skill.description}`,
                     skill.triggers.length ? `Triggers: ${skill.triggers.join(', ')}` : '',
                     skill.language?.length ? `Lenguajes: ${skill.language.join(', ')}` : '',
+                    `Scope: ${skill.scope ?? '—'}`,
                 ].filter(Boolean).join('\n'));
             }
         } else {
-            const lines = ctx.skills.map(s => `  ${s.name.padEnd(24)} ${s.description}`);
+            const lines = ctx.skills.map(s =>
+                `  ${s.name.padEnd(24)} ${s.description}${s.scope === 'project' ? ' [proyecto]' : ''}`,
+            );
             ctx.emit('Skills:\n' + lines.join('\n'));
         }
     });

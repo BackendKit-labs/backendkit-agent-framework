@@ -11,6 +11,7 @@ export interface CommandSkillInfo {
     description: string;
     triggers: string[];
     language?: string[];
+    scope?: string;
 }
 
 export interface CommandContext {

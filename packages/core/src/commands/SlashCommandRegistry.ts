@@ -51,6 +51,12 @@ export interface CommandContext {
     setIterationMode?: (mode: 'interactive' | 'auto' | 'step-by-step') => void;
     /** Returns the current iteration mode. */
     getIterationMode?: () => 'interactive' | 'auto' | 'step-by-step';
+    /** Returns info about configured MCP servers and their connection status. */
+    mcpList?: () => Promise<Array<{ name: string; url?: string; connected: boolean; toolCount: number }>>;
+    /** Add a new MCP server config at runtime. */
+    mcpAdd?: (config: unknown) => Promise<void>;
+    /** Remove an MCP server by name at runtime. */
+    mcpRemove?: (name: string) => Promise<void>;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

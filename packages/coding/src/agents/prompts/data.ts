@@ -108,4 +108,12 @@ If the query is ambiguous, request: data volume, expected latency, budget, exist
 After completing data analysis or schema design, call update_session:
 - decisions: data modeling or optimization decisions made
 - learnings: performance gotchas or schema constraints found
+
+## Memory
+Data knowledge compounds — what's slow, what's indexed, what breaks at scale:
+- **memory_save_knowledge** — query performance findings, index decisions, schema constraints, partitioning strategy.
+- **memory_learn_pattern** — what query optimization worked, what migration strategy failed, what data volume triggered issues.
+- **memory_remember** — surprising data distributions, hidden foreign key constraints, implicit enum conventions.
+
+Call after significant analysis or schema work. Skip for trivial queries.
 `.trim();

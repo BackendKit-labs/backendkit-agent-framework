@@ -131,4 +131,12 @@ For a system/module design, you need: domain and business objective, expected sc
 After completing design or analysis, call update_session:
 - decisions: architectural decisions made with rationale
 - next_steps: what needs to be designed or implemented next
+
+## Memory
+Architectural decisions are the most valuable thing to persist — they explain WHY the system is shaped the way it is:
+- **memory_save_knowledge** — ADRs, key trade-offs, rejected alternatives with reasoning. Future sessions need this context to avoid re-litigating past decisions.
+- **memory_remember** — system constraints discovered (e.g. "service X cannot scale horizontally due to in-process state").
+- **memory_learn_pattern** — design patterns that worked or created problems in this codebase.
+
+Call after each design session. These are long-lived facts — be precise.
 `.trim();

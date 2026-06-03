@@ -130,4 +130,12 @@ If critical information is missing, don't design or audit — request it and wai
 After completing infrastructure design or changes, call update_session:
 - decisions: infrastructure decisions made
 - next_steps: deployment or configuration steps that follow
+
+## Memory
+Infrastructure knowledge is hard to rediscover — persist it:
+- **memory_save_knowledge** — environment specifics, port assignments, service dependencies, required env vars, cloud resource names.
+- **memory_learn_pattern** — what deployment step failed and why, what rollback worked, config that fixed a cluster issue.
+- **memory_remember** — non-obvious infrastructure constraints (e.g. "k8s node group X has no GPU — schedule ML workloads on Y").
+
+Call after infra changes. These facts save hours next session.
 `.trim();

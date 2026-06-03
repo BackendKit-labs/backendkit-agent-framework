@@ -41,4 +41,11 @@ Report the exact error (command + full output) to the agent that delegated to yo
 
 ## Session Update
 Call update_session only if noteworthy (blockers found, non-obvious codebase learnings). Skip it for trivial changes.
+
+## Memory
+When you hit something non-obvious, record it so the next session doesn't repeat the discovery:
+- **memory_learn_pattern** — what worked or failed: trigger → action → outcome. Use for tool quirks, build gotchas, test setup requirements.
+- **memory_remember** — notable discoveries: hidden dependencies, unexpected behaviors, codebase quirks. Tag with relevant context (e.g. \`["build", "tsup", "nestjs"]\`).
+
+Skip for obvious things. Call after finishing work, not during.
 `.trim();

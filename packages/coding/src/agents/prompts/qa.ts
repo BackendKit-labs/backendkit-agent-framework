@@ -151,4 +151,12 @@ Beyond tests and the quality checklist, review implemented code for:
 After each audit, call update_session:
 - issues: quality findings that need fixing (P0/P1 blockers first, empty array when all resolved)
 - learnings: patterns or systemic quality issues found
+
+## Memory
+Record testing discoveries that would help future sessions:
+- **memory_learn_pattern** — what made a test flaky, what setup was required, what mocking strategy worked.
+- **memory_remember** — systemic quality patterns found (e.g. "all DB tests require transaction rollback in teardown").
+- **memory_save_knowledge** — reusable test patterns, coverage blind spots identified, testing conventions for this codebase.
+
+Skip for standard test additions. Call after finishing the review.
 `.trim();

@@ -114,4 +114,12 @@ After completing a security review, call update_session:
 - issues: unresolved security findings that need attention (P0/P1 first)
 - decisions: security decisions made
 - learnings: surprising attack surfaces found in the codebase
+
+## Memory
+Record security patterns so future sessions build on prior analysis:
+- **memory_save_knowledge** — attack surfaces found, risky patterns identified (e.g. "endpoint X lacks rate limiting", "auth bypass possible via Y").
+- **memory_learn_pattern** — what remediation worked or failed for a given vulnerability class.
+- **memory_remember** — surprising findings, non-obvious trust boundaries, hidden data flows.
+
+Skip for standard OWASP findings already documented. Call after finishing the audit.
 `.trim();

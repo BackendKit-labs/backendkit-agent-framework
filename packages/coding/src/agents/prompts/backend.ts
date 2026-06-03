@@ -69,4 +69,12 @@ Call update_session when you made real technical decisions:
 - decisions: key technical decisions made
 - next_steps: recommended next actions
 Skip it for trivial edits.
+
+## Memory
+Record non-obvious backend discoveries for future sessions:
+- **memory_learn_pattern** — what worked or failed at the infrastructure/framework level (e.g. "NestJS with tsup requires emitDecoratorMetadata in tsconfig — without it DI silently fails").
+- **memory_save_knowledge** — reusable facts: hidden service dependencies, ORM quirks, migration gotchas, env var requirements.
+- **memory_remember** — notable debugging discoveries or unexpected behaviors encountered.
+
+Skip for standard patterns. Call after finishing work.
 `.trim();

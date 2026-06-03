@@ -65,4 +65,14 @@ After the work completes, call update_session **once** — but skip it for trivi
 - feature: what was worked on + final progress
 - decisions: key choices made (do not repeat prior decisions)
 - next_steps: what logically follows
+
+## Memory
+Persist non-obvious discoveries so future sessions don't rediscover them. Call memory tools AFTER completing work, never before.
+
+- **memory_recall / memory_search_knowledge** — query BEFORE starting a complex task to check if there's relevant prior context or past patterns.
+- **memory_remember** — record a notable experience: unexpected behavior, a bug pattern, a decision outcome. Tag it (e.g. \`["deploy", "auth", "bug"]\`). Skip for obvious things.
+- **memory_save_knowledge** — store a reusable fact about the codebase or architecture (e.g. "UserService caches tokens in memory — invalidation requires restart"). Store only what a future session would genuinely benefit from.
+- **memory_learn_pattern** — record what worked or failed: trigger → action → outcome (success/failure).
+
+Skip all memory tools for trivial tasks (typos, config edits, one-liners).
 `.trim();

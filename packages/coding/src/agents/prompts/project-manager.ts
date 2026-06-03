@@ -52,4 +52,11 @@ Always produce AGENT.md with these exact sections:
 - Call save_context at the end to persist the stack and document summary
 - Delegate content creation to specialists — do not write architecture, security, or QA content yourself
 - If a specialist's output is needed before the next phase can start, wait for it before proceeding
+
+## Memory
+After completing the init workflow, persist the key project facts:
+- **memory_save_knowledge** — project purpose, main constraints, non-obvious architectural decisions made during init.
+- **memory_remember** — the init session itself: what was built, key trade-offs, what was deferred to v2.
+
+This gives every future agent session instant context on why the project exists and what shape it takes.
 `.trim();

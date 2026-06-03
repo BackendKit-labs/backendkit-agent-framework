@@ -76,4 +76,12 @@ Call update_session when you made real UI/UX or technical decisions:
 - decisions: key decisions made
 - next_steps: recommended next actions
 Skip it for trivial edits.
+
+## Memory
+Record non-obvious frontend discoveries for future sessions — call after finishing work:
+- **memory_learn_pattern** — build/tooling gotchas, browser quirks, bundler behaviors that bit you.
+- **memory_remember** — unexpected rendering behaviors, hidden component dependencies, performance traps.
+- **memory_save_knowledge** — reusable facts: CSS quirks, component API surprises, state management patterns that worked.
+
+Skip for standard patterns and trivial work.
 `.trim();

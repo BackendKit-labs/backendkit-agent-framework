@@ -8,24 +8,37 @@ import { resolve, sep, relative } from 'path';
  * paths (D:\outside) and UNC paths (\\server\share) on Windows, where relative()
  * returns an absolute path that does not start with '..'.
  */
-export function resolveAndCheck(workingDir: string | undefined, filePath: string): string {
+/**
+ * Resolves `filePath` and verifies it is contained within one of the allowed
+ * roots: `workingDir` (primary) or any `additionalRoots` (e.g. the agent's
+ * memory directory at ~/.{appName}/projects/{key}).
+ * Throws on path traversal attempts outside all allowed roots.
+ */
+export function resolveAndCheck(
+    workingDir: string | undefined,
+    filePath: string,
+    additionalRoots: string[] = [],
+): string {
     const cwd = workingDir ?? process.cwd();
     const abs = resolve(cwd, filePath);
 
-    // Ensure cwd ends with sep so 'C:\work' does not prefix-match 'C:\workspace'
-    const cwdPrefix = cwd.endsWith(sep) ? cwd : cwd + sep;
-
-    // Windows paths are case-insensitive — normalize before comparing
     const norm = (p: string) => process.platform === 'win32' ? p.toLowerCase() : p;
 
-    if (norm(abs) !== norm(cwd) && !norm(abs).startsWith(norm(cwdPrefix))) {
-        throw new Error(
-            `Access denied: "${filePath}" resolves outside the working directory. ` +
-            `Path traversal is not allowed.`
-        );
+    const isInside = (root: string) => {
+        const prefix = root.endsWith(sep) ? root : root + sep;
+        return norm(abs) === norm(root) || norm(abs).startsWith(norm(prefix));
+    };
+
+    if (isInside(cwd)) return abs;
+
+    for (const root of additionalRoots) {
+        if (isInside(root)) return abs;
     }
 
-    return abs;
+    throw new Error(
+        `Access denied: "${filePath}" resolves outside the working directory. ` +
+        `Path traversal is not allowed.`
+    );
 }
 
 /**

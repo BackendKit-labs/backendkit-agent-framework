@@ -79,6 +79,8 @@ export interface SessionUpdates {
 }
 
 export interface ProjectStoreData {
+    /** Absolute path to the project memory directory (~/.{appName}/projects/{key}). Read-only. */
+    readonly projectDir?: string;
     appendContext(content: string): void;
     appendLearning(content: string): void;
     saveAudit(agentId: string, content: string): void;

@@ -219,7 +219,20 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         if (!sub || sub === 'list') {
             const config = await loadWorkspaces(appName);
             const names = Object.keys(config);
-            if (!names.length) { emit('No workspaces. Use: /workspace create <name>'); return; }
+            if (!names.length) {
+            emit(
+                'No hay workspaces configurados.\n\n' +
+                'Comandos disponibles:\n' +
+                '  /workspace create <name>               Crear workspace nuevo\n' +
+                '  /workspace add <ws> <cwd> [name]       Agregar proyecto existente\n' +
+                '  /workspace import <cwd> [ws] [name]    Importar proyecto (crea ws si no existe)\n' +
+                '  /workspace switch <ws> [project]       Cambiar workspace/proyecto activo\n' +
+                '  /workspace remove <ws> <project>       Quitar proyecto del workspace\n' +
+                '  /workspace delete <name>               Eliminar workspace\n' +
+                '  /workspace list                        Listar workspaces',
+            );
+            return;
+        }
 
             if (ctx.prompt && !sub) {
                 // Interactive: let the user pick a workspace+project to switch to directly
@@ -241,10 +254,19 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                 const ws = config[n]!;
                 const projects = ws.projects
                     .map(p => `${p.name}${p.name === ws.active ? '*' : ''}`)
-                    .join(', ') || '(empty)';
+                    .join(', ') || '(vacío)';
                 return `  ${n.padEnd(20)} ${projects}`;
             });
-            emit('Workspaces (* = active project):\n' + lines.join('\n'));
+            emit(
+                'Workspaces (* = proyecto activo):\n' + lines.join('\n') + '\n\n' +
+                'Comandos:\n' +
+                '  /workspace create <name>               Crear workspace\n' +
+                '  /workspace add <ws> <cwd> [name]       Agregar proyecto\n' +
+                '  /workspace import <cwd> [ws] [name]    Importar proyecto\n' +
+                '  /workspace switch <ws> [project]       Cambiar activo\n' +
+                '  /workspace remove <ws> <project>       Quitar proyecto\n' +
+                '  /workspace delete <name>               Eliminar workspace',
+            );
             return;
         }
 

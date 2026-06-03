@@ -8,6 +8,7 @@ import {
     ReflectionEngine,
     createMemorySystem,
     adaptProviderToLLMClient,
+    runGlobalSeed,
     type LLMProvider,
     type Transport,
     type Skill,
@@ -434,6 +435,14 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             });
         }
     }
+
+    // ── Seed global directory structure on first run (fire-and-forget) ───────
+    // Creates ~/.{appName}/ with agents, skills, workspaces.json, agent-notes/,
+    // and projects/{cwd}/memory+audits dirs. Idempotent — skips existing files.
+    runGlobalSeed(appName, cwd, {
+        agents: allAgents.filter(a => a.source === 'builtin'),
+        skills: builtinSkills,
+    }).catch(err => console.warn(`[${appName}] seed warning: ${err.message}`));
 
     // ── Delegate engine assembly to createBaseEngine ──────────────────────────
     return createBaseEngine({

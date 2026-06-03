@@ -159,7 +159,7 @@ export class AnthropicProvider implements LLMProvider {
             ...(params.system ? { system: params.system } : {}),
             messages: params.anthropicMessages,
             ...(params.anthropicTools.length > 0 ? { tools: params.anthropicTools } : {}),
-        });
+        }, { signal: callbacks.signal });
 
         let contentBuffer = '';
         const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();

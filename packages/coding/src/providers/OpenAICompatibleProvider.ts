@@ -84,7 +84,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             temperature: this.temperature,
             stream: true,
             stream_options: { include_usage: true }, // Fix #16: enables usage in final chunk
-        });
+        }, { signal: callbacks.signal });
 
         let contentBuffer = '';
         const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();

@@ -66,18 +66,38 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         ctx.emit(`Available commands:\n${list}`);
     });
 
-    registry.register('/agents', 'List available agents', async (ctx) => {
+    registry.register('/agents', 'List agents or switch active agent', async (ctx) => {
         if (!ctx.agents?.length) { ctx.emit('No agents loaded.'); return; }
 
+        const active = ctx.effectiveAgentId;
+
         if (ctx.prompt) {
-            const selected = await ctx.prompt(
-                'Agents disponibles:',
-                ctx.agents.map(a => ({ label: `${a.id.padEnd(18)} ${a.name} — ${a.description}`, value: a.id })),
-            );
-            if (selected) ctx.emit(`Agent: ${selected}`);
+            const options = ctx.agents.map(a => {
+                const icon  = a.icon ? `${a.icon} ` : '';
+                const badge = a.id === active ? ' [activo]' : '';
+                const label = `${icon}${a.name}${badge}`;
+                const desc  = a.description ? ` — ${a.description}` : '';
+                return { label: `${label.padEnd(28)}${desc}`, value: a.id };
+            });
+            const selected = await ctx.prompt('Seleccionar agente:', options);
+            if (!selected) return;
+            if (selected === active) {
+                ctx.emit(`Ya estás usando ${selected}.`);
+                return;
+            }
+            // Switch via engine so the bridge/engine updates the active agent
+            await ctx.runEngine?.(`/agent ${selected}`);
+            ctx.emit(`Agente cambiado → ${selected}`);
         } else {
-            const lines = ctx.agents.map(a => `  ${a.id.padEnd(18)} ${a.name} — ${a.description}`);
-            ctx.emit('Agents:\n' + lines.join('\n'));
+            const lines = ctx.agents.map(a => {
+                const icon  = a.icon ? `${a.icon} ` : '';
+                const marker = a.id === active ? ' ◀ activo' : '';
+                return `  ${icon}${a.id.padEnd(20)} ${a.name}${marker}`;
+            });
+            ctx.emit(
+                'Agentes disponibles:\n' + lines.join('\n') +
+                '\n\nUsa /agents para el picker interactivo o /agent <id> para cambiar directamente.',
+            );
         }
     });
 

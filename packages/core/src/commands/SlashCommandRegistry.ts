@@ -3,6 +3,7 @@
 export interface CommandAgentInfo {
     id: string;
     name: string;
+    icon?: string;
     description: string;
 }
 

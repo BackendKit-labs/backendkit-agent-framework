@@ -2,7 +2,9 @@ import { readFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import type { ProjectStoreData, SessionUpdates } from '@bk/agent-core';
-import { cwdToProjectKey, atomicWriteSync } from '@bk/agent-core';
+import { cwdToProjectKey, atomicWriteSync, compactSessionContent } from '@bk/agent-core';
+
+const SESSION_COMPACT_THRESHOLD = 8192; // bytes — matches core's SESSION_MAX_BYTES
 
 export class ProjectStore implements ProjectStoreData {
     readonly homeDir: string;
@@ -140,6 +142,10 @@ export class ProjectStore implements ProjectStoreData {
         if (updates.learnings?.length) {
             const bullets = updates.learnings.map(l => `- ${l}`).join('\n');
             content = this.appendToSection(content, 'Engine Learnings', bullets);
+        }
+
+        if (Buffer.byteLength(content, 'utf-8') > SESSION_COMPACT_THRESHOLD) {
+            content = compactSessionContent(content);
         }
 
         atomicWriteSync(sessionPath, content);

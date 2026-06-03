@@ -309,11 +309,31 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         memory = new PersistentMemory(store.projectDir);
         auditLog = join(store.projectDir, 'audits', 'tool-calls.ndjson');
         historyPath = join(store.projectDir, 'memory', 'history.json');
+        // Summarize old episodes with the LLM when they pile up.
+        // Runs async (fire-and-forget) so it never blocks a tool call.
+        const episodicSummarizeFn = async (episodes: import('@bk/agent-core').Episode[]): Promise<string> => {
+            const provider = providers[opts.defaultProvider] ?? Object.values(providers)[0];
+            if (!provider) return episodes.map(e => e.content).join(' | ');
+            const list = episodes.map((e, i) =>
+                `${i + 1}. ${e.content}${e.tags.length ? ` [${e.tags.join(', ')}]` : ''}`
+            ).join('\n');
+            const prompt =
+                `Summarize these agent experiences into ONE concise paragraph (max 120 words). ` +
+                `Preserve key facts, patterns, and outcomes:\n\n${list}`;
+            let result = '';
+            await provider.chat(
+                [{ role: 'user', content: prompt }],
+                [],
+                { onChunk: (d) => { result += d; }, onToolCall: () => {}, onDone: () => {}, onError: () => {} },
+            );
+            return result.trim() || episodes.map(e => e.content).join(' | ');
+        };
+
         memorySystem = createMemorySystem({
             episodic:   { provider: 'json', path: join(store.projectDir, 'memory', 'episodes.json') },
             semantic:   { provider: 'json', path: join(store.projectDir, 'memory', 'knowledge.json') },
             procedural: { provider: 'json', path: join(store.projectDir, 'memory', 'patterns.json') },
-            retention:  { maxEpisodes: 500 },
+            retention:  { maxEpisodes: 500, summarizeAfter: 50, summarizeFn: episodicSummarizeFn },
         });
 
         const agentMdPath = join(cwd, 'AGENT.md');

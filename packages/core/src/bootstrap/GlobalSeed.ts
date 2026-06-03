@@ -1,8 +1,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as yaml from 'yaml';
 import { getFrameworkDir, cwdToProjectKey } from '../shared/utils/project-key';
 import { DEFAULT_CONFIG } from './config';
+import { skillToMd } from '../skills/parse-md-skill';
 import type { Skill } from '../skills/types';
 import type { AgentProfile } from '../types';
 
@@ -246,9 +246,9 @@ export async function runGlobalSeed(
                 ? path.join(skillsPacks, skill.pack)
                 : skillsGlobal;
             await fs.mkdir(dir, { recursive: true });
-            const skillPath = path.join(dir, `${skill.name}.yaml`);
+            const skillPath = path.join(dir, `${skill.name}.md`);
             if (!(await fileExists(skillPath))) {
-                await fs.writeFile(skillPath, yaml.stringify(skill), 'utf-8');
+                await fs.writeFile(skillPath, skillToMd(skill), 'utf-8');
                 result.seededSkills++;
             }
         }));

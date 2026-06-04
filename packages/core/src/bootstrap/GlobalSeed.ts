@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { getFrameworkDir, cwdToProjectKey } from '../shared/utils/project-key';
 import { DEFAULT_CONFIG } from './config';
 import { skillToMd } from '../skills/parse-md-skill';
@@ -218,25 +219,59 @@ export async function runGlobalSeed(
     }
 
     // ── 7. Seed agents (.json + .md pairs) ───────────────────────────────────
+    // Re-seeds builtin prompts when the framework updates them, but only if the
+    // user has not customized the file. Customization is detected by comparing
+    // the current file content hash against the hash stored at seed time
+    // (_builtinHash in the .json). If they match → factory default → safe to
+    // update. If they differ → user-modified → leave it alone.
     const agentsToSeed = options.agents ?? [];
     await Promise.all(agentsToSeed.map(async (agent) => {
         const jsonPath = path.join(agentsDir, `${agent.id}.json`);
         const mdPath   = path.join(agentsDir, `${agent.id}.md`);
+
+        const builtinHash = createHash('sha256').update(agent.systemPrompt).digest('hex').slice(0, 16);
 
         const [jsonExists, mdExists] = await Promise.all([
             fileExists(jsonPath),
             fileExists(mdPath),
         ]);
 
-        if (!jsonExists) {
-            // Write metadata only (no runtime-only fields)
-            const { systemPrompt, source, systemPromptAddition, ...meta } = agent;
-            await fs.writeFile(jsonPath, JSON.stringify(meta, null, 2), 'utf-8');
-        }
+        // Read stored hash BEFORE overwriting .json
+        const storedHash: string | undefined = jsonExists
+            ? await fs.readFile(jsonPath, 'utf-8')
+                .then(raw => (JSON.parse(raw) as Record<string, unknown>)._builtinHash as string)
+                .catch(() => undefined)
+            : undefined;
+
+        // Always write/update metadata .json (never has user content)
+        const { systemPrompt, source, systemPromptAddition, ...meta } = agent;
+        await fs.writeFile(jsonPath, JSON.stringify({ ...meta, _builtinHash: builtinHash }, null, 2), 'utf-8');
+
         if (!mdExists) {
+            // First seed — write prompt
+            await fs.writeFile(mdPath, agent.systemPrompt, 'utf-8');
+            result.seededAgents.push(agent.id);
+            return;
+        }
+
+        if (!storedHash) {
+            // Pre-hash seed (old install) — treat as factory default, update
+            await fs.writeFile(mdPath, agent.systemPrompt, 'utf-8');
+            result.seededAgents.push(agent.id);
+            return;
+        }
+
+        // Compare current file content hash against what was originally seeded
+        const currentContent = await fs.readFile(mdPath, 'utf-8');
+        const currentHash = createHash('sha256').update(currentContent).digest('hex').slice(0, 16);
+
+        if (currentHash === storedHash && storedHash !== builtinHash) {
+            // File is still factory default but builtin has changed — update
             await fs.writeFile(mdPath, agent.systemPrompt, 'utf-8');
             result.seededAgents.push(agent.id);
         }
+        // else: user modified (currentHash !== storedHash) → leave it alone
+        //       or: already up to date (storedHash === builtinHash) → no-op
     }));
 
     // ── 8. Seed skills as YAML ────────────────────────────────────────────────

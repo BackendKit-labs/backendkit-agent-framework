@@ -12,6 +12,7 @@
 
 import { retry } from '@backendkit-labs/retry';
 import { ActionType, createTaskContext, TaskContext } from './task-context';
+import { matchesKeyword } from './keyword-match';
 
 const LLM_RETRY = {
     maxAttempts: 3,
@@ -248,18 +249,6 @@ Solicitud: "${input.slice(0, 500)}"`;
     scores,
     method: 'llm',
   };
-}
-
-/**
- * Verifica si un keyword aparece en el texto con word boundary (para palabras simples)
- * o como substring exacto (para frases con espacios).
- */
-function matchesKeyword(text: string, keyword: string): boolean {
-  if (!keyword.includes(' ')) {
-    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
-  }
-  return text.includes(keyword.toLowerCase());
 }
 
 /**

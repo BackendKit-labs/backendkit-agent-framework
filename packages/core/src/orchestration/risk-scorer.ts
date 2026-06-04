@@ -11,6 +11,7 @@
 
 import { RiskFactors, RiskLevel, TaskContext } from './task-context';
 import { OrchestratorConfig, defaultOrchestratorConfig } from './types';
+import { matchesKeyword } from './keyword-match';
 
 // ── Keywords por factor de riesgo ────────────────────────────────────────────
 
@@ -65,16 +66,6 @@ const COMPLEXITY_KEYWORDS: Array<{ words: string[]; level: number }> = [
   { words: ['complejo', 'complicado', 'difícil', 'elaborado'], level: 7 },
   { words: ['muy complejo', 'altamente', 'sofisticado', 'crítico'], level: 10 },
 ];
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function matchesKeyword(text: string, keyword: string): boolean {
-  if (!keyword.includes(' ')) {
-    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
-  }
-  return text.includes(keyword.toLowerCase());
-}
 
 // ── Risk Scorer ──────────────────────────────────────────────────────────────
 

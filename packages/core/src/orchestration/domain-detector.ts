@@ -10,6 +10,7 @@
  */
 
 import { TaskContext } from './task-context';
+import { matchesKeyword } from './keyword-match';
 
 // ── Keywords por dominio ─────────────────────────────────────────────────────
 
@@ -119,21 +120,13 @@ export interface DomainDetectionResult {
 
 /**
  * @description Detecta dominios a partir del input del usuario.
- * 
+ *
  * Analiza el texto en busca de keywords técnicas y construye
  * un mapa de dominios con sus puntuaciones.
- * 
+ *
  * @param input - Texto del usuario
  * @returns Dominios detectados con scores
  */
-function matchesKeyword(text: string, keyword: string): boolean {
-  if (!keyword.includes(' ')) {
-    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
-  }
-  return text.includes(keyword.toLowerCase());
-}
-
 export function detectDomains(input: string): DomainDetectionResult {
   const lower = input.toLowerCase();
   const scores: Record<string, number> = {};

@@ -46,24 +46,30 @@ export interface QaContext {
 }
 
 /**
- * Auto-avanza los gates requeridos (design_review, security_review, qa_review)
+ * Auto-avanza unicamente los gates que la tarea REQUIERE (segun sus flags
+ * requiresArchitectureReview / requiresSecurityReview / requiresQaApproval),
  * registrando GO silencioso cuando no hay hallazgos. Solo actua si la respuesta
  * tiene codigo sustancial (>= 8 lineas).
+ *
+ * Un gate no requerido no se transiciona ni se registra: hacerlo contaminaba el
+ * audit trail con GO de gates (architecture/security) que nunca aplicaban (H-003).
  */
 export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
     const { orchestrationResult, orchestrator, qaService, clean } = ctx;
     if (qaService.countCodeLines(clean) < MIN_CODE_LINES) return;
     if (isInformationalRequest(orchestrationResult.task.rawPrompt)) return;
 
+    const { task } = orchestrationResult;
     const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
-    const gates: Array<{ status: TaskStatus; gateName: string; agentId: string }> = [
-        { status: 'design_review',   gateName: 'architecture', agentId: 'architecture' },
-        { status: 'security_review', gateName: 'security',     agentId: 'security' },
-        { status: 'qa_review',       gateName: 'qa',           agentId: qaAgentId },
+    const gates: Array<{ status: TaskStatus; gateName: string; agentId: string; required: boolean }> = [
+        { status: 'design_review',   gateName: 'architecture', agentId: 'architecture', required: task.requiresArchitectureReview },
+        { status: 'security_review', gateName: 'security',     agentId: 'security',     required: task.requiresSecurityReview },
+        { status: 'qa_review',       gateName: 'qa',           agentId: qaAgentId,      required: task.requiresQaApproval },
     ];
 
     const reporter = orchestrator.getAuditReporter();
     for (const gate of gates) {
+        if (!gate.required) continue;
         const result = orchestrator.transitionTask(orchestrationResult.task, gate.status);
         if (result.allowed && result.task) {
             orchestrationResult.task = result.task;
@@ -128,7 +134,15 @@ async function applyQaDecision(
     ).catch(() => undefined);
 
     if (approved) {
-        if (prependQaReview) {
+        // Solo empujar por qa_review hacia approved cuando la tarea REQUIERE QA.
+        // Una tarea sin gates requeridos puede commitear directamente (isCommitAllowed),
+        // asi que no debemos fabricar un estado 'approved' a traves de un qa_review
+        // que la tarea nunca necesito (H-004). La review inline igual queda registrada.
+        if (
+            prependQaReview &&
+            orchestrationResult.task.requiresQaApproval &&
+            orchestrationResult.task.status !== 'qa_review'
+        ) {
             const toQa = orchestrator.transitionTask(orchestrationResult.task, 'qa_review');
             if (toQa.allowed && toQa.task) orchestrationResult.task = toQa.task;
         }

@@ -1,16 +1,15 @@
-name: Publish to npm
+name: CI
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
 
 jobs:
-  publish:
+  build-and-test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write   # for npm provenance
 
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +17,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
       - name: Install dependencies
@@ -34,7 +32,6 @@ jobs:
         working-directory: packages/coding
 
       - name: Build @backendkit-labs/mcp-server
-        # mcp-server has heavy generic types — needs extra heap to avoid tsc OOM
         run: npm run build
         working-directory: packages/mcp-server
         env:
@@ -43,20 +40,5 @@ jobs:
       - name: Run tests
         run: npm run test --workspace packages/core
 
-      - name: Publish @backendkit-labs/agent-core
-        run: npm publish --provenance --access public
-        working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @backendkit-labs/agent-coding
-        run: npm publish --provenance --access public
-        working-directory: packages/coding
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @backendkit-labs/mcp-server
-        run: npm publish --provenance --access public
-        working-directory: packages/mcp-server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  # Manual publish: cd packages/core && npm publish --access public
+  # then packages/coding, then packages/mcp-server

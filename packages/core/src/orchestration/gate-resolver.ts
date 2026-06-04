@@ -51,7 +51,7 @@ export function resolveGates(
   if (task.requiresSecurityReview || (isHighRisk && hasSecurityDomain)) {
     pipeline.push({
       phase: 'review',
-      agentId: 'security-agent',
+      agentId: 'security',
       purpose: 'Review security implications',
       optional: false,
     });
@@ -62,7 +62,7 @@ export function resolveGates(
   if (task.requiresArchitectureReview || (isHighRisk && hasArchitectureDomain)) {
     pipeline.push({
       phase: 'review',
-      agentId: 'architecture-agent',
+      agentId: 'architecture',
       purpose: 'Review architecture for high-risk change',
       optional: false,
     });

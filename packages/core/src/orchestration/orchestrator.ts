@@ -14,7 +14,7 @@
  * // result.task.actionType === 'implementation'
  * // result.task.domains === ['resilience', 'backend']
  * // result.task.riskLevel === 'high'
- * // result.selectedAgents === ['architecture-agent', 'backend-agent', 'qa-engineer']
+ * // result.selectedAgents === ['architecture', 'backend-agent', 'qa-engineer']
  * ```
  */
 
@@ -377,7 +377,7 @@ export class Orchestrator {
     if (task.requiresSecurityReview || (isHighRisk && hasSecurityDomain)) {
       pipeline.push({
         phase: 'review',
-        agentId: 'security-agent',
+        agentId: 'security',
         purpose: 'Review security implications',
         optional: false,
       });
@@ -385,7 +385,7 @@ export class Orchestrator {
     if (task.requiresArchitectureReview || (isHighRisk && hasArchitectureDomain)) {
       pipeline.push({
         phase: 'review',
-        agentId: 'architecture-agent',
+        agentId: 'architecture',
         purpose: 'Review architecture for high-risk change',
         optional: false,
       });

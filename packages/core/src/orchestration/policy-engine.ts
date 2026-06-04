@@ -20,7 +20,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { actionType: 'design' },
     then: {
-      mustInclude: ['architecture-agent'],
+      mustInclude: ['architecture'],
       requireArchitectureReview: true,
     },
   },
@@ -29,7 +29,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { actionType: 'security_audit' },
     then: {
-      mustInclude: ['security-agent'],
+      mustInclude: ['security'],
       requireSecurityReview: true,
     },
   },
@@ -47,7 +47,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { riskLevel: 'critical' },
     then: {
-      mustInclude: ['architecture-agent'],
+      mustInclude: ['architecture'],
       requireArchitectureReview: true,
     },
   },
@@ -56,7 +56,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { domain: 'security' },
     then: {
-      mustInclude: ['security-agent'],
+      mustInclude: ['security'],
       requireSecurityReview: true,
     },
   },
@@ -65,7 +65,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { riskFactor: { breaking_change: true } },
     then: {
-      mustInclude: ['architecture-agent'],
+      mustInclude: ['architecture'],
       requireArchitectureReview: true,
     },
   },
@@ -74,7 +74,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { riskFactor: { security_sensitive: true } },
     then: {
-      mustInclude: ['security-agent'],
+      mustInclude: ['security'],
       requireSecurityReview: true,
     },
   },
@@ -83,7 +83,7 @@ const DEFAULT_RULES: PolicyRule[] = [
   {
     if: { riskFactor: { cross_service_impact: true } },
     then: {
-      mustInclude: ['architecture-agent'],
+      mustInclude: ['architecture'],
       requireArchitectureReview: true,
     },
   },
@@ -159,9 +159,9 @@ export function evaluatePolicies(
 
       if (rule.then.mustPass) {
         for (const gate of rule.then.mustPass) {
-          if (gate === 'qa-agent' || gate === 'qa') requiredGates.add('qa');
-          if (gate === 'security-agent' || gate === 'security') requiredGates.add('security');
-          if (gate === 'architecture-agent' || gate === 'architecture') requiredGates.add('architecture');
+          if (gate === 'qa') requiredGates.add('qa');
+          if (gate === 'security') requiredGates.add('security');
+          if (gate === 'architecture') requiredGates.add('architecture');
         }
       }
 

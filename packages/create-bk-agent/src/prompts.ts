@@ -10,11 +10,11 @@ export interface UserChoices {
 }
 
 const TEMPLATES: Array<{ title: string; value: TemplateId; description: string }> = [
-    { title: 'coding',       value: 'coding',       description: 'Coding assistant — edit files, run commands, search code' },
-    { title: 'domain-agent', value: 'domain-agent', description: 'Multi-agent — orchestrator + domain specialists (e.g. docker, AWS)' },
-    { title: 'autonomous',   value: 'autonomous',   description: 'Autonomous — activates on cron schedules, webhooks, events' },
-    { title: 'mcp-server',   value: 'mcp-server',   description: 'MCP server — expose tools via Model Context Protocol' },
-    { title: 'minimal',      value: 'minimal',      description: 'Minimal — bare engine, full control over everything' },
+    { title: 'coding',       value: 'coding',       description: '10 agents + all coding tools included. Ready to run — improve UI and extend' },
+    { title: 'domain-agent', value: 'domain-agent', description: 'Blank multi-agent architecture. You define agents and tools for your domain' },
+    { title: 'autonomous',   value: 'autonomous',   description: 'Event-driven agent — cron schedules, webhooks, custom events' },
+    { title: 'mcp-server',   value: 'mcp-server',   description: 'MCP server — expose your tools to Claude Desktop / Cursor / VS Code' },
+    { title: 'minimal',      value: 'minimal',      description: 'Bare engine — full control, bring your own agents and tools' },
 ];
 
 const PROVIDERS: Array<{ title: string; value: ProviderId; description: string }> = [

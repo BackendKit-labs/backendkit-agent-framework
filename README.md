@@ -39,13 +39,26 @@ import { createBaseEngine } from '@backendkit-labs/agent-core';
 
 Five starter templates in [`packages/templates/`](packages/templates):
 
-| Template | Use case |
-|----------|---------|
-| `coding` | Developer assistant — files, git, code execution |
-| `domain-agent` | Docker, AWS, DB — orchestrator + specialists |
-| `autonomous` | Monitoring, scheduled tasks, event pipelines |
-| `mcp-server` | Expose tools to Claude Desktop / Cursor / VS Code |
-| `minimal` | Full control — bring your own agents and tools |
+### coding — complete, ready to run
+
+10 specialized agents + all file/git/command tools already wired. Run it, describe
+your project in `AGENT.md`, and it works. Extend the UI or add extra tools on top.
+Choose this when you want a coding assistant, not when you want to build one from scratch.
+
+### domain-agent — blank multi-agent architecture
+
+Orchestrator + specialist pattern with no pre-built agents or tools.
+You define the agents, the tools, and the domain. The framework handles
+orchestration, delegation, and parallel execution. Use this to build any type
+of agent: infra, data, customer support, finance — anything that is not about editing code.
+
+| Template | What it gives you | You provide |
+|----------|------------------|-------------|
+| `coding` | 10 agents + all coding tools | LLM key + `AGENT.md` description |
+| `domain-agent` | Orchestration skeleton | Agents + tools for your domain |
+| `autonomous` | Trigger system (cron/webhook/event) | Agent logic + what to do on trigger |
+| `mcp-server` | MCP server boilerplate | Tools to expose |
+| `minimal` | Bare engine | Everything |
 
 ## MCP server
 

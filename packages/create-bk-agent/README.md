@@ -26,13 +26,25 @@ Installing dependencies...
 
 ## Templates
 
-| Template | Use case |
-|----------|---------|
-| `coding` | Coding assistant — edit files, run commands, search code |
-| `domain-agent` | Multi-agent system — orchestrator + domain specialists |
-| `autonomous` | Autonomous agent — cron schedules, webhooks, events |
-| `mcp-server` | MCP server — expose tools via Model Context Protocol |
-| `minimal` | Bare engine — full control over everything |
+### `coding` — complete, ready to run
+10 specialized agents (backend, frontend, QA, security, architecture…) and all
+coding tools (read/write files, run commands, git, search) are already configured.
+Add your API key, describe your project in `AGENT.md`, and it works out of the box.
+**Choose this when you want a coding assistant, not when you want to build one.**
+
+### `domain-agent` — blank multi-agent architecture
+Orchestrator + specialists pattern with no pre-built agents or tools. You define
+the agents and tools for your specific domain (Docker, AWS, databases, APIs, etc.).
+The framework handles orchestration, delegation, and parallel execution.
+**Choose this when you are building a new type of agent from scratch.**
+
+| Template | What it gives you | You provide |
+|----------|------------------|-------------|
+| `coding` | 10 agents + all coding tools | API key + `AGENT.md` |
+| `domain-agent` | Orchestration skeleton | Agents + tools for your domain |
+| `autonomous` | Trigger system (cron / webhook / event) | Agent logic |
+| `mcp-server` | MCP server boilerplate | Tools to expose |
+| `minimal` | Bare engine | Everything |
 
 ## Providers
 

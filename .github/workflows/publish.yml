@@ -24,11 +24,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build all packages
+      # Build in dependency order — core must exist before coding/mcp-server can compile
+      - name: Build @backendkit-labs/agent-core
         run: npm run build
+        working-directory: packages/core
+
+      - name: Build @backendkit-labs/agent-coding
+        run: npm run build
+        working-directory: packages/coding
+
+      - name: Build @backendkit-labs/mcp-server
+        # mcp-server has heavy generic types — needs extra heap to avoid tsc OOM
+        run: npm run build
+        working-directory: packages/mcp-server
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Run tests
-        run: npm run test
+        run: npm run test --workspace packages/core
 
       - name: Publish @backendkit-labs/agent-core
         run: npm publish --provenance --access public

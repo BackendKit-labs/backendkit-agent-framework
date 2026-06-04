@@ -210,17 +210,51 @@ export class TaskFSM {
   }
 
   /**
-   * Verifica si la tarea ha pasado por un gate específico.
+   * Verifica si la tarea definitivamente ha pasado por un gate específico.
+   *
+   * La verificacion es deliberadamente conservadora: prefiere falsos negativos
+   * (mostrar un gate como pendiente cuando ya paso) antes que falsos positivos
+   * (ocultarlo cuando no paso). getCriticalPath es una funcion de display, no
+   * de enforcement — el FSM ya se encarga de bloquear transiciones invalidas.
+   *
+   * Razon del cambio: el enfoque anterior con indice lineal daba falsos positivos.
+   * Ejemplo: classified → implementation con requiresArchitectureReview=true
+   * reportaba design_review como "ya pasado" porque implementation(idx=3) > design_review(idx=2),
+   * cuando en realidad el FSM permite saltarse design_review desde classified.
+   *
+   * Logica basada en guardas reales del FSM:
+   * - "approved" y estados posteriores garantizan que los gates requeridos se
+   *   cumplieron (las guardas del FSM bloquean esos saltos).
+   * - security_review: si requiresSecurityReview=true y el task esta en qa_review
+   *   o posterior, el FSM garantiza que security_review fue visitado.
+   * - design_review: no hay guarda que lo garantice en todos los caminos
+   *   (classified → implementation esta permitido aunque requiresArchitectureReview=true),
+   *   asi que solo retorna true si el task esta exactamente en ese estado.
    */
   private hasPassedGate(task: TaskContext, gate: TaskStatus): boolean {
-    const order: TaskStatus[] = [
-      'new', 'classified', 'design_review', 'implementation',
-      'security_review', 'qa_review', 'approved', 'commit_allowed',
-      'commit_planning', 'commit_reviewing', 'commit_validated',
-      'commit_rejected', 'commit_failed', 'commit_skipped',
-    ];
-    const currentIdx = order.indexOf(task.status);
-    const gateIdx = order.indexOf(gate);
-    return currentIdx >= gateIdx;
+    const s = task.status;
+
+    if (s === gate) return true;
+
+    // Desde approved en adelante el FSM garantiza que todos los gates requeridos
+    // fueron satisfechos (las guardas son transitivas por la cadena de transiciones).
+    const postApproval: ReadonlySet<TaskStatus> = new Set([
+      'approved', 'commit_allowed', 'commit_planning', 'commit_reviewing',
+      'commit_validated', 'commit_skipped',
+    ]);
+    if (postApproval.has(s)) return true;
+
+    // security_review: la guarda del FSM bloquea qa_review si requiresSecurityReview
+    // y el task no esta en security_review — por lo tanto qa_review garantiza que
+    // security_review fue visitado cuando el flag esta activo.
+    if (gate === 'security_review' && task.requiresSecurityReview) {
+      return s === 'qa_review' || postApproval.has(s);
+    }
+
+    // design_review: no hay guarda que fuerce su visita antes de implementation
+    // desde classified, asi que no podemos asumir que fue visitado.
+    // Solo retorna true si el task esta en ese estado (cubierto arriba).
+
+    return false;
   }
 }

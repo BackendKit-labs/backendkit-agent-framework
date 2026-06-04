@@ -254,7 +254,14 @@ Solicitud: "${input.slice(0, 500)}"`;
 /**
  * Computa scores basados en keywords para cada acción.
  * Usa word boundaries para palabras simples y coincidencia exacta para frases.
+ *
+ * El score de cada accion se capea en MAX_KEYWORD_SCORE para que textos largos
+ * con muchas keywords no acumulen valores arbitrariamente altos que opacan el
+ * margen de 2 puntos usado en detectIntent() para elegir ganador (H-006).
+ * El cap coincide con el denominador de la normalizacion de confianza (/ 15).
  */
+const MAX_KEYWORD_SCORE = 15;
+
 function computeKeywordScores(lower: string): Record<ActionType, number> {
   const scores: Record<string, number> = {};
 
@@ -267,7 +274,7 @@ function computeKeywordScores(lower: string): Record<ActionType, number> {
         }
       }
     }
-    scores[action] = total;
+    scores[action] = Math.min(total, MAX_KEYWORD_SCORE);
   }
 
   return scores as Record<ActionType, number>;

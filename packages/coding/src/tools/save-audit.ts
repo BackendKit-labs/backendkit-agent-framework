@@ -1,4 +1,4 @@
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 
 export const saveAuditTool = defineTool({
     name: 'save_audit',

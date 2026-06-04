@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { defineTool, z, atomicWriteSync } from '@bk/agent-core';
+import { defineTool, z, atomicWriteSync } from '@backendkit-labs/agent-core';
 import { resolveAndCheck, checkFrameworkProtection } from './path-sandbox';
 import { warnIfSecrets } from './secret-scanner';
 

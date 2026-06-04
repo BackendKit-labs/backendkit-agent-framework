@@ -1,4 +1,4 @@
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 import { routeLearning } from '../store/LearningRouter';
 
 export const saveLearningTool = defineTool({

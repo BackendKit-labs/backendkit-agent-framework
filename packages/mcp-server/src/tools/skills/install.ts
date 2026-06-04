@@ -1,4 +1,4 @@
-import { createSkillManager } from '@bk/agent-core';
+import { createSkillManager } from '@backendkit-labs/agent-core';
 
 export interface InstallResult {
     ok: boolean;

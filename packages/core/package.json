@@ -1,5 +1,5 @@
 {
-  "name": "@bk/agent-core",
+  "name": "@backendkit-labs/agent-core",
   "version": "0.14.0",
   "description": "Generic multi-agent engine — model-agnostic, transport-agnostic",
   "main": "dist/index.js",
@@ -50,11 +50,20 @@
       "default": "./dist/skills/index.js"
     }
   },
+  "files": ["dist/", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/core"
+  },
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=20.0.0" },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@backendkit-labs/bulkhead": "^0.2.1",

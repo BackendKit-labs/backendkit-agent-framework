@@ -1,4 +1,4 @@
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 
 export const saveContextTool = defineTool({
     name: 'save_context',

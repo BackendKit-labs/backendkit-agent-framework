@@ -1,4 +1,4 @@
-﻿import type { Skill } from '@bk/agent-core';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 /**
  * Java / Spring Boot skill pack (@bk-java).

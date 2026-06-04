@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
-import type { AgentProfile } from '@bk/agent-core';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Agent file format ─────────────────────────────────────────────────────────
 // Each agent is defined by a pair of files:

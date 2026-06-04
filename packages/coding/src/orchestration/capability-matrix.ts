@@ -1,4 +1,4 @@
-import type { CapabilityMatrix } from '@bk/agent-core';
+import type { CapabilityMatrix } from '@backendkit-labs/agent-core';
 
 /**
  * Default capability matrix for the 10 coding agents.

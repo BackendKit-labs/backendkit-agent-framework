@@ -1,4 +1,4 @@
-﻿import type { Skill } from '@bk/agent-core';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 /**
  * Node.js / TypeScript skill pack (@bk-node).

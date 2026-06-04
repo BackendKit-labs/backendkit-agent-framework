@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 
 const MAX_OUTPUT = 20_000;

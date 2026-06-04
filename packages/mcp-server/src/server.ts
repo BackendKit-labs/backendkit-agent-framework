@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as path from 'path';
-import { getFrameworkDir } from '@bk/agent-core';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
 import { skillsSearch } from './tools/skills/search.js';
 import { skillsInstall } from './tools/skills/install.js';
 import { skillsList } from './tools/skills/list.js';
@@ -36,7 +36,7 @@ const watcher = new FileWatcher();
 // ---------------------------------------------------------------------------
 function buildServer(): McpServer {
     const srv = new McpServer({
-        name: '@bk/mcp-server',
+        name: '@backendkit-labs/mcp-server',
         version: '0.2.0',
     });
     registerTools(srv);
@@ -57,7 +57,7 @@ srv.tool(
     },
     async ({ cwd: _cwd }) => {
         const graphTech = detectStackFromGraph(store);
-        const { SkillActivator } = await import('@bk/agent-core');
+        const { SkillActivator } = await import('@backendkit-labs/agent-core');
         const activator = new SkillActivator();
         const fileTech = await activator.detectStack(CWD);
         const all = [...new Set([...fileTech, ...graphTech])].sort();
@@ -84,7 +84,7 @@ srv.tool(
     },
     async ({ query, cwd }) => {
         // Merge file-based + graph-based stack detection
-        const { SkillActivator } = await import('@bk/agent-core');
+        const { SkillActivator } = await import('@backendkit-labs/agent-core');
         const activator = new SkillActivator();
         const fileTech = await activator.detectStack(cwd ?? CWD);
         const graphTech = detectStackFromGraph(store);

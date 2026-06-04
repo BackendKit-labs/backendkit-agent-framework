@@ -1,18 +1,27 @@
 {
-  "name": "@bk/agent-coding",
+  "name": "@backendkit-labs/agent-coding",
   "version": "0.14.0",
-  "description": "Coding agent profiles and tools for @bk/agent-core",
+  "description": "Coding agent profiles and tools for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/coding"
+  },
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=20.0.0" },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
-    "@bk/agent-core": "*",
+    "@backendkit-labs/agent-core": "*",
     "openai": "^4.0.0"
   },
   "devDependencies": {

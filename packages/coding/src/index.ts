@@ -16,8 +16,8 @@ import {
     type PolicyRule,
     type MCPServerConfig,
     getProjectDir,
-} from '@bk/agent-core';
-export type { AgentEngine } from '@bk/agent-core';
+} from '@backendkit-labs/agent-core';
+export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
 import {
     GLOBAL_BUILTIN_SKILLS,
@@ -237,17 +237,17 @@ export interface CodingEngineOptions {
      * Called before executing write/execute tools (write_file, edit_file, run_command) when
      * iteration mode is manual. Return 'approve', 'approve_all', or 'reject'.
      */
-    onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('@bk/agent-core').ToolApprovalDecision>;
+    onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('@backendkit-labs/agent-core').ToolApprovalDecision>;
     /**
      * Called when maxIterations is reached in 'interactive' mode.
      * Return true to continue, false to stop.
      */
-    onIterationLimit?: (stats: import('@bk/agent-core').IterationStats) => Promise<boolean>;
+    onIterationLimit?: (stats: import('@backendkit-labs/agent-core').IterationStats) => Promise<boolean>;
     /**
      * Called after every single iteration in 'step-by-step' mode.
      * Return true to continue, false to stop.
      */
-    onStep?: (stats: import('@bk/agent-core').IterationStats) => Promise<boolean>;
+    onStep?: (stats: import('@backendkit-labs/agent-core').IterationStats) => Promise<boolean>;
     /**
      * Activate the Orchestrator pipeline:
      * intent detection → domain detection → risk scoring → policy engine → FSM gates.
@@ -322,7 +322,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         historyPath = join(store.projectDir, 'memory', 'history.json');
         // Summarize old episodes with the LLM when they pile up.
         // Runs async (fire-and-forget) so it never blocks a tool call.
-        const episodicSummarizeFn = async (episodes: import('@bk/agent-core').Episode[]): Promise<string> => {
+        const episodicSummarizeFn = async (episodes: import('@backendkit-labs/agent-core').Episode[]): Promise<string> => {
             const provider = providers[opts.defaultProvider] ?? Object.values(providers)[0];
             if (!provider) return episodes.map(e => e.content).join(' | ');
             const list = episodes.map((e, i) =>

@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { atomicWriteSync } from '@bk/agent-core';
-import type { SessionMemoryData } from '@bk/agent-core';
+import { atomicWriteSync } from '@backendkit-labs/agent-core';
+import type { SessionMemoryData } from '@backendkit-labs/agent-core';
 
 export class PersistentMemory implements SessionMemoryData {
     private data: Record<string, string> = {};

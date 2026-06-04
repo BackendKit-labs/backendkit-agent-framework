@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { LLMProvider, LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@bk/agent-core';
+import type { LLMProvider, LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@backendkit-labs/agent-core';
 
 export interface OpenAICompatibleProviderOptions {
     apiKey: string;

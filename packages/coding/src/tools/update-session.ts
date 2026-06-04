@@ -1,4 +1,4 @@
-import type { ToolDefinition, ExecutionContext } from '@bk/agent-core';
+import type { ToolDefinition, ExecutionContext } from '@backendkit-labs/agent-core';
 
 export const updateSessionTool: ToolDefinition = {
     name: 'update_session',

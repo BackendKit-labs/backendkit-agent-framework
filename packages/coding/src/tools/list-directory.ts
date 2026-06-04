@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 
 function listRecursive(dir: string, depth: number, maxDepth: number): string[] {

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { MCPServerConfig } from '@bk/agent-core';
+import type { MCPServerConfig } from '@backendkit-labs/agent-core';
 
 export interface ProviderFileConfig {
     apiKey?: string;

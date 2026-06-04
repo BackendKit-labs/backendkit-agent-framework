@@ -210,7 +210,7 @@ export interface BaseEngineOptions {
  * - The tools they want available
  *
  * Use this as the foundation for any agent type: coding, autonomous, support, etc.
- * For a fully configured coding agent, use createCodingEngine() from @bk/agent-coding.
+ * For a fully configured coding agent, use createCodingEngine() from @backendkit-labs/agent-coding.
  */
 export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
     const agents = new AgentRegistry();

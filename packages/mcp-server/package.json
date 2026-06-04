@@ -1,5 +1,5 @@
 {
-  "name": "@bk/mcp-server",
+  "name": "@backendkit-labs/mcp-server",
   "version": "0.14.0",
   "description": "MCP server for agent-framework — skills, code intelligence, agent context",
   "main": "dist/index.js",
@@ -7,15 +7,23 @@
   "bin": {
     "bk-mcp": "./dist/server.js"
   },
+  "files": ["dist/", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/mcp-server"
+  },
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@bk/agent-core": "*",
-    "@bk/agent-coding": "*",
+    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-coding": "*",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",

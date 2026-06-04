@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { defineTool, z } from '@bk/agent-core';
+import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 
 export const readFileTool = defineTool({

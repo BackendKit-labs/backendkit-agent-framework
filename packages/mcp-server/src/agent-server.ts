@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { CallbackTransport, type AgentEngine } from '@bk/agent-core';
+import { CallbackTransport, type AgentEngine } from '@backendkit-labs/agent-core';
 
 type ZodRawShape = Record<string, z.ZodTypeAny>;
 

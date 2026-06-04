@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@bk/agent-core';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 import { GENERAL_PROMPT } from './prompts/general';
 import { CODER_PROMPT } from './prompts/coder';
 import { BACKEND_PROMPT } from './prompts/backend';

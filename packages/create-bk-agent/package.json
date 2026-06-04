@@ -1,0 +1,33 @@
+{
+  "name": "create-bk-agent",
+  "version": "0.14.0",
+  "description": "Create a new BackendKit agent project",
+  "main": "dist/src/index.js",
+  "bin": {
+    "create-bk-agent": "./dist/bin/create-bk-agent.js"
+  },
+  "files": [
+    "dist/",
+    "templates/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/create-bk-agent"
+  },
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "node scripts/copy-templates.js && npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/prompts": "^2.4.9",
+    "typescript": "^5.4.0"
+  }
+}

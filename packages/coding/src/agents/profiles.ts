@@ -12,7 +12,7 @@ import { PROJECT_MANAGER_PROMPT } from './prompts/project-manager';
 
 const ADVANCED_MEMORY_TOOLS = ['memory_remember', 'memory_recall', 'memory_save_knowledge', 'memory_search_knowledge', 'memory_learn_pattern'];
 const MEMORY_TOOLS          = ['save_context', 'save_learning', 'save_user_preference', 'save_audit', 'get_latest_audit', 'list_audits', 'update_session', ...ADVANCED_MEMORY_TOOLS];
-const ORCHESTRATOR_TOOLS = [...MEMORY_TOOLS];
+const ORCHESTRATOR_TOOLS = [...MEMORY_TOOLS, 'list_directory', 'search_files'];
 const READ_ONLY_TOOLS    = ['read_file', 'list_directory', 'search_files', ...MEMORY_TOOLS];
 const EXEC_TOOLS         = [...READ_ONLY_TOOLS, 'run_command'];
 const WRITE_TOOLS        = [...EXEC_TOOLS, 'write_file', 'edit_file'];

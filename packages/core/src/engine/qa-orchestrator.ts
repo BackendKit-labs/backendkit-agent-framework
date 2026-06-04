@@ -46,13 +46,20 @@ export interface QaContext {
 }
 
 /**
- * Auto-avanza unicamente los gates que la tarea REQUIERE (segun sus flags
- * requiresArchitectureReview / requiresSecurityReview / requiresQaApproval),
- * registrando GO silencioso cuando no hay hallazgos. Solo actua si la respuesta
- * tiene codigo sustancial (>= 8 lineas).
+ * Avanza unicamente los gates que la tarea REQUIERE (segun sus flags
+ * requiresArchitectureReview / requiresSecurityReview / requiresQaApproval).
+ * Solo actua si la respuesta tiene codigo sustancial (>= 8 lineas).
  *
  * Un gate no requerido no se transiciona ni se registra: hacerlo contaminaba el
- * audit trail con GO de gates (architecture/security) que nunca aplicaban (H-003).
+ * audit trail con GO de gates que nunca aplicaban (H-003).
+ *
+ * Distincion clave por tipo de gate:
+ * - architecture / security: no tienen reviewer dedicado en este flujo, asi que
+ *   un gate requerido se auto-pasa con GO silencioso.
+ * - qa: SIEMPRE lo decide un reviewer real (qa-engineer dedicado o review inline).
+ *   Aqui solo posicionamos la tarea en qa_review; el veredicto lo registra ese
+ *   reviewer. Si el reviewer no existe, la tarea queda en qa_review SIN un GO
+ *   falso "sin revisiones pendientes", e isCommitAllowed la mantiene bloqueada.
  */
 export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
     const { orchestrationResult, orchestrator, qaService, clean } = ctx;
@@ -60,15 +67,15 @@ export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
     if (isInformationalRequest(orchestrationResult.task.rawPrompt)) return;
 
     const { task } = orchestrationResult;
-    const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
-    const gates: Array<{ status: TaskStatus; gateName: string; agentId: string; required: boolean }> = [
+
+    // Gates auto-pasables: requeridos pero sin reviewer dedicado → GO silencioso.
+    const autoPassGates: Array<{ status: TaskStatus; gateName: string; agentId: string; required: boolean }> = [
         { status: 'design_review',   gateName: 'architecture', agentId: 'architecture', required: task.requiresArchitectureReview },
         { status: 'security_review', gateName: 'security',     agentId: 'security',     required: task.requiresSecurityReview },
-        { status: 'qa_review',       gateName: 'qa',           agentId: qaAgentId,      required: task.requiresQaApproval },
     ];
 
     const reporter = orchestrator.getAuditReporter();
-    for (const gate of gates) {
+    for (const gate of autoPassGates) {
         if (!gate.required) continue;
         const result = orchestrator.transitionTask(orchestrationResult.task, gate.status);
         if (result.allowed && result.task) {
@@ -80,6 +87,13 @@ export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
                 true,
             ).catch(() => undefined);
         }
+    }
+
+    // QA: solo posicionar en qa_review. El GO/NO-GO lo emite el reviewer real
+    // (processQaEngineerResponse o processInlineQaReview), nunca este auto-avance.
+    if (task.requiresQaApproval) {
+        const toQa = orchestrator.transitionTask(orchestrationResult.task, 'qa_review');
+        if (toQa.allowed && toQa.task) orchestrationResult.task = toQa.task;
     }
 }
 

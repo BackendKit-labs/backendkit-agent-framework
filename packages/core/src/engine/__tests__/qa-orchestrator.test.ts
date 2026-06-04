@@ -89,15 +89,17 @@ describe('advanceRequiredGates (H-003)', () => {
         expect(recordGate).not.toHaveBeenCalled();
     });
 
-    it('solo avanza/registra el gate de QA cuando solo requiresQaApproval', async () => {
+    it('posiciona en qa_review SIN registrar GO de QA (lo decide el reviewer real)', async () => {
         const { orchestrator, recordGate } = makeOrchestrator();
         const qaService = makeQaService();
         const ctx = makeCtx({ task: implTask({ requiresQaApproval: true }), orchestrator, qaService });
 
         await advanceRequiredGates(ctx);
 
+        // Mueve a qa_review para que corra el reviewer, pero no fabrica un GO:
+        // si el reviewer no existe, NO debe quedar un "GO sin revisiones pendientes" falso.
         expect(ctx.orchestrationResult.task.status).toBe('qa_review');
-        expect(gatesRecorded(recordGate)).toEqual(['qa']);
+        expect(recordGate).not.toHaveBeenCalled();
     });
 
     it('registra architecture pero NO security/qa cuando solo requiresArchitectureReview', async () => {
@@ -111,7 +113,7 @@ describe('advanceRequiredGates (H-003)', () => {
         expect(gatesRecorded(recordGate)).toEqual(['architecture']);
     });
 
-    it('avanza security y qa (en orden) cuando ambos son requeridos, satisfaciendo el guard del FSM', async () => {
+    it('auto-pasa security y posiciona en qa_review (solo security registra GO) satisfaciendo el guard del FSM', async () => {
         const { orchestrator, recordGate } = makeOrchestrator();
         const qaService = makeQaService();
         const ctx = makeCtx({
@@ -121,8 +123,9 @@ describe('advanceRequiredGates (H-003)', () => {
 
         await advanceRequiredGates(ctx);
 
+        // security se auto-pasa con GO; qa solo se posiciona (sin GO automático).
         expect(ctx.orchestrationResult.task.status).toBe('qa_review');
-        expect(gatesRecorded(recordGate)).toEqual(['security', 'qa']);
+        expect(gatesRecorded(recordGate)).toEqual(['security']);
     });
 
     it('no hace nada con código trivial (< 8 líneas)', async () => {

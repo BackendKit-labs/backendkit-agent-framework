@@ -1,0 +1,23 @@
+{
+  "name": "my-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal agent — full control over engine configuration",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-core": "^0.14.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": { "node": ">=20.0.0" }
+}

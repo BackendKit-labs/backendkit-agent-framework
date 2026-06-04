@@ -3,7 +3,9 @@
   "version": "0.14.0",
   "private": true,
   "workspaces": [
-    "packages/*",
+    "packages/core",
+    "packages/coding",
+    "packages/mcp-server",
     "examples/*"
   ],
   "scripts": {

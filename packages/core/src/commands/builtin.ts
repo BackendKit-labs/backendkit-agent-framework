@@ -106,7 +106,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         }
     });
 
-    registry.register('/skills', 'Gestionar skills: list, install, create, generate, update, uninstall', async (ctx) => {
+    registry.register('/skills', 'Gestionar skills: list, install, create, generate, update, uninstall, reload', async (ctx) => {
         const parts = ctx.args.trim().split(/\s+/);
         const sub = parts[0];
 
@@ -134,7 +134,8 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                     projectDir: isGlobal ? undefined : ctx.projectDir,
                 });
                 const scope = isGlobal ? 'global' : 'proyecto';
-                ctx.emit(`✓ Skill instalada (scope: ${scope}). Reinicia para activarla.`);
+                await ctx.reloadSkills?.();
+                ctx.emit(`✓ Skill instalada (scope: ${scope}).`);
             } catch (err) {
                 ctx.emit(`✗ Error al instalar: ${(err as Error).message}`);
             }
@@ -183,6 +184,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             ].join('\n');
             await fs.mkdir(dir, { recursive: true });
             await atomicWrite(filePath, template);
+            await ctx.reloadSkills?.();
             ctx.emit(`✓ Skill creada: ${filePath}`);
             return;
         }
@@ -255,6 +257,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             }
             await fs.mkdir(dir, { recursive: true });
             await atomicWrite(filePath, md);
+            await ctx.reloadSkills?.();
             ctx.emit(`✓ Skill "${skill.name}" generada: ${filePath}`);
             return;
         }
@@ -347,9 +350,21 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
+        // ── /skills reload ────────────────────────────────────────────────────
+        if (sub === 'reload') {
+            if (!ctx.reloadSkills) {
+                ctx.emit('✗ Reload no disponible en este contexto.');
+                return;
+            }
+            ctx.emit('Recargando skills…');
+            await ctx.reloadSkills();
+            ctx.emit('✓ Skills recargadas.');
+            return;
+        }
+
         // ── /skills list (default) ────────────────────────────────────────────
         const SUBCOMMANDS_HINT =
-            '\n\nSubcomandos: install | create | generate | update | uninstall';
+            '\n\nSubcomandos: install | create | generate | update | uninstall | reload';
 
         if (!ctx.skills?.length) {
             ctx.emit('No skills cargadas.' + SUBCOMMANDS_HINT);

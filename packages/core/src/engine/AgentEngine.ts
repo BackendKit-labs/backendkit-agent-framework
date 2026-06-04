@@ -241,6 +241,18 @@ export class AgentEngine {
     }
 
     /**
+     * Marks YAML skills as stale so the next run() reloads them from disk.
+     * Call after installing, creating, or generating skills so changes take effect
+     * without restarting the engine.
+     * Built-in (in-memory) skills are never affected — only the YAML layers are reloaded.
+     */
+    reloadSkills(): void {
+        const builtins = this.opts.skills ?? [];
+        this.allSkills = [...builtins];
+        this.yamlSkillsLoaded = false;
+    }
+
+    /**
      * Direct single-turn LLM call — no tools, no conversation history, no transport events.
      * Useful for slash commands that need AI-generated content (e.g. /skills generate).
      * Uses the engine's default provider and model.

@@ -64,6 +64,12 @@ export interface CommandContext {
      * Not available in all host environments — commands must degrade gracefully when absent.
      */
     llm?: (prompt: string) => Promise<string>;
+    /**
+     * Reloads skills from disk into the engine and refreshes the command-context cache.
+     * Call after installing, creating, or generating skills so they take effect immediately.
+     * Not available in all host environments — commands must degrade gracefully when absent.
+     */
+    reloadSkills?: () => Promise<void>;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

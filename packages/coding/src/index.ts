@@ -239,6 +239,16 @@ export interface CodingEngineOptions {
      */
     onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<import('@bk/agent-core').ToolApprovalDecision>;
     /**
+     * Called when maxIterations is reached in 'interactive' mode.
+     * Return true to continue, false to stop.
+     */
+    onIterationLimit?: (stats: import('@bk/agent-core').IterationStats) => Promise<boolean>;
+    /**
+     * Called after every single iteration in 'step-by-step' mode.
+     * Return true to continue, false to stop.
+     */
+    onStep?: (stats: import('@bk/agent-core').IterationStats) => Promise<boolean>;
+    /**
      * Activate the Orchestrator pipeline:
      * intent detection → domain detection → risk scoring → policy engine → FSM gates.
      *
@@ -468,6 +478,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(onQAReview ? { onQAReview } : {}),
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
+        ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
+        ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(memorySystem ? { memorySystem } : {}),
         ...(historyPath ? { historyPath } : {}),

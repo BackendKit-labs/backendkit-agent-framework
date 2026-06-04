@@ -1,6 +1,11 @@
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import { run, isOk } from '@backendkit-labs/result';
 import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { createSkillManager } from '../skills/manager';
+import { parseMdSkill } from '../skills/parse-md-skill';
+import { getFrameworkDir } from '../shared/utils/project-key';
+import { atomicWrite } from '../shared/utils/atomic-write';
 import {
     createCheckpoint,
     listCheckpoints,
@@ -101,7 +106,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         }
     });
 
-    registry.register('/skills', 'List loaded skills or install a pack', async (ctx) => {
+    registry.register('/skills', 'Gestionar skills: list, install, create, generate, update, uninstall', async (ctx) => {
         const parts = ctx.args.trim().split(/\s+/);
         const sub = parts[0];
 
@@ -110,11 +115,11 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             const source = parts[1];
             if (!source) {
                 ctx.emit(
-                    'Uso: /skills install <url>\n' +
+                    'Uso: /skills install <url> [--global]\n' +
                     '  /skills install https://skills.sh/owner/repo\n' +
                     '  /skills install https://github.com/owner/repo\n' +
                     '  /skills install https://skills.sh/owner/repo --global\n\n' +
-                    'Sin --global, la skill se instala solo para este proyecto.',
+                    'Sin --global, el pack se instala solo para este proyecto.',
                 );
                 return;
             }
@@ -136,12 +141,224 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
+        // ── /skills create <nombre> [--global] ───────────────────────────────
+        if (sub === 'create') {
+            const name = parts[1];
+            if (!name) {
+                ctx.emit(
+                    'Uso: /skills create <nombre> [--global]\n' +
+                    '  /skills create mi-skill           → crea en el proyecto actual\n' +
+                    '  /skills create mi-skill --global  → crea en el directorio global\n\n' +
+                    'El nombre debe ser kebab-case (ej: code-review-nestjs, deploy-docker).',
+                );
+                return;
+            }
+            if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+                ctx.emit('✗ El nombre debe ser kebab-case (solo letras minúsculas, números y guiones).');
+                return;
+            }
+            const isGlobal = parts.includes('--global');
+            const appName = ctx.appName ?? 'bk-agent';
+            const dir = isGlobal || !ctx.projectDir
+                ? path.join(getFrameworkDir(appName), 'skills', 'global')
+                : path.join(ctx.projectDir, 'skills');
+            const filePath = path.join(dir, `${name}.md`);
+
+            const exists = await run(() => fs.access(filePath));
+            if (isOk(exists)) {
+                ctx.emit(`✗ Ya existe una skill con ese nombre: ${filePath}`);
+                return;
+            }
+
+            const template = [
+                '---',
+                `name: ${name}`,
+                'version: 1.0.0',
+                'description: ',
+                'triggers:',
+                '  - ',
+                '---',
+                '',
+                '',
+            ].join('\n');
+            await fs.mkdir(dir, { recursive: true });
+            await atomicWrite(filePath, template);
+            ctx.emit(`✓ Skill creada: ${filePath}`);
+            return;
+        }
+
+        // ── /skills generate <descripción> [--global] ────────────────────────
+        if (sub === 'generate') {
+            const isGlobal = parts.includes('--global');
+            const description = parts.slice(1).filter(p => p !== '--global').join(' ');
+            if (!description) {
+                ctx.emit(
+                    'Uso: /skills generate <descripción> [--global]\n' +
+                    '  /skills generate "proceso de code review para NestJS"\n' +
+                    '  /skills generate "flujo de deploy con Docker Compose" --global',
+                );
+                return;
+            }
+            if (!ctx.llm) {
+                ctx.emit(
+                    '✗ LLM no disponible en este contexto.\n' +
+                    'Usá /skills create <nombre> para crear la skill manualmente.',
+                );
+                return;
+            }
+
+            const appName = ctx.appName ?? 'bk-agent';
+            const dir = isGlobal || !ctx.projectDir
+                ? path.join(getFrameworkDir(appName), 'skills', 'global')
+                : path.join(ctx.projectDir, 'skills');
+
+            ctx.emit('Generando skill…');
+            const prompt =
+                `Generate a skill file in .md format with YAML frontmatter.\n` +
+                `Output raw file content only — no markdown code fences, no extra explanation.\n\n` +
+                `Required format:\n` +
+                `---\n` +
+                `name: <kebab-case name, max 4 words>\n` +
+                `version: 1.0.0\n` +
+                `description: <one concise line>\n` +
+                `triggers:\n` +
+                `  - <keyword1>\n` +
+                `  - <keyword2>\n` +
+                `  - <keyword3>\n` +
+                `---\n\n` +
+                `<Clear step-by-step instructions in markdown>\n\n` +
+                `Description: "${description.slice(0, 500)}"`;
+
+            let md: string;
+            try {
+                const raw = await ctx.llm(prompt);
+                md = raw.replace(/^```(?:md|markdown)?\n?/im, '').replace(/```\s*$/m, '').trim();
+            } catch (err) {
+                ctx.emit(`✗ Error generando skill: ${(err as Error).message}`);
+                return;
+            }
+
+            const skill = parseMdSkill(md);
+            if (!skill?.name) {
+                ctx.emit(
+                    '✗ La respuesta del LLM no tiene el formato esperado.\n' +
+                    'Usá /skills create <nombre> para crear la skill manualmente.',
+                );
+                return;
+            }
+
+            const filePath = path.join(dir, `${skill.name}.md`);
+            const exists = await run(() => fs.access(filePath));
+            if (isOk(exists)) {
+                ctx.emit(`✗ Ya existe una skill con ese nombre: ${filePath}`);
+                return;
+            }
+            await fs.mkdir(dir, { recursive: true });
+            await atomicWrite(filePath, md);
+            ctx.emit(`✓ Skill "${skill.name}" generada: ${filePath}`);
+            return;
+        }
+
+        // ── /skills uninstall <pack> ──────────────────────────────────────────
+        if (sub === 'uninstall') {
+            const pack = parts[1];
+            const appName = ctx.appName ?? 'bk-agent';
+            const manager = createSkillManager(appName);
+
+            if (!pack) {
+                const packs = await manager.list();
+                if (!packs.length) {
+                    ctx.emit('No hay packs instalados.\nUsá /skills install <url> para instalar uno.');
+                    return;
+                }
+                if (ctx.prompt) {
+                    const options = packs.map(p => ({
+                        label: `${p.pack.padEnd(26)} skills: ${p.skills.join(', ')}`,
+                        value: p.pack,
+                    }));
+                    const selected = await ctx.prompt('Seleccioná el pack a desinstalar:', options);
+                    if (!selected) return;
+                    try {
+                        await manager.uninstall(selected);
+                        ctx.emit(`✓ Pack "${selected}" desinstalado.`);
+                    } catch (err) {
+                        ctx.emit(`✗ Error: ${(err as Error).message}`);
+                    }
+                } else {
+                    const lines = packs.map(p =>
+                        `  ${p.pack.padEnd(26)} ${p.skills.join(', ')}`,
+                    );
+                    ctx.emit('Packs instalados:\n' + lines.join('\n') + '\n\nUsá: /skills uninstall <pack>');
+                }
+                return;
+            }
+
+            try {
+                await manager.uninstall(pack);
+                ctx.emit(`✓ Pack "${pack}" desinstalado.`);
+            } catch (err) {
+                ctx.emit(`✗ Error: ${(err as Error).message}`);
+            }
+            return;
+        }
+
+        // ── /skills update <pack> ─────────────────────────────────────────────
+        if (sub === 'update') {
+            const pack = parts[1];
+            const appName = ctx.appName ?? 'bk-agent';
+            const manager = createSkillManager(appName);
+
+            if (!pack) {
+                const packs = await manager.list();
+                if (!packs.length) {
+                    ctx.emit('No hay packs instalados.\nUsá /skills install <url> para instalar uno.');
+                    return;
+                }
+                if (ctx.prompt) {
+                    const options = packs.map(p => ({
+                        label: `${p.pack.padEnd(26)} instalado: ${p.installedAt.slice(0, 10)}`,
+                        value: p.pack,
+                    }));
+                    const selected = await ctx.prompt('Seleccioná el pack a actualizar:', options);
+                    if (!selected) return;
+                    try {
+                        ctx.emit(`Actualizando "${selected}"…`);
+                        await manager.update(selected);
+                        ctx.emit(`✓ Pack "${selected}" actualizado. Reinicia para aplicar los cambios.`);
+                    } catch (err) {
+                        ctx.emit(`✗ Error: ${(err as Error).message}`);
+                    }
+                } else {
+                    const lines = packs.map(p =>
+                        `  ${p.pack.padEnd(26)} instalado: ${p.installedAt.slice(0, 10)}`,
+                    );
+                    ctx.emit('Packs instalados:\n' + lines.join('\n') + '\n\nUsá: /skills update <pack>');
+                }
+                return;
+            }
+
+            try {
+                ctx.emit(`Actualizando "${pack}"…`);
+                await manager.update(pack);
+                ctx.emit(`✓ Pack "${pack}" actualizado. Reinicia para aplicar los cambios.`);
+            } catch (err) {
+                ctx.emit(`✗ Error: ${(err as Error).message}`);
+            }
+            return;
+        }
+
         // ── /skills list (default) ────────────────────────────────────────────
-        if (!ctx.skills?.length) { ctx.emit('No skills cargadas.'); return; }
+        const SUBCOMMANDS_HINT =
+            '\n\nSubcomandos: install | create | generate | update | uninstall';
+
+        if (!ctx.skills?.length) {
+            ctx.emit('No skills cargadas.' + SUBCOMMANDS_HINT);
+            return;
+        }
 
         if (ctx.prompt) {
             const options = ctx.skills.map(s => ({
-                label: `${s.name.padEnd(24)} ${s.description}`,
+                label: `${s.name.padEnd(26)} ${s.description}`,
                 value: s.name,
             }));
             const INSTALL = '__install__';
@@ -151,11 +368,9 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             ]);
 
             if (!selected || selected === INSTALL) {
-                ctx.emit(
-                    selected === INSTALL
-                        ? 'Para instalar un pack escribí:\n  /skills install https://skills.sh/owner/repo'
-                        : '',
-                );
+                if (selected === INSTALL) {
+                    ctx.emit('Para instalar un pack escribí:\n  /skills install https://skills.sh/owner/repo');
+                }
                 return;
             }
 
@@ -171,9 +386,9 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             }
         } else {
             const lines = ctx.skills.map(s =>
-                `  ${s.name.padEnd(24)} ${s.description}${s.scope === 'project' ? ' [proyecto]' : ''}`,
+                `  ${s.name.padEnd(26)} ${s.description}${s.scope === 'project' ? ' [proyecto]' : ''}`,
             );
-            ctx.emit('Skills:\n' + lines.join('\n'));
+            ctx.emit('Skills:\n' + lines.join('\n') + SUBCOMMANDS_HINT);
         }
     });
 

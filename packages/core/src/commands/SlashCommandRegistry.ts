@@ -59,6 +59,11 @@ export interface CommandContext {
     mcpAdd?: (config: unknown) => Promise<void>;
     /** Remove an MCP server by name at runtime. */
     mcpRemove?: (name: string) => Promise<void>;
+    /**
+     * Raw LLM call for commands that need AI-generated content (e.g. /skills generate).
+     * Not available in all host environments — commands must degrade gracefully when absent.
+     */
+    llm?: (prompt: string) => Promise<string>;
 }
 
 export type SlashCommandHandler = (ctx: CommandContext) => Promise<void>;

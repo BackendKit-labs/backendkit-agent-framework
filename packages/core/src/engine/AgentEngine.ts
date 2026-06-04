@@ -240,6 +240,27 @@ export class AgentEngine {
         return this.opts.mcpManager;
     }
 
+    /**
+     * Direct single-turn LLM call — no tools, no conversation history, no transport events.
+     * Useful for slash commands that need AI-generated content (e.g. /skills generate).
+     * Uses the engine's default provider and model.
+     */
+    async callLLM(prompt: string): Promise<string> {
+        const provider = this.opts.providers.resolve(undefined, this.opts.defaultProvider);
+        return new Promise<string>((resolve, reject) => {
+            const chunks: string[] = [];
+            provider.chat(
+                [{ role: 'user', content: prompt }],
+                [],
+                {
+                    onChunk(delta) { chunks.push(delta); },
+                    onDone()       { resolve(chunks.join('')); },
+                    onError(err)   { reject(err); },
+                },
+            );
+        });
+    }
+
     private getProviderForProfile(profile: AgentProfile): LLMProvider {
         return this.opts.providers.resolve(profile.provider, this.opts.defaultProvider);
     }

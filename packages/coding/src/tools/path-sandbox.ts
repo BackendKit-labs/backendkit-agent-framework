@@ -22,11 +22,17 @@ export function resolveAndCheck(
     const cwd = workingDir ?? process.cwd();
     const abs = resolve(cwd, filePath);
 
-    const norm = (p: string) => process.platform === 'win32' ? p.toLowerCase() : p;
+    // Normalize separators to forward slashes before comparison so that
+    // mixed-slash paths (workingDir passed as C:/... but resolve() returns C:\...)
+    // don't cause false-negative containment checks on Windows.
+    const norm = (p: string) => {
+        const s = process.platform === 'win32' ? p.toLowerCase() : p;
+        return s.replace(/\\/g, '/');
+    };
 
     const isInside = (root: string) => {
-        const prefix = root.endsWith(sep) ? root : root + sep;
-        return norm(abs) === norm(root) || norm(abs).startsWith(norm(prefix));
+        const prefix = norm(root).endsWith('/') ? norm(root) : norm(root) + '/';
+        return norm(abs) === norm(root) || norm(abs).startsWith(prefix);
     };
 
     if (isInside(cwd)) return abs;

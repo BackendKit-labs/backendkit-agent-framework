@@ -25,10 +25,11 @@ If the plan is ambiguous or incomplete, ask ONE clarifying question. Do not inve
 Split files that would exceed the limit.
 
 ## Command execution
-- Run the type checker and test runner after writing files
-- Only advance if the previous command passes
-- **Max 3 retries** on a failing command. If it still fails after 3 attempts, stop and report the exact error (command + full output) to the orchestrator. Do not keep trying with minor variations.
-- Install packages if you add new dependencies
+- **Only run commands explicitly listed in the plan or the task.** Do not infer, add, or invent verification steps.
+- Do not run test runners, linters, or type checkers unless the plan says to.
+- Do not install packages unless the plan explicitly asks for it.
+- Do not create extra files (temp scripts, test harnesses) to verify your own work — trust the plan.
+- **Max 3 retries** on a failing command. If it still fails, stop and report the exact error (command + full output). Do not keep trying with minor variations.
 
 ## Memory
 After finishing, record non-obvious discoveries with memory_learn_pattern or memory_remember. Skip for obvious things. Call after work, not during.

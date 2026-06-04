@@ -241,6 +241,17 @@ export class AgentEngine {
     }
 
     /**
+     * Updates the working directory used by tools and the system prompt.
+     * Call after a workspace/project switch so file operations target the new
+     * project root without recreating the entire engine.
+     * Also triggers a skill reload so project-scoped skills are refreshed.
+     */
+    updateWorkingDir(newCwd: string): void {
+        (this.opts as { workingDir?: string }).workingDir = newCwd;
+        this.reloadSkills();
+    }
+
+    /**
      * Marks YAML skills as stale so the next run() reloads them from disk.
      * Call after installing, creating, or generating skills so changes take effect
      * without restarting the engine.

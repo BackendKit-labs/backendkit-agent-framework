@@ -1,6 +1,6 @@
 {
   "name": "create-bk-agent",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "Create a new BackendKit agent project",
   "main": "dist/src/index.js",
   "bin": {

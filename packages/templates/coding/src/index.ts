@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import * as readline from 'readline';
-import { createCodingEngine } from '@backendkit-labs/agent-coding';
-import { CallbackTransport } from '@backendkit-labs/agent-core';
+import { createCodingEngine, TerminalTransport } from '@backendkit-labs/agent-coding';
 
 // ── Provider setup ────────────────────────────────────────────────────────────
 
@@ -16,12 +15,7 @@ if (!apiKey) {
 
 // ── Engine ────────────────────────────────────────────────────────────────────
 
-const transport = new CallbackTransport((event) => {
-    if (event.type === 'token')       process.stdout.write(event.content);
-    if (event.type === 'tool_call')   console.log(`\n⚙  ${event.name}`);
-    if (event.type === 'block_end')   console.log();
-    if (event.type === 'error')       console.error(`\nError: ${event.message}`);
-});
+const transport = new TerminalTransport();
 
 const engine = createCodingEngine({
     providers:       { [provider]: { apiKey, ...(model ? { model } : {}) } },
@@ -36,7 +30,7 @@ const engine = createCodingEngine({
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 function prompt() {
-    rl.question('\n> ', async (input) => {
+    rl.question('\n❯ ', async (input) => {
         const trimmed = input.trim();
         if (!trimmed || trimmed === '/exit') { rl.close(); return; }
         await engine.run(trimmed);

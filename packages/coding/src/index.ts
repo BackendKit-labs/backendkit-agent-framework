@@ -86,6 +86,7 @@ export { AgentLoader } from './agents/AgentLoader';
 export type { AgentLoaderOptions } from './agents/AgentLoader';
 export { InitWorkflow } from './workflows/InitWorkflow';
 export type { InitMode } from './workflows/InitWorkflow';
+export { TerminalTransport } from './transport/TerminalTransport';
 export { ProjectStore } from './store/ProjectStore';
 export { PersistentMemory } from './store/PersistentMemory';
 export { ConfigLoader } from './config/ConfigLoader';

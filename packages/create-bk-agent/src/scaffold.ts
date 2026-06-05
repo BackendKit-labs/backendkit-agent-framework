@@ -56,6 +56,8 @@ const DEPLOY_SCRIPTS: Partial<Record<DeployMode, (s: Record<string, string>) => 
     },
 };
 
+const MCP_DEPLOY_MODES: DeployMode[] = ['mcp-http', 'mcp-stdio', 'hybrid'];
+
 function patchPackageJson(
     dir:         string,
     projectName: string,
@@ -70,6 +72,11 @@ function patchPackageJson(
     if (deployMode && DEPLOY_SCRIPTS[deployMode]) {
         pkg.scripts ??= {};
         DEPLOY_SCRIPTS[deployMode]!(pkg.scripts);
+    }
+
+    if (deployMode && MCP_DEPLOY_MODES.includes(deployMode)) {
+        pkg.dependencies ??= {};
+        pkg.dependencies['@backendkit-labs/mcp-server'] ??= '^0.16.0';
     }
 
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');

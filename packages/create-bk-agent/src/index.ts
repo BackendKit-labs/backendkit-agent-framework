@@ -2,6 +2,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { askQuestions } from './prompts';
 import { scaffold, installDeps } from './scaffold';
+import { runAdd } from './add/index';
+import type { UserChoices } from './prompts';
 
 // Read version from package.json so it always matches the published version
 const FRAMEWORK_VERSION: string = (() => {
@@ -13,15 +15,62 @@ const FRAMEWORK_VERSION: string = (() => {
     }
 })();
 
-const NEXT_STEPS: Record<string, string[]> = {
-    coding:        ['Edit AGENT.md to describe your project', 'npm run dev'],
-    'domain-agent': ['Rename agents/ and tools/ to match your domain', 'Implement tools in src/tools/', 'npm run dev'],
-    autonomous:    ['Configure triggers in src/index.ts', 'npm run dev (or npm start in production)'],
-    'mcp-server':  ['Register tools in src/server.ts', 'npm run build && npx my-mcp-server'],
-    minimal:       ['Implement your LLMProvider in src/index.ts', 'npm run dev'],
-};
+// ── Human-readable label for the scaffold banner ──────────────────────────────
+
+function describeChoices(choices: UserChoices): string {
+    const arch: Record<string, string> = {
+        'multi-agent': 'Multi-agent',
+        single:        'Single-agent',
+        coding:        'Coding assistant',
+        autonomous:    'Autonomous daemon',
+        minimal:       'Minimal / embedded',
+    };
+    const deploy: Record<string, string> = {
+        repl:       'Terminal REPL',
+        'mcp-http': 'MCP Server (HTTP)',
+        'mcp-stdio':'MCP Server (stdio)',
+        hybrid:     'REPL + MCP Server',
+        library:    'Library',
+    };
+
+    const archLabel = arch[choices.architecture] ?? choices.architecture;
+    if (!choices.deployMode) return archLabel;
+    return `${archLabel} — ${deploy[choices.deployMode] ?? choices.deployMode}`;
+}
+
+// ── Next steps after scaffold ─────────────────────────────────────────────────
+
+function buildNextSteps(choices: UserChoices): string[] {
+    const { architecture: arch, deployMode: mode } = choices;
+
+    // Self-contained architectures
+    if (arch === 'coding')     return ['Edit AGENT.md to describe your project', 'npm run dev'];
+    if (arch === 'autonomous') return ['Configure triggers in src/index.ts', 'npm run dev'];
+    if (arch === 'minimal')    return ['Implement your LLM provider in src/index.ts', 'npm run dev'];
+
+    // Layered architectures (multi-agent, single) — vary by deploy mode
+    const domainSteps =
+        arch === 'multi-agent'
+            ? ['Rename agents/ and tools/ to match your domain', 'Implement tools in src/tools/']
+            : ['Implement tools in src/tools/'];
+
+    if (mode === 'repl')       return [...domainSteps, 'npm run dev'];
+    if (mode === 'mcp-http')   return [...domainSteps, 'npm run server   # starts HTTP MCP on port 3001'];
+    if (mode === 'mcp-stdio')  return [...domainSteps, 'npm run build', 'node dist/server.js'];
+    if (mode === 'hybrid')     return [...domainSteps, 'npm run dev', '# in another terminal:', 'npm run server'];
+    if (mode === 'library')    return [...domainSteps, '# import { createEngine } from \'./src/engine\' in your app'];
+
+    return ['npm run dev'];
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 export async function main(argv: string[]): Promise<void> {
+    if (argv[2] === 'add') {
+        runAdd(argv.slice(3), process.cwd());
+        return;
+    }
+
     const projectArg = argv[2];
 
     console.log(`\n✨  create-bk-agent  v${FRAMEWORK_VERSION}\n`);
@@ -41,7 +90,7 @@ export async function main(argv: string[]): Promise<void> {
         process.exit(1);
     }
 
-    console.log(`\nCreating ${choices.template} agent in ./${choices.projectName} ...`);
+    console.log(`\nCreating ${describeChoices(choices)} agent in ./${choices.projectName} ...`);
 
     try {
         scaffold(choices, targetDir);
@@ -53,7 +102,7 @@ export async function main(argv: string[]): Promise<void> {
     console.log('Installing dependencies...\n');
     installDeps(targetDir);
 
-    const steps = NEXT_STEPS[choices.template] ?? ['npm run dev'];
+    const steps = buildNextSteps(choices);
 
     console.log(`
 ✅  Done! Your agent is ready.

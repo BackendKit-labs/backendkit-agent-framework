@@ -22,4 +22,4 @@ const server = new AgentMCPServer({
     engineFactory: (transport: CallbackTransport) => createEngine(transport),
 });
 
-await server.startStdio();
+void (async () => { await server.startStdio(); })();

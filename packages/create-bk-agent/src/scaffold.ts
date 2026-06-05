@@ -76,7 +76,7 @@ function patchPackageJson(
 
     if (deployMode && MCP_DEPLOY_MODES.includes(deployMode)) {
         pkg.dependencies ??= {};
-        pkg.dependencies['@backendkit-labs/mcp-server'] ??= '^0.16.0';
+        pkg.dependencies['@backendkit-labs/mcp-server'] ??= '^0.15.0';
     }
 
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');

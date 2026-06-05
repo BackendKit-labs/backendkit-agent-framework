@@ -25,8 +25,9 @@ if (!apiKey) { console.error('Missing API key'); process.exit(1); }
 
 // ── Autonomous agent ──────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const agent = createAutonomousAgent({
-    providers:       { [provider]: { apiKey } },
+    providers:       { [provider]: { apiKey } } as any,
     defaultProvider: provider,
     agents:          [monitorAgent],
     defaultAgent:    'monitor',
@@ -56,9 +57,11 @@ const agent = createAutonomousAgent({
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-await agent.start();
-console.log('Autonomous agent started.');
-console.log('Webhook listening on port', process.env.WEBHOOK_PORT ?? 3000);
+void (async () => {
+    await agent.start();
+    console.log('Autonomous agent started.');
+    console.log('Webhook listening on port', process.env.WEBHOOK_PORT ?? 3000);
 
-process.on('SIGTERM', async () => { await agent.stop(); process.exit(0); });
-process.on('SIGINT',  async () => { await agent.stop(); process.exit(0); });
+    process.on('SIGTERM', async () => { await agent.stop(); process.exit(0); });
+    process.on('SIGINT',  async () => { await agent.stop(); process.exit(0); });
+})();

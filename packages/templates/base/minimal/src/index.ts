@@ -19,6 +19,7 @@ const myProvider: LLMProvider = {
 const myAgent: AgentProfile = {
     id: 'my-agent',
     name: 'My Agent',
+    icon: '🤖',
     description: 'TODO: describe your agent',
     allowedTools: [],
     delegatesTo: [],
@@ -36,5 +37,7 @@ const engine = createBaseEngine({
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
-const input = process.argv[2] ?? 'Hello';
-await engine.run(input);
+void (async () => {
+    const input = process.argv[2] ?? 'Hello';
+    await engine.run(input);
+})();

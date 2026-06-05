@@ -29,8 +29,9 @@ const COMMAND_ALLOWLIST = new Set([
     'head', 'tail', 'grep', 'find', 'wc', 'sort', 'uniq', 'diff', 'jq', 'yq',
     'mkdir', 'cp', 'mv', 'rm', 'touch', 'chmod',
     'sleep', 'timeout', 'date', 'xargs',
-    // Windows equivalents
+    // Windows equivalents and text utilities
     'dir', 'type', 'copy', 'move', 'del', 'rd', 'md', 'icacls', 'attrib',
+    'findstr', 'fc', 'more', 'clip', 'xcopy', 'robocopy', 'set',
     // Containers / infra
     'docker', 'docker-compose', 'kubectl', 'helm',
     'terraform', 'pulumi', 'ansible', 'ansible-playbook',

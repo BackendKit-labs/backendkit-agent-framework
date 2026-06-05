@@ -833,7 +833,7 @@ export class AgentEngine {
                         this.opts.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
                     },
                     onToolCall: (name, args, id) => {
-                        this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 80) });
+                        this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
                         if (name === 'ask_agent') {
                             try {
                                 const parsed = JSON.parse(args);
@@ -994,10 +994,14 @@ export class AgentEngine {
             await this.getProviderForProfile(profile).chat(messages, this.getToolsForAgent(profile), {
                 onChunk: (delta) => {
                     streamContent += delta;
-                    this.opts.transport.emit({ type: 'token', content: delta, agent_id: profile.id });
+                    if (!profile.suppressDefaultOutput) {
+                        this.opts.transport.emit({ type: 'token', content: delta, agent_id: profile.id });
+                    }
                 },
                 onToolCall: (name, args, id) => {
-                    this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 80) });
+                    if (!profile.suppressDefaultOutput) {
+                        this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
+                    }
                     toolCalls.push({ id, name, args });
                 },
                 onDone: (msg) => { finalMessage = msg; },
@@ -1086,7 +1090,10 @@ export class AgentEngine {
 
         const success = !result.startsWith('Error:');
         this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
-        this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: result.slice(0, 120) });
+        // Strip ANSI before slicing to avoid partial escape sequences in the preview
+        // eslint-disable-next-line no-control-regex
+        const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+        this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120) });
         return result;
     }
 

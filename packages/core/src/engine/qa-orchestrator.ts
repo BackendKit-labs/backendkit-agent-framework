@@ -203,7 +203,13 @@ export async function processQaEngineerResponse(ctx: QaContext): Promise<void> {
  * Fallback para cuando qa-engineer no esta disponible o noQA es false.
  */
 export async function processInlineQaReview(ctx: QaContext): Promise<void> {
-    const { qaService } = ctx;
+    const { qaService, orchestrationResult, noQA } = ctx;
+
+    // Apply the same guards as activateQaEngineerIfNeeded — skip for analysis/explanation
+    // responses that have no substantial code, to avoid the QA agent saying "nothing to review"
+    if (noQA) return;
+    if (qaService.countCodeLines(ctx.clean) < MIN_CODE_LINES) return;
+    if (isInformationalRequest(orchestrationResult.task.rawPrompt)) return;
 
     const review = await qaService.reviewResponse(ctx.clean);
     if (!review) return;

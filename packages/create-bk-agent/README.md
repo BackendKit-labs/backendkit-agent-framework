@@ -11,7 +11,7 @@ npx create-bk-agent my-project
 The CLI asks three questions and generates a production-ready project:
 
 ```
-✨  create-bk-agent  v0.16.1
+✨  create-bk-agent  v0.17.0
 
 ? Project name:          my-project
 ? Architecture:          Multi-agent (orchestrator + specialists)

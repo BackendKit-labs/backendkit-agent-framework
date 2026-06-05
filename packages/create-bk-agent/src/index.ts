@@ -3,7 +3,15 @@ import * as fs from 'fs';
 import { askQuestions } from './prompts';
 import { scaffold, installDeps } from './scaffold';
 
-const FRAMEWORK_VERSION = '0.14.0';
+// Read version from package.json so it always matches the published version
+const FRAMEWORK_VERSION: string = (() => {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf-8'));
+        return pkg.version ?? '0.16.0';
+    } catch {
+        return '0.16.0';
+    }
+})();
 
 const NEXT_STEPS: Record<string, string[]> = {
     coding:        ['Edit AGENT.md to describe your project', 'npm run dev'],

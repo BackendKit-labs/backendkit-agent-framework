@@ -154,7 +154,8 @@ export class MCPClientManager {
             env:     { ...process.env, ...(config.env ?? {}) } as Record<string, string>,
         });
         const client = this.buildClient();
-        await client.connect(transport);
+        const timeoutMs = config.connectTimeoutMs ?? 120_000;
+        await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'stdio' });
     }
@@ -186,7 +187,8 @@ export class MCPClientManager {
     ): Promise<void> {
         const transport = new StreamableHTTPClientTransport(url, { requestInit: reqInit });
         const client = this.buildClient();
-        await client.connect(transport);
+        const timeoutMs = config.connectTimeoutMs ?? 15_000;
+        await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'streamable-http' });
     }
@@ -198,7 +200,8 @@ export class MCPClientManager {
     ): Promise<void> {
         const transport: Transport = new SSEClientTransport(url, { requestInit: reqInit });
         const client = this.buildClient();
-        await client.connect(transport);
+        const timeoutMs = config.connectTimeoutMs ?? 15_000;
+        await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'sse' });
     }

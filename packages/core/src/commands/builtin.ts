@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { run, isOk } from '@backendkit-labs/result';
 import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { createSkillManager } from '../skills/manager';
@@ -771,19 +772,53 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                 emit(`Uso: /plugin add <id>\n\nPlugins conocidos:\n${list}`);
                 return;
             }
-            const known = KNOWN_PLUGINS[id];
+            const known = KNOWN_PLUGINS[id.toLowerCase()];
             const npmPkg = known?.npm ?? id;
-            const name   = known ? id : npmPkg.split('/').pop()!;
+            const name   = known ? id.toLowerCase() : (npmPkg.split('/').pop() ?? npmPkg);
 
             const cfg = await readConfig();
             const servers = cfg.mcpServers ?? [];
-            if (servers.some(s => s.name === name || (s.args ?? []).includes(npmPkg))) {
+            if (servers.some(s => s.name === name)) {
                 emit(`Plugin "${name}" ya está activo.`);
                 return;
             }
-            servers.push({ name, command: 'npx', args: ['-y', npmPkg] });
+
+            // Install into a dedicated dir so we can run via `node <path>` directly.
+            // Using `node` instead of `npx` avoids Windows stdin-pipe forwarding issues
+            // that occur when npx wraps the process through cmd.exe.
+            const pluginDir = path.join(getFrameworkDir(app), 'plugins', name);
+            await fs.mkdir(pluginDir, { recursive: true });
+
+            emit(`Instalando ${npmPkg}... (puede tardar un momento)`);
+            const installErr = await new Promise<string | null>((resolve) => {
+                const proc = spawn('npm', ['install', npmPkg, '--no-fund', '--no-audit'], {
+                    cwd: pluginDir,
+                    shell: true,
+                    stdio: 'inherit',
+                });
+                proc.on('close', (code) => resolve(code === 0 ? null : `npm salió con código ${code}`));
+                proc.on('error', (e) => resolve((e as Error).message));
+            });
+            if (installErr) {
+                emit(`✗ Error instalando plugin: ${installErr}`);
+                return;
+            }
+
+            // Read main entry from the package's package.json
+            const pkgJsonResult = await run(() =>
+                fs.readFile(path.join(pluginDir, 'node_modules', npmPkg, 'package.json'), 'utf-8')
+            );
+            if (!isOk(pkgJsonResult)) {
+                emit(`✗ No se encontró package.json para ${npmPkg}`);
+                return;
+            }
+            const pkgJson = JSON.parse(pkgJsonResult.value) as { main?: string };
+            const entryRelative = pkgJson.main ?? 'dist/index.js';
+            const entryAbsolute = path.join(pluginDir, 'node_modules', npmPkg, entryRelative);
+
+            servers.push({ name, command: 'node', args: [entryAbsolute] });
             await writeConfig({ ...cfg, mcpServers: servers });
-            emit(`✓ Plugin "${name}" agregado (${npmPkg}).\nReinicia el agente para aplicar el cambio.`);
+            emit(`✓ Plugin "${name}" instalado.\nReinicia el agente para activarlo.`);
             return;
         }
 
@@ -793,25 +828,31 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             const cfg = await readConfig();
             const before = cfg.mcpServers ?? [];
 
+            const doRemove = async (target: string): Promise<void> => {
+                const after = before.filter(s => s.name !== target);
+                await writeConfig({ ...cfg, mcpServers: after });
+                // Remove the local install directory if present (node-based plugins)
+                const pluginDir = path.join(getFrameworkDir(app), 'plugins', target);
+                await fs.rm(pluginDir, { recursive: true, force: true }).catch(() => {});
+                emit(`✓ Plugin "${target}" removido.\nReinicia el agente para aplicar el cambio.`);
+            };
+
             if (!name) {
                 if (!before.length) { emit('No hay plugins activos.'); return; }
                 if (ctx.prompt) {
                     const options = before.map(s => ({ label: s.name, value: s.name }));
                     const selected = await ctx.prompt('Seleccioná el plugin a remover:', options);
                     if (!selected) return;
-                    const after = before.filter(s => s.name !== selected);
-                    await writeConfig({ ...cfg, mcpServers: after });
-                    emit(`✓ Plugin "${selected}" removido.\nReinicia el agente para aplicar el cambio.`);
+                    if (!before.some(s => s.name === selected)) { emit(`Plugin "${selected}" no encontrado.`); return; }
+                    await doRemove(selected);
                 } else {
                     emit(`Uso: /plugin remove <name>\n\nActivos: ${before.map(s => s.name).join(', ')}`);
                 }
                 return;
             }
 
-            const after = before.filter(s => s.name !== name);
-            if (after.length === before.length) { emit(`Plugin "${name}" no encontrado.`); return; }
-            await writeConfig({ ...cfg, mcpServers: after });
-            emit(`✓ Plugin "${name}" removido.\nReinicia el agente para aplicar el cambio.`);
+            if (!before.some(s => s.name === name)) { emit(`Plugin "${name}" no encontrado.`); return; }
+            await doRemove(name);
             return;
         }
 

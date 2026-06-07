@@ -57,6 +57,12 @@ export interface MCPServerConfig {
 
     /** Timeout for individual tool calls in ms. Default: 30 000 */
     timeoutMs?: number;
+    /**
+     * Timeout for the initial MCP handshake (connect + initialize) in ms.
+     * Increase this when the server process has a slow cold start (e.g. npx downloads).
+     * Default: 60 000 for stdio, 15 000 for remote.
+     */
+    connectTimeoutMs?: number;
 
     // ── Auto-generated agent profile ─────────────────────────────────────────
 

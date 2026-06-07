@@ -11,6 +11,14 @@ export interface AgentProfile {
     delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;
     provider?: string;
+    /**
+     * Model override for this agent. When set, overrides the model configured
+     * in the provider. Use this to run lightweight agents on a cheaper model
+     * (e.g. 'deepseek-chat') and heavy-reasoning agents on a smarter one
+     * (e.g. 'deepseek-reasoner', 'claude-opus-4-8').
+     * When omitted, the provider's default model is used.
+     */
+    model?: string;
     /** Where this agent was loaded from */
     source?: 'builtin' | 'global' | 'project' | 'registry' | 'mcp';
     /** Additional instructions appended to the base system prompt when this agent is active. */
@@ -137,6 +145,12 @@ export interface LLMStreamCallbacks {
      * Providers that don't support it can safely ignore it.
      */
     signal?: AbortSignal;
+    /**
+     * Per-call model override. When set, the provider uses this model instead
+     * of its configured default. Comes from AgentProfile.model.
+     * Providers that don't support per-call model switching can ignore it.
+     */
+    model?: string;
 }
 
 export interface LLMProvider {

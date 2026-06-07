@@ -724,21 +724,49 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         const app = appName ?? 'bk-agent';
         const configPath = path.join(getFrameworkDir(app), 'config.json');
 
-        const KNOWN_PLUGINS: Record<string, { npm: string; description: string }> = {
-            docker: { npm: '@backendkit-labs/docker-agent', description: 'Docker containers, Compose, Swarm' },
-            k8s:    { npm: '@backendkit-labs/k8s-agent',    description: 'Kubernetes pods, deployments, services' },
+        // Provider → base URL mapping (same providers the framework supports)
+        const PROVIDER_BASE_URLS: Record<string, string> = {
+            deepseek:  'https://api.deepseek.com/v1',
+            openai:    'https://api.openai.com/v1',
+            anthropic: 'https://api.anthropic.com/v1',
+        };
+
+        type KnownPlugin = {
+            npm: string;
+            description: string;
+            /** Default model for each supported provider. Falls back to llmModel if provider not listed. */
+            models?: Record<string, string>;
+            /** Default model when provider is unknown. */
+            llmModel?: string;
+        };
+
+        const KNOWN_PLUGINS: Record<string, KnownPlugin> = {
+            docker: {
+                npm: '@backendkit-labs/docker-agent',
+                description: 'Docker containers, Compose, Swarm',
+                models: { deepseek: 'deepseek-chat', openai: 'gpt-4o-mini', anthropic: 'claude-haiku-4-5-20251001' },
+                llmModel: 'gpt-4o-mini',
+            },
+            k8s: {
+                npm: '@backendkit-labs/k8s-agent',
+                description: 'Kubernetes pods, deployments, services',
+                models: { deepseek: 'deepseek-chat', openai: 'gpt-4o-mini', anthropic: 'claude-haiku-4-5-20251001' },
+                llmModel: 'gpt-4o-mini',
+            },
         };
 
         type McpEntry = { name: string; command?: string; args?: string[]; url?: string; env?: Record<string, string> };
-        interface PluginConfig { mcpServers?: McpEntry[] }
+        interface AppConfig { defaultProvider?: string; mcpServers?: McpEntry[] }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        type PluginConfig = AppConfig;
 
-        const readConfig = async (): Promise<PluginConfig> => {
+        const readConfig = async (): Promise<AppConfig> => {
             const result = await run(() => fs.readFile(configPath, 'utf-8'));
             if (!isOk(result)) return {};
-            try { return JSON.parse(result.value) as PluginConfig; } catch { return {}; }
+            try { return JSON.parse(result.value) as AppConfig; } catch { return {}; }
         };
 
-        const writeConfig = async (cfg: PluginConfig): Promise<void> => {
+        const writeConfig = async (cfg: AppConfig): Promise<void> => {
             await fs.mkdir(path.dirname(configPath), { recursive: true });
             await atomicWrite(configPath, JSON.stringify(cfg, null, 2));
         };
@@ -816,9 +844,20 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             const entryRelative = pkgJson.main ?? 'dist/index.js';
             const entryAbsolute = path.join(pluginDir, 'node_modules', npmPkg, entryRelative);
 
-            servers.push({ name, command: 'node', args: [entryAbsolute] });
+            // Build LLM env from the app's configured provider so the plugin
+            // uses the same LLM stack without the user having to set it manually.
+            const provider = cfg.defaultProvider ?? 'openai';
+            const baseUrl  = PROVIDER_BASE_URLS[provider] ?? PROVIDER_BASE_URLS['openai']!;
+            const model    = known?.models?.[provider] ?? known?.llmModel ?? 'gpt-4o-mini';
+            const pluginEnv: Record<string, string> = {
+                LLM_PROVIDER: provider,
+                LLM_BASE_URL: baseUrl,
+                LLM_MODEL:    model,
+            };
+
+            servers.push({ name, command: 'node', args: [entryAbsolute], env: pluginEnv });
             await writeConfig({ ...cfg, mcpServers: servers });
-            emit(`✓ Plugin "${name}" instalado.\nReinicia el agente para activarlo.`);
+            emit(`✓ Plugin "${name}" instalado (${provider} / ${model}).\nReinicia el agente para activarlo.`);
             return;
         }
 

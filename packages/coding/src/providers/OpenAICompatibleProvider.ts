@@ -76,7 +76,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         callbacks: LLMStreamCallbacks,
     ): Promise<void> {
         const stream = await this.client.chat.completions.create({
-            model: this.model,
+            model: callbacks.model ?? this.model,
             messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
             tools: openaiTools.length > 0 ? openaiTools : undefined,
             tool_choice: openaiTools.length > 0 ? 'auto' : undefined,

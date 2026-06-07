@@ -153,7 +153,7 @@ export class AnthropicProvider implements LLMProvider {
         callbacks: LLMStreamCallbacks,
     ): Promise<void> {
         const stream = this.client.messages.stream({
-            model: this.model,
+            model: callbacks.model ?? this.model,
             max_tokens: this.maxTokens,
             temperature: this.temperature,
             ...(params.system ? { system: params.system } : {}),

@@ -859,6 +859,7 @@ export class AgentEngine {
                         this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
                     },
                     signal,
+                    model: currentProfile.model,
                 }
             );
 
@@ -1017,6 +1018,7 @@ export class AgentEngine {
                     totalOutputTokens += outputTokens;
                     this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
                 },
+                model: profile.model,
             });
 
             if (!finalMessage) break;

@@ -53,7 +53,7 @@
   "files": ["dist/", "README.md"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "url": "git+https://github.com/BackendKit-labs/backendkit-agent-framework.git",
     "directory": "packages/core"
   },
   "publishConfig": { "access": "public" },

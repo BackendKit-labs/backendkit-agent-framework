@@ -3,6 +3,7 @@ import { addServer }     from './modules/server';
 import { addSpecialist } from './modules/specialist';
 import { addTools }      from './modules/tools';
 import { addMcpClient }  from './modules/mcp-client';
+import { addPlugin }     from './modules/plugin';
 
 const HELP = `
 Usage: npx create-bk-agent add <module> [options]
@@ -21,11 +22,16 @@ Modules:
   mcp-client <url>      Add a remote MCP server to the engine
     --name <s>            Name for the mcpServers entry (default: last URL segment)
 
+  plugin <name>         Install a backendkit agent as a stdio MCP plugin
+                        Available: docker, k8s
+
 Examples:
   npx create-bk-agent add server --port 4000
   npx create-bk-agent add specialist data-analyst
   npx create-bk-agent add tools github
   npx create-bk-agent add mcp-client http://localhost:3001/mcp --name billing
+  npx create-bk-agent add plugin docker
+  npx create-bk-agent add plugin k8s
 `;
 
 export function runAdd(args: string[], cwd: string): void {
@@ -67,6 +73,10 @@ export function runAdd(args: string[], cwd: string): void {
 
         case 'mcp-client':
             addMcpClient(info, rest);
+            break;
+
+        case 'plugin':
+            addPlugin(info, rest);
             break;
 
         default:

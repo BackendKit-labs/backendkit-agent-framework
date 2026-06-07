@@ -132,3 +132,41 @@ export function addMcpServerEntry(file: string, name: string, url: string): bool
     fs.writeFileSync(file, lines.join('\n'));
     return true;
 }
+
+/**
+ * Adds a stdio MCP entry `{ name, transport: 'stdio', command, args }` to AgentEngine.
+ * If mcpServers already exists, appends. Returns true on success.
+ */
+export function addMcpStdioEntry(file: string, name: string, npmPackage: string): boolean {
+    const content = fs.readFileSync(file, 'utf-8');
+    const entry = `        { name: '${name}', transport: 'stdio' as const, command: 'npx', args: ['-y', '${npmPackage}'] },`;
+
+    if (content.includes(`'${npmPackage}'`)) return true; // already registered
+
+    if (content.includes('mcpServers:')) {
+        const updated = content.replace(/(mcpServers:\s*\[)/, `$1\n${entry}`);
+        if (updated === content) return false;
+        fs.writeFileSync(file, updated);
+        return true;
+    }
+
+    const lines = content.split('\n');
+    let depth = 0;
+    let engineStart = -1;
+    let closeIdx = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('new AgentEngine({')) { engineStart = i; depth = 0; }
+        if (engineStart !== -1) {
+            depth += (lines[i].match(/\{/g) ?? []).length;
+            depth -= (lines[i].match(/\}/g) ?? []).length;
+            if (depth === 0 && i > engineStart) { closeIdx = i; break; }
+        }
+    }
+
+    if (closeIdx === -1) return false;
+
+    lines.splice(closeIdx, 0, `        mcpServers: [\n${entry}\n        ],`);
+    fs.writeFileSync(file, lines.join('\n'));
+    return true;
+}

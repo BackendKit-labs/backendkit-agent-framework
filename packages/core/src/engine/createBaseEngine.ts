@@ -68,6 +68,12 @@ export interface BaseEngineOptions {
     /** Absolute path used as the working directory for tool calls. */
     workingDir?: string;
 
+    /**
+     * Extra directories (absolute paths) that file tools are allowed to access
+     * beyond workingDir. E.g. the agent's home dir (~/.my-agent/).
+     */
+    additionalRoots?: string[];
+
     /** Injected into every agent system prompt (stack, AGENT.md, session, etc.). */
     projectContext?: string;
 
@@ -252,6 +258,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         transport,
         defaultAgentId,
         workingDir: opts.workingDir,
+        ...(opts.additionalRoots?.length ? { additionalRoots: opts.additionalRoots } : {}),
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),

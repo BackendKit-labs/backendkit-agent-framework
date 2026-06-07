@@ -14,8 +14,7 @@ export const readFileTool = defineTool({
     }),
     execute: async ({ file_path }, ctx) => {
         try {
-            const memoryDir = ctx.store?.projectDir;
-            const abs = resolveAndCheck(ctx.workingDir, file_path, memoryDir ? [memoryDir] : []);
+            const abs = resolveAndCheck(ctx.workingDir, file_path, ctx.additionalRoots ?? []);
             return readFileSync(abs, 'utf-8');
         } catch (err) {
             return `Error: ${(err as Error).message}`;

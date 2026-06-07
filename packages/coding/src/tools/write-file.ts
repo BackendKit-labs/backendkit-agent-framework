@@ -13,7 +13,7 @@ export const writeFileTool = defineTool({
     }),
     execute: async ({ file_path, content }, ctx) => {
         try {
-            const abs = resolveAndCheck(ctx.workingDir, file_path);
+            const abs = resolveAndCheck(ctx.workingDir, file_path, ctx.additionalRoots ?? []);
             const fwWarn = checkFrameworkProtection(abs, ctx.workingDir);
             if (fwWarn) return `Error: ${fwWarn}`;
             const warning = warnIfSecrets(abs, content);

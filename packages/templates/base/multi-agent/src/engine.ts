@@ -73,5 +73,6 @@ export function createEngine(transport: CallbackTransport): AgentEngine {
         maxContextMessages: 100,
         // Long-term memory — injects relevant context each turn
         memorySystem:     memory,
+        additionalRoots:  [APP_DIR],
     });
 }

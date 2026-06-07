@@ -24,6 +24,8 @@ import {
     setActiveProject,
     buildWorkspaceContext,
     deriveProjectName,
+    setCommonRoot,
+    detectCommonRoot,
 } from '../workspace';
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -51,8 +53,12 @@ async function doSwitch(
     injectContext?.(context);
 
     if (onCwdChange) {
-        onCwdChange(target.cwd);
-        emit(`Switched to workspace "${wsName}" — project: ${target.name}`);
+        // When commonRoot is set, move to the shared root so the agent can
+        // access all projects in the workspace without switching again.
+        const effectiveCwd = ws.commonRoot ?? target.cwd;
+        onCwdChange(effectiveCwd);
+        const rootNote = ws.commonRoot ? ` (shared root: ${ws.commonRoot})` : '';
+        emit(`Switched to workspace "${wsName}" — project: ${target.name}${rootNote}`);
     } else {
         emit(`Workspace "${wsName}" loaded — project: ${target.name} (${target.cwd})`);
     }
@@ -477,6 +483,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                 '  /workspace add <ws> <cwd> [name]       Agregar proyecto existente\n' +
                 '  /workspace import <cwd> [ws] [name]    Importar proyecto (crea ws si no existe)\n' +
                 '  /workspace switch <ws> [project]       Cambiar workspace/proyecto activo\n' +
+                '  /workspace set-root <ws> [path]        Raiz compartida (auto-detecta si no hay path)\n' +
                 '  /workspace remove <ws> <project>       Quitar proyecto del workspace\n' +
                 '  /workspace delete <name>               Eliminar workspace\n' +
                 '  /workspace list                        Listar workspaces',
@@ -514,6 +521,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                 '  /workspace add <ws> <cwd> [name]       Agregar proyecto\n' +
                 '  /workspace import <cwd> [ws] [name]    Importar proyecto\n' +
                 '  /workspace switch <ws> [project]       Cambiar activo\n' +
+                '  /workspace set-root <ws> [path]        Raiz compartida (auto si no hay path)\n' +
                 '  /workspace remove <ws> <project>       Quitar proyecto\n' +
                 '  /workspace delete <name>               Eliminar workspace',
             );
@@ -626,6 +634,26 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             return;
         }
 
+        // ── /workspace set-root <workspace> [path] ────────────────────────────
+        // Sets (or auto-detects) the commonRoot for a workspace.
+        // With no path arg, auto-detects the common ancestor of all project cwds.
+        if (sub === 'set-root') {
+            const [, wsName, rootPath] = parts;
+            if (!wsName) { emit('Usage: /workspace set-root <workspace> [path]'); return; }
+            const config = await loadWorkspaces(appName);
+            const ws = config[wsName];
+            if (!ws) { emit(`Workspace "${wsName}" not found.`); return; }
+            if (!ws.projects.length) { emit(`Workspace "${wsName}" has no projects.`); return; }
+
+            const root = rootPath
+                ? path.resolve(rootPath)
+                : detectCommonRoot(ws.projects.map(p => p.cwd));
+
+            await saveWorkspaces(appName, setCommonRoot(config, wsName, root));
+            emit(`Workspace "${wsName}" common root set to: ${root}\nNext /workspace switch will use this as workingDir.`);
+            return;
+        }
+
         emit([
             'Usage:',
             '  /workspace list',
@@ -635,6 +663,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             '  /workspace remove <workspace> <project>',
             '  /workspace delete <name>',
             '  /workspace switch [workspace] [project]',
+            '  /workspace set-root <workspace> [path]   Set shared root (auto-detected if no path)',
         ].join('\n'));
     });
 

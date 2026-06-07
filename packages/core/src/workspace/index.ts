@@ -13,9 +13,38 @@ export interface WorkspaceEntry {
     projects: WorkspaceProject[];
     /** Name of the currently active project within this workspace. */
     active?: string;
+    /**
+     * Common ancestor directory for all projects in this workspace.
+     * When set, the agent's workingDir is changed to commonRoot on switch
+     * instead of to the active project's cwd, giving it access to all projects.
+     * Auto-detected when adding a second project; can be overridden manually.
+     */
+    commonRoot?: string;
 }
 
 export type WorkspacesConfig = Record<string, WorkspaceEntry>;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the deepest directory that is an ancestor of all given absolute paths.
+ * E.g. ['/dev/system/auth', '/dev/system/api'] → '/dev/system'
+ */
+export function detectCommonRoot(cwds: string[]): string {
+    if (cwds.length === 0) return '/';
+    const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/$/, '');
+    const parts = cwds.map(c => normalize(c).split('/'));
+    const shortest = parts.reduce((a, b) => a.length <= b.length ? a : b);
+    const common: string[] = [];
+    for (let i = 0; i < shortest.length; i++) {
+        if (parts.every(p => p[i] === shortest[i])) {
+            common.push(shortest[i]);
+        } else {
+            break;
+        }
+    }
+    return common.join('/') || '/';
+}
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -71,9 +100,16 @@ export function addProject(
     }
     const ws = config[workspaceName] ?? { projects: [] };
     if (ws.projects.some(p => p.cwd === project.cwd)) return config;
+    const projects = [...ws.projects, project];
+    // Auto-detect commonRoot when there are 2+ projects and no manual override exists.
+    // Re-detect every time a project is added so it stays accurate.
+    const commonRoot = projects.length >= 2
+        ? detectCommonRoot(projects.map(p => p.cwd))
+        : ws.commonRoot;
     const updated: WorkspaceEntry = {
-        projects: [...ws.projects, project],
+        projects,
         active: ws.active ?? project.name,
+        ...(commonRoot ? { commonRoot } : {}),
     };
     return { ...config, [workspaceName]: updated };
 }
@@ -111,6 +147,17 @@ export function removeProject(
     const projects = ws.projects.filter(p => p.name !== projectName);
     const active = ws.active === projectName ? (projects[0]?.name ?? undefined) : ws.active;
     return { ...config, [workspaceName]: { projects, active } };
+}
+
+export function setCommonRoot(
+    config: WorkspacesConfig,
+    workspaceName: string,
+    commonRoot: string | undefined,
+): WorkspacesConfig {
+    const ws = config[workspaceName];
+    if (!ws) return config;
+    const { commonRoot: _removed, ...rest } = ws;
+    return { ...config, [workspaceName]: commonRoot ? { ...rest, commonRoot } : rest };
 }
 
 export function deleteWorkspace(config: WorkspacesConfig, name: string): WorkspacesConfig {
@@ -170,7 +217,12 @@ export async function buildWorkspaceContext(
         .map(p => `- **${p.name}**${p.name === entry.active ? ' *(active)*' : ''} — \`${p.cwd}\``)
         .join('\n');
 
-    const parts: string[] = [`## Workspace: ${name}\n${projectList}`];
+    const rootLine = entry.commonRoot
+        ? `\nShared root (workingDir): \`${entry.commonRoot}\`` +
+          `\nUse relative paths from this root, e.g. \`${entry.projects[0]?.name ?? 'service'}/src/index.ts\``
+        : '';
+
+    const parts: string[] = [`## Workspace: ${name}${rootLine}\n${projectList}`];
 
     for (const project of entry.projects) {
         const projectDir = getProjectDir(appName, project.cwd);

@@ -56,6 +56,12 @@ export interface ExecutionContext {
      * agent profile's blockedCommands field. Enforced by run_command.
      */
     blockedCommands?: string[];
+    /**
+     * Extra directories (absolute paths) that file tools are allowed to access
+     * beyond workingDir. Computed by AgentEngine from opts.additionalRoots plus
+     * the project data directory (store.projectDir).
+     */
+    additionalRoots?: string[];
 }
 
 export interface SessionMemoryData {

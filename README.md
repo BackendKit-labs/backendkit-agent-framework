@@ -60,6 +60,35 @@ of agent: infra, data, customer support, finance — anything that is not about 
 | `mcp-server` | MCP server boilerplate | Tools to expose |
 | `minimal` | Bare engine | Everything |
 
+## Multi-project workspaces
+
+Group related projects into a workspace so the agent operates across all of them from a shared root — ideal for microservice architectures.
+
+```
+/workspace create my-system
+/workspace add my-system ~/dev/my-system/auth-service
+/workspace add my-system ~/dev/my-system/api-gateway
+/workspace add my-system ~/dev/my-system/user-service
+# → common root auto-detected: ~/dev/my-system/
+# → /workspace switch sets that root as workingDir
+```
+
+The agent can now navigate all services with relative paths like `auth-service/src/index.ts`. Use `/workspace set-root <ws> [path]` to override the auto-detected root.
+
+## Persistent memory + file access
+
+Agents scaffolded with `create-bk-agent` store conversation history and three-tier memory (episodic / semantic / procedural) in `~/.my-agent/`. The agent's file tools have read/write access to that directory out of the box via `additionalRoots`.
+
+To expose additional directories in a custom engine:
+
+```ts
+new AgentEngine({
+    workingDir: process.cwd(),
+    additionalRoots: [APP_DIR],   // ~/.my-agent/ or any extra root
+    // ...
+});
+```
+
 ## MCP server
 
 ```json

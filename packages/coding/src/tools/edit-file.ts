@@ -14,7 +14,7 @@ export const editFileTool = defineTool({
     }),
     execute: async ({ file_path, old_string, new_string, replace_all }, ctx) => {
         try {
-            const abs = resolveAndCheck(ctx.workingDir, file_path);
+            const abs = resolveAndCheck(ctx.workingDir, file_path, ctx.additionalRoots ?? []);
             const fwWarn = checkFrameworkProtection(abs, ctx.workingDir);
             if (fwWarn) return `Error: ${fwWarn}`;
             const content = readFileSync(abs, 'utf-8');

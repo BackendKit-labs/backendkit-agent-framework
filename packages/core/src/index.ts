@@ -53,7 +53,7 @@ export type { CheckpointSummary } from './checkpoint';
 export {
     loadWorkspaces, saveWorkspaces, createWorkspace, addProject, importProject,
     removeProject, deleteWorkspace, setActiveProject, buildWorkspaceContext,
-    deriveProjectName, migrateFromLegacy,
+    deriveProjectName, migrateFromLegacy, setCommonRoot, detectCommonRoot,
 } from './workspace';
 export type { WorkspaceProject, WorkspaceEntry, WorkspacesConfig } from './workspace';
 

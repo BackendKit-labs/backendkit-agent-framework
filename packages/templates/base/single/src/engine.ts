@@ -62,5 +62,6 @@ export function createEngine(transport: CallbackTransport): AgentEngine {
         historyPath:      HISTORY,
         maxContextMessages: 100,
         memorySystem:     memory,
+        additionalRoots:  [APP_DIR],
     });
 }

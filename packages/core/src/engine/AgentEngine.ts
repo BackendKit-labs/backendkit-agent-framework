@@ -127,6 +127,12 @@ export interface AgentEngineOptions extends EngineOptions {
     observabilityManager?: ObservabilityManager;
     /** Advanced memory system — episodic/semantic/procedural */
     memorySystem?: MemorySystem;
+    /**
+     * Extra directories (absolute paths) that file tools are allowed to access
+     * beyond workingDir. Useful for exposing ~/.{agentName}/ or shared library
+     * roots to the agent without changing workingDir.
+     */
+    additionalRoots?: string[];
     /** Called once on the first run/runWorkflow to load discovered agents from disk or remote. */
     loadAgents?: () => Promise<import('../types').AgentProfile[]>;
     /**
@@ -1195,6 +1201,11 @@ export class AgentEngine {
     private buildContext(agentId?: string): ExecutionContext {
         const id = agentId ?? this.currentAgentId;
         const profile = this.opts.agents.get(id);
+        const storeRoot = this.opts.store?.projectDir;
+        const additionalRoots = [
+            ...(this.opts.additionalRoots ?? []),
+            ...(storeRoot ? [storeRoot] : []),
+        ];
         return {
             agentId: id,
             sessionId: this.opts.sessionId ?? 'default',
@@ -1202,6 +1213,7 @@ export class AgentEngine {
             memory: this.memory,
             store: this.opts.store,
             advancedMemory: this.opts.memorySystem,
+            ...(additionalRoots.length ? { additionalRoots } : {}),
             ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context });

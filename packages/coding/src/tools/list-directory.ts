@@ -28,7 +28,7 @@ export const listDirectoryTool = defineTool({
     }),
     execute: async ({ path: inputPath, max_depth }, ctx) => {
         try {
-            const abs = resolveAndCheck(ctx.workingDir, inputPath);
+            const abs = resolveAndCheck(ctx.workingDir, inputPath, ctx.additionalRoots ?? []);
             const stat = statSync(abs);
             if (!stat.isDirectory()) return `${abs} (file, not a directory)`;
             const lines = listRecursive(abs, 0, max_depth);

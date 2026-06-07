@@ -716,4 +716,105 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
         const label = featureName || '(unnamed)';
         emit(`Checkpoint saved: ${label}\n${cpPath}`);
     });
+
+    // ── /plugin ───────────────────────────────────────────────────────────────
+    registry.register('/plugin', 'Manage MCP agent plugins: list, add, remove', async (ctx) => {
+        const { args, emit, appName } = ctx;
+        const app = appName ?? 'bk-agent';
+        const configPath = path.join(getFrameworkDir(app), 'config.json');
+
+        const KNOWN_PLUGINS: Record<string, { npm: string; description: string }> = {
+            docker: { npm: '@backendkit-labs/docker-agent', description: 'Docker containers, Compose, Swarm' },
+            k8s:    { npm: '@backendkit-labs/k8s-agent',    description: 'Kubernetes pods, deployments, services' },
+        };
+
+        type McpEntry = { name: string; command?: string; args?: string[]; url?: string; env?: Record<string, string> };
+        interface PluginConfig { mcpServers?: McpEntry[] }
+
+        const readConfig = async (): Promise<PluginConfig> => {
+            const result = await run(() => fs.readFile(configPath, 'utf-8'));
+            if (!isOk(result)) return {};
+            try { return JSON.parse(result.value) as PluginConfig; } catch { return {}; }
+        };
+
+        const writeConfig = async (cfg: PluginConfig): Promise<void> => {
+            await fs.mkdir(path.dirname(configPath), { recursive: true });
+            await atomicWrite(configPath, JSON.stringify(cfg, null, 2));
+        };
+
+        const parts = (args ?? '').trim().split(/\s+/).filter(Boolean);
+        const sub = parts[0];
+
+        // ── /plugin list ─────────────────────────────────────────────────────
+        if (!sub || sub === 'list') {
+            const cfg = await readConfig();
+            const active = cfg.mcpServers ?? [];
+            if (!active.length) {
+                const hints = Object.entries(KNOWN_PLUGINS)
+                    .map(([id, p]) => `  /plugin add ${id.padEnd(8)} — ${p.description}`)
+                    .join('\n');
+                emit(`No hay plugins activos.\n\nDisponibles:\n${hints}`);
+                return;
+            }
+            const lines = active.map(s => `  ${s.name.padEnd(20)} ${(s.args ?? []).join(' ')}`);
+            emit(`Plugins activos (${active.length}):\n${lines.join('\n')}\n\nUsa /plugin remove <name> para desactivar.`);
+            return;
+        }
+
+        // ── /plugin add <id|npm-package> ─────────────────────────────────────
+        if (sub === 'add') {
+            const id = parts[1];
+            if (!id) {
+                const list = Object.entries(KNOWN_PLUGINS)
+                    .map(([k, v]) => `  ${k.padEnd(8)} ${v.npm}  — ${v.description}`)
+                    .join('\n');
+                emit(`Uso: /plugin add <id>\n\nPlugins conocidos:\n${list}`);
+                return;
+            }
+            const known = KNOWN_PLUGINS[id];
+            const npmPkg = known?.npm ?? id;
+            const name   = known ? id : npmPkg.split('/').pop()!;
+
+            const cfg = await readConfig();
+            const servers = cfg.mcpServers ?? [];
+            if (servers.some(s => s.name === name || (s.args ?? []).includes(npmPkg))) {
+                emit(`Plugin "${name}" ya está activo.`);
+                return;
+            }
+            servers.push({ name, command: 'npx', args: ['-y', npmPkg] });
+            await writeConfig({ ...cfg, mcpServers: servers });
+            emit(`✓ Plugin "${name}" agregado (${npmPkg}).\nReinicia el agente para aplicar el cambio.`);
+            return;
+        }
+
+        // ── /plugin remove <name> ─────────────────────────────────────────────
+        if (sub === 'remove') {
+            const name = parts[1];
+            const cfg = await readConfig();
+            const before = cfg.mcpServers ?? [];
+
+            if (!name) {
+                if (!before.length) { emit('No hay plugins activos.'); return; }
+                if (ctx.prompt) {
+                    const options = before.map(s => ({ label: s.name, value: s.name }));
+                    const selected = await ctx.prompt('Seleccioná el plugin a remover:', options);
+                    if (!selected) return;
+                    const after = before.filter(s => s.name !== selected);
+                    await writeConfig({ ...cfg, mcpServers: after });
+                    emit(`✓ Plugin "${selected}" removido.\nReinicia el agente para aplicar el cambio.`);
+                } else {
+                    emit(`Uso: /plugin remove <name>\n\nActivos: ${before.map(s => s.name).join(', ')}`);
+                }
+                return;
+            }
+
+            const after = before.filter(s => s.name !== name);
+            if (after.length === before.length) { emit(`Plugin "${name}" no encontrado.`); return; }
+            await writeConfig({ ...cfg, mcpServers: after });
+            emit(`✓ Plugin "${name}" removido.\nReinicia el agente para aplicar el cambio.`);
+            return;
+        }
+
+        emit('Subcomandos: list | add <id> | remove <name>');
+    });
 }

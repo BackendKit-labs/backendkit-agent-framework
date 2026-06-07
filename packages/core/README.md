@@ -121,10 +121,58 @@ await manager.install('https://github.com/my-org/my-skills');
 import { SlashCommandRegistry, registerBuiltinCommands } from '@backendkit-labs/agent-core';
 
 const registry = new SlashCommandRegistry();
-registerBuiltinCommands(registry);  // adds /help /agents /skills /workspace etc.
+registerBuiltinCommands(registry);  // adds /help /agents /skills /workspace /plugin etc.
 
 registry.register('/my-command', 'Description', async (ctx) => {
   ctx.emit('Hello from my command!');
+});
+```
+
+Built-in commands registered by `registerBuiltinCommands`:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | List available commands |
+| `/agents` | List agents or switch active agent |
+| `/skills` | Manage skill packs — install, create, generate, update, uninstall |
+| `/workspace` | Manage multi-project workspaces — create, add, switch, remove |
+| `/plugin` | Manage MCP agent plugins — list, add, remove |
+| `/status` | Show current agent and model |
+| `/iteration` | Change iteration mode (interactive / auto / step-by-step) |
+| `/checkpoint` | Create, list, or load session checkpoints |
+
+### `/plugin` — MCP agent plugins
+
+Plugins are MCP servers that run as subprocesses via `npx`. They extend the agent with new tools (docker, k8s, etc.) without modifying the engine code.
+
+Configuration is stored in `~/.{appName}/config.json` and loaded on next engine start.
+
+```bash
+# In the agent CLI
+/plugin list              # show active plugins
+/plugin add docker        # add @backendkit-labs/docker-agent
+/plugin add k8s           # add @backendkit-labs/k8s-agent
+/plugin remove docker     # remove a plugin
+```
+
+Or wire it up programmatically:
+
+```ts
+// ~/.my-app/config.json (managed by /plugin add)
+{
+  "mcpServers": [
+    { "name": "docker", "command": "npx", "args": ["-y", "@backendkit-labs/docker-agent"] },
+    { "name": "k8s",    "command": "npx", "args": ["-y", "@backendkit-labs/k8s-agent"] }
+  ]
+}
+```
+
+The engine reads `mcpServers` at startup and connects each plugin over stdio MCP transport. The `CommandContext` must have `appName` set for `/plugin` to know which config file to read:
+
+```ts
+await registry.dispatch('/plugin add docker', {
+  emit: console.log,
+  appName: 'my-app',   // reads/writes ~/.my-app/config.json
 });
 ```
 

@@ -49,18 +49,20 @@ new OpenAICompatibleProvider({ apiKey, baseUrl, model })
 
 ## Built-in agents (10)
 
-| Agent | ID | Specialty |
-|---|---|---|
-| General | `general` | Orchestrator — routes to specialists |
-| Coder | `coder` | Implementation, bulk edits |
-| Backend | `backend` | APIs, databases, services |
-| Frontend | `frontend` | UI, components, CSS |
-| QA Engineer | `qa-engineer` | Tests, edge cases, code review |
-| Security | `security` | Vulnerabilities, hardening |
-| Architecture | `architecture` | Design, patterns, ADRs |
-| Infrastructure | `infrastructure` | Docker, CI/CD, cloud |
-| Data | `data` | Pipelines, models, queries |
-| Project Manager | `project-manager` | /init workflow, planning |
+| Agent | ID | Specialty | Recommended model tier |
+|---|---|---|---|
+| General | `general` | Orchestrator — routes to specialists | smart |
+| Architecture | `architecture` | Design, patterns, ADRs | smart |
+| Security | `security` | Vulnerabilities, hardening | smart |
+| Project Manager | `project-manager` | /init workflow, planning | smart |
+| Coder | `coder` | Implementation, bulk edits | fast |
+| Backend | `backend` | APIs, databases, services | fast |
+| Frontend | `frontend` | UI, components, CSS | fast |
+| QA Engineer | `qa-engineer` | Tests, edge cases, code review | fast |
+| Infrastructure | `infrastructure` | Docker, CI/CD, cloud | fast |
+| Data | `data` | Pipelines, models, queries | fast |
+
+"Smart" agents reason and route — use a thinking/reasoning model. "Fast" agents execute tool calls in loops — use a cheap, low-latency model. See [per-agent model overrides](#per-agent-model-overrides) below.
 
 ---
 
@@ -106,6 +108,44 @@ createCodingEngine({
   orchestration?,      // enable orchestration pipeline (risk scoring, gates)
 })
 ```
+
+---
+
+## Per-agent model overrides
+
+Each agent can run on a different model. Set `model` (and optionally `provider`) on the agent profile, or use environment variables so the split is configurable without code changes:
+
+```ts
+// createCodingEngine wires LLM_MODEL_SMART → reasoning agents, LLM_MODEL_FAST → execution agents
+```
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `LLM_MODEL` | `gpt-4o` | Base model — used by all agents with no explicit override |
+| `LLM_MODEL_FAST` | `LLM_MODEL` | Execution agents (coder, backend, frontend, qa, infra, data) |
+| `LLM_MODEL_SMART` | `LLM_MODEL` | Reasoning agents (general, architecture, security, project-manager) |
+
+Example `.env` for DeepSeek:
+
+```env
+LLM_API_KEY=sk-...
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+LLM_MODEL_FAST=deepseek-chat
+LLM_MODEL_SMART=deepseek-reasoner
+```
+
+Example `.env` mixing providers (OpenAI fast + Anthropic smart):
+
+```env
+LLM_API_KEY=sk-openai-...
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+LLM_MODEL_FAST=gpt-4o-mini
+# Smart agents need a separate provider registered in engine.ts
+```
+
+For completely different LLM backends per agent, register multiple providers and set `provider` on the `AgentProfile`. See `@backendkit-labs/agent-core` docs for the multi-provider setup.
 
 ---
 

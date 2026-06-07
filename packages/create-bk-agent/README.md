@@ -11,7 +11,7 @@ npx create-bk-agent my-project
 The CLI asks three questions and generates a production-ready project:
 
 ```
-✨  create-bk-agent  v0.18.0
+✨  create-bk-agent  v0.20.0
 
 ? Project name:          my-project
 ? Architecture:          Multi-agent (orchestrator + specialists)
@@ -53,6 +53,39 @@ Available for `multi-agent` and `single` architectures:
 ## Providers
 
 Anthropic (Claude), OpenAI, DeepSeek / any OpenAI-compatible endpoint, and Ollama (local).
+
+## Model configuration
+
+Generated projects read three env vars for model selection:
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_MODEL` | `gpt-4o` | Base model — used by all agents unless overridden |
+| `LLM_MODEL_FAST` | `LLM_MODEL` | Execution agents (specialists, tool-calling loops) |
+| `LLM_MODEL_SMART` | `LLM_MODEL` | Routing agents (orchestrator, reasoning-heavy tasks) |
+
+If `LLM_MODEL_FAST` and `LLM_MODEL_SMART` are not set, all agents use `LLM_MODEL` — fully backwards compatible.
+
+Example `.env` for DeepSeek with smart/fast split:
+
+```env
+LLM_API_KEY=sk-...
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+LLM_MODEL_FAST=deepseek-chat
+LLM_MODEL_SMART=deepseek-reasoner
+```
+
+The split is wired in `src/engine.ts` — specialists get `llmModelFast`, orchestrator gets `llmModelSmart`. To assign a model directly on a profile instead of via env vars, uncomment the `model:` field in the agent file:
+
+```ts
+// src/agents/orchestrator.ts
+export const ORCHESTRATOR_PROFILE: AgentProfile = {
+  id: 'orchestrator',
+  model: 'deepseek-reasoner',  // uncomment and set explicitly
+  ...
+};
+```
 
 ---
 

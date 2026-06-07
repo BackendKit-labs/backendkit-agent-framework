@@ -21,6 +21,7 @@ import { SkillActivator } from '../skills/activator';
 import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { ObservabilityManager } from '../observability/ObservabilityManager';
 import type { MemorySystem } from '../agent-memory/MemorySystem';
+import type { CommandContext } from '../commands/SlashCommandRegistry';
 import { WorkflowRunner } from '../workflow/WorkflowRunner';
 import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
@@ -141,6 +142,14 @@ export interface AgentEngineOptions extends EngineOptions {
      * Directory is created automatically. Optional — no audit file written when absent.
      */
     auditLog?: string;
+    /**
+     * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
+     * Should return the new projectContext string built from the new cwd
+     * (AGENT.md, session.md, store context, detected stack, etc.).
+     * The engine updates opts.projectContext with the returned value so the
+     * next system prompt reflects the switched project without an engine restart.
+     */
+    projectContextLoader?: (cwd: string) => Promise<string | undefined>;
 }
 
 const MAX_INPUT_BYTES = 100_000; // Fix #17: 100 KB hard cap on user input
@@ -181,6 +190,7 @@ export class AgentEngine {
     private mcpTriggers = new Map<string, string[]>();                        // agentId → triggers
     private mcpToolTriggers = new Map<string, { agentId: string; tool: string }>(); // keyword → {agentId, tool}
     private approvalDisabled = false; // set to true after 'approve_all'
+    private pendingContextLoad: Promise<void> | null = null;
 
     private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
 
@@ -251,10 +261,53 @@ export class AgentEngine {
      * Call after a workspace/project switch so file operations target the new
      * project root without recreating the entire engine.
      * Also triggers a skill reload so project-scoped skills are refreshed.
+     * If projectContextLoader is configured, fires it asynchronously so the next
+     * run() picks up the new project's AGENT.md / session.md content.
      */
     updateWorkingDir(newCwd: string): void {
         (this.opts as { workingDir?: string }).workingDir = newCwd;
         this.reloadSkills();
+        if (this.opts.projectContextLoader) {
+            this.pendingContextLoad = this.opts.projectContextLoader(newCwd)
+                .then(ctx => {
+                    if (ctx !== undefined) {
+                        (this.opts as { projectContext?: string }).projectContext = ctx;
+                    }
+                })
+                .catch(() => { /* non-fatal — next run continues without updated context */ })
+                .finally(() => { this.pendingContextLoad = null; });
+        }
+    }
+
+    /**
+     * Injects an informational message into the active conversation history so
+     * the agent sees it on the next iteration. Used by /workspace switch and any
+     * command that needs to surface state changes (cwd, project context, etc.)
+     * without requiring a full engine restart.
+     */
+    injectContext(message: string): void {
+        this.messages.push({ role: 'user', content: message });
+    }
+
+    /**
+     * Returns a partial CommandContext pre-wired to this engine instance.
+     * Spread into the registry.dispatch() call so host apps don't need to
+     * manually wire onCwdChange, injectContext, setIterationMode, etc.:
+     *
+     *   await registry.dispatch(input, {
+     *     ...engine.getCommandBindings(),
+     *     emit, appName: 'my-agent',
+     *   });
+     */
+    getCommandBindings(): Partial<CommandContext> {
+        return {
+            onCwdChange:      (cwd: string) => this.updateWorkingDir(cwd),
+            injectContext:    (message: string) => this.injectContext(message),
+            setIterationMode: (mode) => this.setIterationMode(mode),
+            getIterationMode: () => this.getIterationMode(),
+            llm:              (prompt: string) => this.callLLM(prompt),
+            reloadSkills:     async () => { this.reloadSkills(); },
+        };
     }
 
     /**
@@ -295,6 +348,7 @@ export class AgentEngine {
     }
 
     async run(input: string): Promise<void> {
+        if (this.pendingContextLoad) await this.pendingContextLoad;
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
 
@@ -385,6 +439,7 @@ export class AgentEngine {
         defOrBuilder: WorkflowDef | WorkflowBuilder,
         opts: WorkflowRunOptions = {},
     ): Promise<WorkflowResult> {
+        if (this.pendingContextLoad) await this.pendingContextLoad;
         await this.ensureMCPInitialized();
         await this.ensureAgentsLoaded();
         const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;

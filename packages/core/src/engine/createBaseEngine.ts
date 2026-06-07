@@ -203,6 +203,15 @@ export interface BaseEngineOptions {
      * When absent, no audit file is written.
      */
     auditLog?: string;
+
+    /**
+     * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
+     * Should return the new projectContext string built from the new cwd
+     * (AGENT.md, session.md, store context, detected stack, etc.).
+     * The engine updates opts.projectContext with the returned value so the
+     * next system prompt reflects the switched project without an engine restart.
+     */
+    projectContextLoader?: (cwd: string) => Promise<string | undefined>;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -281,6 +290,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(obsManager ? { observabilityManager: obsManager } : {}),
         ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
         ...(opts.auditLog ? { auditLog: opts.auditLog } : {}),
+        ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
         ...(opts.agentDiscovery
             ? {
                 loadAgents: () => discoverAgents({

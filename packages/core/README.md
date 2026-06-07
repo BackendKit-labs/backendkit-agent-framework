@@ -143,31 +143,39 @@ Built-in commands registered by `registerBuiltinCommands`:
 
 ### `/plugin` — MCP agent plugins
 
-Plugins are MCP servers that run as subprocesses via `npx`. They extend the agent with new tools (docker, k8s, etc.) without modifying the engine code.
+Plugins are MCP servers that extend the agent with new tools (docker, k8s, etc.) without modifying the engine code. `/plugin add` installs the package via `npm install` into `~/.{appName}/plugins/<name>/` and launches it with `node` — no global installs, no npx overhead, works on Windows.
 
 Configuration is stored in `~/.{appName}/config.json` and loaded on next engine start.
 
 ```bash
 # In the agent CLI
 /plugin list              # show active plugins
-/plugin add docker        # add @backendkit-labs/docker-agent
-/plugin add k8s           # add @backendkit-labs/k8s-agent
-/plugin remove docker     # remove a plugin
+/plugin add docker        # install @backendkit-labs/docker-agent
+/plugin add k8s           # install @backendkit-labs/k8s-agent
+/plugin remove docker     # remove a plugin (uninstalls package)
 ```
 
-Or wire it up programmatically:
+`/plugin add` auto-configures the plugin's LLM from the app's `defaultProvider` — no manual env editing needed:
 
-```ts
+```jsonc
 // ~/.my-app/config.json (managed by /plugin add)
 {
   "mcpServers": [
-    { "name": "docker", "command": "npx", "args": ["-y", "@backendkit-labs/docker-agent"] },
-    { "name": "k8s",    "command": "npx", "args": ["-y", "@backendkit-labs/k8s-agent"] }
+    {
+      "name": "docker",
+      "command": "node",
+      "args": ["~/.my-app/plugins/docker/node_modules/@backendkit-labs/docker-agent/dist/mcp.js"],
+      "env": {
+        "LLM_PROVIDER": "deepseek",
+        "LLM_BASE_URL": "https://api.deepseek.com/v1",
+        "LLM_MODEL":    "deepseek-chat"
+      }
+    }
   ]
 }
 ```
 
-The engine reads `mcpServers` at startup and connects each plugin over stdio MCP transport. The `CommandContext` must have `appName` set for `/plugin` to know which config file to read:
+The `CommandContext` must have `appName` set for `/plugin` to know which config file to read:
 
 ```ts
 await registry.dispatch('/plugin add docker', {
@@ -175,6 +183,61 @@ await registry.dispatch('/plugin add docker', {
   appName: 'my-app',   // reads/writes ~/.my-app/config.json
 });
 ```
+
+---
+
+## Per-agent model overrides
+
+Run routing/reasoning agents on a smarter model and tool-calling specialists on a cheaper one — without multiple engines or extra providers.
+
+### Same LLM, different models
+
+Set `model` on the `AgentProfile`. The engine passes it as a per-call override; providers use `callbacks.model ?? this.model`, so agents without an override use the provider default unchanged.
+
+```ts
+const engine = createBaseEngine({
+  providers: {
+    default: new OpenAICompatibleProvider({
+      apiKey:  process.env.LLM_API_KEY!,
+      baseUrl: 'https://api.deepseek.com/v1',
+      model:   'deepseek-chat',   // fallback for agents with no model override
+    }),
+  },
+  defaultProvider: 'default',
+  agents: [
+    { id: 'orchestrator', model: 'deepseek-reasoner', ... }, // smart — routing decisions
+    { id: 'coder',        model: 'deepseek-chat',     ... }, // fast  — bulk tool calls
+    { id: 'data-analyst', model: 'deepseek-chat',     ... }, // fast  — tool calls
+  ],
+});
+```
+
+### Different LLM providers per agent
+
+Register multiple providers, then set `provider` on the agent profile. `model` is still a per-call override within the chosen provider.
+
+```ts
+const engine = createBaseEngine({
+  providers: {
+    deepseek:  new OpenAICompatibleProvider({
+      apiKey: process.env.DEEPSEEK_API_KEY!, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat',
+    }),
+    anthropic: new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY! }),
+  },
+  defaultProvider: 'deepseek',
+  agents: [
+    { id: 'coder',     provider: 'deepseek',  model: 'deepseek-chat'   },  // fast
+    { id: 'architect', provider: 'anthropic', model: 'claude-opus-4-8' },  // smart
+  ],
+});
+```
+
+The two levels are independent:
+
+| Field | Selects | Fallback |
+|---|---|---|
+| `provider` | Which LLM backend (`ProviderRegistry`) | `defaultProvider` |
+| `model` | Which model within that backend | Provider's configured default |
 
 ---
 

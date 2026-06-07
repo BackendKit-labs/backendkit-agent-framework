@@ -49,7 +49,7 @@ import { ConfigLoader } from './config/ConfigLoader';
 
 // ── Stack detection ───────────────────────────────────────────────────────────
 
-const STACK_INDICATORS: Array<{ file: string; stack: string }> = [
+export const STACK_INDICATORS: Array<{ file: string; stack: string }> = [
     { file: 'package.json',         stack: 'node' },
     { file: 'tsconfig.json',        stack: 'typescript' },
     { file: 'requirements.txt',     stack: 'python' },
@@ -73,6 +73,40 @@ function detectProjectStack(cwd: string): string[] {
         }
     }
     return stacks;
+}
+
+/**
+ * Builds the projectContext string for any cwd.
+ * Called at startup and re-called by projectContextLoader on /workspace switch.
+ * Creates a temporary ProjectStore for reading when none is provided (e.g. after switch).
+ */
+function buildProjectContext(cwd: string, appName: string, store?: ProjectStore): string | undefined {
+    const agentMdPath = join(cwd, 'AGENT.md');
+    const agentMd = existsSync(agentMdPath)
+        ? readFileSync(agentMdPath, 'utf-8').trim()
+        : undefined;
+
+    const effectiveStore = store ?? new ProjectStore(cwd, appName);
+    const storeCtx = effectiveStore.buildSystemContext(agentMd);
+
+    const projectDir = getProjectDir(appName, cwd);
+    const pipelineParts: string[] = [];
+    const tryRead = (p: string) => existsSync(p) ? readFileSync(p, 'utf-8').trim() : null;
+
+    const session = tryRead(join(projectDir, 'memory', 'session.md'));
+    if (session) pipelineParts.push(`## Current Session\n${session}`);
+
+    const lecciones = tryRead(join(projectDir, 'audits', 'lecciones-aprendidas.md'));
+    if (lecciones) pipelineParts.push(`## Lecciones Aprendidas\n${lecciones}`);
+
+    const detectedStack = detectProjectStack(cwd);
+    if (detectedStack.length > 0) {
+        pipelineParts.push(`## Detected Project Stack\n${detectedStack.join(', ')}`);
+    }
+
+    const pipelineCtx = pipelineParts.join('\n\n');
+    const combined = [storeCtx, pipelineCtx].filter(Boolean).join('\n\n');
+    return combined || undefined;
 }
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -348,31 +382,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             retention:  { maxEpisodes: 500, summarizeAfter: 50, summarizeFn: episodicSummarizeFn },
         });
 
-        const agentMdPath = join(cwd, 'AGENT.md');
-        const agentMd = existsSync(agentMdPath)
-            ? readFileSync(agentMdPath, 'utf-8').trim()
-            : undefined;
-
-        const projectDir = getProjectDir(appName, cwd);
-        const pipelineParts: string[] = [];
-        const tryRead = (p: string) => existsSync(p) ? readFileSync(p, 'utf-8').trim() : null;
-
-        const sesion = tryRead(join(projectDir, 'memory', 'session.md'));
-        if (sesion) pipelineParts.push(`## Current Session\n${sesion}`);
-
-        const lecciones = tryRead(join(projectDir, 'audits', 'lecciones-aprendidas.md'));
-        if (lecciones) pipelineParts.push(`## Lecciones Aprendidas\n${lecciones}`);
-
-        const storeCtx = store.buildSystemContext(agentMd) || '';
-        const pipelineCtx = pipelineParts.join('\n\n');
-        projectContext = [storeCtx, pipelineCtx].filter(Boolean).join('\n\n') || undefined;
-    }
-
-    // ── Stack detection ───────────────────────────────────────────────────────
-    const detectedStack = detectProjectStack(cwd);
-    if (detectedStack.length > 0) {
-        const stackSection = `## Detected Project Stack\n${detectedStack.join(', ')}`;
-        projectContext = projectContext ? `${projectContext}\n\n${stackSection}` : stackSection;
+        projectContext = buildProjectContext(cwd, appName, store);
     }
 
     // ── Skills (3-layer: builtins in-memory + YAML lazy-loaded) ──────────────
@@ -447,6 +457,9 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         }
     }
 
+    // ── Stack detection (for skill language gating) ───────────────────────────
+    const detectedStack = detectProjectStack(cwd);
+
     // ── Seed global directory structure on first run (fire-and-forget) ───────
     // Creates ~/.{appName}/ with agents, skills, workspaces.json, agent-notes/,
     // and projects/{cwd}/memory+audits dirs. Idempotent — skips existing files.
@@ -484,6 +497,12 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(memorySystem ? { memorySystem } : {}),
         ...(historyPath ? { historyPath } : {}),
+        // Only rebuild project context on switch when persistence is enabled —
+        // buildProjectContext creates a ProjectStore (writes dirs + session.md),
+        // which would violate disablePersistence.
+        ...(opts.disablePersistence
+            ? {}
+            : { projectContextLoader: async (newCwd: string) => buildProjectContext(newCwd, appName) }),
     });
 }
 

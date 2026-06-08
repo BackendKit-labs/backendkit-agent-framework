@@ -307,6 +307,20 @@ export class AgentEngine {
             getIterationMode: () => this.getIterationMode(),
             llm:              (prompt: string) => this.callLLM(prompt),
             reloadSkills:     async () => { this.reloadSkills(); },
+            mcpList:          async () => {
+                const mgr = this.opts.mcpManager;
+                if (!mgr) return [];
+                const configured = mgr.getConfiguredNames();
+                const connected  = new Map(
+                    mgr.getServerInfo().map(s => [s.name, s.toolCount])
+                );
+                return configured.map(name => ({
+                    name,
+                    url:       mgr.getConfig(name)?.url,
+                    connected: connected.has(name),
+                    toolCount: connected.get(name) ?? 0,
+                }));
+            },
         };
     }
 

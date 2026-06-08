@@ -785,8 +785,22 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                 emit(`No hay plugins activos.\n\nDisponibles:\n${hints}`);
                 return;
             }
-            const lines = active.map(s => `  ${s.name.padEnd(20)} ${(s.args ?? []).join(' ')}`);
-            emit(`Plugins activos (${active.length}):\n${lines.join('\n')}\n\nUsa /plugin remove <name> para desactivar.`);
+
+            // Enrich with live connection status from the engine when available
+            if (ctx.mcpList) {
+                const live = await ctx.mcpList();
+                const liveMap = new Map(live.map(s => [s.name, s]));
+                const lines = active.map(s => {
+                    const status = liveMap.get(s.name);
+                    const dot    = status?.connected ? '●' : '○';
+                    const tools  = status?.connected ? ` (${status.toolCount} tools)` : ' (offline)';
+                    return `  ${dot} ${s.name.padEnd(20)}${tools}`;
+                });
+                emit(`Plugins (${active.length}):\n${lines.join('\n')}\n\nUsa /plugin remove <name> para desactivar.`);
+            } else {
+                const lines = active.map(s => `  ${s.name.padEnd(20)} ${(s.args ?? []).join(' ')}`);
+                emit(`Plugins activos (${active.length}):\n${lines.join('\n')}\n\nUsa /plugin remove <name> para desactivar.`);
+            }
             return;
         }
 

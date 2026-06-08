@@ -301,7 +301,10 @@ export class AgentEngine {
      */
     getCommandBindings(): Partial<CommandContext> {
         return {
-            onCwdChange:      (cwd: string) => this.updateWorkingDir(cwd),
+            onCwdChange:      (cwd: string, contextMessage?: string) => {
+                this.updateWorkingDir(cwd);
+                if (contextMessage) this.injectContext(contextMessage);
+            },
             injectContext:    (message: string) => this.injectContext(message),
             setIterationMode: (mode) => this.setIterationMode(mode),
             getIterationMode: () => this.getIterationMode(),

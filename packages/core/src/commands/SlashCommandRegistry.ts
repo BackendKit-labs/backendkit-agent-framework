@@ -34,8 +34,13 @@ export interface CommandContext {
     appName?: string;
     /** Inject a message into the agent's active context window. */
     injectContext?: (message: string) => void;
-    /** Called by /workspace switch when the active project changes. App handles the actual cwd/engine reload. */
-    onCwdChange?: (cwd: string) => void;
+    /**
+     * Called by /workspace switch when the active project changes.
+     * Second argument carries the workspace context message so the engine can
+     * inject it into the conversation history automatically — hosts that use
+     * getCommandBindings() get this for free without wiring injectContext.
+     */
+    onCwdChange?: (cwd: string, contextMessage?: string) => void;
     /** Run the LLM engine with a given prompt. Used by commands that need AI interpretation (e.g. /help). */
     runEngine?: (prompt: string) => Promise<void>;
     /**

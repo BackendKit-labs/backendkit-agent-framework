@@ -38,7 +38,7 @@ async function doSwitch(
     appName: string,
     emit: (text: string) => void,
     injectContext?: (message: string) => void,
-    onCwdChange?: (cwd: string) => void,
+    onCwdChange?: (cwd: string, contextMessage?: string) => void,
 ): Promise<void> {
     const ws = config[wsName];
     if (!ws) { emit(`Workspace "${wsName}" not found.`); return; }
@@ -49,15 +49,15 @@ async function doSwitch(
     const updated = setActiveProject(config, wsName, target.name);
     await saveWorkspaces(appName, updated);
 
-    // Inject workspace context into agent memory
+    // Build workspace context once — passed to both injectContext (host) and
+    // onCwdChange (engine bindings) so the inject is guaranteed even when the
+    // host overrides injectContext with its own pendingContext mechanism.
     const context = await buildWorkspaceContext(wsName, updated[wsName]!, appName);
     injectContext?.(context);
 
     if (onCwdChange) {
-        // When commonRoot is set, move to the shared root so the agent can
-        // access all projects in the workspace without switching again.
         const effectiveCwd = ws.commonRoot ?? target.cwd;
-        onCwdChange(effectiveCwd);
+        onCwdChange(effectiveCwd, context);
         const rootNote = ws.commonRoot ? ` (shared root: ${ws.commonRoot})` : '';
         emit(`Switched to workspace "${wsName}" — project: ${target.name}${rootNote}`);
     } else {

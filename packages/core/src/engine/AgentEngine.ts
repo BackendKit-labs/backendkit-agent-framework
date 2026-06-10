@@ -1,4 +1,5 @@
-import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync } from 'fs';
+import { appendFile } from 'fs/promises';
 import { dirname } from 'path';
 import { atomicWriteSync } from '../shared/utils/atomic-write';
 import type {
@@ -234,6 +235,8 @@ export class AgentEngine {
     private agentsLoaded = false;
     private agentsLoadedPromise: Promise<void> | null = null;
     private memoryContextBlock = '';
+    /** Serializes concurrent run() calls — shared mutable state is not reentrant-safe. */
+    private runMutex: Promise<void> = Promise.resolve();
 
     constructor(private readonly opts: AgentEngineOptions) {
         this.memory = opts.sessionMemory ?? new SessionMemory();
@@ -257,10 +260,8 @@ export class AgentEngine {
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
-            tools: opts.tools,
             transport: opts.transport,
-            workingDir: opts.workingDir,
-            runAgent: (id, question, context) => this.runAgentInternal(id, question, context),
+            runAgent: (id, question, context, depth) => this.runAgentInternal(id, question, context, depth),
         });
     }
 
@@ -383,6 +384,21 @@ export class AgentEngine {
     }
 
     async run(input: string): Promise<void> {
+        // Serialize concurrent calls — messages, currentAgentId, and other fields are
+        // shared mutable state that is not safe for concurrent access.
+        let release!: () => void;
+        const slot = new Promise<void>(r => { release = r; });
+        const prev = this.runMutex;
+        this.runMutex = prev.then(() => slot);
+        await prev;
+        try {
+            await this._run(input);
+        } finally {
+            release();
+        }
+    }
+
+    private async _run(input: string): Promise<void> {
         if (this.pendingContextLoad) await this.pendingContextLoad;
         this.aborted = false;
         this.opts.transport.emit({ type: 'ready' });
@@ -483,7 +499,7 @@ export class AgentEngine {
         const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;
         const runner = new WorkflowRunner(def, {
             ...opts,
-            runAgent: (agentId, input, context) => this.runAgentInternal(agentId, input, context),
+            runAgent: (agentId, input, context) => this.runAgentInternal(agentId, input, context, 0),
             transport: this.opts.transport,
         });
         return runner.run();
@@ -516,7 +532,8 @@ export class AgentEngine {
     private saveHistory(): void {
         if (!this.opts.historyPath) return;
         const cap = this.opts.maxContextMessages ?? 100;
-        const toSave = this.messages.filter(m => m.role !== 'system').slice(-cap);
+        // Sanitize before slicing — a naive slice(-cap) can split assistant→tool chains.
+        const toSave = sanitizeMessages(this.messages.filter(m => m.role !== 'system').slice(-cap));
         try {
             mkdirSync(dirname(this.opts.historyPath), { recursive: true });
             atomicWriteSync(this.opts.historyPath, JSON.stringify(toSave, null, 2));
@@ -1010,7 +1027,7 @@ export class AgentEngine {
             for (const call of otherCalls) {
                 if (this.aborted) break;
                 iterManager.recordToolCall();
-                const result = await this.executeToolCall(call, currentProfile);
+                const result = await this.executeToolCall(call, currentProfile, 0);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
 
@@ -1058,7 +1075,7 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
     }
 
-    private async runAgentInternal(agentId: string, question: string, context?: string): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
+    private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
         const profile = this.opts.agents.get(agentId);
         if (!profile) throw new Error(`Agent "${agentId}" not registered`);
 
@@ -1088,7 +1105,7 @@ export class AgentEngine {
         let finalContent = '';
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
-        const maxIter = 30;
+        const maxIter = this.opts.maxIterations ?? 100;
         let iter = 0;
 
         this.opts.transport.emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
@@ -1131,7 +1148,7 @@ export class AgentEngine {
 
             const toolResults: LLMMessage[] = [];
             for (const call of toolCalls) {
-                const result = await this.executeToolCall(call, profile);
+                const result = await this.executeToolCall(call, profile, depth);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
             messages.push(...toolResults);
@@ -1140,6 +1157,7 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
 
         return { agentId, content: finalContent, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, elapsedMs: Date.now() - start };
+
     }
 
     /**
@@ -1150,19 +1168,23 @@ export class AgentEngine {
     private async executeToolCall(
         call: { name: string; args: string },
         profile: import('../types').AgentProfile,
+        depth = 0,
     ): Promise<string> {
         const callStart = Date.now();
         const toolDef = this.opts.tools.get(call.name);
         let result: string;
+        let success: boolean;
 
         if (!toolDef) {
-            result = `Tool "${call.name}" not found`;
+            result  = `Tool "${call.name}" not found`;
+            success = false;
         } else if (
             !profile.allowedTools.includes(call.name) &&
             (profile.allowedTools.length > 0 || (profile.delegatesTo && profile.delegatesTo.length > 0))
         ) {
-            result = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
-                     `Use ask_agent to delegate to a specialist.`;
+            result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
+                      `Use ask_agent to delegate to a specialist.`;
+            success = false;
         } else if (this.opts.onToolApproval && this.requiresAlwaysAsk(call)) {
             // High-blast-radius operations (npm install, pip install, etc.) always
             // require approval — cannot be bypassed by approve_all or auto mode.
@@ -1174,9 +1196,11 @@ export class AgentEngine {
                 args_preview: preview,
             });
             const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
-            result = decision === 'reject'
-                ? `Tool call "${call.name}" was rejected by the user.`
-                : await this.runToolDef(call, toolDef, profile.id);
+            if (decision === 'reject') {
+                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+            } else {
+                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            }
         } else if (
             !this.approvalDisabled &&
             this.opts.onToolApproval &&
@@ -1191,15 +1215,16 @@ export class AgentEngine {
             });
             const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
             if (decision === 'approve_all') this.approvalDisabled = true;
-            result = decision === 'reject'
-                ? `Tool call "${call.name}" was rejected by the user.`
-                : await this.runToolDef(call, toolDef, profile.id);
+            if (decision === 'reject') {
+                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+            } else {
+                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            }
         } else {
-            result = await this.runToolDef(call, toolDef, profile.id);
+            ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
         }
 
-        const success = !result.startsWith('Error:');
-        this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
+        await this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
@@ -1211,13 +1236,14 @@ export class AgentEngine {
         call: { name: string; args: string },
         toolDef: import('../types').ToolDefinition,
         agentId: string,
-    ): Promise<string> {
-        const ctx = this.buildContext(agentId);
+        depth = 0,
+    ): Promise<{ result: string; success: boolean }> {
+        const ctx = this.buildContext(agentId, depth);
         try {
             const args = JSON.parse(call.args);
-            return await toolDef.execute(args, ctx);
+            return { result: await toolDef.execute(args, ctx), success: true };
         } catch (err) {
-            return `Error: ${err instanceof Error ? err.message : String(err)}`;
+            return { result: `Error: ${err instanceof Error ? err.message : String(err)}`, success: false };
         }
     }
 
@@ -1288,7 +1314,7 @@ export class AgentEngine {
     /** Re-enable approval gate (e.g. after /iteration manual). */
     enableToolApproval(): void { this.approvalDisabled = false; }
 
-    private writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): void {
+    private async writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): Promise<void> {
         if (!this.opts.auditLog) return;
         const line = JSON.stringify({
             ts: new Date().toISOString(),
@@ -1299,10 +1325,10 @@ export class AgentEngine {
             success,
             durationMs,
         });
-        appendFileSync(this.opts.auditLog, line + '\n');
+        await appendFile(this.opts.auditLog, line + '\n').catch(() => undefined);
     }
 
-    private buildContext(agentId?: string): ExecutionContext {
+    private buildContext(agentId?: string, depth = 0): ExecutionContext {
         const id = agentId ?? this.currentAgentId;
         const profile = this.opts.agents.get(id);
         const storeRoot = this.opts.store?.projectDir;
@@ -1320,14 +1346,14 @@ export class AgentEngine {
             ...(additionalRoots.length ? { additionalRoots } : {}),
             ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
-                const result = await this.bus.runSingle({ agentId, question, context });
+                const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1 });
                 return result.content;
             },
             emitCompacting: (phase, label) => {
                 this.opts.transport.emit({ type: 'compacting', phase, label });
             },
             llmCall: async (prompt: string): Promise<string> => {
-                const profile = this.opts.agents.get(this.currentAgentId);
+                const profile = this.opts.agents.get(id);
                 if (!profile) return '';
                 const provider = this.getProviderForProfile(profile);
                 let result = '';

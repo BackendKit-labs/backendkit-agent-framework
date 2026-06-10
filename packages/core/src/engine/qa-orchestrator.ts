@@ -119,8 +119,8 @@ export function activateQaEngineerIfNeeded(ctx: QaContext): AgentProfile | null 
 
     ctx.messages.push({
         role: 'user',
-        content: `Revisa el siguiente codigo generado y determina si es apto para commit. ` +
-                 `Tu revision es la ultima palabra y sera visible para el usuario.\n\n${clean}`,
+        content: `Review the following generated code and determine whether it is ready to commit. ` +
+                 `Your review is final and will be shown to the user.\n\n${clean}`,
     });
     ctx.setEffectiveAgent(qaAgentId);
     return qaProfile;

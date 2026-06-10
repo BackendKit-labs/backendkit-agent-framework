@@ -87,7 +87,7 @@ describe('QAService.evaluateReview', () => {
 
     it('returns true when "lgtm" appears', () => {
         const svc = makeService();
-        expect(svc.evaluateReview('LGTM, no issues found.')).toBe(true);
+        expect(svc.evaluateReview('LGTM, looks good to me.')).toBe(true);
     });
 
     it('returns false when "rework" appears', () => {
@@ -174,7 +174,7 @@ describe('QAService.extractFindings', () => {
         const review = 'Hay problemas con el código pero no están listados en formato bullet.';
         const findings = svc.extractFindings(review);
         expect(findings).toHaveLength(1);
-        expect(findings[0].hallazgo).toBe('La revision QA senalo problemas en el codigo');
+        expect(findings[0].hallazgo).toBe('The QA review flagged issues in the code');
     });
 
     it('each finding has all required fields', () => {

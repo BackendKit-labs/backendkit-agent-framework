@@ -616,7 +616,7 @@ export class AgentEngine {
         if (!explicit && !trimmed) return undefined;
         const parts: string[] = [];
         if (explicit) parts.push(explicit);
-        if (trimmed) parts.push(`## Análisis del orquestador\n${trimmed}`);
+        if (trimmed) parts.push(`## Orchestrator Analysis\n${trimmed}`);
         return parts.join('\n\n');
     }
 
@@ -802,7 +802,7 @@ export class AgentEngine {
         const messages: LLMMessage[] = [
             { role: 'system', content: this.buildSystemPrompt(profile) },
             ...historySlice,
-            { role: 'user', content: context ? `${question}\n\nContexto:\n${context}` : question },
+            { role: 'user', content: context ? `${question}\n\nContext:\n${context}` : question },
         ];
 
         let finalContent = '';

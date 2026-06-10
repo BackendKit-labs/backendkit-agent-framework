@@ -32,19 +32,28 @@ export interface QAReviewResult {
 }
 
 const APPROVAL_PATTERNS = [
-    'visto bueno', 'aprobado', 'approved', 'aprueba', 'ok',
+    // English
+    'approved', 'lgtm', 'looks good', 'good to go', ':+1:',
+    'no issues', 'looks correct', 'well implemented', 'ready to merge', 'ship it',
+    // Spanish (fallback for mixed-language responses)
+    'visto bueno', 'aprobado', 'aprueba', 'ok',
     'se ve bien', 'correcto', 'bien', 'buen trabajo',
     'no hay problemas', 'sin problemas', 'todo bien',
     'puede continuar', 'procede', 'listo para commit',
-    'lgtm', 'looks good', 'good to go', ':+1:',
 ];
 
 const REJECTION_PATTERNS = [
-    'problema', 'error', 'falta', 'incorrecto', 'mal',
+    // English
+    'error', 'rework', 'edge cases', 'missing tests', 'needs changes',
+    'requires changes', 'not approved', 'rejected', 'should fix',
+    'needs improvement', 'missing error handling', 'incomplete',
+    'incorrect',
+    // Spanish (fallback for mixed-language responses)
+    'problema', 'falta', 'incorrecto', 'mal',
     'debe corregir', 'necesita cambios', 'no apruebo',
-    'rechazado', 'rework', 'issues encontrados',
-    'no esta bien', 'incompleto', 'faltan tests',
-    'edge cases', 'casos borde', 'mejorable',
+    'rechazado', 'issues encontrados',
+    'no esta bien', 'faltan tests',
+    'casos borde', 'mejorable',
 ];
 
 export class QAService {
@@ -75,7 +84,7 @@ export class QAService {
             () => this.opts.client.chat(
                 [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Revisa el siguiente trabajo y da el visto bueno, o senala problemas de calidad, testing faltante o edge cases importantes:\n\n${workContent}` },
+                    { role: 'user', content: `Review the following work and approve it, or point out quality issues, missing tests, or important edge cases:\n\n${workContent}` },
                 ],
                 undefined,
                 0.2
@@ -99,36 +108,36 @@ export class QAService {
         const qaProfile = this.opts.allAgents?.find(a => a.id === 'qa-engineer');
         const systemPrompt = qaProfile?.systemPromptAddition
             ? this.opts.basePrompt() + qaProfile.systemPromptAddition
-            : this.opts.basePrompt() + '\n\nEres un ingeniero de QA experto. Revisas cambios de codigo antes de commitear.';
+            : this.opts.basePrompt() + '\n\nYou are an expert QA engineer. You review code changes before committing.';
 
         const contextParts: string[] = [
-            '## Cambios a commitear (git diff staged)',
+            '## Staged changes (git diff)',
             '',
             '```diff',
             gitDiff.slice(0, 8000),
-            gitDiff.length > 8000 ? '\n... (diff truncado)' : '',
+            gitDiff.length > 8000 ? '\n... (diff truncated)' : '',
             '```',
         ];
 
         if (stagedFiles.length > 0) {
             contextParts.push(
                 '',
-                '## Archivos modificados',
+                '## Modified files',
                 '',
                 stagedFiles.map(f => `- ${f}`).join('\n'),
             );
         }
 
         const userMessage = [
-            'Se va a realizar un commit con los siguientes cambios. Revisa el codigo y determina si es apto para commit.',
+            'The following changes are about to be committed. Review the code and determine whether it is ready to commit.',
             '',
-            'Debes:',
-            '1. Verificar que el codigo sea correcto y sigue buenas practicas',
-            '2. Detectar problemas de calidad, seguridad o rendimiento',
-            '3. Senalar edge cases no cubiertos o testing faltante',
+            'You must:',
+            '1. Verify the code is correct and follows good practices',
+            '2. Detect quality, security, or performance issues',
+            '3. Point out uncovered edge cases or missing tests',
             '',
-            'Responde con APROBADO si el codigo es apto para commit, o RECHAZADO si hay problemas que corregir.',
-            'Si hay problemas, indica exactamente que archivos y lineas necesitan cambios.',
+            'Respond with APPROVED if the code is ready to commit, or REJECTED if there are issues to fix.',
+            'If there are issues, specify exactly which files and lines need changes.',
             '',
             ...contextParts,
         ].join('\n');
@@ -161,34 +170,34 @@ export class QAService {
         const qaProfile = this.opts.allAgents?.find(a => a.id === 'qa-engineer');
         const systemPrompt = qaProfile?.systemPromptAddition
             ? this.opts.basePrompt() + qaProfile.systemPromptAddition
-            : this.opts.basePrompt() + '\n\nEres un ingeniero de QA experto. Diagnosticas tests fallidos y propones soluciones.';
+            : this.opts.basePrompt() + '\n\nYou are an expert QA engineer. You diagnose failing tests and propose solutions.';
 
         const contextParts: string[] = [
-            '## Tests Fallidos',
+            '## Failing Tests',
             '',
             testOutput.slice(0, 4000),
-            testOutput.length > 4000 ? '\n... (salida truncada)' : '',
+            testOutput.length > 4000 ? '\n... (output truncated)' : '',
         ];
 
         if (gitDiff) {
             contextParts.push(
                 '',
-                '## Diff del codigo a commitear',
+                '## Code diff to commit',
                 '',
                 '```diff',
                 gitDiff.slice(0, 6000),
-                gitDiff.length > 6000 ? '\n... (diff truncado)' : '',
+                gitDiff.length > 6000 ? '\n... (diff truncated)' : '',
                 '```',
             );
         }
 
         const userMessage = [
-            'Los tests del proyecto fallaron al intentar hacer commit. Analiza el output de los tests y el diff del codigo para:',
+            'Project tests failed while attempting to commit. Analyze the test output and code diff to:',
             '',
-            '1. Identificar la causa raiz de cada fallo',
-            '2. Senalar exactamente que archivos y lineas causan los problemas',
-            '3. Sugerir correcciones especificas (con codigo si aplica)',
-            '4. Indicar si es un error en el codigo o en los tests mismos',
+            '1. Identify the root cause of each failure',
+            '2. Point out exactly which files and lines are causing the issues',
+            '3. Suggest specific fixes (with code if applicable)',
+            '4. Indicate whether the problem is in the code or in the tests themselves',
             '',
             ...contextParts,
         ].join('\n');
@@ -207,8 +216,8 @@ export class QAService {
         if (!result.ok) {
             return `(QA no disponible: ${result.error.message}. Corrige los errores manualmente.)`;
         }
-        const diagnosis = result.value.content ?? '(QA no pudo generar diagnostico)';
-        this.opts.onQAReview?.(`QA Diagnosis - Tests Fallidos\n\n${diagnosis}`);
+        const diagnosis = result.value.content ?? '(QA could not generate a diagnosis)';
+        this.opts.onQAReview?.(`QA Diagnosis - Failing Tests\n\n${diagnosis}`);
         return diagnosis;
     }
 
@@ -258,8 +267,8 @@ export class QAService {
                     dimension: 'Code Review',
                     hallazgo: trimmed.slice(0, 200),
                     severidad,
-                    evidencia: `Linea de revision QA: "${trimmed.slice(0, 150)}"`,
-                    recomendacion: 'Revisar y corregir el problema senalado en la revision QA',
+                    evidencia: `QA review line: "${trimmed.slice(0, 150)}"`,
+                    recomendacion: 'Review and fix the issue flagged in the QA review',
                     agenteResponsable: 'qa-engineer',
                 });
             }
@@ -269,10 +278,10 @@ export class QAService {
             hallazgos.push({
                 id: `QA-${Date.now().toString(36)}-0`,
                 dimension: 'Code Review',
-                hallazgo: 'La revision QA senalo problemas en el codigo',
+                hallazgo: 'The QA review flagged issues in the code',
                 severidad: 'medium',
-                evidencia: `Texto de la revision: "${review.slice(0, 300)}"`,
-                recomendacion: 'Revisar el feedback completo de QA y realizar los cambios necesarios',
+                evidencia: `Review text: "${review.slice(0, 300)}"`,
+                recomendacion: 'Review the full QA feedback and make the necessary changes',
                 agenteResponsable: 'qa-engineer',
             });
         }

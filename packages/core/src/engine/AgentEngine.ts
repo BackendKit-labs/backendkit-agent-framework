@@ -1,7 +1,7 @@
-import { mkdirSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { appendFile } from 'fs/promises';
 import { dirname } from 'path';
-import { atomicWriteSync } from '../shared/utils/atomic-write';
+import { HistoryManager, sanitizeMessages } from './HistoryManager';
 import type {
     AgentProfile,
     EngineOptions,
@@ -37,76 +37,6 @@ import {
     processInlineQaReview,
 } from './qa-orchestrator';
 
-/**
- * Remove messages that would cause a 400 from any OpenAI-compatible provider:
- * - `tool` messages that are not part of an active assistant→tool chain
- * - `assistant` messages that declare tool_calls but have no following tool results
- *   (only stripped when the next non-tool message is NOT another turn of the same chain)
- *
- * Walking forward: we track whether we're "inside" a tool_calls chain.
- * A chain starts with assistant(tool_calls) and ends once all IDs have a result.
- * Any `tool` result that arrives outside an open chain is dropped.
- */
-function sanitizeMessages(messages: LLMMessage[]): LLMMessage[] {
-    const out: LLMMessage[] = [];
-    // IDs still waiting for a tool result in the current chain
-    let pendingIds = new Set<string>();
-
-    for (const msg of messages) {
-        if (msg.role === 'assistant') {
-            // A new assistant message closes any previous chain (even if incomplete)
-            // and optionally opens a new one.
-            pendingIds = new Set<string>();
-            if (msg.tool_calls?.length) {
-                for (const tc of msg.tool_calls) {
-                    if (tc.id) pendingIds.add(tc.id);
-                }
-            }
-            out.push(msg);
-        } else if (msg.role === 'tool') {
-            if (pendingIds.size === 0) {
-                // Orphaned tool result — no open chain. Drop it.
-                continue;
-            }
-            if (msg.tool_call_id) pendingIds.delete(msg.tool_call_id);
-            out.push(msg);
-        } else {
-            // user / system — close any open chain.
-            // If a chain was left open (mid-abort), retroactively strip it so the
-            // incoming user turn doesn't carry an incomplete assistant→tool block
-            // that would cause a 400 on the next provider call.
-            if (pendingIds.size > 0) {
-                while (out.length > 0) {
-                    const last = out[out.length - 1];
-                    if (last.role === 'tool') { out.pop(); continue; }
-                    if (last.role === 'assistant' && last.tool_calls?.length) { out.pop(); break; }
-                    break;
-                }
-            }
-            pendingIds = new Set<string>();
-            out.push(msg);
-        }
-    }
-
-    // If the conversation ends mid-chain (e.g. after abort()), the trailing
-    // assistant message with open tool_calls would cause a 400 on the next run.
-    // Walk backwards and remove it along with any partial tool results.
-    if (pendingIds.size > 0) {
-        for (let i = out.length - 1; i >= 0; i--) {
-            const m = out[i];
-            if (m.role === 'tool') {
-                out.splice(i, 1);
-            } else if (m.role === 'assistant' && m.tool_calls?.length) {
-                out.splice(i, 1);
-                break;
-            } else {
-                break;
-            }
-        }
-    }
-
-    return out;
-}
 
 export interface AgentEngineOptions extends EngineOptions {
     agents: AgentRegistry;
@@ -205,8 +135,8 @@ export class AgentEngine {
     private readonly memory: SessionMemoryData;
     private readonly bus: DelegationBus;
     private readonly skillActivator = new SkillActivator();
+    private readonly history: HistoryManager;
     private currentAgentId: string;
-    private messages: LLMMessage[] = [];
     private aborted = false;
     private abortController: AbortController | null = null;
     private allSkills: Skill[];
@@ -253,6 +183,10 @@ export class AgentEngine {
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.allSkills = opts.skills ?? [];
+        this.history = new HistoryManager({
+            historyPath:        opts.historyPath,
+            maxContextMessages: opts.maxContextMessages,
+        });
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
             maxIterations: opts.maxIterations ?? 100,
@@ -261,12 +195,6 @@ export class AgentEngine {
         });
         if (opts.auditLog) {
             try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
-        }
-        if (opts.historyPath && existsSync(opts.historyPath)) {
-            try {
-                const raw = JSON.parse(readFileSync(opts.historyPath, 'utf-8')) as LLMMessage[];
-                this.messages = raw.filter(m => m.role !== 'system');
-            } catch { /* corrupt or missing — start fresh */ }
         }
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
@@ -316,7 +244,7 @@ export class AgentEngine {
      * without requiring a full engine restart.
      */
     injectContext(message: string): void {
-        this.messages.push({ role: 'user', content: message });
+        this.history.inject(message);
     }
 
     /**
@@ -494,7 +422,7 @@ export class AgentEngine {
             orchestrationResult = await this.opts.orchestrator.orchestrate(input).catch(() => undefined);
         }
 
-        this.messages.push({ role: 'user', content: input });
+        this.history.push({ role: 'user', content: input });
         await this.runLoop(profile, orchestrationResult);
         this.saveHistory();
         this.opts.transport.emit({ type: 'done' });
@@ -534,45 +462,22 @@ export class AgentEngine {
 
     /** Delete persisted history file and reset in-memory conversation. */
     clearHistory(): void {
-        this.messages = [];
-        if (!this.opts.historyPath) return;
-        try { atomicWriteSync(this.opts.historyPath, '[]'); } catch { /* non-fatal */ }
+        this.history.clear();
     }
 
-    /** Serialize current conversation to disk (called automatically after each run). */
     private saveHistory(): void {
-        if (!this.opts.historyPath) return;
-        const cap = this.opts.maxContextMessages ?? 100;
-        // Sanitize before slicing — a naive slice(-cap) can split assistant→tool chains.
-        const toSave = sanitizeMessages(this.messages.filter(m => m.role !== 'system').slice(-cap));
-        try {
-            mkdirSync(dirname(this.opts.historyPath), { recursive: true });
-            atomicWriteSync(this.opts.historyPath, JSON.stringify(toSave, null, 2));
-        } catch { /* non-fatal — history loss is preferable to a crash */ }
+        this.history.save();
     }
 
-    /**
-     * Trim conversation history to maxContextMessages by dropping oldest messages
-     * at a user-turn boundary. Preserves all assistant↔tool pairs intact.
-     */
     private trimHistory(): void {
         const max = this.opts.maxContextMessages;
-        if (!max || this.messages.length <= max) return;
-
-        // Walk forward from the target offset to find the next 'user' message.
-        // Cutting there avoids orphaning assistant tool_calls / tool results.
-        const target = this.messages.length - max;
-        let cutAt = target;
-        while (cutAt < this.messages.length && this.messages[cutAt].role !== 'user') {
-            cutAt++;
-        }
-
-        if (cutAt > 0 && cutAt < this.messages.length) {
-            this.messages = this.messages.slice(cutAt);
+        if (!max) return;
+        const dropped = this.history.trim(max);
+        if (dropped > 0) {
             this.opts.transport.emit({
                 type: 'system',
                 level: 'warn',
-                text: `[ContextWindow] Dropped ${cutAt} messages — history capped at ${max} (maxContextMessages)`,
+                text: `[ContextWindow] Dropped ${dropped} messages — history capped at ${max} (maxContextMessages)`,
             });
         }
     }
@@ -949,7 +854,7 @@ export class AgentEngine {
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
-            const safeHistory = sanitizeMessages(this.messages);
+            const safeHistory = this.history.sanitized();
 
             let streamBuffer = '';
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
@@ -997,7 +902,7 @@ export class AgentEngine {
 
             if (!finalMessage) break;
 
-            this.messages.push(finalMessage);
+            this.history.push(finalMessage);
 
             const toolResults: LLMMessage[] = [];
 
@@ -1051,7 +956,7 @@ export class AgentEngine {
                     orchestrator: this.opts.orchestrator,
                     qaService: this.opts.qaService,
                     allAgents: this.opts.agents.getAll(),
-                    messages: this.messages,
+                    messages: this.history.getAll(),
                     effectiveAgentId: currentProfile.id,
                     defaultAgentId: this.opts.defaultAgentId,
                     qaAgentId,
@@ -1080,7 +985,7 @@ export class AgentEngine {
             }
 
             if (toolResults.length === 0) break;
-            this.messages.push(...toolResults);
+            this.history.pushAll(toolResults);
         }
 
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
@@ -1097,13 +1002,13 @@ export class AgentEngine {
         // without requiring the orchestrator to manually copy it into context.
         let historySlice: LLMMessage[] = [];
         const maxCtxMsgs = this.opts.subAgentContextMessages;
-        if (maxCtxMsgs && maxCtxMsgs > 0 && this.messages.length > 0) {
-            historySlice = this.messages.slice(-maxCtxMsgs);
+        const allMessages = this.history.getAll();
+        if (maxCtxMsgs && maxCtxMsgs > 0 && allMessages.length > 0) {
+            historySlice = allMessages.slice(-maxCtxMsgs);
             // Trim to the first user-turn boundary to avoid orphaning tool results.
             const firstUser = historySlice.findIndex(m => m.role === 'user');
             if (firstUser > 0) historySlice = historySlice.slice(firstUser);
             else if (firstUser < 0) historySlice = [];
-            // Sanitize: drop any tool messages whose assistant(tool_calls) was cut off
             historySlice = sanitizeMessages(historySlice);
         }
 

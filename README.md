@@ -12,12 +12,53 @@ Prompts for a template and LLM provider, then scaffolds a ready-to-run project.
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`@backendkit-labs/agent-core`](packages/core) | Generic engine — model-agnostic, transport-agnostic |
-| [`@backendkit-labs/agent-coding`](packages/coding) | Coding agents, file tools, git integration, LLM providers |
-| [`@backendkit-labs/mcp-server`](packages/mcp-server) | MCP server — skills and code intelligence |
-| [`create-bk-agent`](packages/create-bk-agent) | CLI scaffolder |
+| Package | Status | Description |
+|---------|--------|-------------|
+| [`@backendkit-labs/agent-core`](packages/core) | **core** | Generic engine — model-agnostic, transport-agnostic |
+| [`@backendkit-labs/agent-enterprise`](packages/enterprise) | **core** | RAG + VaultWriter for enterprise deployments |
+| [`@backendkit-labs/agent-coding`](packages/coding) | **stable** | Coding agents, file tools, git integration, LLM providers |
+| [`@backendkit-labs/mcp-server`](packages/mcp-server) | **stable** | MCP server — skills and code intelligence |
+| [`create-bk-agent`](packages/create-bk-agent) | **stable** | CLI scaffolder |
+
+## Subsystem status
+
+Three tiers define how each subsystem is treated during the pilot phase:
+
+| Status | Meaning |
+|--------|---------|
+| **core** | Required for the enterprise story — reviewed before any change |
+| **stable** | Works and is maintained; will not be expanded in the pilot phase |
+| **experimental** | Frozen — documented as such, may change or be removed based on pilot usage |
+
+**Rule during pilot:** no new features are added to `experimental` subsystems. Every new
+capability must be justified against a concrete pilot use case. What the pilot uses gets
+consolidated; what it does not touch in a month of real use is a candidate for extraction
+or removal.
+
+### `@backendkit-labs/agent-core` subsystem matrix
+
+| Subsystem | Status | Notes |
+|-----------|--------|-------|
+| `engine` | **core** | AgentEngine, MCPRegistrar, ApprovalGate, AuditLogger, HistoryManager |
+| `orchestration` | **core** | FSM, intent detection, task context, audit reporter, policy engine |
+| `delegation` | **core** | DelegationBus — parallel sub-agent execution |
+| `tools` | **core** | ToolDefinition, ToolRegistry |
+| `transport` | **core** | CallbackTransport, StdioTransport |
+| `mcp` | **core** | MCP client (MCPClientManager) |
+| `bootstrap` | **core** | Initialization helpers |
+| `shared` / `types` | **core** | Shared utilities and type definitions |
+| `workflow` | **stable** | WorkflowBuilder, WorkflowRunner |
+| `skills` | **stable** | SkillManager — YAML skill packs, install/update |
+| `commands` | **stable** | Slash commands (`/help`, `/agents`, `/workspace`, `/plugin`, …) |
+| `context` | **stable** | Context window management |
+| `checkpoint` | **stable** | Session checkpoints — save and restore conversation state |
+| `workspace` | **stable** | Multi-project workspaces |
+| `agent-discovery` | **stable** | Agent registry and runtime discovery |
+| `qa` | **experimental** | QA gates — frozen during pilot; do not add features |
+| `reflection` | **experimental** | Reflection engine + lessons memo — frozen during pilot |
+| `agent-memory` | **experimental** | Episodic/semantic/procedural memory — frozen during pilot |
+| `observability` | **experimental** | Tracing and metrics — frozen during pilot |
+| `triggers` | **experimental** | Autonomous triggers (cron / webhook / event) — frozen during pilot |
 
 ## Agent types
 

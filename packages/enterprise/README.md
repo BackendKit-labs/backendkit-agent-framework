@@ -1,5 +1,7 @@
 # @backendkit-labs/agent-enterprise
 
+**Status: core** — RAG and VaultWriter are required for the enterprise story; changes go through full review.
+
 Enterprise knowledge layer for the BackendKit Agent Framework — local RAG over Obsidian vaults, shared knowledge vault with agent write-back, and pluggable embedders.
 
 ```bash

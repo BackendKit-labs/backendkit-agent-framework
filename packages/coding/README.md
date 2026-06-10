@@ -1,5 +1,7 @@
 # @backendkit-labs/agent-coding
 
+**Status: stable** — works and is maintained; will not be expanded during the pilot phase.
+
 Coding agent for the BackendKit agent framework — 10 specialized agents, file tools, git integration, LLM providers.
 
 ```bash

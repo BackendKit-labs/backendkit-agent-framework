@@ -1,5 +1,8 @@
 # @backendkit-labs/agent-core
 
+**Status: core** — required for the enterprise story; changes go through full review.
+See the [subsystem matrix](../../README.md#backendkit-labsagent-core-subsystem-matrix) for per-subsystem status (`qa`, `reflection`, `agent-memory`, `observability`, `triggers` are **experimental** and frozen during the pilot).
+
 Generic multi-agent engine for TypeScript — model-agnostic, transport-agnostic, extensible.
 
 ```bash

@@ -1,5 +1,7 @@
 # @backendkit-labs/mcp-server
 
+**Status: stable** — works and is maintained; will not be expanded during the pilot phase.
+
 MCP server for the BackendKit agent framework — exposes skills, code intelligence, and agent context via the Model Context Protocol.
 
 ## Usage with Claude Desktop / Cursor / VS Code

@@ -1,5 +1,7 @@
 # create-bk-agent
 
+**Status: stable** — works and is maintained; will not be expanded during the pilot phase.
+
 Scaffold a new [BackendKit agent](https://github.com/BackendKit-labs/backendkit-agent-framework) project in seconds — or add capabilities to an existing one.
 
 ## Create a project

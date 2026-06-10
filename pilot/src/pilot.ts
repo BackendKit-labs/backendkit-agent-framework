@@ -24,9 +24,8 @@ import {
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
 import type { AgentProfile, AgentEvent } from '@backendkit-labs/agent-core';
-import { ObsidianRAGProvider, VaultWriter } from '@backendkit-labs/agent-enterprise';
+import { ObsidianRAGProvider, VaultWriter, SimpleEmbedder } from '@backendkit-labs/agent-enterprise';
 import { DeepSeekProvider } from './providers/DeepSeekProvider';
-import { SimpleEmbedder } from './embedders/SimpleEmbedder';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

@@ -10,9 +10,12 @@
  * Not semantically equivalent to transformer embeddings, but clusters texts
  * with shared vocabulary close together — sufficient to find notes whose
  * content matches the query's key terms.
+ *
+ * Use this when Ollama is not available (dev, CI, pilot). For production,
+ * prefer OllamaEmbedder with nomic-embed-text for semantic accuracy.
  */
 
-import type { Embedder } from '@backendkit-labs/agent-enterprise';
+import type { Embedder } from './ObsidianRAGProvider';
 
 const DIMS = 256;
 

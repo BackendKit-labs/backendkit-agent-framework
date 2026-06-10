@@ -12,3 +12,5 @@ export type { IndexerOptions, RawChunk } from './rag/VaultIndexer';
 
 export { VaultWriter } from './rag/VaultWriter';
 export type { VaultWriterOptions, WriteNoteParams } from './rag/VaultWriter';
+
+export { SimpleEmbedder } from './rag/SimpleEmbedder';

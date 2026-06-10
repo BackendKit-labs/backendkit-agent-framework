@@ -16,15 +16,22 @@ sistemas en vivo, y con control total sobre dónde corren sus datos (LLM local o
 conocimiento y proveedores. Todo lo construido (skills, MCP plugins, orquestación
 multi-agente, memoria) se reutiliza tal cual.
 
-**Punto de partida — qué ya es reutilizable en web:**
+**Punto de partida — qué ya es reutilizable en web** *(actualizado 2026-06)*:
 - Engine de agentes (LLM calls, tool use, agent switching)
 - Skills system, MCP plugins, orquestación multi-agente
 - Perfiles de agente, memoria, contexto de proyecto
+- **Provider abstraction** — `LLMProvider` + `ProviderRegistry` con override por agente,
+  incluyendo `OllamaProvider` para LLMs locales (ya en master)
+- **RAG local** — `@backendkit-labs/agent-enterprise`: `ObsidianRAGProvider` con
+  embeddings Ollama, VectorStore JSON e indexado incremental (ya en master, con suite de tests)
+- **Robustez de concurrencia** — `run()` serializado por mutex, output de agentes
+  paralelos buffereado por agente, delegación anidada sin starvation (fixes de junio 2026)
 
 **Qué falta para web:**
 - Un `WebTransport` (WebSocket o SSE) en lugar de `TerminalTransport`
 - Un servidor HTTP que envuelva el engine y exponga streaming
-- Manejo de sesiones concurrentes (hoy el engine asume una sola sesión)
+- Manejo de sesiones concurrentes multiusuario — el engine serializa `run()` internamente,
+  pero el diseño sigue siendo 1 instancia de engine por sesión
 - UI — el framework no incluye frontend
 
 ---
@@ -38,37 +45,40 @@ multi-agente, memoria) se reutiliza tal cual.
 └──────────────────────────┬──────────────────────────────────┘
                            │ WebSocket / SSE
 ┌──────────────────────────▼──────────────────────────────────┐
-│                  @bk/agent-web (NUEVO)                       │
+│           @backendkit-labs/agent-web (NUEVO)                 │
 │   AgentServer (Fastify) · WebSocketTransport · Sessions      │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
-│                  @bk/agent-core (existente)                  │
+│         @backendkit-labs/agent-core (existente)              │
 │   AgentEngine · Skills · Memory · Orchestrator · MCP Client  │
-│   + ProviderAbstraction (NUEVO) → anthropic | ollama | ...   │
+│   ProviderRegistry (existente) → anthropic | openai | ollama │
 └───────┬──────────────────┬──────────────────┬───────────────┘
         │                  │                  │
 ┌───────▼───────┐  ┌───────▼───────┐  ┌───────▼───────┐
-│  docs-agent   │  │   crm-agent   │  │   erp-agent   │
-│  (RAG plugin) │  │  (Salesforce) │  │     (SAP)     │
+│ agent-        │  │   crm-agent   │  │   erp-agent   │
+│ enterprise    │  │  (Salesforce) │  │     (SAP)     │
+│ (RAG — exist.)│  │    (nuevo)    │  │    (nuevo)    │
 └───────┬───────┘  └───────────────┘  └───────────────┘
         │
-┌───────▼───────────────────────────┐
-│  Vector DB (pgvector / Chroma)    │
-│  ← ingestion pipeline ← docs      │
-└───────────────────────────────────┘
+┌───────▼───────────────────────────────────────┐
+│  VectorStore JSON local (existente)            │
+│  → pgvector como upgrade a escala web (nuevo)  │
+└────────────────────────────────────────────────┘
 ```
 
 **Posición en la cadena de paquetes:**
 
 ```
-@bk/agent-core    (engine, skills, MCP)
+@backendkit-labs/agent-core        (engine, skills, MCP, ProviderRegistry)
        ↓
-@bk/agent-coding  (agentes especializados)
+@backendkit-labs/agent-coding      (agentes especializados + OllamaProvider)
        ↓
-@bk/agent-web     ← nuevo: transport HTTP/WS + servidor
+@backendkit-labs/agent-enterprise  ← existente: RAG local (Obsidian + VectorStore JSON)
        ↓
-create-bk-agent   ← scaffold genera template "web" además de "cli"
+@backendkit-labs/agent-web         ← nuevo: transport HTTP/WS + servidor
+       ↓
+create-bk-agent                    ← template "enterprise" existente; "web" nuevo
 ```
 
 ---
@@ -117,37 +127,46 @@ interface WebTransport {
 }
 ```
 
-### 3.2 Provider Abstraction — LLMs locales y cloud
+### 3.2 Provider Abstraction — LLMs locales y cloud ✅ YA IMPLEMENTADO
 
-Hoy el engine usa Anthropic SDK directo. Se introduce una abstracción mínima (~100 líneas)
-para soportar proveedores OpenAI-compatible (Ollama, vLLM, LM Studio):
+> **Estado real (junio 2026):** esta capa ya existe en master. No hay trabajo pendiente
+> aquí para la fase web — solo consumirla.
+
+La abstracción real del framework:
 
 ```typescript
-// packages/core/src/providers/
+// packages/core — existente
 interface LLMProvider {
-  stream(req: CompletionRequest): AsyncIterable<StreamChunk>;
-  countTokens?(text: string): Promise<number>;
+    chat(
+        messages: LLMMessage[],
+        tools: ToolDefinition[],
+        callbacks: LLMStreamCallbacks,   // onChunk, onToolCall, onDone, onError, onMetrics
+    ): Promise<void>;
 }
-
-class AnthropicProvider implements LLMProvider { ... }    // actual, extraído
-class OpenAICompatProvider implements LLMProvider { ... } // Ollama, vLLM, etc.
 ```
 
-Configuración por agente — permite estrategia híbrida:
+Implementaciones existentes: `AnthropicProvider`, `OpenAICompatibleProvider`
+(OpenAI, DeepSeek, vLLM, LM Studio) y **`OllamaProvider`** (`packages/coding`) — este
+último con `checkConnection()`, retry en ECONNREFUSED y mensajes de error con
+instrucciones (`ollama serve`, `ollama pull`).
 
-```json
-{
-  "providers": {
-    "cloud":  { "type": "anthropic", "model": "claude-sonnet-4-6" },
-    "local":  { "type": "openai-compat", "baseURL": "http://localhost:11434/v1",
-                "model": "llama3.3:70b" }
-  },
-  "agents": {
-    "hr-agent":      { "provider": "local"  },
-    "sales-agent":   { "provider": "cloud"  },
-    "general":       { "provider": "cloud"  }
-  }
-}
+La estrategia híbrida por agente ya funciona: `AgentProfile.provider` se resuelve vía
+`ProviderRegistry.resolve(profile.provider, defaultProvider)` — cada agente puede usar
+un provider distinto:
+
+```typescript
+// existente — así se configura hoy
+const engine = createCodingEngine({
+    providers: {
+        anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
+        ollama:    { host: 'http://localhost:11434', model: 'llama3.3:70b' },
+    },
+    defaultProvider: 'anthropic',
+});
+
+// AgentProfile por agente:
+{ id: 'hr-agent',    provider: 'ollama'    }   // dato sensible → local
+{ id: 'sales-agent', provider: 'anthropic' }   // razonamiento → cloud
 ```
 
 **Local vs cloud — la decisión clave:**
@@ -167,7 +186,25 @@ Razonamiento complejo / redacción      → Claude cloud
 RAG / vector DB                        → siempre local
 ```
 
-### 3.3 `docs-agent` — plugin MCP de RAG
+### 3.3 RAG — base existente y evolución a escala web
+
+> **Estado real (junio 2026):** el caso base ya está cubierto por
+> `@backendkit-labs/agent-enterprise` en master:
+> - `ObsidianRAGProvider` — expone la tool `search_knowledge` al engine
+> - `OllamaEmbedder` — embeddings locales (`nomic-embed-text`, 768 dims)
+> - `VectorStore` — JSON en disco, cosine similarity, indexado incremental por mtime
+> - `VaultIndexer` — chunking semántico por headings `##`, frontmatter YAML, filtros por tag
+> - Suite de 30 tests (unit + integración con skip automático sin Ollama)
+>
+> Para vaults Markdown/Obsidian de hasta unos pocos miles de notas, **no hay nada que
+> construir** — esto cubre el piloto y los primeros despliegues.
+
+**`docs-agent` (plugin MCP) es la evolución a escala web**, no el punto de partida.
+Se justifica cuando aparece alguna de estas condiciones:
+- Fuentes no-Markdown (PDF, DOCX, Confluence, HTML)
+- Volumen que supera la búsqueda lineal del store JSON (>~5k documentos)
+- Multi-tenant / filtrado por departamento con permisos
+- Múltiples procesos consumiendo el mismo índice (el JSON local es single-process)
 
 Plugin MCP independiente (mismo patrón que `docker-agent`, `design-agent`).
 El engine no sabe nada de RAG — solo ve tools.
@@ -276,6 +313,13 @@ hr-agent → RRHH/nómina, docs-agent → RAG sobre documentación interna).
 
 ## 5. Scaffold — `create-bk-agent`
 
+> **Estado real (junio 2026):** la arquitectura **`enterprise` (CLI) ya existe** en el
+> scaffold: pregunta el vault path, genera engine con `OllamaProvider` +
+> `ObsidianRAGProvider`, orchestrator + domain-specialist, y `.env` preconfigurado.
+> También existe `add knowledge <path>` / `add knowledge --vault <path>` para ampliar
+> la base de conocimiento de un proyecto generado.
+> Lo nuevo de esta fase es únicamente el template **`web`**.
+
 Nuevo template `web` con sub-perfiles, siguiendo la estructura composable
 base/ + deploy/ existente:
 
@@ -337,22 +381,32 @@ scaffold y el engine de agentes ya habla por WebSocket.
 
 ## 7. Roadmap de implementación
 
-### Fase 1 — Provider Abstraction *(core, prerequisito)*
-- Extraer `AnthropicProvider` de la implementación actual
-- Implementar `OpenAICompatProvider` (Ollama/vLLM)
-- Config `providers` + override por agente
-- **Criterio:** un agente CLI corre con Ollama local sin tocar nada más
+### Fase 1 — Provider Abstraction ✅ COMPLETADA *(junio 2026)*
+- ~~Extraer `AnthropicProvider` de la implementación actual~~ → `ProviderRegistry` existente
+- ~~Implementar `OpenAICompatProvider` (Ollama/vLLM)~~ → `OpenAICompatibleProvider` + `OllamaProvider` en master
+- ~~Config `providers` + override por agente~~ → `AgentProfile.provider` + `createCodingEngine({ providers })`
+- **Criterio cumplido:** la arquitectura `enterprise` del CLI genera agentes que corren
+  100 % con Ollama local
 
-### Fase 2 — `@bk/agent-web` mínimo
+### Fase 1b — RAG local ✅ COMPLETADA *(junio 2026 — no estaba en el plan original)*
+- `@backendkit-labs/agent-enterprise`: ObsidianRAGProvider + OllamaEmbedder +
+  VectorStore JSON + VaultIndexer, con 30 tests
+- Template CLI `enterprise` + comando `add knowledge`
+- **Criterio cumplido:** agente CLI responde citando el vault, indexado incremental
+
+### Fase 2 — `@backendkit-labs/agent-web` mínimo ← **SIGUIENTE PASO REAL**
 - `AgentServer` + `WebSocketTransport` + `SessionManager` (memoria)
 - Cliente HTML de prueba con streaming
 - **Criterio:** chat funcional en browser contra el engine existente
+- *Nota: los fixes de junio 2026 (mutex en `run()`, output paralelo buffereado) eliminan
+  los principales riesgos de concurrencia para esta fase*
 
-### Fase 3 — `docs-agent` (RAG)
-- Ingestion pipeline (PDF/MD/DOCX) + pgvector
+### Fase 3 — `docs-agent` (RAG a escala web) — *solo si el piloto lo demanda*
+- Ingestion pipeline para fuentes no-Markdown (PDF/DOCX/Confluence) + pgvector
 - Tools `docs_search`, `docs_ingest`, `docs_list`
-- Embeddings locales por default
-- **Criterio:** agente responde preguntas citando documentos ingestados
+- Embeddings locales por default (reutiliza `OllamaEmbedder`)
+- **Criterio:** agente responde citando documentos no-Markdown a escala multi-tenant
+- *Para vaults Markdown, `agent-enterprise` ya lo cubre — ver §3.3*
 
 ### Fase 4 — Perfiles empresariales
 - 6 agent profiles + skills de ejemplo por área
@@ -379,7 +433,25 @@ scaffold y el engine de agentes ya habla por WebSocket.
 - Los plugins MCP existentes (docker-agent, design-agent) funcionan igual en web
 - El flujo CLI sigue siendo first-class — web es una capa adicional, no un reemplazo
 - El patrón de orquestación multi-agente es el mismo que en `/spec.run`
+- `@backendkit-labs/agent-enterprise` (RAG) se consume tal cual desde web — la tool
+  `search_knowledge` no distingue transporte
+
+---
+
+## 9. Relación con `mejorar-de-diseno.md`
+
+Este roadmap **compite por las mismas horas** con el plan de consolidación
+(`mejorar-de-diseno.md`: tests del core, descomponer el god object, idioma, scope).
+Orden recomendado:
+
+1. Fases 1–2 del plan de mejora (tests + descomposición) **antes** de la Fase 2 web —
+   el `SessionManager` multiplica instancias del engine, y conviene que el engine esté
+   testeado y modular antes de multiplicarlo.
+2. El piloto CLI con vault real valida la historia enterprise sin esperar a la capa web.
+3. La Fase 2 web arranca cuando el piloto confirme qué features se usan de verdad.
 
 ---
 
 *Documento generado a partir del análisis de diseño — junio 2026.*
+*Actualizado 2026-06-10 para reflejar el estado real de master: Provider Abstraction y
+RAG local ya completados (commits hasta `b6b2c18`); el siguiente paso real es la capa web.*

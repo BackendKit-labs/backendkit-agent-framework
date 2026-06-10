@@ -12,9 +12,17 @@ Extender el framework actual (CLI-first) para que cualquier empresa pueda desple
 agentes conversacionales web alimentados con su propio conocimiento, conectados a sus
 sistemas en vivo, y con control total sobre dónde corren sus datos (LLM local o cloud).
 
-**Principio rector:** el engine de agentes no cambia — se agregan capas de transporte,
-conocimiento y proveedores. Todo lo construido (skills, MCP plugins, orquestación
-multi-agente, memoria) se reutiliza tal cual.
+**Principio rector 1 — engine inmutable:** el engine de agentes no cambia — se agregan
+capas de transporte, conocimiento y proveedores. Todo lo construido (skills, MCP plugins,
+orquestación multi-agente, memoria) se reutiliza tal cual.
+
+**Principio rector 2 — vault como fuente única de verdad:** todos los agentes de una
+empresa comparten un único vault editable por humanos y por agentes. El vault contiene
+la documentación del negocio, las decisiones tomadas, los patrones que funcionan y las
+lecciones aprendidas en cada proyecto. El LLM local lo consulta vía RAG antes de
+responder — lo que transforma un agente genérico en un agente que conoce el negocio
+específico de esa empresa. El conocimiento se acumula con cada interacción: lo que un
+agente aprende hoy es contexto disponible para cualquier otro agente mañana.
 
 **Punto de partida — qué ya es reutilizable en web** *(actualizado 2026-06)*:
 - Engine de agentes (LLM calls, tool use, agent switching)
@@ -66,6 +74,66 @@ multi-agente, memoria) se reutiliza tal cual.
 │  → pgvector como upgrade a escala web (nuevo)  │
 └────────────────────────────────────────────────┘
 ```
+
+### 2.1 El vault compartido — cómo hace inteligente a un agente
+
+Un agente sin contexto del negocio es un modelo de lenguaje genérico. Un agente con
+vault es un especialista que conoce la empresa.
+
+```
+                  ┌──────────────────────────────────┐
+                  │         VAULT (Markdown)          │
+                  │                                   │
+    humanos ───►  │  docs/       → políticas, procesos│
+    escriben      │  decisiones/ → ADRs, trade-offs   │  ◄─── humanos
+                  │  patrones/   → lo que funciona    │       editan
+                  │  lecciones/  → errores, aprendizajes│      directamente
+                  │  agentes/    → notas de agentes   │       (Obsidian)
+                  │  clientes/   → contexto por empresa│
+                  └────────────┬─────────────┬────────┘
+                               │             │
+                    LLM busca  │             │  agentes escriben
+                    vía RAG    │             │  de vuelta
+                               ▼             ▼
+                  ┌────────────────────────────────────┐
+                  │          AgentEngine               │
+                  │                                    │
+                  │  HR Agent    ──► search_knowledge  │
+                  │  Sales Agent ──► search_knowledge  │
+                  │  Ops Agent   ──► search_knowledge  │
+                  │  cualquiera  ──► write_knowledge   │
+                  └────────────────────────────────────┘
+```
+
+**El ciclo de aprendizaje colectivo:**
+
+1. Un humano documenta una política o decisión → la escribe en el vault
+2. Un agente recibe una consulta → busca en el vault para contextualizarla
+3. El LLM local lee los chunks relevantes y responde con conocimiento del negocio
+4. Si el agente tomó una decisión nueva o resolvió un problema no documentado,
+   escribe la solución de vuelta al vault como una nota nueva
+5. Esa nota es contexto disponible para cualquier agente o sesión futura
+
+**Lo que diferencia a un agente enterprise del resto:**
+
+| Agente genérico | Agente enterprise con vault |
+|---|---|
+| Responde con conocimiento del modelo | Responde con política interna de la empresa |
+| No recuerda decisiones previas | Accede a todas las decisiones históricas |
+| Cada sesión empieza de cero | Cada sesión arranca con toda la memoria acumulada |
+| Solo un agente a la vez | Múltiples agentes comparten el mismo contexto |
+| El conocimiento vive en el prompt | El conocimiento vive en el vault — editable, versionable, auditado |
+
+**Quién puede leer y escribir:**
+
+El vault es Markdown plano — cualquier editor lo abre. Obsidian lo hace navegable.
+Git lo versiona. Los agentes lo leen vía `search_knowledge` y escriben vía
+`write_knowledge`. No hay formato especial — una nota es un `.md` con frontmatter YAML
+y contenido libre.
+
+La gobernanza (qué agente puede acceder a qué carpeta) se documenta en §9.5.
+
+---
 
 **Posición en la cadena de paquetes:**
 

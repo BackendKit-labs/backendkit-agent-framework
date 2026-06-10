@@ -9,3 +9,6 @@ export type { VectorChunk, SearchResult } from './rag/VectorStore';
 
 export { VaultIndexer } from './rag/VaultIndexer';
 export type { IndexerOptions, RawChunk } from './rag/VaultIndexer';
+
+export { VaultWriter } from './rag/VaultWriter';
+export type { VaultWriterOptions, WriteNoteParams } from './rag/VaultWriter';

@@ -1,3 +1,4 @@
+import { ApprovalGate } from './ApprovalGate';
 import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
 import { MCPRegistrar } from './MCPRegistrar';
@@ -144,24 +145,8 @@ export class AgentEngine {
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
     private readonly mcpRegistrar: MCPRegistrar;
-    private approvalDisabled = false; // set to true after 'approve_all'
+    private readonly approvalGate: ApprovalGate;
     private pendingContextLoad: Promise<void> | null = null;
-
-    private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
-
-    /**
-     * Commands that always require user approval regardless of iteration mode or
-     * approvalDisabled flag. These are irreversible or high-blast-radius operations:
-     * installing new packages, removing packages, running destructive npm scripts.
-     */
-    private static readonly ALWAYS_ASK_PATTERNS: RegExp[] = [
-        /^\s*npm\s+(install|i|add)\s+[^-]/i,     // npm install <pkg> — new package install
-        /^\s*npm\s+uninstall\b/i,                  // npm uninstall
-        /^\s*yarn\s+add\s+[^-]/i,                  // yarn add <pkg>
-        /^\s*pnpm\s+add\s+[^-]/i,                  // pnpm add <pkg>
-        /^\s*pip\s+install\b/i,                    // pip install
-        /^\s*pip3\s+install\b/i,
-    ];
     private agentsLoaded = false;
     private agentsLoadedPromise: Promise<void> | null = null;
     private memoryContextBlock = '';
@@ -182,6 +167,10 @@ export class AgentEngine {
             tools:      opts.tools,
             agents:     opts.agents,
             transport:  opts.transport,
+        });
+        this.approvalGate = new ApprovalGate({
+            onToolApproval: opts.onToolApproval,
+            transport:      opts.transport,
         });
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
@@ -910,43 +899,13 @@ export class AgentEngine {
             result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
                       `Use ask_agent to delegate to a specialist.`;
             success = false;
-        } else if (this.opts.onToolApproval && this.requiresAlwaysAsk(call)) {
-            // High-blast-radius operations (npm install, pip install, etc.) always
-            // require approval — cannot be bypassed by approve_all or auto mode.
-            const preview = call.args.slice(0, 200);
-            this.opts.transport.emit({
-                type: 'tool_approval_request',
-                tool_name: call.name,
-                agent_id: profile.id,
-                args_preview: preview,
-            });
-            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
-            if (decision === 'reject') {
-                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-            } else {
-                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
-            }
-        } else if (
-            !this.approvalDisabled &&
-            this.opts.onToolApproval &&
-            AgentEngine.WRITE_TOOLS.has(call.name)
-        ) {
-            const preview = call.args.slice(0, 200);
-            this.opts.transport.emit({
-                type: 'tool_approval_request',
-                tool_name: call.name,
-                agent_id: profile.id,
-                args_preview: preview,
-            });
-            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
-            if (decision === 'approve_all') this.approvalDisabled = true;
-            if (decision === 'reject') {
-                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-            } else {
-                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
-            }
         } else {
-            ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            const gateDecision = await this.approvalGate.check(call, profile.id);
+            if (gateDecision === 'rejected') {
+                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+            } else {
+                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            }
         }
 
         await this.auditLogger.log({ agentId: profile.id, tool: call.name, inputPreview: call.args, success, durationMs: Date.now() - callStart, sessionId: this.opts.sessionId });
@@ -973,22 +932,6 @@ export class AgentEngine {
     }
 
     /**
-     * Returns true when a tool call matches a high-blast-radius pattern that
-     * always requires explicit approval — cannot be bypassed by approve_all or
-     * auto iteration mode.
-     */
-    private requiresAlwaysAsk(call: { name: string; args: string }): boolean {
-        if (call.name !== 'run_command') return false;
-        try {
-            const { command } = JSON.parse(call.args) as { command?: string };
-            if (!command) return false;
-            return AgentEngine.ALWAYS_ASK_PATTERNS.some(re => re.test(command));
-        } catch {
-            return false;
-        }
-    }
-
-    /**
      * Disconnects an MCP server at runtime — reverts all tool assignments and
      * command blocks it applied to local agents. After calling this, agents that
      * had tools from this server lose them from allowedTools, and any commands
@@ -1002,10 +945,10 @@ export class AgentEngine {
     }
 
     /** Disable approval gate for the rest of this session (approve_all). */
-    disableToolApproval(): void { this.approvalDisabled = true; }
+    disableToolApproval(): void { this.approvalGate.disable(); }
 
     /** Re-enable approval gate (e.g. after /iteration manual). */
-    enableToolApproval(): void { this.approvalDisabled = false; }
+    enableToolApproval(): void { this.approvalGate.enable(); }
 
 
     private buildContext(agentId?: string, depth = 0): ExecutionContext {

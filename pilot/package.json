@@ -6,11 +6,13 @@
   "scripts": {
     "start": "tsx src/pilot.ts",
     "repl": "tsx src/repl.ts",
+    "smoke": "tsx src/smoke-test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@backendkit-labs/agent-core": "*",
     "@backendkit-labs/agent-enterprise": "*",
+    "dotenv": "^16.0.0",
     "openai": "^4.0.0"
   },
   "devDependencies": {

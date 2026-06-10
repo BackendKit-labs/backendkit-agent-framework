@@ -9,6 +9,7 @@
  *        DEEPSEEK_API_KEY=<key> VAULT_PATH=/path/to/vault npm run repl
  */
 
+import 'dotenv/config';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as os from 'os';
@@ -28,7 +29,7 @@ import { DeepSeekProvider } from './providers/DeepSeekProvider';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
 const LLM_MODEL        = process.env.LLM_MODEL ?? 'deepseek-chat';
 const VAULT_PATH       = process.env.VAULT_PATH
-    ?? path.resolve(__dirname, '../../vault');
+    ?? path.resolve(__dirname, '../vault');
 const INDEX_PATH       = path.join(os.homedir(), '.bk-agent', 'rag', 'enterprise-vault.json');
 
 // ── Agent profiles ────────────────────────────────────────────────────────────

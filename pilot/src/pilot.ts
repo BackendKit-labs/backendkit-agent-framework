@@ -13,6 +13,7 @@
  * Modes: uses DeepSeek for LLM + SimpleEmbedder (local, no Ollama required)
  */
 
+import 'dotenv/config';
 import * as path from 'path';
 import * as os from 'os';
 import {

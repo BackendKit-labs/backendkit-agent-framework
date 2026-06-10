@@ -6,6 +6,13 @@ import { OllamaEmbedder, OLLAMA_EMBED_DEFAULT_HOST, OLLAMA_EMBED_DEFAULT_MODEL }
 import { VectorStore } from './VectorStore';
 import { VaultIndexer } from './VaultIndexer';
 
+/** Minimal interface any embedder must satisfy. */
+export interface Embedder {
+    readonly model: string;
+    embed(texts: string[]): Promise<number[][]>;
+    embedOne(text: string): Promise<number[]>;
+}
+
 export interface ObsidianRAGOptions {
     /** Ruta absoluta al vault de Obsidian. */
     vaultPath: string;
@@ -13,6 +20,8 @@ export interface ObsidianRAGOptions {
     folders?: string[];
     /** Dónde guardar el índice vectorial. Default: ~/.bk-agent/rag/<vault-name>.json */
     indexPath?: string;
+    /** Custom embedder. When provided, ollamaHost and embeddingModel are ignored. */
+    embedder?: Embedder;
     /** Host de Ollama para embeddings. Default: http://localhost:11434 */
     ollamaHost?: string;
     /** Modelo de embeddings. Default: nomic-embed-text */
@@ -28,7 +37,7 @@ export interface ObsidianRAGOptions {
 const BATCH_SIZE = 10;
 
 export class ObsidianRAGProvider {
-    private readonly embedder: OllamaEmbedder;
+    private readonly embedder: Embedder;
     private readonly store: VectorStore;
     private readonly indexer: VaultIndexer;
     private readonly topK: number;
@@ -36,10 +45,13 @@ export class ObsidianRAGProvider {
     private indexed = false;
 
     constructor(opts: ObsidianRAGOptions) {
-        const host = opts.ollamaHost ?? OLLAMA_EMBED_DEFAULT_HOST;
-        const model = opts.embeddingModel ?? OLLAMA_EMBED_DEFAULT_MODEL;
-
-        this.embedder = new OllamaEmbedder({ host, model });
+        if (opts.embedder) {
+            this.embedder = opts.embedder;
+        } else {
+            const host = opts.ollamaHost ?? OLLAMA_EMBED_DEFAULT_HOST;
+            const model = opts.embeddingModel ?? OLLAMA_EMBED_DEFAULT_MODEL;
+            this.embedder = new OllamaEmbedder({ host, model });
+        }
 
         const defaultIndexPath = path.join(
             os.homedir(),
@@ -47,7 +59,7 @@ export class ObsidianRAGProvider {
             'rag',
             `${path.basename(opts.vaultPath)}.json`
         );
-        this.store = new VectorStore(opts.indexPath ?? defaultIndexPath, model);
+        this.store = new VectorStore(opts.indexPath ?? defaultIndexPath, this.embedder.model);
 
         this.indexer = new VaultIndexer({
             vaultPath: opts.vaultPath,

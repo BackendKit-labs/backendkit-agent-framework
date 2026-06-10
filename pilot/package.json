@@ -1,0 +1,23 @@
+{
+  "name": "@backendkit-labs/vault-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pilot: two enterprise agents sharing an Obsidian vault for self-improvement",
+  "scripts": {
+    "start": "tsx src/pilot.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-enterprise": "*",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

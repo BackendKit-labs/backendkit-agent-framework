@@ -137,10 +137,10 @@ export class VaultIndexer {
 
     constructor(opts: IndexerOptions) {
         this.opts = {
-            folders: [],
-            excludeTags: ['skill'],
-            excludeFiles: [],
-            ...opts,
+            vaultPath:    opts.vaultPath,
+            folders:      opts.folders      ?? [],
+            excludeTags:  opts.excludeTags  ?? ['skill'],
+            excludeFiles: opts.excludeFiles ?? [],
         };
     }
 

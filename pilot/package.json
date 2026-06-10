@@ -5,6 +5,7 @@
   "description": "Pilot: two enterprise agents sharing an Obsidian vault for self-improvement",
   "scripts": {
     "start": "tsx src/pilot.ts",
+    "repl": "tsx src/repl.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

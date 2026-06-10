@@ -1,5 +1,5 @@
 export { ObsidianRAGProvider } from './rag/ObsidianRAGProvider';
-export type { ObsidianRAGOptions } from './rag/ObsidianRAGProvider';
+export type { ObsidianRAGOptions, Embedder } from './rag/ObsidianRAGProvider';
 
 export { OllamaEmbedder, OLLAMA_EMBED_DEFAULT_HOST, OLLAMA_EMBED_DEFAULT_MODEL } from './rag/OllamaEmbedder';
 export type { OllamaEmbedderOptions } from './rag/OllamaEmbedder';

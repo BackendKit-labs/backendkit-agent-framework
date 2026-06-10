@@ -9,7 +9,8 @@
  *   After the vault is re-indexed, receives an implementation question,
  *   finds the analyst's note, and answers based on it.
  *
- * Run: npm start  (requires Ollama running with the models below)
+ * Run:   DEEPSEEK_API_KEY=<key> npm start
+ * Modes: uses DeepSeek for LLM + SimpleEmbedder (local, no Ollama required)
  */
 
 import * as path from 'path';
@@ -23,15 +24,15 @@ import {
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
 import type { AgentProfile, AgentEvent } from '@backendkit-labs/agent-core';
-import { OllamaProvider } from '@backendkit-labs/agent-coding';
 import { ObsidianRAGProvider, VaultWriter } from '@backendkit-labs/agent-enterprise';
+import { DeepSeekProvider } from './providers/DeepSeekProvider';
+import { SimpleEmbedder } from './embedders/SimpleEmbedder';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const OLLAMA_HOST    = process.env.OLLAMA_HOST    ?? 'http://localhost:11434';
-const LLM_MODEL      = process.env.LLM_MODEL      ?? 'qwen2.5:7b';
-const EMBED_MODEL    = process.env.EMBED_MODEL    ?? 'nomic-embed-text';
-const VAULT_PATH     = process.env.VAULT_PATH
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
+const LLM_MODEL        = process.env.LLM_MODEL ?? 'deepseek-chat';
+const VAULT_PATH       = process.env.VAULT_PATH
     ?? path.resolve(__dirname, '../../vault-pilot');
 const INDEX_PATH     = path.join(os.homedir(), '.bk-agent', 'rag', 'vault-pilot.json');
 const MEM_DIR        = path.join(os.homedir(), '.bk-agent', 'pilot-memory');
@@ -75,24 +76,6 @@ Always ground your answers in vault sources. Cite the note title when you refere
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function ollamaAvailable(): Promise<boolean> {
-    try {
-        const res = await fetch(`${OLLAMA_HOST}/api/tags`, {
-            signal: AbortSignal.timeout(3000),
-        });
-        if (!res.ok) return false;
-        const data = await res.json() as { models?: Array<{ name: string }> };
-        const models = data.models ?? [];
-        const hasLLM   = models.some(m => m.name.startsWith(LLM_MODEL.split(':')[0]));
-        const hasEmbed = models.some(m => m.name.startsWith(EMBED_MODEL.split(':')[0]));
-        if (!hasLLM)   console.warn(`⚠  Model '${LLM_MODEL}' not found. Run: ollama pull ${LLM_MODEL}`);
-        if (!hasEmbed) console.warn(`⚠  Model '${EMBED_MODEL}' not found. Run: ollama pull ${EMBED_MODEL}`);
-        return hasLLM && hasEmbed;
-    } catch {
-        return false;
-    }
-}
-
 function printSeparator(label: string): void {
     const line = '─'.repeat(60);
     console.log(`\n${line}\n  ${label}\n${line}`);
@@ -114,23 +97,24 @@ async function runAgent(
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-    console.log('BackendKit Vault Pilot');
-    console.log(`Vault:  ${VAULT_PATH}`);
-    console.log(`Ollama: ${OLLAMA_HOST}  model: ${LLM_MODEL}  embed: ${EMBED_MODEL}\n`);
-
-    if (!await ollamaAvailable()) {
-        console.error('✗  Ollama not available or required models missing. Aborting.');
+    if (!DEEPSEEK_API_KEY) {
+        console.error('✗  DEEPSEEK_API_KEY env var is required. Set it and re-run.');
         process.exit(1);
     }
 
+    console.log('BackendKit Vault Pilot');
+    console.log(`Vault:     ${VAULT_PATH}`);
+    console.log(`LLM:       DeepSeek ${LLM_MODEL}`);
+    console.log(`Embedder:  SimpleEmbedder (local, no Ollama required)\n`);
+
     // ── RAG + Writer (shared between both agents) ─────────────────────────────
+    const embedder = new SimpleEmbedder();
     const rag = new ObsidianRAGProvider({
-        vaultPath:      VAULT_PATH,
-        indexPath:      INDEX_PATH,
-        ollamaHost:     OLLAMA_HOST,
-        embeddingModel: EMBED_MODEL,
-        topK:           4,
-        minScore:       0.25,
+        vaultPath: VAULT_PATH,
+        indexPath: INDEX_PATH,
+        embedder,
+        topK:      4,
+        minScore:  0.1,   // lower threshold — SimpleEmbedder scores are typically lower than neural embeddings
     });
 
     const writer = new VaultWriter({ vaultPath: VAULT_PATH });
@@ -160,7 +144,7 @@ async function main(): Promise<void> {
 
     // ── Provider ──────────────────────────────────────────────────────────────
     const providers = new ProviderRegistry();
-    providers.register('ollama', new OllamaProvider({ host: OLLAMA_HOST, model: LLM_MODEL }));
+    providers.register('deepseek', new DeepSeekProvider({ apiKey: DEEPSEEK_API_KEY, model: LLM_MODEL }));
 
     // ── Engine ────────────────────────────────────────────────────────────────
     const transport = new CallbackTransport((evt: AgentEvent) => {
@@ -174,16 +158,16 @@ async function main(): Promise<void> {
         }
     });
     const engine = new AgentEngine({
-        model:              { provider: 'ollama', id: LLM_MODEL },
+        model:           { provider: 'deepseek', id: LLM_MODEL },
         agents,
         tools,
         providers,
-        defaultProvider:    'ollama',
-        defaultAgentId:     'analyst',
+        defaultProvider: 'deepseek',
+        defaultAgentId:  'analyst',
         transport,
-        maxIterations:      15,
-        iterationMode:      'auto',
-        memorySystem:       memory,
+        maxIterations:   15,
+        iterationMode:   'auto',
+        memorySystem:    memory,
     });
 
     // ═══════════════════════════════════════════════════════════════════════

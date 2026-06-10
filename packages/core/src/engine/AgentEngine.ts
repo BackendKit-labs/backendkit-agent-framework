@@ -261,7 +261,7 @@ export class AgentEngine {
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
             transport: opts.transport,
-            runAgent: (id, question, context, depth) => this.runAgentInternal(id, question, context, depth),
+            runAgent: (id, question, context, depth, buf) => this.runAgentInternal(id, question, context, depth, buf),
         });
     }
 
@@ -1075,7 +1075,7 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
     }
 
-    private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
+    private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0, outputBuffer?: import('../types').AgentEvent[]): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
         const profile = this.opts.agents.get(agentId);
         if (!profile) throw new Error(`Agent "${agentId}" not registered`);
 
@@ -1108,7 +1108,16 @@ export class AgentEngine {
         const maxIter = this.opts.maxIterations ?? 100;
         let iter = 0;
 
-        this.opts.transport.emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
+        // When running in parallel (outputBuffer provided), route output events to the
+        // buffer instead of the real transport. The caller flushes the buffer atomically
+        // after the agent finishes, preventing interleaved output from parallel agents.
+        // tool_approval_request always bypasses buffering — it needs an immediate response.
+        const emit = (event: import('../types').AgentEvent): void => {
+            if (outputBuffer) outputBuffer.push(event);
+            else this.opts.transport.emit(event);
+        };
+
+        emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
 
         while (iter < maxIter) {
             iter++;
@@ -1121,12 +1130,12 @@ export class AgentEngine {
                 onChunk: (delta) => {
                     streamContent += delta;
                     if (!profile.suppressDefaultOutput) {
-                        this.opts.transport.emit({ type: 'token', content: delta, agent_id: profile.id });
+                        emit({ type: 'token', content: delta, agent_id: profile.id });
                     }
                 },
                 onToolCall: (name, args, id) => {
                     if (!profile.suppressDefaultOutput) {
-                        this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
+                        emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
                     }
                     toolCalls.push({ id, name, args });
                 },
@@ -1135,7 +1144,7 @@ export class AgentEngine {
                 onMetrics: (inputTokens, outputTokens) => {
                     totalInputTokens += inputTokens;
                     totalOutputTokens += outputTokens;
-                    this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
+                    emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
                 },
                 model: profile.model,
             });
@@ -1148,13 +1157,13 @@ export class AgentEngine {
 
             const toolResults: LLMMessage[] = [];
             for (const call of toolCalls) {
-                const result = await this.executeToolCall(call, profile, depth);
+                const result = await this.executeToolCall(call, profile, depth, emit);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
             messages.push(...toolResults);
         }
 
-        this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
+        emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
 
         return { agentId, content: finalContent, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, elapsedMs: Date.now() - start };
 
@@ -1169,7 +1178,9 @@ export class AgentEngine {
         call: { name: string; args: string },
         profile: import('../types').AgentProfile,
         depth = 0,
+        emit?: (event: import('../types').AgentEvent) => void,
     ): Promise<string> {
+        const emitEvent = emit ?? ((e) => this.opts.transport.emit(e));
         const callStart = Date.now();
         const toolDef = this.opts.tools.get(call.name);
         let result: string;
@@ -1228,7 +1239,7 @@ export class AgentEngine {
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-        this.opts.transport.emit({ type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120) });
+        emitEvent({ type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120) });
         return result;
     }
 

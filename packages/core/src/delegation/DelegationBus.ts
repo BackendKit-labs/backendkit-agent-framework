@@ -1,5 +1,6 @@
 import { Bulkhead, BulkheadRejectedError, BulkheadTimeoutError } from '@backendkit-labs/bulkhead';
 import type { AgentRegistry } from '../engine/AgentRegistry';
+import type { AgentEvent } from '../types';
 import type { Transport } from '../transport/Transport';
 
 export interface DelegationRequest {
@@ -30,7 +31,13 @@ export interface DelegationBusOptions {
     maxParallel?: number;
     agents: AgentRegistry;
     transport: Transport;
-    runAgent(agentId: string, question: string, context?: string, depth?: number): Promise<DelegationResult>;
+    runAgent(
+        agentId: string,
+        question: string,
+        context?: string,
+        depth?: number,
+        outputBuffer?: AgentEvent[],
+    ): Promise<DelegationResult>;
 }
 
 export class DelegationBus {
@@ -49,14 +56,28 @@ export class DelegationBus {
     /**
      * Runs all requests concurrently, bounded by the bulkhead semaphore.
      *
-     * Unlike the previous wave-based approach, slots free up immediately as
-     * individual agents finish — no waiting for the whole wave to complete.
+     * Each agent's output events (tokens, tool calls, etc.) are buffered while running
+     * in parallel. As each agent finishes, its buffered events are flushed to the
+     * real transport atomically — preventing interleaved output from different agents.
+     * `agent_switch` and system events always pass through in real-time.
      */
     async runParallel(requests: DelegationRequest[]): Promise<DelegationResult[]> {
-        return Promise.all(requests.map(req => this.runSingle(req)));
+        const results = new Array<DelegationResult>(requests.length);
+
+        await Promise.all(requests.map(async (req, i) => {
+            const outputBuffer: AgentEvent[] = [];
+            results[i] = await this.runSingle(req, outputBuffer);
+            // Flush this agent's buffered output atomically once it finishes.
+            // Other agents may still be running — their output hasn't flushed yet.
+            for (const event of outputBuffer) {
+                this.opts.transport.emit(event);
+            }
+        }));
+
+        return results;
     }
 
-    async runSingle(request: DelegationRequest): Promise<DelegationResult> {
+    async runSingle(request: DelegationRequest, outputBuffer?: AgentEvent[]): Promise<DelegationResult> {
         const profile = this.opts.agents.get(request.agentId);
         if (!profile) {
             return {
@@ -72,7 +93,8 @@ export class DelegationBus {
         const { depth = 0 } = request;
 
         const execute = () => {
-            // Emit agent_switch only when execution actually starts (not while queued).
+            // agent_switch always goes to the real transport — it tells the renderer
+            // that this agent has started, even while its output is buffered.
             this.opts.transport.emit({
                 type: 'agent_switch',
                 from: request.fromAgentId ?? 'orchestrator',
@@ -80,13 +102,11 @@ export class DelegationBus {
                 to_name: profile.name,
                 to_icon: profile.icon,
             });
-            return this.opts.runAgent(request.agentId, request.question, request.context, depth);
+            return this.opts.runAgent(request.agentId, request.question, request.context, depth, outputBuffer);
         };
 
         try {
-            // Nested delegations (depth > 0) skip the bulkhead to prevent starvation:
-            // if all top-level slots are occupied by agents waiting for nested calls,
-            // those nested calls would deadlock waiting for a slot to free up.
+            // Nested delegations (depth > 0) skip the bulkhead to prevent starvation.
             return depth > 0
                 ? await execute()
                 : await this.bulkhead.execute(execute);

@@ -1,6 +1,4 @@
-import { mkdirSync } from 'fs';
-import { appendFile } from 'fs/promises';
-import { dirname } from 'path';
+import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
 import type {
     AgentProfile,
@@ -136,6 +134,7 @@ export class AgentEngine {
     private readonly bus: DelegationBus;
     private readonly skillActivator = new SkillActivator();
     private readonly history: HistoryManager;
+    private readonly auditLogger: AuditLogger;
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
@@ -187,15 +186,13 @@ export class AgentEngine {
             historyPath:        opts.historyPath,
             maxContextMessages: opts.maxContextMessages,
         });
+        this.auditLogger = new AuditLogger(opts.auditLog);
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
             maxIterations: opts.maxIterations ?? 100,
             onLimitReached: opts.onIterationLimit,
             onStep: opts.onStep,
         });
-        if (opts.auditLog) {
-            try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
-        }
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
@@ -1151,7 +1148,7 @@ export class AgentEngine {
             ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
         }
 
-        await this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
+        await this.auditLogger.log({ agentId: profile.id, tool: call.name, inputPreview: call.args, success, durationMs: Date.now() - callStart, sessionId: this.opts.sessionId });
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
@@ -1241,19 +1238,6 @@ export class AgentEngine {
     /** Re-enable approval gate (e.g. after /iteration manual). */
     enableToolApproval(): void { this.approvalDisabled = false; }
 
-    private async writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): Promise<void> {
-        if (!this.opts.auditLog) return;
-        const line = JSON.stringify({
-            ts: new Date().toISOString(),
-            session: this.opts.sessionId ?? 'default',
-            agent: agentId,
-            tool,
-            input: inputPreview.slice(0, 200),
-            success,
-            durationMs,
-        });
-        await appendFile(this.opts.auditLog, line + '\n').catch(() => undefined);
-    }
 
     private buildContext(agentId?: string, depth = 0): ExecutionContext {
         const id = agentId ?? this.currentAgentId;

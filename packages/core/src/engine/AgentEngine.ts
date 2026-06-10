@@ -1,7 +1,7 @@
-import { mkdirSync, existsSync, readFileSync } from 'fs';
-import { appendFile } from 'fs/promises';
-import { dirname } from 'path';
-import { atomicWriteSync } from '../shared/utils/atomic-write';
+import { ApprovalGate } from './ApprovalGate';
+import { AuditLogger } from './AuditLogger';
+import { HistoryManager, sanitizeMessages } from './HistoryManager';
+import { MCPRegistrar } from './MCPRegistrar';
 import type {
     AgentProfile,
     EngineOptions,
@@ -37,65 +37,6 @@ import {
     processInlineQaReview,
 } from './qa-orchestrator';
 
-/**
- * Remove messages that would cause a 400 from any OpenAI-compatible provider:
- * - `tool` messages that are not part of an active assistant→tool chain
- * - `assistant` messages that declare tool_calls but have no following tool results
- *   (only stripped when the next non-tool message is NOT another turn of the same chain)
- *
- * Walking forward: we track whether we're "inside" a tool_calls chain.
- * A chain starts with assistant(tool_calls) and ends once all IDs have a result.
- * Any `tool` result that arrives outside an open chain is dropped.
- */
-function sanitizeMessages(messages: LLMMessage[]): LLMMessage[] {
-    const out: LLMMessage[] = [];
-    // IDs still waiting for a tool result in the current chain
-    let pendingIds = new Set<string>();
-
-    for (const msg of messages) {
-        if (msg.role === 'assistant') {
-            // A new assistant message closes any previous chain (even if incomplete)
-            // and optionally opens a new one.
-            pendingIds = new Set<string>();
-            if (msg.tool_calls?.length) {
-                for (const tc of msg.tool_calls) {
-                    if (tc.id) pendingIds.add(tc.id);
-                }
-            }
-            out.push(msg);
-        } else if (msg.role === 'tool') {
-            if (pendingIds.size === 0) {
-                // Orphaned tool result — no open chain. Drop it.
-                continue;
-            }
-            if (msg.tool_call_id) pendingIds.delete(msg.tool_call_id);
-            out.push(msg);
-        } else {
-            // user / system — close any open chain
-            pendingIds = new Set<string>();
-            out.push(msg);
-        }
-    }
-
-    // If the conversation ends mid-chain (e.g. after abort()), the trailing
-    // assistant message with open tool_calls would cause a 400 on the next run.
-    // Walk backwards and remove it along with any partial tool results.
-    if (pendingIds.size > 0) {
-        for (let i = out.length - 1; i >= 0; i--) {
-            const m = out[i];
-            if (m.role === 'tool') {
-                out.splice(i, 1);
-            } else if (m.role === 'assistant' && m.tool_calls?.length) {
-                out.splice(i, 1);
-                break;
-            } else {
-                break;
-            }
-        }
-    }
-
-    return out;
-}
 
 export interface AgentEngineOptions extends EngineOptions {
     agents: AgentRegistry;
@@ -194,44 +135,18 @@ export class AgentEngine {
     private readonly memory: SessionMemoryData;
     private readonly bus: DelegationBus;
     private readonly skillActivator = new SkillActivator();
+    private readonly history: HistoryManager;
+    private readonly auditLogger: AuditLogger;
     private currentAgentId: string;
-    private messages: LLMMessage[] = [];
     private aborted = false;
     private abortController: AbortController | null = null;
     private allSkills: Skill[];
     private iterationManager: IterationManager;
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
-    private mcpInitialized = false;
-    private mcpInitAttempts = 0;
-    private mcpRegisteredServers = new Set<string>();
-    private mcpTriggers = new Map<string, string[]>();                        // agentId → triggers
-    private mcpToolTriggers = new Map<string, { agentId: string; tool: string }>(); // keyword → {agentId, tool}
-    private approvalDisabled = false; // set to true after 'approve_all'
+    private readonly mcpRegistrar: MCPRegistrar;
+    private readonly approvalGate: ApprovalGate;
     private pendingContextLoad: Promise<void> | null = null;
-
-    private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
-
-    /** Tracks what each MCP server blocked/assigned so it can be fully reverted on disconnect. */
-    private mcpAgentBlocks = new Map<string, Array<{
-        agentId: string;
-        toolNames: string[];
-        blockedCmds: string[];
-    }>>();
-
-    /**
-     * Commands that always require user approval regardless of iteration mode or
-     * approvalDisabled flag. These are irreversible or high-blast-radius operations:
-     * installing new packages, removing packages, running destructive npm scripts.
-     */
-    private static readonly ALWAYS_ASK_PATTERNS: RegExp[] = [
-        /^\s*npm\s+(install|i|add)\s+[^-]/i,     // npm install <pkg> — new package install
-        /^\s*npm\s+uninstall\b/i,                  // npm uninstall
-        /^\s*yarn\s+add\s+[^-]/i,                  // yarn add <pkg>
-        /^\s*pnpm\s+add\s+[^-]/i,                  // pnpm add <pkg>
-        /^\s*pip\s+install\b/i,                    // pip install
-        /^\s*pip3\s+install\b/i,
-    ];
     private agentsLoaded = false;
     private agentsLoadedPromise: Promise<void> | null = null;
     private memoryContextBlock = '';
@@ -242,21 +157,27 @@ export class AgentEngine {
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.allSkills = opts.skills ?? [];
+        this.history = new HistoryManager({
+            historyPath:        opts.historyPath,
+            maxContextMessages: opts.maxContextMessages,
+        });
+        this.auditLogger = new AuditLogger(opts.auditLog);
+        this.mcpRegistrar = new MCPRegistrar({
+            mcpManager: opts.mcpManager,
+            tools:      opts.tools,
+            agents:     opts.agents,
+            transport:  opts.transport,
+        });
+        this.approvalGate = new ApprovalGate({
+            onToolApproval: opts.onToolApproval,
+            transport:      opts.transport,
+        });
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
             maxIterations: opts.maxIterations ?? 100,
             onLimitReached: opts.onIterationLimit,
             onStep: opts.onStep,
         });
-        if (opts.auditLog) {
-            try { mkdirSync(dirname(opts.auditLog), { recursive: true }); } catch {}
-        }
-        if (opts.historyPath && existsSync(opts.historyPath)) {
-            try {
-                const raw = JSON.parse(readFileSync(opts.historyPath, 'utf-8')) as LLMMessage[];
-                this.messages = raw.filter(m => m.role !== 'system');
-            } catch { /* corrupt or missing — start fresh */ }
-        }
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
             agents: opts.agents,
@@ -305,7 +226,7 @@ export class AgentEngine {
      * without requiring a full engine restart.
      */
     injectContext(message: string): void {
-        this.messages.push({ role: 'user', content: message });
+        this.history.inject(message);
     }
 
     /**
@@ -413,11 +334,11 @@ export class AgentEngine {
             return;
         }
 
-        await this.ensureMCPInitialized();
+        await this.mcpRegistrar.ensureInitialized();
         await this.ensureAgentsLoaded();
 
         // Direct MCP routing: bypass general when input matches a configured trigger
-        const mcpRoute = this.findMCPRoute(input);
+        const mcpRoute = this.mcpRegistrar.findRoute(input);
         if (mcpRoute) {
             if (mcpRoute.tool) {
                 // Tool trigger: call the MCP tool directly — no intermediate LLM.
@@ -483,7 +404,7 @@ export class AgentEngine {
             orchestrationResult = await this.opts.orchestrator.orchestrate(input).catch(() => undefined);
         }
 
-        this.messages.push({ role: 'user', content: input });
+        this.history.push({ role: 'user', content: input });
         await this.runLoop(profile, orchestrationResult);
         this.saveHistory();
         this.opts.transport.emit({ type: 'done' });
@@ -494,7 +415,7 @@ export class AgentEngine {
         opts: WorkflowRunOptions = {},
     ): Promise<WorkflowResult> {
         if (this.pendingContextLoad) await this.pendingContextLoad;
-        await this.ensureMCPInitialized();
+        await this.mcpRegistrar.ensureInitialized();
         await this.ensureAgentsLoaded();
         const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;
         const runner = new WorkflowRunner(def, {
@@ -523,45 +444,22 @@ export class AgentEngine {
 
     /** Delete persisted history file and reset in-memory conversation. */
     clearHistory(): void {
-        this.messages = [];
-        if (!this.opts.historyPath) return;
-        try { atomicWriteSync(this.opts.historyPath, '[]'); } catch { /* non-fatal */ }
+        this.history.clear();
     }
 
-    /** Serialize current conversation to disk (called automatically after each run). */
     private saveHistory(): void {
-        if (!this.opts.historyPath) return;
-        const cap = this.opts.maxContextMessages ?? 100;
-        // Sanitize before slicing — a naive slice(-cap) can split assistant→tool chains.
-        const toSave = sanitizeMessages(this.messages.filter(m => m.role !== 'system').slice(-cap));
-        try {
-            mkdirSync(dirname(this.opts.historyPath), { recursive: true });
-            atomicWriteSync(this.opts.historyPath, JSON.stringify(toSave, null, 2));
-        } catch { /* non-fatal — history loss is preferable to a crash */ }
+        this.history.save();
     }
 
-    /**
-     * Trim conversation history to maxContextMessages by dropping oldest messages
-     * at a user-turn boundary. Preserves all assistant↔tool pairs intact.
-     */
     private trimHistory(): void {
         const max = this.opts.maxContextMessages;
-        if (!max || this.messages.length <= max) return;
-
-        // Walk forward from the target offset to find the next 'user' message.
-        // Cutting there avoids orphaning assistant tool_calls / tool results.
-        const target = this.messages.length - max;
-        let cutAt = target;
-        while (cutAt < this.messages.length && this.messages[cutAt].role !== 'user') {
-            cutAt++;
-        }
-
-        if (cutAt > 0 && cutAt < this.messages.length) {
-            this.messages = this.messages.slice(cutAt);
+        if (!max) return;
+        const dropped = this.history.trim(max);
+        if (dropped > 0) {
             this.opts.transport.emit({
                 type: 'system',
                 level: 'warn',
-                text: `[ContextWindow] Dropped ${cutAt} messages — history capped at ${max} (maxContextMessages)`,
+                text: `[ContextWindow] Dropped ${dropped} messages — history capped at ${max} (maxContextMessages)`,
             });
         }
     }
@@ -591,201 +489,6 @@ export class AgentEngine {
         } finally {
             this.agentsLoaded = true;
         }
-    }
-
-    private async ensureMCPInitialized(): Promise<void> {
-        if (!this.opts.mcpManager) return;
-
-        try {
-            if (!this.mcpInitialized) {
-                await this.opts.mcpManager.initialize();
-                this.mcpInitialized = true;
-            } else {
-                // Subsequent runs: retry only servers that are still offline — bounded by their own counter
-                const offline = this.opts.mcpManager.getConfiguredNames()
-                    .filter(n => !this.mcpRegisteredServers.has(n));
-                if (offline.length > 0 && this.mcpInitAttempts < 3) {
-                    this.mcpInitAttempts++;
-                    await this.opts.mcpManager.reconnectFailed();
-                }
-            }
-        } catch (err) {
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `MCP initialization error: ${(err as Error).message}`,
-            });
-        }
-
-        // Always register any server that is now connected but not yet registered as agent.
-        // This runs regardless of the retry counter so late-starting servers get picked up.
-        for (const { name, toolCount } of this.opts.mcpManager.getServerInfo()) {
-            if (toolCount > 0 && !this.mcpRegisteredServers.has(name)) {
-                const tools  = this.opts.mcpManager.getServerTools(name);
-                const config = this.opts.mcpManager.getConfig(name)!;
-                this.registerMCPAgent(config, tools);
-                this.mcpRegisteredServers.add(name);
-            }
-        }
-
-        // Warn about servers still offline (only while retries remain)
-        const stillOffline = this.opts.mcpManager.getConfiguredNames()
-            .filter(n => !this.mcpRegisteredServers.has(n));
-        if (stillOffline.length > 0) {
-            const retriesLeft = 3 - this.mcpInitAttempts;
-            const suffix = retriesLeft > 0
-                ? `Retrying on next message (${retriesLeft} attempts left).`
-                : `No more automatic retries — call engine.getMCPManager()?.reconnectFailed() to retry manually.`;
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `MCP agents offline: ${stillOffline.join(', ')} — start their servers to enable them. ${suffix}`,
-            });
-        }
-    }
-
-    private registerMCPAgent(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-    ): void {
-        // safeName mirrors the sanitization done by MCPClientManager.wrapTool() so that
-        // tool lookup `mcp__${safeName}__${tool}` always resolves correctly.
-        const safeName = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-        // Register tools in the ToolRegistry — skip already-registered ones
-        // (safe for reconnection scenarios; mcpRegisteredServers normally prevents duplicates)
-        for (const tool of tools) {
-            if (!this.opts.tools.has(tool.name)) {
-                this.opts.tools.register(tool);
-            }
-        }
-
-        // toolTriggers work in both modes — direct keyword → tool execution, zero LLM hops
-        if (config.toolTriggers) {
-            for (const [keyword, tool] of Object.entries(config.toolTriggers)) {
-                this.mcpToolTriggers.set(keyword.toLowerCase(), { agentId: safeName, tool });
-            }
-        }
-
-        const mode = config.mode ?? 'tools';
-
-        if (mode === 'tools') {
-            this.registerMCPToolPack(config, tools, safeName);
-        } else {
-            this.registerMCPAgentWrapper(config, tools, safeName);
-        }
-    }
-
-    /**
-     * mode='tools' (default): assigns MCP tools directly to local agent allowedTools.
-     * Also applies blocksCommands to those agents while the server is connected —
-     * forcing them to use the MCP tools instead of equivalent shell commands.
-     * Both tool assignments and command blocks are tracked so they can be
-     * fully reverted when the server disconnects via unregisterMCPServer().
-     */
-    private registerMCPToolPack(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-        safeName: string,
-    ): void {
-        const toolNames = tools.map(t => t.name);
-        const blocksCommands = config.blocksCommands ?? [];
-
-        // Resolve target agents: explicit assignTo list, or all registered agents
-        const assignTo = config.assignTo?.filter(id => id !== '*') ?? [];
-        const targets = assignTo.length > 0
-            ? assignTo
-            : this.opts.agents.getAll().map(a => a.id);
-
-        const blockRecord: Array<{ agentId: string; toolNames: string[]; blockedCmds: string[] }> = [];
-
-        for (const agentId of targets) {
-            const agent = this.opts.agents.get(agentId);
-            if (!agent) {
-                this.opts.transport.emit({
-                    type: 'system', level: 'warn',
-                    text: `[MCP:${config.name}] assignTo agent "${agentId}" not found — skipped.`,
-                });
-                continue;
-            }
-            this.opts.agents.upsert({
-                ...agent,
-                allowedTools: [...new Set([...agent.allowedTools, ...toolNames])],
-                blockedCommands: [...new Set([...(agent.blockedCommands ?? []), ...blocksCommands])],
-            });
-            blockRecord.push({ agentId, toolNames, blockedCmds: blocksCommands });
-        }
-
-        this.mcpAgentBlocks.set(safeName, blockRecord);
-
-        if (config.triggers?.length) {
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `[MCP:${config.name}] 'triggers' is ignored in mode='tools'. Use 'toolTriggers' for direct keyword routing.`,
-            });
-        }
-
-        const shortNames = tools.map(t => t.name.split('__')[2] ?? t.name).join(', ');
-        const agentList = targets.join(', ') || 'all agents';
-        const blockedLabel = blocksCommands.length ? `  blocked: [${blocksCommands.join(', ')}]` : '';
-        this.opts.transport.emit({
-            type: 'system', level: 'info',
-            text: `[MCP:${config.name}] tools [${shortNames}] assigned to: ${agentList}${blockedLabel}`,
-        });
-    }
-
-    /**
-     * mode='agent': wraps the MCP server as a delegatable agent in the roster.
-     * Use only when the remote service has its own reasoning layer or its output
-     * is so large it needs a dedicated summarization turn.
-     */
-    private registerMCPAgentWrapper(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-        safeName: string,
-    ): void {
-        const toolList = tools
-            .map(t => {
-                const shortName = t.name.split('__')[2] ?? t.name;
-                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
-                return `- ${shortName}: ${desc}`;
-            })
-            .join('\n');
-
-        const enrichedDesc = tools
-            .map(t => {
-                const shortName = t.name.split('__')[2] ?? t.name;
-                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 70);
-                return `${shortName}: ${desc}`;
-            })
-            .join(' | ');
-
-        this.opts.agents.upsert({
-            id:           safeName,
-            name:         config.agentName ?? toTitleCase(config.name),
-            icon:         config.icon ?? '◎',
-            description:  config.agentDescription ?? `External specialist — ${enrichedDesc}`,
-            systemPrompt:
-                `You are a specialized remote agent: ${config.name}.\n` +
-                `Use ONLY your available tools to answer the request. ` +
-                `Do NOT use run_command, read_file, or other local tools.\n\n` +
-                `Your tools:\n${toolList}`,
-            allowedTools: tools.map(t => t.name),
-            source:       'mcp',
-        });
-
-        if (config.triggers?.length) {
-            this.mcpTriggers.set(safeName, config.triggers);
-        }
-    }
-
-    private findMCPRoute(input: string): { agentId: string; tool?: string } | undefined {
-        const lower = input.toLowerCase();
-        for (const [keyword, route] of this.mcpToolTriggers) {
-            if (lower.includes(keyword)) return route;
-        }
-        for (const [agentId, triggers] of this.mcpTriggers) {
-            if (triggers.some(t => lower.includes(t.toLowerCase()))) return { agentId };
-        }
-        return undefined;
     }
 
     switchAgent(agentId: string): void {
@@ -938,7 +641,7 @@ export class AgentEngine {
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
-            const safeHistory = sanitizeMessages(this.messages);
+            const safeHistory = this.history.sanitized();
 
             let streamBuffer = '';
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
@@ -986,7 +689,7 @@ export class AgentEngine {
 
             if (!finalMessage) break;
 
-            this.messages.push(finalMessage);
+            this.history.push(finalMessage);
 
             const toolResults: LLMMessage[] = [];
 
@@ -1040,7 +743,7 @@ export class AgentEngine {
                     orchestrator: this.opts.orchestrator,
                     qaService: this.opts.qaService,
                     allAgents: this.opts.agents.getAll(),
-                    messages: this.messages,
+                    messages: this.history.getAll(),
                     effectiveAgentId: currentProfile.id,
                     defaultAgentId: this.opts.defaultAgentId,
                     qaAgentId,
@@ -1069,7 +772,7 @@ export class AgentEngine {
             }
 
             if (toolResults.length === 0) break;
-            this.messages.push(...toolResults);
+            this.history.pushAll(toolResults);
         }
 
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
@@ -1086,13 +789,13 @@ export class AgentEngine {
         // without requiring the orchestrator to manually copy it into context.
         let historySlice: LLMMessage[] = [];
         const maxCtxMsgs = this.opts.subAgentContextMessages;
-        if (maxCtxMsgs && maxCtxMsgs > 0 && this.messages.length > 0) {
-            historySlice = this.messages.slice(-maxCtxMsgs);
+        const allMessages = this.history.getAll();
+        if (maxCtxMsgs && maxCtxMsgs > 0 && allMessages.length > 0) {
+            historySlice = allMessages.slice(-maxCtxMsgs);
             // Trim to the first user-turn boundary to avoid orphaning tool results.
             const firstUser = historySlice.findIndex(m => m.role === 'user');
             if (firstUser > 0) historySlice = historySlice.slice(firstUser);
             else if (firstUser < 0) historySlice = [];
-            // Sanitize: drop any tool messages whose assistant(tool_calls) was cut off
             historySlice = sanitizeMessages(historySlice);
         }
 
@@ -1196,46 +899,16 @@ export class AgentEngine {
             result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
                       `Use ask_agent to delegate to a specialist.`;
             success = false;
-        } else if (this.opts.onToolApproval && this.requiresAlwaysAsk(call)) {
-            // High-blast-radius operations (npm install, pip install, etc.) always
-            // require approval — cannot be bypassed by approve_all or auto mode.
-            const preview = call.args.slice(0, 200);
-            this.opts.transport.emit({
-                type: 'tool_approval_request',
-                tool_name: call.name,
-                agent_id: profile.id,
-                args_preview: preview,
-            });
-            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
-            if (decision === 'reject') {
-                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-            } else {
-                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
-            }
-        } else if (
-            !this.approvalDisabled &&
-            this.opts.onToolApproval &&
-            AgentEngine.WRITE_TOOLS.has(call.name)
-        ) {
-            const preview = call.args.slice(0, 200);
-            this.opts.transport.emit({
-                type: 'tool_approval_request',
-                tool_name: call.name,
-                agent_id: profile.id,
-                args_preview: preview,
-            });
-            const decision = await this.opts.onToolApproval(call.name, profile.id, preview);
-            if (decision === 'approve_all') this.approvalDisabled = true;
-            if (decision === 'reject') {
-                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-            } else {
-                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
-            }
         } else {
-            ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            const gateDecision = await this.approvalGate.check(call, profile.id);
+            if (gateDecision === 'rejected') {
+                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+            } else {
+                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            }
         }
 
-        await this.writeAuditRecord(profile.id, call.name, call.args, success, Date.now() - callStart);
+        await this.auditLogger.log({ agentId: profile.id, tool: call.name, inputPreview: call.args, success, durationMs: Date.now() - callStart, sessionId: this.opts.sessionId });
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
@@ -1259,22 +932,6 @@ export class AgentEngine {
     }
 
     /**
-     * Returns true when a tool call matches a high-blast-radius pattern that
-     * always requires explicit approval — cannot be bypassed by approve_all or
-     * auto iteration mode.
-     */
-    private requiresAlwaysAsk(call: { name: string; args: string }): boolean {
-        if (call.name !== 'run_command') return false;
-        try {
-            const { command } = JSON.parse(call.args) as { command?: string };
-            if (!command) return false;
-            return AgentEngine.ALWAYS_ASK_PATTERNS.some(re => re.test(command));
-        } catch {
-            return false;
-        }
-    }
-
-    /**
      * Disconnects an MCP server at runtime — reverts all tool assignments and
      * command blocks it applied to local agents. After calling this, agents that
      * had tools from this server lose them from allowedTools, and any commands
@@ -1284,60 +941,15 @@ export class AgentEngine {
      * For mode='tools' servers, agents fall back to shell commands automatically.
      */
     unregisterMCPServer(serverName: string): void {
-        const safeName = serverName.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-        // Revert tool assignments and command blocks on affected agents
-        const records = this.mcpAgentBlocks.get(safeName) ?? [];
-        for (const { agentId, toolNames, blockedCmds } of records) {
-            const agent = this.opts.agents.get(agentId);
-            if (agent) {
-                this.opts.agents.upsert({
-                    ...agent,
-                    allowedTools: agent.allowedTools.filter(t => !toolNames.includes(t)),
-                    blockedCommands: (agent.blockedCommands ?? []).filter(c => !blockedCmds.includes(c)),
-                });
-            }
-            for (const toolName of toolNames) {
-                this.opts.tools.unregister(toolName);
-            }
-        }
-        this.mcpAgentBlocks.delete(safeName);
-
-        // Remove wrapper agent if mode='agent'
-        this.opts.agents.delete(safeName);
-
-        // Clean up routing tables
-        this.mcpTriggers.delete(safeName);
-        for (const [keyword, route] of this.mcpToolTriggers) {
-            if (route.agentId === safeName) this.mcpToolTriggers.delete(keyword);
-        }
-        this.mcpRegisteredServers.delete(serverName);
-
-        this.opts.transport.emit({
-            type: 'system', level: 'info',
-            text: `[MCP:${serverName}] unregistered — tools removed, commands unblocked.`,
-        });
+        this.mcpRegistrar.unregisterServer(serverName);
     }
 
     /** Disable approval gate for the rest of this session (approve_all). */
-    disableToolApproval(): void { this.approvalDisabled = true; }
+    disableToolApproval(): void { this.approvalGate.disable(); }
 
     /** Re-enable approval gate (e.g. after /iteration manual). */
-    enableToolApproval(): void { this.approvalDisabled = false; }
+    enableToolApproval(): void { this.approvalGate.enable(); }
 
-    private async writeAuditRecord(agentId: string, tool: string, inputPreview: string, success: boolean, durationMs: number): Promise<void> {
-        if (!this.opts.auditLog) return;
-        const line = JSON.stringify({
-            ts: new Date().toISOString(),
-            session: this.opts.sessionId ?? 'default',
-            agent: agentId,
-            tool,
-            input: inputPreview.slice(0, 200),
-            success,
-            durationMs,
-        });
-        await appendFile(this.opts.auditLog, line + '\n').catch(() => undefined);
-    }
 
     private buildContext(agentId?: string, depth = 0): ExecutionContext {
         const id = agentId ?? this.currentAgentId;
@@ -1382,10 +994,4 @@ export class AgentEngine {
             },
         };
     }
-}
-
-function toTitleCase(s: string): string {
-    return s
-        .replace(/[-_](.)/g, (_, c: string) => ' ' + c.toUpperCase())
-        .replace(/^(.)/, (c: string) => c.toUpperCase());
 }

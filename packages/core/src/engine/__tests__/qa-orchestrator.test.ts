@@ -1,4 +1,9 @@
-import { advanceRequiredGates, processInlineQaReview } from '../qa-orchestrator';
+import {
+    advanceRequiredGates,
+    activateQaEngineerIfNeeded,
+    processQaEngineerResponse,
+    processInlineQaReview,
+} from '../qa-orchestrator';
 import { TaskFSM } from '../../orchestration/fsm';
 import { createTaskContext, type TaskContext, type TaskStatus } from '../../orchestration/task-context';
 import type { OrchestrationResult } from '../../orchestration/types';
@@ -201,5 +206,194 @@ describe('processInlineQaReview (H-004)', () => {
 
         expect(ctx.orchestrationResult.task.status).toBe('implementation');
         expect(recordGate).not.toHaveBeenCalled();
+    });
+});
+
+// ── activateQaEngineerIfNeeded ─────────────────────────────────────────────────
+
+import type { AgentProfile } from '../../types';
+
+const qaEngineerProfile: AgentProfile = {
+    id: 'qa-engineer',
+    name: 'QA Engineer',
+    icon: '🧪',
+    description: 'Reviews code quality',
+    systemPrompt: 'You are a QA engineer.',
+    allowedTools: [],
+};
+
+describe('activateQaEngineerIfNeeded', () => {
+    it('returns null when task status is not qa_review', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        // status remains 'implementation'
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        ctx.allAgents = [qaEngineerProfile];
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+        expect(ctx.setEffectiveAgent).not.toHaveBeenCalled();
+    });
+
+    it('returns null when noQA is true even if task is in qa_review', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), allAgents: [qaEngineerProfile], noQA: true };
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+    });
+
+    it('returns null when qa-engineer agent is not in roster', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        // allAgents = [] by default in makeCtx
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+    });
+
+    it('returns null when code is trivial (< 8 lines)', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService({ countCodeLines: jest.fn().mockReturnValue(3) });
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        ctx.allAgents = [qaEngineerProfile];
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+    });
+
+    it('returns null for informational requests', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        task.rawPrompt = 'explica cómo funciona este módulo';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        ctx.allAgents = [qaEngineerProfile];
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+    });
+
+    it('returns null when effectiveAgentId is already qa-engineer', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), allAgents: [qaEngineerProfile], effectiveAgentId: 'qa-engineer' };
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBeNull();
+    });
+
+    it('activates qa-engineer: injects review message, switches agent, returns profile', () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        ctx.allAgents = [qaEngineerProfile];
+
+        const result = activateQaEngineerIfNeeded(ctx);
+
+        expect(result).toBe(qaEngineerProfile);
+        expect(ctx.messages).toHaveLength(1);
+        expect(ctx.messages[0].role).toBe('user');
+        expect(ctx.setEffectiveAgent).toHaveBeenCalledWith('qa-engineer');
+    });
+});
+
+// ── processQaEngineerResponse ──────────────────────────────────────────────────
+
+describe('processQaEngineerResponse', () => {
+    it('transitions to approved and calls completeSprint when review approves', async () => {
+        const { orchestrator, completeSprint } = makeOrchestrator();
+        const qaService = makeQaService({ evaluateReview: jest.fn().mockReturnValue(true) });
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+        ctx.effectiveAgentId = 'qa-engineer';
+
+        await processQaEngineerResponse(ctx);
+
+        expect(ctx.orchestrationResult.task.status).toBe('approved');
+        expect(completeSprint).toHaveBeenCalledTimes(1);
+    });
+
+    it('transitions to rework_required when review rejects', async () => {
+        const { orchestrator, completeSprint } = makeOrchestrator();
+        const qaService = makeQaService({ evaluateReview: jest.fn().mockReturnValue(false) });
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+
+        await processQaEngineerResponse(ctx);
+
+        expect(ctx.orchestrationResult.task.status).toBe('rework_required');
+        expect(completeSprint).not.toHaveBeenCalled();
+    });
+
+    it('records a QA gate in the audit reporter', async () => {
+        const { orchestrator, recordGate } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService });
+
+        await processQaEngineerResponse(ctx);
+
+        expect(gatesRecorded(recordGate)).toContain('qa');
+    });
+
+    it('calls onQAReview with the clean response text', async () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const onQAReview = jest.fn();
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), clean: 'aprobado', onQAReview };
+
+        await processQaEngineerResponse(ctx);
+
+        expect(onQAReview).toHaveBeenCalledWith('aprobado');
+    });
+
+    it('resets effectiveAgent to defaultAgentId after completing review', async () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), defaultAgentId: 'general' };
+
+        await processQaEngineerResponse(ctx);
+
+        expect(ctx.setEffectiveAgent).toHaveBeenLastCalledWith('general');
+    });
+
+    it('falls back to "general" when defaultAgentId is not set', async () => {
+        const { orchestrator } = makeOrchestrator();
+        const qaService = makeQaService();
+        const task = implTask({ requiresQaApproval: true });
+        task.status = 'qa_review';
+        const ctx = makeCtx({ task, orchestrator, qaService }); // no defaultAgentId
+
+        await processQaEngineerResponse(ctx);
+
+        expect(ctx.setEffectiveAgent).toHaveBeenLastCalledWith('general');
     });
 });

@@ -1,5 +1,6 @@
 import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
+import { MCPRegistrar } from './MCPRegistrar';
 import type {
     AgentProfile,
     EngineOptions,
@@ -142,22 +143,11 @@ export class AgentEngine {
     private iterationManager: IterationManager;
     private activeSkillAddition = '';
     private yamlSkillsLoaded = false;
-    private mcpInitialized = false;
-    private mcpInitAttempts = 0;
-    private mcpRegisteredServers = new Set<string>();
-    private mcpTriggers = new Map<string, string[]>();                        // agentId → triggers
-    private mcpToolTriggers = new Map<string, { agentId: string; tool: string }>(); // keyword → {agentId, tool}
+    private readonly mcpRegistrar: MCPRegistrar;
     private approvalDisabled = false; // set to true after 'approve_all'
     private pendingContextLoad: Promise<void> | null = null;
 
     private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
-
-    /** Tracks what each MCP server blocked/assigned so it can be fully reverted on disconnect. */
-    private mcpAgentBlocks = new Map<string, Array<{
-        agentId: string;
-        toolNames: string[];
-        blockedCmds: string[];
-    }>>();
 
     /**
      * Commands that always require user approval regardless of iteration mode or
@@ -187,6 +177,12 @@ export class AgentEngine {
             maxContextMessages: opts.maxContextMessages,
         });
         this.auditLogger = new AuditLogger(opts.auditLog);
+        this.mcpRegistrar = new MCPRegistrar({
+            mcpManager: opts.mcpManager,
+            tools:      opts.tools,
+            agents:     opts.agents,
+            transport:  opts.transport,
+        });
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
             maxIterations: opts.maxIterations ?? 100,
@@ -349,11 +345,11 @@ export class AgentEngine {
             return;
         }
 
-        await this.ensureMCPInitialized();
+        await this.mcpRegistrar.ensureInitialized();
         await this.ensureAgentsLoaded();
 
         // Direct MCP routing: bypass general when input matches a configured trigger
-        const mcpRoute = this.findMCPRoute(input);
+        const mcpRoute = this.mcpRegistrar.findRoute(input);
         if (mcpRoute) {
             if (mcpRoute.tool) {
                 // Tool trigger: call the MCP tool directly — no intermediate LLM.
@@ -430,7 +426,7 @@ export class AgentEngine {
         opts: WorkflowRunOptions = {},
     ): Promise<WorkflowResult> {
         if (this.pendingContextLoad) await this.pendingContextLoad;
-        await this.ensureMCPInitialized();
+        await this.mcpRegistrar.ensureInitialized();
         await this.ensureAgentsLoaded();
         const def = 'build' in defOrBuilder ? defOrBuilder.build() : defOrBuilder;
         const runner = new WorkflowRunner(def, {
@@ -504,201 +500,6 @@ export class AgentEngine {
         } finally {
             this.agentsLoaded = true;
         }
-    }
-
-    private async ensureMCPInitialized(): Promise<void> {
-        if (!this.opts.mcpManager) return;
-
-        try {
-            if (!this.mcpInitialized) {
-                await this.opts.mcpManager.initialize();
-                this.mcpInitialized = true;
-            } else {
-                // Subsequent runs: retry only servers that are still offline — bounded by their own counter
-                const offline = this.opts.mcpManager.getConfiguredNames()
-                    .filter(n => !this.mcpRegisteredServers.has(n));
-                if (offline.length > 0 && this.mcpInitAttempts < 3) {
-                    this.mcpInitAttempts++;
-                    await this.opts.mcpManager.reconnectFailed();
-                }
-            }
-        } catch (err) {
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `MCP initialization error: ${(err as Error).message}`,
-            });
-        }
-
-        // Always register any server that is now connected but not yet registered as agent.
-        // This runs regardless of the retry counter so late-starting servers get picked up.
-        for (const { name, toolCount } of this.opts.mcpManager.getServerInfo()) {
-            if (toolCount > 0 && !this.mcpRegisteredServers.has(name)) {
-                const tools  = this.opts.mcpManager.getServerTools(name);
-                const config = this.opts.mcpManager.getConfig(name)!;
-                this.registerMCPAgent(config, tools);
-                this.mcpRegisteredServers.add(name);
-            }
-        }
-
-        // Warn about servers still offline (only while retries remain)
-        const stillOffline = this.opts.mcpManager.getConfiguredNames()
-            .filter(n => !this.mcpRegisteredServers.has(n));
-        if (stillOffline.length > 0) {
-            const retriesLeft = 3 - this.mcpInitAttempts;
-            const suffix = retriesLeft > 0
-                ? `Retrying on next message (${retriesLeft} attempts left).`
-                : `No more automatic retries — call engine.getMCPManager()?.reconnectFailed() to retry manually.`;
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `MCP agents offline: ${stillOffline.join(', ')} — start their servers to enable them. ${suffix}`,
-            });
-        }
-    }
-
-    private registerMCPAgent(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-    ): void {
-        // safeName mirrors the sanitization done by MCPClientManager.wrapTool() so that
-        // tool lookup `mcp__${safeName}__${tool}` always resolves correctly.
-        const safeName = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-        // Register tools in the ToolRegistry — skip already-registered ones
-        // (safe for reconnection scenarios; mcpRegisteredServers normally prevents duplicates)
-        for (const tool of tools) {
-            if (!this.opts.tools.has(tool.name)) {
-                this.opts.tools.register(tool);
-            }
-        }
-
-        // toolTriggers work in both modes — direct keyword → tool execution, zero LLM hops
-        if (config.toolTriggers) {
-            for (const [keyword, tool] of Object.entries(config.toolTriggers)) {
-                this.mcpToolTriggers.set(keyword.toLowerCase(), { agentId: safeName, tool });
-            }
-        }
-
-        const mode = config.mode ?? 'tools';
-
-        if (mode === 'tools') {
-            this.registerMCPToolPack(config, tools, safeName);
-        } else {
-            this.registerMCPAgentWrapper(config, tools, safeName);
-        }
-    }
-
-    /**
-     * mode='tools' (default): assigns MCP tools directly to local agent allowedTools.
-     * Also applies blocksCommands to those agents while the server is connected —
-     * forcing them to use the MCP tools instead of equivalent shell commands.
-     * Both tool assignments and command blocks are tracked so they can be
-     * fully reverted when the server disconnects via unregisterMCPServer().
-     */
-    private registerMCPToolPack(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-        safeName: string,
-    ): void {
-        const toolNames = tools.map(t => t.name);
-        const blocksCommands = config.blocksCommands ?? [];
-
-        // Resolve target agents: explicit assignTo list, or all registered agents
-        const assignTo = config.assignTo?.filter(id => id !== '*') ?? [];
-        const targets = assignTo.length > 0
-            ? assignTo
-            : this.opts.agents.getAll().map(a => a.id);
-
-        const blockRecord: Array<{ agentId: string; toolNames: string[]; blockedCmds: string[] }> = [];
-
-        for (const agentId of targets) {
-            const agent = this.opts.agents.get(agentId);
-            if (!agent) {
-                this.opts.transport.emit({
-                    type: 'system', level: 'warn',
-                    text: `[MCP:${config.name}] assignTo agent "${agentId}" not found — skipped.`,
-                });
-                continue;
-            }
-            this.opts.agents.upsert({
-                ...agent,
-                allowedTools: [...new Set([...agent.allowedTools, ...toolNames])],
-                blockedCommands: [...new Set([...(agent.blockedCommands ?? []), ...blocksCommands])],
-            });
-            blockRecord.push({ agentId, toolNames, blockedCmds: blocksCommands });
-        }
-
-        this.mcpAgentBlocks.set(safeName, blockRecord);
-
-        if (config.triggers?.length) {
-            this.opts.transport.emit({
-                type: 'system', level: 'warn',
-                text: `[MCP:${config.name}] 'triggers' is ignored in mode='tools'. Use 'toolTriggers' for direct keyword routing.`,
-            });
-        }
-
-        const shortNames = tools.map(t => t.name.split('__')[2] ?? t.name).join(', ');
-        const agentList = targets.join(', ') || 'all agents';
-        const blockedLabel = blocksCommands.length ? `  blocked: [${blocksCommands.join(', ')}]` : '';
-        this.opts.transport.emit({
-            type: 'system', level: 'info',
-            text: `[MCP:${config.name}] tools [${shortNames}] assigned to: ${agentList}${blockedLabel}`,
-        });
-    }
-
-    /**
-     * mode='agent': wraps the MCP server as a delegatable agent in the roster.
-     * Use only when the remote service has its own reasoning layer or its output
-     * is so large it needs a dedicated summarization turn.
-     */
-    private registerMCPAgentWrapper(
-        config: import('../mcp/types').MCPServerConfig,
-        tools: import('../types').ToolDefinition[],
-        safeName: string,
-    ): void {
-        const toolList = tools
-            .map(t => {
-                const shortName = t.name.split('__')[2] ?? t.name;
-                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 80);
-                return `- ${shortName}: ${desc}`;
-            })
-            .join('\n');
-
-        const enrichedDesc = tools
-            .map(t => {
-                const shortName = t.name.split('__')[2] ?? t.name;
-                const desc = t.description.replace(/^\[MCP:[^\]]+\]\s*/, '').slice(0, 70);
-                return `${shortName}: ${desc}`;
-            })
-            .join(' | ');
-
-        this.opts.agents.upsert({
-            id:           safeName,
-            name:         config.agentName ?? toTitleCase(config.name),
-            icon:         config.icon ?? '◎',
-            description:  config.agentDescription ?? `External specialist — ${enrichedDesc}`,
-            systemPrompt:
-                `You are a specialized remote agent: ${config.name}.\n` +
-                `Use ONLY your available tools to answer the request. ` +
-                `Do NOT use run_command, read_file, or other local tools.\n\n` +
-                `Your tools:\n${toolList}`,
-            allowedTools: tools.map(t => t.name),
-            source:       'mcp',
-        });
-
-        if (config.triggers?.length) {
-            this.mcpTriggers.set(safeName, config.triggers);
-        }
-    }
-
-    private findMCPRoute(input: string): { agentId: string; tool?: string } | undefined {
-        const lower = input.toLowerCase();
-        for (const [keyword, route] of this.mcpToolTriggers) {
-            if (lower.includes(keyword)) return route;
-        }
-        for (const [agentId, triggers] of this.mcpTriggers) {
-            if (triggers.some(t => lower.includes(t.toLowerCase()))) return { agentId };
-        }
-        return undefined;
     }
 
     switchAgent(agentId: string): void {
@@ -1197,39 +998,7 @@ export class AgentEngine {
      * For mode='tools' servers, agents fall back to shell commands automatically.
      */
     unregisterMCPServer(serverName: string): void {
-        const safeName = serverName.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-        // Revert tool assignments and command blocks on affected agents
-        const records = this.mcpAgentBlocks.get(safeName) ?? [];
-        for (const { agentId, toolNames, blockedCmds } of records) {
-            const agent = this.opts.agents.get(agentId);
-            if (agent) {
-                this.opts.agents.upsert({
-                    ...agent,
-                    allowedTools: agent.allowedTools.filter(t => !toolNames.includes(t)),
-                    blockedCommands: (agent.blockedCommands ?? []).filter(c => !blockedCmds.includes(c)),
-                });
-            }
-            for (const toolName of toolNames) {
-                this.opts.tools.unregister(toolName);
-            }
-        }
-        this.mcpAgentBlocks.delete(safeName);
-
-        // Remove wrapper agent if mode='agent'
-        this.opts.agents.delete(safeName);
-
-        // Clean up routing tables
-        this.mcpTriggers.delete(safeName);
-        for (const [keyword, route] of this.mcpToolTriggers) {
-            if (route.agentId === safeName) this.mcpToolTriggers.delete(keyword);
-        }
-        this.mcpRegisteredServers.delete(serverName);
-
-        this.opts.transport.emit({
-            type: 'system', level: 'info',
-            text: `[MCP:${serverName}] unregistered — tools removed, commands unblocked.`,
-        });
+        this.mcpRegistrar.unregisterServer(serverName);
     }
 
     /** Disable approval gate for the rest of this session (approve_all). */
@@ -1282,10 +1051,4 @@ export class AgentEngine {
             },
         };
     }
-}
-
-function toTitleCase(s: string): string {
-    return s
-        .replace(/[-_](.)/g, (_, c: string) => ' ' + c.toUpperCase())
-        .replace(/^(.)/, (c: string) => c.toUpperCase());
 }

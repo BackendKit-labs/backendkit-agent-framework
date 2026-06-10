@@ -534,9 +534,6 @@ describe('AgentEngine — MCP mode=tools (default)', () => {
             maxIterations: 1,
         });
 
-        // Simulate what ensureMCPInitialized does: call registerMCPAgent via the private path.
-        // We test via the public surface: after registering, check allowedTools on agents.
-        // Access private method via cast for testing purposes.
         const mcpTool: ToolDefinition = {
             name: 'mcp__github__get_issue',
             description: '[MCP:github] Get a GitHub issue by number',
@@ -544,11 +541,11 @@ describe('AgentEngine — MCP mode=tools (default)', () => {
             execute: async () => 'issue content',
         };
 
-        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
-            .registerMCPAgent(
-                { name: 'github', mode: 'tools', assignTo },
-                [mcpTool],
-            );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (engine as any).mcpRegistrar.registerAgent(
+            { name: 'github', mode: 'tools', assignTo },
+            [mcpTool],
+        );
 
         return { engine, agents, events };
     }
@@ -588,8 +585,8 @@ describe('AgentEngine — MCP mode=tools (default)', () => {
             execute: async () => 'issue content',
         };
         // Same server re-registered (simulates a reconnect) — allowedTools should still have it once
-        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
-            .registerMCPAgent({ name: 'github', mode: 'tools', assignTo: ['backend'] }, [mcpTool]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (engine as any).mcpRegistrar.registerAgent({ name: 'github', mode: 'tools', assignTo: ['backend'] }, [mcpTool]);
 
         const backend = agents.get('backend')!;
         const count = backend.allowedTools.filter(t => t === 'mcp__github__get_issue').length;
@@ -619,11 +616,11 @@ describe('AgentEngine — MCP mode=agent', () => {
             execute: async () => 'results',
         };
 
-        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
-            .registerMCPAgent(
-                { name: 'deep-research', mode: 'agent', agentDescription: 'External research service with own reasoning' },
-                [mcpTool],
-            );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (engine as any).mcpRegistrar.registerAgent(
+            { name: 'deep-research', mode: 'agent', agentDescription: 'External research service with own reasoning' },
+            [mcpTool],
+        );
 
         expect(agents.has('deep-research')).toBe(true);
         const wrapper = agents.get('deep-research')!;

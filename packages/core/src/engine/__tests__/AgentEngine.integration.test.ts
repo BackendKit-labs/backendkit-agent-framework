@@ -345,12 +345,12 @@ describe('1.6 — toolTrigger: routes through executeToolCall', () => {
             iterationMode: 'auto',
         });
 
-        // Register MCP agent with toolTrigger via private method (same pattern as existing tests)
-        (engine as unknown as { registerMCPAgent: (c: unknown, t: unknown[]) => void })
-            .registerMCPAgent(
-                { name: 'lookup', mode: 'tools', toolTriggers: { 'search': 'search' } },
-                [mcpTool],
-            );
+        // Register MCP agent via internal MCPRegistrar (accessed for test setup only)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (engine as any).mcpRegistrar.registerAgent(
+            { name: 'lookup', mode: 'tools', toolTriggers: { 'search': 'search' } },
+            [mcpTool],
+        );
 
         await engine.run('search show all users');
 

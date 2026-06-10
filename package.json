@@ -7,6 +7,7 @@
     "packages/coding",
     "packages/mcp-server",
     "packages/enterprise",
+    "pilot",
     "examples/*"
   ],
   "scripts": {

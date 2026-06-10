@@ -71,7 +71,18 @@ function sanitizeMessages(messages: LLMMessage[]): LLMMessage[] {
             if (msg.tool_call_id) pendingIds.delete(msg.tool_call_id);
             out.push(msg);
         } else {
-            // user / system — close any open chain
+            // user / system — close any open chain.
+            // If a chain was left open (mid-abort), retroactively strip it so the
+            // incoming user turn doesn't carry an incomplete assistant→tool block
+            // that would cause a 400 on the next provider call.
+            if (pendingIds.size > 0) {
+                while (out.length > 0) {
+                    const last = out[out.length - 1];
+                    if (last.role === 'tool') { out.pop(); continue; }
+                    if (last.role === 'assistant' && last.tool_calls?.length) { out.pop(); break; }
+                    break;
+                }
+            }
             pendingIds = new Set<string>();
             out.push(msg);
         }

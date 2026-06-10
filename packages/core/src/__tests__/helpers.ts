@@ -54,6 +54,39 @@ export function createToolCallProvider(
     };
 }
 
+/** Scripted provider — each chat() call consumes the next Turn from the script. */
+export interface Turn {
+    content?: string;
+    tool_calls?: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+}
+
+export function createScriptedProvider(script: Turn[]): LLMProvider {
+    let i = 0;
+    return {
+        async chat(_messages, _tools, callbacks) {
+            const turn = script[i++] ?? { content: '[script exhausted]' };
+            if (turn.tool_calls?.length) {
+                for (const tc of turn.tool_calls) {
+                    callbacks.onToolCall?.(tc.name, JSON.stringify(tc.args), tc.id);
+                }
+                callbacks.onDone({
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: turn.tool_calls.map(tc => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+                    })),
+                });
+            } else {
+                const text = turn.content ?? '';
+                callbacks.onChunk?.(text);
+                callbacks.onDone({ role: 'assistant', content: text });
+            }
+        },
+    };
+}
+
 /** Provider that always throws. */
 export function createFailingProvider(message = 'LLM error'): LLMProvider {
     return {

@@ -30,6 +30,7 @@ import {
 import { DeepSeekProvider } from './providers/DeepSeekProvider';
 import { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 import { AnthropicProvider } from './providers/AnthropicProvider';
+import { OllamaProvider, OLLAMA_DEFAULT_HOST, OLLAMA_DEFAULT_MODEL } from './providers/OllamaProvider';
 import { CODING_AGENTS } from './agents/profiles';
 import { AgentLoader } from './agents/AgentLoader';
 import { readFileTool } from './tools/read-file';
@@ -115,6 +116,8 @@ export { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
 export { DeepSeekProvider } from './providers/DeepSeekProvider';
 export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
 export { AnthropicProvider } from './providers/AnthropicProvider';
+export { OllamaProvider, OLLAMA_DEFAULT_HOST, OLLAMA_DEFAULT_MODEL } from './providers/OllamaProvider';
+export type { OllamaProviderOptions } from './providers/OllamaProvider';
 export { CODING_AGENTS } from './agents/profiles';
 export { AgentLoader } from './agents/AgentLoader';
 export type { AgentLoaderOptions } from './agents/AgentLoader';
@@ -171,13 +174,23 @@ export interface AnthropicConfig {
     temperature?: number;
 }
 
+export interface OllamaConfig {
+    /** Ollama host URL. Default: http://localhost:11434 */
+    host?: string;
+    /** Model name loaded in Ollama. Default: llama3.2 */
+    model?: string;
+    maxTokens?: number;
+    temperature?: number;
+}
+
 export type ProvidersConfig = {
     deepseek?: OpenAICompatibleConfig;
     openai?: OpenAICompatibleConfig;
     anthropic?: AnthropicConfig;
+    ollama?: OllamaConfig;
     kimi?: OpenAICompatibleConfig;
     grok?: OpenAICompatibleConfig;
-    [key: string]: OpenAICompatibleConfig | AnthropicConfig | undefined;
+    [key: string]: OpenAICompatibleConfig | AnthropicConfig | OllamaConfig | undefined;
 };
 
 const KNOWN_BASE_URLS: Record<string, string> = {
@@ -185,6 +198,7 @@ const KNOWN_BASE_URLS: Record<string, string> = {
     openai:   'https://api.openai.com/v1',
     kimi:     'https://api.moonshot.cn/v1',
     grok:     'https://api.x.ai/v1',
+    ollama:   `${OLLAMA_DEFAULT_HOST}/v1`,
 };
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -193,6 +207,7 @@ const DEFAULT_MODELS: Record<string, string> = {
     anthropic: 'claude-sonnet-4-6',
     kimi:      'moonshot-v1-8k',
     grok:      'grok-3',
+    ollama:    OLLAMA_DEFAULT_MODEL,
 };
 
 // ── Engine options ────────────────────────────────────────────────────────────
@@ -325,6 +340,14 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             providers[id] = new AnthropicProvider({
                 apiKey: cfg.apiKey,
                 model: cfg.model ?? DEFAULT_MODELS.anthropic,
+                maxTokens: cfg.maxTokens,
+                temperature: cfg.temperature,
+            });
+        } else if (id === 'ollama') {
+            const cfg = config as OllamaConfig;
+            providers[id] = new OllamaProvider({
+                host: cfg.host ?? OLLAMA_DEFAULT_HOST,
+                model: cfg.model ?? OLLAMA_DEFAULT_MODEL,
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
             });

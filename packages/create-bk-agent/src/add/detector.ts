@@ -3,12 +3,13 @@ import * as path from 'path';
 
 export interface BkProjectInfo {
     cwd:          string;
-    architecture: 'multi-agent' | 'single' | 'unknown';
+    architecture: 'multi-agent' | 'single' | 'enterprise' | 'unknown';
     engineFile:   string;
     indexFile:    string;
     serverFile:   string;
     pkgFile:      string;
     engineFnName: string;
+    isEnterprise: boolean;
 }
 
 export function detectProject(cwd: string): BkProjectInfo | null {
@@ -28,6 +29,8 @@ export function detectProject(cwd: string): BkProjectInfo | null {
     };
     if (!deps['@backendkit-labs/agent-core']) return null;
 
+    const isEnterprise = !!deps['@backendkit-labs/agent-enterprise'];
+
     const engineFile = path.join(cwd, 'src', 'engine.ts');
     let architecture: BkProjectInfo['architecture'] = 'unknown';
     let engineFnName = 'createEngine';
@@ -35,7 +38,9 @@ export function detectProject(cwd: string): BkProjectInfo | null {
     if (fs.existsSync(engineFile)) {
         const content = fs.readFileSync(engineFile, 'utf-8');
 
-        if (content.includes('ORCHESTRATOR_PROFILE') || content.includes("id: 'orchestrator'")) {
+        if (isEnterprise && content.includes('ObsidianRAGProvider')) {
+            architecture = 'enterprise';
+        } else if (content.includes('ORCHESTRATOR_PROFILE') || content.includes("id: 'orchestrator'")) {
             architecture = 'multi-agent';
         } else if (content.includes('export function create')) {
             architecture = 'single';
@@ -49,9 +54,10 @@ export function detectProject(cwd: string): BkProjectInfo | null {
         cwd,
         architecture,
         engineFile,
-        indexFile:  path.join(cwd, 'src', 'index.ts'),
-        serverFile: path.join(cwd, 'src', 'server.ts'),
+        indexFile:    path.join(cwd, 'src', 'index.ts'),
+        serverFile:   path.join(cwd, 'src', 'server.ts'),
         pkgFile,
         engineFnName,
+        isEnterprise,
     };
 }

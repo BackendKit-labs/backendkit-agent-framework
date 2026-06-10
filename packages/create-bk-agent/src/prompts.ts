@@ -2,7 +2,7 @@ import prompts from 'prompts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ArchitectureId = 'multi-agent' | 'single' | 'coding' | 'autonomous' | 'minimal';
+export type ArchitectureId = 'multi-agent' | 'single' | 'coding' | 'autonomous' | 'minimal' | 'enterprise';
 export type SkillPack      = 'node' | 'python' | 'go' | 'docker';
 export type DeployMode     = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library';
 export type ProviderId     = 'anthropic' | 'openai' | 'deepseek' | 'ollama';
@@ -13,6 +13,8 @@ export interface UserChoices {
     skillPacks:   SkillPack[];
     deployMode:   DeployMode | undefined;
     provider:     ProviderId;
+    /** Absolute path to Obsidian vault — only set when architecture === 'enterprise' */
+    vaultPath?:   string;
 }
 
 // ── Option definitions ────────────────────────────────────────────────────────
@@ -44,6 +46,11 @@ const ARCHITECTURE_CHOICES = [
         title: p('Minimal / embedded', 22) + 'Bare engine factory, full control',
         value: 'minimal' as ArchitectureId,
         description: 'Best for embedding in an existing app or custom architecture',
+    },
+    {
+        title: p('Enterprise', 22) + 'Local LLM + Obsidian knowledge base — no cloud needed',
+        value: 'enterprise' as ArchitectureId,
+        description: 'Business agent with RAG over your company docs, runs 100% on-premise',
     },
 ];
 
@@ -88,7 +95,7 @@ const PROVIDER_CHOICES = [
 // ── Conditional question helpers ──────────────────────────────────────────────
 
 const NEEDS_SKILLS: ArchitectureId[] = ['multi-agent', 'single'];
-const NEEDS_DEPLOY: ArchitectureId[] = ['multi-agent', 'single', 'coding'];
+const NEEDS_DEPLOY: ArchitectureId[] = ['multi-agent', 'single', 'coding', 'enterprise'];
 
 // @types/prompts doesn't fully type the function form of `type` — cast at call site.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,6 +105,10 @@ const whenSkills = (_prev: any, v: Record<string, any>) =>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const whenDeploy = (_prev: any, v: Record<string, any>) =>
     NEEDS_DEPLOY.includes(v.architecture) ? 'select' : null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const whenVault = (_prev: any, v: Record<string, any>) =>
+    v.architecture === 'enterprise' ? 'text' : null;
 
 // ── Main question flow ────────────────────────────────────────────────────────
 
@@ -135,6 +146,15 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
                 choices: DEPLOY_MODE_CHOICES,
                 initial: 0,
             },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            {
+                type: whenVault as any,
+                name: 'vaultPath',
+                message: 'Obsidian vault path (absolute):',
+                initial: '',
+                validate: (v: string) =>
+                    v.trim().length > 0 || 'Vault path is required for enterprise agents',
+            },
             {
                 type: 'select',
                 name: 'provider',
@@ -154,5 +174,6 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
         skillPacks:   (raw.skillPacks  ?? []) as SkillPack[],
         deployMode:   (raw.deployMode  ?? undefined) as DeployMode | undefined,
         provider:     raw.provider     as ProviderId,
+        vaultPath:    (raw.vaultPath   ?? undefined) as string | undefined,
     };
 }

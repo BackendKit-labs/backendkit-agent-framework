@@ -9,7 +9,7 @@ const DEPLOY_DIR    = path.join(TEMPLATES_DIR, 'deploy');
 
 // Only these architectures use the base + deploy layer pattern.
 // The rest (coding, autonomous, minimal) are self-contained in base/.
-const LAYERED: ArchitectureId[] = ['multi-agent', 'single'];
+const LAYERED: ArchitectureId[] = ['multi-agent', 'single', 'enterprise'];
 
 // ── Provider env var hints ────────────────────────────────────────────────────
 
@@ -84,10 +84,23 @@ function patchPackageJson(
 
 // ── Write .env stub ───────────────────────────────────────────────────────────
 
-function writeEnv(dir: string, provider: ProviderId): void {
+function writeEnv(dir: string, provider: ProviderId, choices: UserChoices): void {
     const envExample = path.join(dir, '.env.example');
     const envFile    = path.join(dir, '.env');
     if (!fs.existsSync(envExample) || fs.existsSync(envFile)) return;
+
+    if (choices.architecture === 'enterprise') {
+        // Enterprise uses its own .env.example — just inject VAULT_PATH
+        let content = fs.readFileSync(envExample, 'utf-8');
+        if (choices.vaultPath) {
+            content = content.replace(
+                /^VAULT_PATH=.*/m,
+                `VAULT_PATH=${choices.vaultPath}`,
+            );
+        }
+        fs.writeFileSync(envFile, content);
+        return;
+    }
 
     const p = PROVIDER_ENV[provider];
     const content = [
@@ -168,7 +181,7 @@ export function scaffold(choices: UserChoices, targetDir: string): void {
     );
 
     // 5. .env stub
-    writeEnv(targetDir, choices.provider);
+    writeEnv(targetDir, choices.provider, choices);
 }
 
 export function installDeps(targetDir: string): void {

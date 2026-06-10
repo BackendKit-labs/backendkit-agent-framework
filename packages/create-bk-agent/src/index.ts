@@ -24,6 +24,7 @@ function describeChoices(choices: UserChoices): string {
         coding:        'Coding assistant',
         autonomous:    'Autonomous daemon',
         minimal:       'Minimal / embedded',
+        enterprise:    'Enterprise (local LLM + RAG)',
     };
     const deploy: Record<string, string> = {
         repl:       'Terminal REPL',
@@ -47,6 +48,17 @@ function buildNextSteps(choices: UserChoices): string[] {
     if (arch === 'coding')     return ['Edit AGENT.md to describe your project', 'npm run dev'];
     if (arch === 'autonomous') return ['Configure triggers in src/index.ts', 'npm run dev'];
     if (arch === 'minimal')    return ['Implement your LLM provider in src/index.ts', 'npm run dev'];
+
+    // Enterprise — local LLM + RAG
+    if (arch === 'enterprise') {
+        return [
+            'Make sure Ollama is running:  ollama serve',
+            'Pull required models:         ollama pull llama3.2 && ollama pull nomic-embed-text',
+            'Review your vault path in .env (VAULT_PATH)',
+            'Customize agents in src/agents/ for your business domain',
+            mode === 'repl' ? 'npm run dev' : 'npm run server',
+        ];
+    }
 
     // Layered architectures (multi-agent, single) — vary by deploy mode
     const domainSteps =

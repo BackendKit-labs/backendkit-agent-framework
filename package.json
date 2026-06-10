@@ -6,7 +6,8 @@
     "packages/core",
     "packages/coding",
     "packages/mcp-server",
-"examples/*"
+    "packages/enterprise",
+    "examples/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

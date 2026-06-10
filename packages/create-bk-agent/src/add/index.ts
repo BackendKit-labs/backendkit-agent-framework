@@ -4,6 +4,7 @@ import { addSpecialist } from './modules/specialist';
 import { addTools }      from './modules/tools';
 import { addMcpClient }  from './modules/mcp-client';
 import { addPlugin }     from './modules/plugin';
+import { addKnowledge }  from './modules/knowledge';
 
 const HELP = `
 Usage: npx create-bk-agent add <module> [options]
@@ -19,6 +20,9 @@ Modules:
   tools <domain>        Add a tool file for a new domain
                         (creates src/tools/<domain>-tools.ts and patches engine.ts)
 
+  knowledge <path>      Add a folder or vault to the RAG knowledge base (enterprise agents)
+    --vault <path>        Register an entirely new Obsidian vault (instead of a subfolder)
+
   mcp-client <url>      Add a remote MCP server to the engine
     --name <s>            Name for the mcpServers entry (default: last URL segment)
 
@@ -29,6 +33,9 @@ Examples:
   npx create-bk-agent add server --port 4000
   npx create-bk-agent add specialist data-analyst
   npx create-bk-agent add tools github
+  npx create-bk-agent add knowledge ./docs
+  npx create-bk-agent add knowledge "04-Recursos/Backend"
+  npx create-bk-agent add knowledge --vault "C:/Company/HR-Vault"
   npx create-bk-agent add mcp-client http://localhost:3001/mcp --name billing
   npx create-bk-agent add plugin docker
   npx create-bk-agent add plugin k8s
@@ -77,6 +84,10 @@ export function runAdd(args: string[], cwd: string): void {
 
         case 'plugin':
             addPlugin(info, rest);
+            break;
+
+        case 'knowledge':
+            addKnowledge(info, rest);
             break;
 
         default:

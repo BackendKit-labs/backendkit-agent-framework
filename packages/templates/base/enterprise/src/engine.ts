@@ -9,7 +9,7 @@ import {
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
 import { OllamaProvider } from '@backendkit-labs/agent-coding';
-import { ObsidianRAGProvider } from '@backendkit-labs/agent-enterprise';
+import { ObsidianRAGProvider, VaultWriter } from '@backendkit-labs/agent-enterprise';
 import { loadConfig } from './config';
 import { ORCHESTRATOR_PROFILE } from './agents/orchestrator';
 import { DOMAIN_SPECIALIST_PROFILE } from './agents/domain-specialist';
@@ -44,10 +44,16 @@ export function createEngine(transport: CallbackTransport): AgentEngine {
         // folders: ['01-Procesos', '02-Politicas', '04-FAQs'],
     });
 
+    // ── Vault write-back ──────────────────────────────────────────────────────
+    // Agents can contribute new knowledge back to the vault (write_knowledge tool).
+    // Notes land in <vaultPath>/agentes/ and are searchable on next index().
+    const writer = new VaultWriter({ vaultPath: config.vaultPath });
+
     // ── Tools ─────────────────────────────────────────────────────────────────
     const tools = new ToolRegistry();
     tools
-        .register(rag.createTool())  // search_knowledge — semantic search over the vault
+        .register(rag.createTool())              // search_knowledge — semantic search
+        .register(writer.createTool('specialist')) // write_knowledge — agent write-back
         .register(exampleAction);
     for (const t of memory.getTools()) tools.register(t);
     // TODO: register business-specific tools (CRM, ticketing system, internal APIs)

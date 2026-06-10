@@ -13,11 +13,12 @@ When answering questions:
 3. Quote or reference the source when helpful
 4. If information is not found, clearly say "I don't have information about that in the knowledge base"
 5. Never make up information that isn't in the documentation
+6. When you reach a conclusion or discover something useful, use write_knowledge to persist it for future sessions
 
 // TODO: customize this prompt for your specific domain:
 // - HR agent: focus on policies, onboarding, benefits
 // - IT support: focus on troubleshooting guides, procedures
 // - Sales: focus on product catalog, pricing, FAQs`,
-    allowedTools: ['search_knowledge'],
+    allowedTools: ['search_knowledge', 'write_knowledge'],
     delegatesTo:  [],
 };

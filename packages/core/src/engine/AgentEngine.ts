@@ -76,6 +76,23 @@ function sanitizeMessages(messages: LLMMessage[]): LLMMessage[] {
         }
     }
 
+    // If the conversation ends mid-chain (e.g. after abort()), the trailing
+    // assistant message with open tool_calls would cause a 400 on the next run.
+    // Walk backwards and remove it along with any partial tool results.
+    if (pendingIds.size > 0) {
+        for (let i = out.length - 1; i >= 0; i--) {
+            const m = out[i];
+            if (m.role === 'tool') {
+                out.splice(i, 1);
+            } else if (m.role === 'assistant' && m.tool_calls?.length) {
+                out.splice(i, 1);
+                break;
+            } else {
+                break;
+            }
+        }
+    }
+
     return out;
 }
 
@@ -215,6 +232,7 @@ export class AgentEngine {
         /^\s*pip3\s+install\b/i,
     ];
     private agentsLoaded = false;
+    private agentsLoadedPromise: Promise<void> | null = null;
     private memoryContextBlock = '';
 
     constructor(private readonly opts: AgentEngineOptions) {
@@ -386,21 +404,24 @@ export class AgentEngine {
         const mcpRoute = this.findMCPRoute(input);
         if (mcpRoute) {
             if (mcpRoute.tool) {
-                // Tool trigger: call the MCP tool directly — no intermediate LLM
+                // Tool trigger: call the MCP tool directly — no intermediate LLM.
+                // Route through executeToolCall so auth checks and onToolApproval gate apply.
                 const toolName = `mcp__${mcpRoute.agentId}__${mcpRoute.tool}`;
                 const toolDef = this.opts.tools.get(toolName);
                 if (toolDef) {
                     const required = (toolDef.parameters as { required?: string[] }).required;
                     const firstParam = required?.[0] ?? 'input';
-                    const ctx = this.buildContext();
-                    const profile = this.opts.agents.get(mcpRoute.agentId);
+                    const mcpProfile = this.opts.agents.get(mcpRoute.agentId) ?? this.getCurrentProfile()!;
                     this.opts.transport.emit({
                         type: 'block_start',
                         agent_id: mcpRoute.agentId,
-                        agent_name: profile?.name ?? mcpRoute.agentId,
-                        agent_icon: profile?.icon ?? '◎',
+                        agent_name: mcpProfile.name ?? mcpRoute.agentId,
+                        agent_icon: mcpProfile.icon ?? '◎',
                     });
-                    const result = await toolDef.execute({ [firstParam]: input }, ctx);
+                    const result = await this.executeToolCall(
+                        { name: toolName, args: JSON.stringify({ [firstParam]: input }) },
+                        mcpProfile,
+                    );
                     this.opts.transport.emit({ type: 'token', content: result, agent_id: mcpRoute.agentId });
                     this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: mcpRoute.agentId });
                     this.opts.transport.emit({ type: 'done' });
@@ -530,11 +551,17 @@ export class AgentEngine {
 
     private async ensureAgentsLoaded(): Promise<void> {
         if (this.agentsLoaded || !this.opts.loadAgents) return;
-        this.agentsLoaded = true; // set early to prevent concurrent double-loads
+        // Cache the promise so concurrent run() calls wait for the same load,
+        // rather than the early-flag pattern that let callers proceed unguarded.
+        if (this.agentsLoadedPromise) return this.agentsLoadedPromise;
+        this.agentsLoadedPromise = this._loadAgentsOnce();
+        return this.agentsLoadedPromise;
+    }
+
+    private async _loadAgentsOnce(): Promise<void> {
         try {
-            const discovered = await this.opts.loadAgents();
+            const discovered = await this.opts.loadAgents!();
             for (const agent of discovered) this.opts.agents.upsert(agent);
-            // If the current default agent still isn't registered, fall back to first available
             if (!this.opts.agents.has(this.currentAgentId)) {
                 const all = this.opts.agents.getAll();
                 if (all.length > 0) this.currentAgentId = all[0].id;
@@ -544,6 +571,8 @@ export class AgentEngine {
                 type: 'system', level: 'warn',
                 text: `[AgentDiscovery] Failed to load agents: ${(err as Error).message}`,
             });
+        } finally {
+            this.agentsLoaded = true;
         }
     }
 
@@ -957,9 +986,10 @@ export class AgentEngine {
 
                 if (validCalls.length > 0) {
                     const requests = validCalls.map(c => ({
-                        agentId: c.agentId,
-                        question: c.question,
-                        context: this.buildSubAgentContext(c.context, streamBuffer),
+                        agentId:     c.agentId,
+                        question:    c.question,
+                        context:     this.buildSubAgentContext(c.context, streamBuffer),
+                        fromAgentId: currentProfile.id,
                     }));
 
                     const results = validCalls.length >= 2

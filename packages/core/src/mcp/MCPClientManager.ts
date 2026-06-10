@@ -147,11 +147,34 @@ export class MCPClientManager {
         }
     }
 
+    /**
+     * OS-level variables needed for subprocess execution.
+     * Sensitive values (API keys, tokens, secrets) are intentionally excluded —
+     * pass them explicitly via MCPServerConfig.env instead.
+     */
+    private static readonly SAFE_ENV_KEYS = new Set([
+        'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE',
+        'TERM', 'TMPDIR', 'TMP', 'TEMP', 'NODE_ENV', 'NODE_PATH', 'NODE_OPTIONS',
+        // Windows
+        'SystemRoot', 'WINDIR', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+        'ComSpec', 'PATHEXT', 'ProgramFiles', 'ProgramData', 'OS',
+    ]);
+
+    private getSafeEnv(): Record<string, string> {
+        const result: Record<string, string> = {};
+        for (const [key, value] of Object.entries(process.env)) {
+            if (value !== undefined && MCPClientManager.SAFE_ENV_KEYS.has(key)) {
+                result[key] = value;
+            }
+        }
+        return result;
+    }
+
     private async connectStdio(config: MCPServerConfig): Promise<void> {
         const transport = new StdioClientTransport({
             command: config.command!,
             args:    config.args ?? [],
-            env:     { ...process.env, ...(config.env ?? {}) } as Record<string, string>,
+            env:     { ...this.getSafeEnv(), ...(config.env ?? {}) } as Record<string, string>,
         });
         const client = this.buildClient();
         const timeoutMs = config.connectTimeoutMs ?? 120_000;
@@ -248,21 +271,28 @@ export class MCPClientManager {
                 properties: {},
             },
             execute: async (args) => {
-                const timer = new Promise<never>((_, reject) =>
-                    setTimeout(
+                let timerId: ReturnType<typeof setTimeout> | undefined;
+                const timer = new Promise<never>((_, reject) => {
+                    timerId = setTimeout(
                         () => reject(new Error(`MCP tool "${namespacedName}" timed out after ${timeoutMs}ms`)),
                         timeoutMs,
-                    ),
-                );
+                    );
+                });
                 const call = client.callTool({
                     name:      mcpTool.name,
                     arguments: args as Record<string, unknown>,
                 });
-                const result = await Promise.race([call, timer]);
-                const textParts = (result.content as Array<{ type: string; text?: string }>)
-                    .filter(b => b.type === 'text' && b.text)
-                    .map(b => b.text!);
-                return textParts.length > 0 ? textParts.join('\n') : JSON.stringify(result.content);
+                try {
+                    const result = await Promise.race([call, timer]);
+                    const textParts = (result.content as Array<{ type: string; text?: string }>)
+                        .filter(b => b.type === 'text' && b.text)
+                        .map(b => b.text!);
+                    return textParts.length > 0 ? textParts.join('\n') : JSON.stringify(result.content);
+                } finally {
+                    clearTimeout(timerId);
+                    // Absorb a late rejection from call to prevent unhandled promise rejection
+                    call.catch(() => undefined);
+                }
             },
         };
     }

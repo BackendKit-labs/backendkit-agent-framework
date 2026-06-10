@@ -8,6 +8,8 @@ export interface DelegationRequest {
     question: string;
     context?: string;
     relevantFiles?: string[];
+    /** ID of the agent that initiated this delegation. Used for agent_switch events. */
+    fromAgentId?: string;
 }
 
 export interface DelegationResult {
@@ -64,18 +66,19 @@ export class DelegationBus {
             };
         }
 
-        this.opts.transport.emit({
-            type: 'agent_switch',
-            from: 'orchestrator',
-            to: profile.id,
-            to_name: profile.name,
-            to_icon: profile.icon,
-        });
-
         try {
-            return await this.bulkhead.execute(
-                () => this.opts.runAgent(request.agentId, request.question, request.context),
-            );
+            return await this.bulkhead.execute(() => {
+                // Emit agent_switch only when the slot is actually acquired,
+                // not while queued — avoids misleading UI when the bulkhead is under load.
+                this.opts.transport.emit({
+                    type: 'agent_switch',
+                    from: request.fromAgentId ?? 'orchestrator',
+                    to: profile.id,
+                    to_name: profile.name,
+                    to_icon: profile.icon,
+                });
+                return this.opts.runAgent(request.agentId, request.question, request.context);
+            });
         } catch (err) {
             const message =
                 err instanceof BulkheadRejectedError ? 'Delegation rejected: queue is full' :

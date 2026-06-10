@@ -36,13 +36,37 @@ await engine.run('Add error handling to src/api/users.ts');
 ## Providers
 
 ```ts
-import { AnthropicProvider, OpenAICompatibleProvider } from '@backendkit-labs/agent-coding';
+import {
+  AnthropicProvider,
+  OllamaProvider,
+  OpenAICompatibleProvider,
+} from '@backendkit-labs/agent-coding';
 
-// Anthropic
+// Anthropic (Claude)
 new AnthropicProvider(apiKey, model?)
 
-// OpenAI / DeepSeek / Ollama / any OpenAI-compatible
+// Ollama — local LLM, no API key required
+new OllamaProvider({ host?: string, model?: string })
+// host default: http://localhost:11434
+// model default: llama3.2
+// checkConnection() verifies Ollama is running before first use
+
+// OpenAI / DeepSeek / any OpenAI-compatible API
 new OpenAICompatibleProvider({ apiKey, baseUrl, model })
+```
+
+**Local-first setup with Ollama:**
+
+```ts
+import { OllamaProvider } from '@backendkit-labs/agent-coding';
+
+const engine = createCodingEngine({
+  providers:       { local: new OllamaProvider({ model: 'qwen2.5-coder:7b' }) },
+  defaultProvider: 'local',
+  workingDir:      process.cwd(),
+  appName:         'my-agent',
+  transport,
+});
 ```
 
 ---

@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-enterprise",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Business agents with local LLM and RAG knowledge base for agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -28,5 +28,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

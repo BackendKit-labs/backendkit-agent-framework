@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-core",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "Generic multi-agent engine — model-agnostic, transport-agnostic",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

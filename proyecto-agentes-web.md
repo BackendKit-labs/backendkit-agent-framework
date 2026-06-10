@@ -420,10 +420,31 @@ scaffold y el engine de agentes ya habla por WebSocket.
 - docker-compose con todo el stack
 - **Criterio:** `npx create-bk-agent x --template web` → chat empresarial corriendo en < 10 min
 
-### Fase 6 — Producción
+### Fase 6 — Producción web
 - SessionStore redis, auth hooks (JWT/OIDC), audit log, rate limiting
 - Métricas (tokens por sesión, latencia por provider)
 - **Criterio:** deploy multi-usuario estable
+
+### Fase 7 — Triggers y autonomía reactiva *(ver §9.1)*
+- `TriggerBus` con `CronTrigger`, `WebhookTrigger`, `QueueTrigger`
+- Mapeo evento → agentId + inputTemplate
+- **Criterio:** Finance Agent genera resumen diario por cron sin intervención humana
+
+### Fase 8 — Task Planner y recovery *(ver §9.2, §9.4)*
+- `TaskPlanner` — genera `WorkflowPlan` vía LLM + schema validation
+- `CheckpointManager` — persistencia de plan en disco
+- `RecoveryPolicy` — retry, escalar a humano, abortar con notificación
+- **Criterio:** tarea de 4 pasos que falla en el paso 2 retoma desde ahí al reiniciar
+
+### Fase 9 — Conectores enterprise *(ver §9.3)*
+- Paquetes MCP por sistema: CRM, ERP, ticketing, notificaciones, calendario
+- Autenticación por env vars / secrets store
+- **Criterio:** Sales Agent crea lead en CRM directamente desde una conversación
+
+### Fase 10 — Gobernanza del vault *(ver §9.5)*
+- RBAC por carpeta: cada agente monta solo sus carpetas permitidas
+- Flujo de revisión: notas `status: draft` → validación humana u Orchestrator
+- **Criterio:** HR Agent no puede leer ni escribir en carpeta `finanzas/`
 
 ---
 
@@ -438,7 +459,209 @@ scaffold y el engine de agentes ya habla por WebSocket.
 
 ---
 
-## 9. Relación con `mejorar-de-diseno.md`
+## 9. Autonomía real — lo que falta
+
+> El piloto de junio 2026 validó la capa de conocimiento compartido (vault write/read).
+> Lo que sigue convierte agentes reactivos en agentes autónomos.
+
+Un agente autónomo enterprise hace 6 cosas que los agentes actuales no hacen:
+
+```
+1. Se despierta solo    → Triggers
+2. Planifica            → Task Planner
+3. Actúa sobre sistemas → Conectores enterprise
+4. Falla con gracia     → Checkpoint + Recovery
+5. Aprende              → Vault (ya implementado)
+6. Se gobierna solo     → RBAC + conflict resolution
+```
+
+### 9.1 Triggers — despertar por eventos
+
+El agente no espera un prompt: reacciona a eventos del negocio.
+
+```
+packages/web/src/triggers/
+  TriggerBus.ts          ← registra handlers evento → (agentId, inputTemplate)
+  sources/
+    CronTrigger.ts       ← expresiones cron ("0 9 * * 1" = lunes 9 AM)
+    WebhookTrigger.ts    ← POST /webhooks/:triggerName → inicia run
+    QueueTrigger.ts      ← consume RabbitMQ / Redis Pub-Sub / SQS
+```
+
+**Contrato:**
+
+```typescript
+interface TriggerSource {
+    name: string;
+    start(): void;
+    stop(): void;
+    on(event: 'trigger', handler: (payload: TriggerPayload) => void): this;
+}
+
+interface TriggerPayload {
+    agentId: string;
+    input:   string;   // puede tener variables: "Ticket {{id}} reportado por {{user}}"
+    context?: Record<string, string>;
+}
+```
+
+**Casos enterprise:**
+- CRM genera webhook cuando llega un lead → Sales Agent lo analiza y crea tarea
+- Cron diario → Finance Agent genera resumen de métricas y lo escribe al vault
+- Queue de soporte → Support Agent atiende cada ticket en orden
+
+**Estado del framework:** el template `autonomous` ya existe como prueba de concepto.
+`TriggerBus` formaliza ese patrón como infraestructura de producción.
+
+---
+
+### 9.2 Task Planner — descomponer objetivos complejos
+
+Un agente reactivo responde una pregunta. Un agente autónomo recibe un objetivo
+y produce un plan de pasos antes de ejecutar.
+
+```
+packages/core/src/planning/
+  TaskPlanner.ts      ← genera WorkflowPlan a partir de un objetivo
+  WorkflowPlan.ts     ← lista de Task con dependencias, agente asignado, estado
+  PlanStore.ts        ← persistencia del plan en disco (recovery)
+```
+
+**Flujo:**
+
+```
+input: "Preparar el informe mensual de ventas y enviarlo al equipo"
+  → Planner genera:
+     Task 1: extraer métricas de CRM  (Sales Agent)
+     Task 2: generar narrativa         (Sales Agent, depende de T1)
+     Task 3: escribir al vault         (Sales Agent, depende de T2)
+     Task 4: notificar al equipo       (Ops Agent, depende de T3)
+```
+
+El plan se guarda en disco antes de ejecutar → si el proceso muere en T2,
+al reiniciar retoma desde ahí.
+
+**Decisión de diseño:** el Planner es un agente más (llama al LLM una vez para
+generar el plan en JSON estructurado). No es código determinista — el LLM decide
+la descomposición. La validación del schema del plan sí es determinista.
+
+---
+
+### 9.3 Conectores enterprise — integrar sistemas en vivo
+
+El engine ve todo como tools. Los conectores son paquetes MCP (mismo patrón
+que `docker-agent`) que exponen operaciones de sistemas reales.
+
+```
+packages/connectors/          ← nuevo directorio de conectores MCP
+  crm/                        ← Salesforce, HubSpot
+    tools: crm_query, crm_create_lead, crm_update_status
+  erp/                        ← SAP, Oracle, Odoo
+    tools: erp_invoice_query, erp_stock_query, erp_approval_request
+  ticketing/                  ← Jira, Linear, Zendesk
+    tools: ticket_create, ticket_update, ticket_assign, ticket_search
+  notifications/              ← Slack, email, MS Teams
+    tools: notify_channel, notify_user, send_email
+  calendar/                   ← Google Cal, Outlook
+    tools: schedule_meeting, check_availability
+```
+
+**Principio:** cada conector es stateless y sin lógica de negocio.
+La lógica vive en el agente + vault. El conector solo traduce tool call → API call.
+
+**Autenticación:** cada conector recibe credenciales vía env vars o secrets store
+(Vault by HashiCorp, AWS Secrets Manager). El engine nunca toca las credenciales.
+
+---
+
+### 9.4 Checkpoint y recovery — fallar con gracia
+
+Cuando un agente autónomo falla a mitad de una tarea larga, el sistema debe:
+1. No perder el trabajo ya hecho
+2. Poder retomar desde el último punto exitoso
+3. Notificar a un humano si la situación lo requiere
+
+```
+packages/core/src/checkpoint/   ← ya existe como stub
+  CheckpointManager.ts          ← save/load de estado de tarea en curso
+  RecoveryPolicy.ts             ← retry automático | escalar a humano | abortar
+```
+
+**Estados de recovery:**
+
+| Situación | Política por defecto |
+|---|---|
+| Error de red transitorio | retry con backoff exponencial (3 intentos) |
+| Tool call falla 3 veces | escalar — escribir al vault + notificar |
+| LLM loop detectado (>maxIter) | abortar + guardar checkpoint + notificar |
+| Proceso muere (SIGKILL) | al reiniciar, detecta plan incompleto y retoma |
+
+---
+
+### 9.5 Gobernanza del vault — RBAC y conflictos
+
+**RBAC por carpeta:**
+
+La forma más simple y auditable: una carpeta por dominio, montada selectivamente.
+
+```
+vault/
+  rrhh/          ← solo HR Agent puede leer/escribir
+  finanzas/      ← solo Finance Agent + CFO
+  ventas/        ← Sales Agent + equipo comercial
+  ops/           ← Ops Agent + devops
+  compartido/    ← todos pueden leer, solo Orchestrator puede escribir
+  agentes/       ← notas escritas por agentes (todos leen, agentes escriben)
+```
+
+`ObsidianRAGProvider` recibe `folders: ['ventas', 'compartido', 'agentes']` →
+indexa solo lo que ese agente tiene permitido ver.
+`VaultWriter` recibe `agentFolder: 'ventas'` → solo escribe en su carpeta.
+
+**Conflictos entre agentes:**
+
+Si dos agentes escriben decisiones contradictorias, hay tres mecanismos:
+
+| Mecanismo | Cuándo aplicar |
+|---|---|
+| Naming por agente + fecha | siempre — cada nota es un archivo nuevo, no hay sobrescritura |
+| Tag `status: draft` | el agente marca su nota como borrador hasta validación humana |
+| Revisión por Orchestrator | el Orchestrator puede leer notas `status: draft` y resolverlas |
+
+El conflicto real (dos hechos contradictorios en el vault) lo resuelve un humano
+o el Orchestrator — no se automatiza, porque en un sistema enterprise esa decisión
+tiene consecuencias legales o financieras.
+
+---
+
+### 9.6 Arquitectura con autonomía
+
+Diagrama actualizado incluyendo las capas de autonomía:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Eventos del negocio: webhooks · cron · queues               │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ TriggerBus
+┌───────────────────────────▼──────────────────────────────────┐
+│  Task Planner  →  WorkflowPlan  →  CheckpointManager         │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│              AgentEngine (existente)                          │
+│   Orchestrator → especialistas via DelegationBus             │
+└────┬─────────────────┬──────────────────┬────────────────────┘
+     │                 │                  │
+┌────▼────┐     ┌──────▼──────┐    ┌──────▼──────┐
+│  Vault  │     │  Conectores │    │  RecoveryPol│
+│ (RAG +  │     │  enterprise │    │  + notifica │
+│ writer) │     │  MCP tools  │    │  a humano   │
+└─────────┘     └─────────────┘    └─────────────┘
+```
+
+---
+
+## 11. Relación con `mejorar-de-diseno.md`
 
 Este roadmap **compite por las mismas horas** con el plan de consolidación
 (`mejorar-de-diseno.md`: tests del core, descomponer el god object, idioma, scope).
@@ -449,6 +672,9 @@ Orden recomendado:
    testeado y modular antes de multiplicarlo.
 2. El piloto CLI con vault real valida la historia enterprise sin esperar a la capa web.
 3. La Fase 2 web arranca cuando el piloto confirme qué features se usan de verdad.
+4. Las Fases 7–10 (autonomía real) se priorizan según qué caso de uso enterprise
+   se encare primero — no hay que construir todo para tener valor: un agente con
+   cron trigger + vault + un conector ya es útil en producción.
 
 ---
 

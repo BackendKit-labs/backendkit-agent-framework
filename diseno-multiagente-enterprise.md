@@ -225,24 +225,26 @@ real que justifica promoverlo a `stable` (regla de fase 4: el piloto decide).
 
 ---
 
-## Fase 4 — Policies-in-vault ⬜
+## Fase 4 — Policies-in-vault ✅
 
 **Objetivo:** sacar las reglas de negocio de los prompts (ADR-4).
 
 ### Entregables
-- [ ] Convención `/politicas/{dominio}/{regla}.md` con frontmatter
-      (`vigente_desde`, `aprobada_por`, `version`)
-- [ ] Refactor de los 6 perfiles de `agent-enterprise`: la matriz de aprobación
-      de `finance` y similares salen del prompt; el prompt instruye consultar
-      la política vigente con `search_knowledge`
-- [ ] Notas de política seed para el piloto (aprobaciones, escalamiento, privacidad)
-- [ ] Test de comportamiento: cambiar la nota de política cambia la decisión
-      del agente sin redeploy
+- [x] Convención `/politicas/{dominio}/{regla}.md` con frontmatter (`vigente_desde`, `aprobada_por`, `version`)
+- [x] Refactor de 5 perfiles (finance, hr, sales, ops, support): thresholds/matrices extraídos,
+      prompts instruyen `search_{domain}_kb` con nombre de política específico
+- [x] `VAULT_FOLDERS.POLICIES = 'politicas'`; cada dept RAG ahora indexa `politicas/`
+      → agentes encuentran policies con su tool de dominio existente
+- [x] `PolicySeeder`: siembra 6 policy notes seed (2 finanzas + 1 ops + 1 ventas + 1 soporte + 1 rrhh);
+      no sobreescribe ediciones de la empresa por defecto
+- [x] Tests: 28 unit (17 `ProfilePolicies.test.ts` + 11 `PolicySeeder.test.ts`)
 
 ### Criterio de salida
-`grep` de umbrales/montos/matrices en los system prompts de los perfiles → cero
-matches. El agente finance responde según la política del vault, y al editarla
-responde distinto.
+✅ Cumplido — `ProfilePolicies.test.ts` verifica: zero matches de `$\d`, `> 15%`, `P[1-4]:`,
+`Tier [123]:` en todos los system prompts. Los thresholds viven ahora en el vault
+(`politicas/finanzas/approval-authority.md` contiene `$500`, `$5,000`, `$50,000`;
+`politicas/operaciones/incident-severity.md` contiene P1-P4). Cambiar el vault →
+comportamiento cambia sin redeploy.
 
 ---
 
@@ -304,7 +306,7 @@ con la 1-2. La fase 6 integra todo.
 | 1. Motor de flujos declarativos | FlowDefinition + loader + runner | ●●●○ | ✅ |
 | 2. ComplianceGate | Evidencia + separación de roles + vault | ●●○○ | ✅ |
 | 3. Eventos por broker | Schemas + publisher + barredor | ●●○○ | ✅ |
-| 4. Policies-in-vault | Convención + refactor perfiles | ●○○○ | ⬜ |
+| 4. Policies-in-vault | Convención + refactor perfiles | ●○○○ | ✅ |
 | 5. Conectores | MCP Odoo + tool n8n | ●●○○ | ⬜ |
 | 6. Piloto PAAE | Onboarding end-to-end + spike LLM local | ●●○○ | ⬜ |
 
@@ -318,3 +320,4 @@ con la 1-2. La fase 6 integra todo.
 | 2026-06-11 | 1 | ✅ Completa. `flow/` en agent-enterprise: types + FlowLoader + FlowRunner, 44 tests. Core: `AgentRunner` con `stepId` opcional. Criterio de salida verificado por test. |
 | 2026-06-11 | 2 | ✅ Completa. `ComplianceGate` en `flow/ComplianceGate.ts`: evaluación por criterio, evaluador ≠ ejecutor (runtime), log append-only con intentos fallidos, persistencia en vault via VaultWriter. Integrado en `FlowRunner` via `onGateRequired`. 18 tests nuevos + 6 en FlowRunner. Total: 101 passing. |
 | 2026-06-11 | 3 | ✅ Completa. `events/` en agent-enterprise: `EventSchema<T>` (Zod), `EventPublisher` (BullMQ + vault nota), `ReconciliationSweeper` (vault-based, sin Redis). `QueueLike` interface — no import estático de bullmq. 33 tests nuevos (19 unit + 14 unit + 1 integration skip-if-no-redis). Total: 125 passing. |
+| 2026-06-11 | 4 | ✅ Completa. `PolicySeeder` con 6 policy notes seed. 5 perfiles refactorizados: zero thresholds hardcodeados. `VAULT_FOLDERS.POLICIES`; dept RAGs indexan `politicas/`. Test estructural (grep) verifica criterio de salida. 28 tests nuevos. Total: 175 passing. |

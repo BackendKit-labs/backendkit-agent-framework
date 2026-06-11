@@ -66,6 +66,11 @@ export type {
     ComplianceGateOptions,
 } from './flow';
 
+// ── Policies-in-vault ─────────────────────────────────────────────────────────
+
+export { PolicySeeder } from './policies';
+export type { PolicySeederOptions } from './policies';
+
 // ── Events (broker + reconciliation) ─────────────────────────────────────────
 
 export { EventPublisher, ReconciliationSweeper } from './events';

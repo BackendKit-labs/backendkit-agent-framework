@@ -51,11 +51,11 @@ export interface EnterpriseSetup {
 // ── Department RAG config ─────────────────────────────────────────────────────
 
 const DEPT_CONFIGS: Array<{ toolName: string; folders: string[] }> = [
-    { toolName: ENTERPRISE_TOOLS.SEARCH_SUPPORT,  folders: [VAULT_FOLDERS.SUPPORT,  VAULT_FOLDERS.GENERAL] },
-    { toolName: ENTERPRISE_TOOLS.SEARCH_HR,       folders: [VAULT_FOLDERS.HR,       VAULT_FOLDERS.GENERAL] },
-    { toolName: ENTERPRISE_TOOLS.SEARCH_SALES,    folders: [VAULT_FOLDERS.SALES,    VAULT_FOLDERS.GENERAL] },
-    { toolName: ENTERPRISE_TOOLS.SEARCH_FINANCE,  folders: [VAULT_FOLDERS.FINANCE,  VAULT_FOLDERS.GENERAL] },
-    { toolName: ENTERPRISE_TOOLS.SEARCH_OPS,      folders: [VAULT_FOLDERS.OPS,      VAULT_FOLDERS.GENERAL] },
+    { toolName: ENTERPRISE_TOOLS.SEARCH_SUPPORT,  folders: [VAULT_FOLDERS.SUPPORT,  VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
+    { toolName: ENTERPRISE_TOOLS.SEARCH_HR,       folders: [VAULT_FOLDERS.HR,       VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
+    { toolName: ENTERPRISE_TOOLS.SEARCH_SALES,    folders: [VAULT_FOLDERS.SALES,    VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
+    { toolName: ENTERPRISE_TOOLS.SEARCH_FINANCE,  folders: [VAULT_FOLDERS.FINANCE,  VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
+    { toolName: ENTERPRISE_TOOLS.SEARCH_OPS,      folders: [VAULT_FOLDERS.OPS,      VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
 ];
 
 // ── Factory ────────────────────────────────────────────────────────────────────

@@ -19,4 +19,6 @@ export const VAULT_FOLDERS = {
     FINANCE:     'finanzas',
     OPS:         'operaciones',
     AGENTS:      'agentes',
+    /** Business policies — indexed by all dept RAGs so agents can query them. */
+    POLICIES:    'politicas',
 } as const;

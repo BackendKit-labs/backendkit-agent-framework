@@ -7,6 +7,7 @@ import { MonitorBus } from '../monitor/MonitorBus';
 import { MetricsCollector } from '../metrics/MetricsCollector';
 import type { MetricsCollectorOptions } from '../metrics/MetricsCollector';
 import type { SessionMetaStore } from '../store/SessionMetaStore';
+import type { TriggerBus } from '../trigger/TriggerBus';
 import { registerRoutes } from './routes';
 
 export type AuthHook = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -51,6 +52,17 @@ export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics
      * Default: in-memory (no persistence).
      */
     store?: SessionMetaStore;
+    /**
+     * Optional TriggerBus — registers webhook routes on this server and
+     * starts cron jobs when start() is called.
+     * @example
+     * ```ts
+     * const triggers = new TriggerBus(engineFactory)
+     *   .addCron({ schedule: '0 9 * * 1-5', name: 'report', buildPrompt: () => '...' });
+     * new AgentServer({ triggers, ... });
+     * ```
+     */
+    triggers?: TriggerBus;
 }
 
 export class AgentServer {
@@ -58,6 +70,7 @@ export class AgentServer {
     private sessions: SessionManager;
     private readonly monitor: MonitorBus;
     private readonly collector: MetricsCollector | undefined;
+    private readonly triggerBus: TriggerBus | undefined;
     private readonly _port: number;
     private readonly host: string;
 
@@ -66,6 +79,7 @@ export class AgentServer {
         this.host = opts.host ?? '0.0.0.0';
 
         this.monitor = new MonitorBus();
+        this.triggerBus = opts.triggers;
 
         this.collector = opts.metrics?.enabled
             ? new MetricsCollector({ prefix: opts.metrics.prefix, collectNodeMetrics: opts.metrics.collectNodeMetrics })
@@ -122,18 +136,22 @@ export class AgentServer {
         const monitor = this.monitor;
         const collector = this.collector;
         const metricsPath = opts.metrics?.path;
+        const triggers = this.triggerBus;
         this.app.register(async (instance) => {
             await instance.register(fastifyWebSocket);
             registerRoutes(instance, sessions, monitor, collector, metricsPath);
+            triggers?.registerRoutes(instance);
         });
     }
 
     async start(): Promise<string> {
+        this.triggerBus?.start();
         const address = await this.app.listen({ port: this._port, host: this.host });
         return address;
     }
 
     async stop(): Promise<void> {
+        this.triggerBus?.close();
         this.sessions.close();
         await this.app.close();
     }

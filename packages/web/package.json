@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-web",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "HTTP/WebSocket server layer for agent-core — browser-ready streaming agent sessions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,11 +26,13 @@
     "uuid": "^10.0.0"
   },
   "optionalDependencies": {
-    "@fastify/rate-limit": "^9.0.0"
+    "@fastify/rate-limit": "^9.0.0",
+    "node-cron": "^3.0.0"
   },
   "devDependencies": {
     "@backendkit-labs/agent-core": "*",
     "@types/jsonwebtoken": "^9.0.0",
+    "@types/node-cron": "^3.0.0",
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.0.0",

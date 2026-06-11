@@ -21,3 +21,15 @@ export type { MetricsCollectorOptions, RunEndFn } from './metrics/MetricsCollect
 // ── Session store ─────────────────────────────────────────────────────────────
 export { InMemorySessionMetaStore, RedisSessionMetaStore } from './store/SessionMetaStore';
 export type { SessionMeta, SessionMetaStore, RedisLike } from './store/SessionMetaStore';
+
+// ── Trigger bus ───────────────────────────────────────────────────────────────
+export { TriggerBus } from './trigger/TriggerBus';
+export type {
+    TriggerEngineFactory,
+    TriggerDefinition,
+    TriggerResult,
+    CronTriggerDef,
+    WebhookTriggerDef,
+} from './trigger/TriggerBus';
+
+export { HeadlessTransport } from './transport/HeadlessTransport';

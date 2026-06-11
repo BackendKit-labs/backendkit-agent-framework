@@ -4,7 +4,7 @@ import prompts from 'prompts';
 
 export type ArchitectureId = 'multi-agent' | 'single' | 'coding' | 'autonomous' | 'minimal' | 'enterprise';
 export type SkillPack      = 'node' | 'python' | 'go' | 'docker';
-export type DeployMode     = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library';
+export type DeployMode     = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library' | 'web';
 export type ProviderId     = 'anthropic' | 'openai' | 'deepseek' | 'ollama';
 
 export interface UserChoices {
@@ -61,7 +61,7 @@ const SKILL_PACK_CHOICES = [
     { title: p('Docker / K8s', 24)         + 'docker, kubectl, helm',     value: 'docker' as SkillPack },
 ];
 
-const DEPLOY_MODE_CHOICES = [
+const DEPLOY_MODE_CHOICES_BASE = [
     {
         title: p('Terminal REPL', 28) + 'Humans type requests, agent responds in the terminal',
         value: 'repl' as DeployMode,
@@ -84,6 +84,18 @@ const DEPLOY_MODE_CHOICES = [
         value: 'library' as DeployMode,
     },
 ];
+
+const WEB_DEPLOY_CHOICE = {
+    title: p('Web server', 28) + 'WebSocket chat + kanban monitor UI on port 4001',
+    value: 'web' as DeployMode,
+    description: 'Serves @backendkit-labs/agent-web with all 6 enterprise departments',
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const deployChoices = (_prev: any, v: Record<string, any>) =>
+    v.architecture === 'enterprise'
+        ? [...DEPLOY_MODE_CHOICES_BASE, WEB_DEPLOY_CHOICE]
+        : DEPLOY_MODE_CHOICES_BASE;
 
 const PROVIDER_CHOICES = [
     { title: p('Anthropic (Claude)', 32)          + 'claude-sonnet-4-6 recommended',               value: 'anthropic' as ProviderId },
@@ -143,7 +155,7 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
                 type: whenDeploy as any,
                 name: 'deployMode',
                 message: 'How will this agent be used?',
-                choices: DEPLOY_MODE_CHOICES,
+                choices: deployChoices as any,
                 initial: 0,
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

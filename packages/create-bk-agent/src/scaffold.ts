@@ -49,6 +49,11 @@ const DEPLOY_SCRIPTS: Partial<Record<DeployMode, (s: Record<string, string>) => 
         delete s['server'];
     },
     // hybrid: keep both dev (REPL) and server (MCP) — no changes
+    web: (s) => {
+        s['dev']   = 'ts-node src/server.ts';
+        s['start'] = 'node dist/server.js';
+        delete s['server'];
+    },
     library: (s) => {
         delete s['dev'];
         delete s['server'];
@@ -57,6 +62,7 @@ const DEPLOY_SCRIPTS: Partial<Record<DeployMode, (s: Record<string, string>) => 
 };
 
 const MCP_DEPLOY_MODES: DeployMode[] = ['mcp-http', 'mcp-stdio', 'hybrid'];
+const WEB_DEPLOY_MODES: DeployMode[] = ['web'];
 
 function patchPackageJson(
     dir:         string,
@@ -77,6 +83,11 @@ function patchPackageJson(
     if (deployMode && MCP_DEPLOY_MODES.includes(deployMode)) {
         pkg.dependencies ??= {};
         pkg.dependencies['@backendkit-labs/mcp-server'] ??= '^0.15.0';
+    }
+
+    if (deployMode && WEB_DEPLOY_MODES.includes(deployMode)) {
+        pkg.dependencies ??= {};
+        pkg.dependencies['@backendkit-labs/agent-web'] ??= '^0.1.0';
     }
 
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
@@ -162,10 +173,10 @@ export function scaffold(choices: UserChoices, targetDir: string): void {
     // 2. Deploy layer — overlaid on top of base (layered architectures only)
     if (isLayered && choices.deployMode && choices.deployMode !== 'library') {
         const deployDir = path.join(DEPLOY_DIR, choices.deployMode);
-        if (!fs.existsSync(deployDir)) {
-            throw new Error(`Deploy template not found: ${choices.deployMode} (in ${deployDir})`);
+        if (fs.existsSync(deployDir)) {
+            copyDir(deployDir, targetDir);
         }
-        copyDir(deployDir, targetDir);
+        // No directory = base template already covers this mode
     }
 
     // 3. Skill packs — appended to engine.ts

@@ -32,6 +32,7 @@ function describeChoices(choices: UserChoices): string {
         'mcp-stdio':'MCP Server (stdio)',
         hybrid:     'REPL + MCP Server',
         library:    'Library',
+        web:        'Web Server (chat + kanban)',
     };
 
     const archLabel = arch[choices.architecture] ?? choices.architecture;
@@ -51,6 +52,17 @@ function buildNextSteps(choices: UserChoices): string[] {
 
     // Enterprise — local LLM + RAG
     if (arch === 'enterprise') {
+        if (mode === 'web') {
+            return [
+                'Make sure Ollama is running:  ollama serve',
+                'Pull model:                   ollama pull llama3.2',
+                'Review vault path in .env (VAULT_PATH)',
+                'npm run dev              # indexes vault + starts server on :4001',
+                '# Chat:    http://localhost:4001/',
+                '# Kanban:  http://localhost:4001/#kanban',
+                '# Monitor: ws://localhost:4001/monitor',
+            ];
+        }
         return [
             'Make sure Ollama is running:  ollama serve',
             'Pull required models:         ollama pull llama3.2 && ollama pull nomic-embed-text',

@@ -44,18 +44,19 @@ function buildServer(): McpServer {
 }
 
 function registerTools(srv: McpServer): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const t = srv.tool.bind(srv) as any;
 
 // ---------------------------------------------------------------------------
 // stack_detect
 // ---------------------------------------------------------------------------
-// @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
-srv.tool(
+t(
     'stack_detect',
     'Detect the technology stack of the current project using the code index (languages, frameworks, libraries).',
     {
         cwd: z.string().optional().describe('Project directory (defaults to server cwd)'),
     },
-    async ({ cwd: _cwd }) => {
+    async ({ cwd: _cwd }: { cwd?: string }) => {
         const graphTech = detectStackFromGraph(store);
         const { SkillActivator } = await import('@backendkit-labs/agent-core');
         const activator = new SkillActivator();
@@ -75,14 +76,14 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // skills_search
 // ---------------------------------------------------------------------------
-srv.tool(
+t(
     'skills_search',
     'Search available skills by query. Returns matching skills and whether they are active for the current project.',
     {
         query: z.string().describe('Search term — skill name, trigger keyword, or description'),
         cwd: z.string().optional().describe('Project directory to detect stack (defaults to server cwd)'),
     },
-    async ({ query, cwd }) => {
+    async ({ query, cwd }: { query: string; cwd?: string }) => {
         // Merge file-based + graph-based stack detection
         const { SkillActivator } = await import('@backendkit-labs/agent-core');
         const activator = new SkillActivator();
@@ -107,7 +108,7 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // skills_install
 // ---------------------------------------------------------------------------
-srv.tool(
+t(
     'skills_install',
     'Install a skill pack from a GitHub repository or local path.',
     {
@@ -115,7 +116,7 @@ srv.tool(
         skill: z.string().optional().describe('Install only this specific skill by name'),
         pack: z.string().optional().describe('Override the derived pack name'),
     },
-    async ({ source, skill, pack }) => {
+    async ({ source, skill, pack }: { source: string; skill?: string; pack?: string }) => {
         const result = await skillsInstall(source, APP_NAME, { skill, pack });
         if (!result.ok) {
             return {
@@ -132,7 +133,7 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // skills_list
 // ---------------------------------------------------------------------------
-srv.tool(
+t(
     'skills_list',
     'List all installed skill packs including builtin packs.',
     {},
@@ -149,15 +150,14 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // code_search
 // ---------------------------------------------------------------------------
-// @ts-expect-error: TS2589 — MCP SDK + zod generic depth limit, safe at runtime
-srv.tool(
+t(
     'code_search',
     'Search the codebase for symbols (functions, classes, interfaces, types) by name or keyword.',
     {
         query: z.string().describe('Symbol name or keyword to search for'),
         limit: z.number().optional().describe('Max results to return (default 20)'),
     },
-    ({ query, limit }) => {
+    ({ query, limit }: { query: string; limit?: number }) => {
         const results = codeSearch(query, store, limit ?? 20);
         if (results.length === 0) {
             return { content: [{ type: 'text', text: `No symbols found matching "${query}".` }] };
@@ -172,14 +172,14 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // code_context
 // ---------------------------------------------------------------------------
-srv.tool(
+t(
     'code_context',
     'Get relevant code context for a task — finds the symbols most related to the task and returns their code, callers, and callees.',
     {
         task: z.string().describe('Task or feature description to find context for'),
         max_symbols: z.number().optional().describe('Max symbols to return (default 10)'),
     },
-    async ({ task, max_symbols }) => {
+    async ({ task, max_symbols }: { task: string; max_symbols?: number }) => {
         const ctx = await codeContext(task, store, max_symbols ?? 10);
         if (ctx.symbols.length === 0) {
             return { content: [{ type: 'text', text: `No relevant code found for: "${task}"` }] };
@@ -205,13 +205,13 @@ srv.tool(
 // ---------------------------------------------------------------------------
 // code_index (trigger manual re-index)
 // ---------------------------------------------------------------------------
-srv.tool(
+t(
     'code_index',
     'Trigger a full re-index of the project codebase. Run this after installing new files or if search results seem stale.',
     {
         cwd: z.string().optional().describe('Directory to index (defaults to server cwd)'),
     },
-    async ({ cwd }) => {
+    async ({ cwd }: { cwd?: string }) => {
         const dir = cwd ?? CWD;
         const result = await indexer.indexDirectory(dir);
         const stats = store.stats();

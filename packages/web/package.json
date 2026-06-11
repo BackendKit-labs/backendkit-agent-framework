@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-web",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "HTTP/WebSocket server layer for agent-core — browser-ready streaming agent sessions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

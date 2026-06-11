@@ -151,7 +151,7 @@ export class AgentServer {
     }
 
     async stop(): Promise<void> {
-        this.triggerBus?.close();
+        await this.triggerBus?.close();
         this.sessions.close();
         await this.app.close();
     }

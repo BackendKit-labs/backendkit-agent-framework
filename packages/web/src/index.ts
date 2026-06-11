@@ -30,6 +30,8 @@ export type {
     TriggerResult,
     CronTriggerDef,
     WebhookTriggerDef,
+    QueueTriggerDef,
+    QueueConnection,
 } from './trigger/TriggerBus';
 
 export { HeadlessTransport } from './transport/HeadlessTransport';

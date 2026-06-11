@@ -58,6 +58,30 @@ export interface WebhookTriggerDef extends TriggerDefinition {
     secret?: string;
 }
 
+/**
+ * Redis connection options — compatible with BullMQ / ioredis.
+ * Pass a URL string (e.g. 'redis://localhost:6379') or a connection object.
+ */
+export type QueueConnection =
+    | string
+    | { host?: string; port?: number; password?: string; username?: string; db?: number; tls?: object };
+
+export interface QueueTriggerDef extends TriggerDefinition {
+    /** BullMQ queue name to consume jobs from. */
+    queueName: string;
+    /**
+     * Redis connection — URL string or ioredis options object.
+     * @example 'redis://localhost:6379'
+     * @example { host: 'localhost', port: 6379, password: 'secret' }
+     */
+    connection: QueueConnection;
+    /**
+     * Maximum number of jobs processed concurrently by this worker.
+     * Default: 1.
+     */
+    concurrency?: number;
+}
+
 // ── TriggerBus ────────────────────────────────────────────────────────────────
 
 /**
@@ -94,8 +118,11 @@ export interface WebhookTriggerDef extends TriggerDefinition {
 export class TriggerBus {
     private readonly cronDefs:    CronTriggerDef[]    = [];
     private readonly webhookDefs: WebhookTriggerDef[] = [];
+    private readonly queueDefs:   QueueTriggerDef[]   = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private cronTasks: any[] = [];  // node-cron ScheduledTask — loaded lazily
+    private cronTasks:    any[] = [];  // node-cron ScheduledTask — loaded lazily
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private queueWorkers: any[] = [];  // BullMQ Worker[] — loaded lazily
     private started = false;
 
     constructor(
@@ -110,6 +137,11 @@ export class TriggerBus {
 
     addWebhook(def: WebhookTriggerDef): this {
         this.webhookDefs.push(def);
+        return this;
+    }
+
+    addQueue(def: QueueTriggerDef): this {
+        this.queueDefs.push(def);
         return this;
     }
 
@@ -142,13 +174,20 @@ export class TriggerBus {
         if (this.started) return;
         this.started = true;
         this.startCrons();
+        this.startQueues();
     }
 
-    close(): void {
+    async close(): Promise<void> {
         for (const task of this.cronTasks) {
             try { task.stop(); } catch { /* already stopped */ }
         }
         this.cronTasks = [];
+
+        await Promise.allSettled(
+            this.queueWorkers.map(w => (w.close() as Promise<void>).catch(() => undefined)),
+        );
+        this.queueWorkers = [];
+
         this.started = false;
     }
 
@@ -184,6 +223,46 @@ export class TriggerBus {
                     def.onError?.(err instanceof Error ? err : new Error(String(err)), def.name),
                 );
             }
+        }
+    }
+
+    private startQueues(): void {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let BullMQ: typeof import('bullmq') | null = null;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            BullMQ = require('bullmq') as typeof import('bullmq');
+        } catch {
+            if (this.queueDefs.length > 0) {
+                console.warn('[TriggerBus] bullmq not found — queue triggers disabled. Run: npm i bullmq');
+            }
+            return;
+        }
+
+        for (const def of this.queueDefs) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const worker = new BullMQ.Worker(
+                def.queueName,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                async (job: any) => {
+                    try {
+                        await this.fire(def, job.data);
+                    } catch (err) {
+                        await def.onError?.(
+                            err instanceof Error ? err : new Error(String(err)),
+                            def.name,
+                        );
+                        throw err;  // Rethrow so BullMQ marks the job as failed
+                    }
+                },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                { connection: def.connection as any, concurrency: def.concurrency ?? 1 },
+            );
+            this.queueWorkers.push(worker);
+            console.info(
+                `[TriggerBus] Queue worker "${def.name}" listening on "${def.queueName}" ` +
+                `(concurrency: ${def.concurrency ?? 1})`,
+            );
         }
     }
 

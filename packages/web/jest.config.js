@@ -6,4 +6,7 @@ module.exports = {
     transform: {
         '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
     },
+    // Integration tests (AgentServer) start real HTTP/WS servers; forceExit
+    // ensures Jest doesn't hang waiting for lingering async handles.
+    forceExit: true,
 };

@@ -1,5 +1,97 @@
 # Changelog
 
+## v0.23.0 (2026-06-11)
+
+### `@backendkit-labs/agent-web` — `MonitorBus`
+
+Nuevo subsistema de observabilidad en tiempo real sobre todas las sesiones activas del servidor.
+
+#### `MonitorBus`
+
+Fan-out de eventos a observadores WebSocket read-only. Un servidor puede tener N monitores conectados simultáneamente sin impacto en las sesiones de chat.
+
+```typescript
+import { MonitorBus } from '@backendkit-labs/agent-web';
+```
+
+**Protocolo (server → monitor):**
+
+```typescript
+// Al conectar: lista de sesiones ya abiertas
+{ type: 'monitor_hello', sessionIds: string[] }
+
+// Ciclo de vida de sesiones
+{ type: 'monitor_session_open',  sessionId: string }
+{ type: 'monitor_session_close', sessionId: string }
+
+// Input del usuario (antes de que el engine procese)
+{ sessionId: string, type: 'run_input', content: string }
+
+// Todos los AgentEvents de esa sesión
+{ sessionId: string, type: 'token' | 'tool_call' | 'done' | ... }
+```
+
+El `MonitorBus` se crea automáticamente en `AgentServer` y se conecta al `SessionManager`. No requiere configuración adicional.
+
+**Endpoint:** `WS /monitor` — read-only, no acepta input del cliente.
+
+**`/health`** ahora incluye `monitors: number` — cantidad de observadores conectados.
+
+---
+
+### `@backendkit-labs/agent-web-ui` — template `kanban`
+
+Template de monitoreo enterprise: visualiza la actividad de todos los agentes en tiempo real como un tablero kanban.
+
+#### Layout
+
+Secciones apiladas verticalmente. Cada sección es una columna del flujo:
+
+```
+┌─────────────────────────────────────────────┐
+│ ● PENDIENTE  (n)                             │
+│  [Card: mensaje del usuario]                 │
+├─────────────────────────────────────────────┤
+│ ● EN PROCESO  (n)                            │
+│  [Card: agente trabajando + tool badges]     │
+├─────────────────────────────────────────────┤
+│ ● ESPERANDO APROBACIÓN  (n)                  │
+├─────────────────────────────────────────────┤
+│ ● COMPLETADO  (n)                            │
+│  [Card: finalizado + tiempo + tokens]        │
+└─────────────────────────────────────────────┘
+```
+
+#### Mapeo de eventos → columnas
+
+| Evento | Transición |
+|---|---|
+| `run_input` | Nueva card en **Pendiente** |
+| `block_start` | → **En Proceso** (actualiza agente activo) |
+| `tool_call` | Badge animado (spinner) sobre la card activa |
+| `tool_result` | Badge → verde (ok) / rojo (error) |
+| `done` / `ready` | → **Completado** |
+| `error` | → **Completado** (sección roja) |
+| `monitor_session_close` con run activo | → **Completado** (error: desconexión) |
+
+#### `useKanbanMonitor` hook
+
+```typescript
+const { runs, status, activeSessions, connect, disconnect, clearDone } =
+  useKanbanMonitor({ url: 'ws://localhost:3000/monitor' });
+```
+
+`runs: KanbanRun[]` — historial completo de runs. Cada run tiene `sessionId`, `title` (primeros 80 chars del input), `column`, `agentId/Name/Icon`, `toolCalls[]`, `tokens`, `startedAt`, `completedAt`.
+
+#### Navegación integrada
+
+`NavTabs` — tabs **Chat / Monitor** en el header de ambos templates. Hash router sin dependencias externas:
+
+- `http://localhost:5173/` → Chat
+- `http://localhost:5173/#kanban` → Monitor
+
+---
+
 ## v0.22.0 (2026-06-10)
 
 ### `@backendkit-labs/agent-web` 0.1.0 — nuevo paquete

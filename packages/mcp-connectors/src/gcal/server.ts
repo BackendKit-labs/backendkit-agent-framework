@@ -96,8 +96,10 @@ async function gcal<T>(method: string, path: string, body?: unknown): Promise<T>
 
 function buildServer(): McpServer {
     const srv = new McpServer({ name: 'bk-mcp-gcal', version: '0.1.0' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = srv.tool.bind(srv) as any;
 
-    srv.tool(
+    t(
         'calendar_list_calendars',
         'List all Google Calendars accessible to the authenticated account.',
         {},
@@ -112,7 +114,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'calendar_list_events',
         'List upcoming events in a Google Calendar within a time range.',
         {
@@ -121,7 +123,6 @@ function buildServer(): McpServer {
             time_max:    z.string().optional().describe('End of range, ISO 8601 (default: 7 days from now)'),
             limit:       z.number().optional().describe('Max events (default 10)'),
         },
-        // @ts-ignore: TS2589 — zod generic depth limit on complex schemas
         async ({ calendar_id, time_min, time_max, limit }: {
             calendar_id?: string; time_min?: string; time_max?: string; limit?: number;
         }) => {
@@ -153,7 +154,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'calendar_create_event',
         'Create a new event in a Google Calendar.',
         {
@@ -165,7 +166,6 @@ function buildServer(): McpServer {
             timezone:    z.string().optional().describe('IANA timezone (e.g. America/New_York). Default: UTC'),
             calendar_id: z.string().optional().describe('Calendar ID (default: "primary")'),
         },
-        // @ts-ignore: TS2589 — zod generic depth limit on complex schemas
         async ({ summary, start, end, description, attendees, timezone, calendar_id }: {
             summary: string; start: string; end: string;
             description?: string; attendees?: string[]; timezone?: string; calendar_id?: string;
@@ -188,7 +188,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'calendar_get_freebusy',
         'Check the free/busy availability for one or more users in a time range.',
         {
@@ -196,7 +196,6 @@ function buildServer(): McpServer {
             time_min: z.string().describe('Start of range, ISO 8601'),
             time_max: z.string().describe('End of range, ISO 8601'),
         },
-        // @ts-ignore: TS2589 — zod generic depth limit on complex schemas
         async ({ emails, time_min, time_max }: { emails: string[]; time_min: string; time_max: string }) => {
             const data = await gcal<{
                 calendars: Record<string, { busy: Array<{ start: string; end: string }> }>;

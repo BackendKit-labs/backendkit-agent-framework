@@ -32,8 +32,12 @@ async function hs<T>(method: string, path: string, body?: unknown): Promise<T> {
 
 function buildServer(): McpServer {
     const srv = new McpServer({ name: 'bk-mcp-hubspot', version: '0.1.0' });
+    // Cast to any to prevent TypeScript from attempting deep Zod schema inference
+    // during declaration emit — the MCP SDK validates schemas at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = srv.tool.bind(srv) as any;
 
-    srv.tool(
+    t(
         'crm_search_contacts',
         'Search HubSpot CRM contacts by name, email, or company.',
         {
@@ -58,7 +62,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'crm_get_contact',
         'Get full property details for a HubSpot contact by ID.',
         {
@@ -78,7 +82,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'crm_create_contact',
         'Create a new contact in HubSpot CRM.',
         {
@@ -99,7 +103,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'crm_search_deals',
         'Search HubSpot CRM deals by name and/or deal stage.',
         {
@@ -131,7 +135,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'crm_create_note',
         'Log an activity note in HubSpot, optionally associated with a contact or deal.',
         {

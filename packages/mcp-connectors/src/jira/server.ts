@@ -55,8 +55,10 @@ function adfDoc(text: string): unknown {
 
 function buildServer(): McpServer {
     const srv = new McpServer({ name: 'bk-mcp-jira', version: '0.1.0' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = srv.tool.bind(srv) as any;
 
-    srv.tool(
+    t(
         'jira_search',
         'Search Jira issues using JQL (Jira Query Language). Returns key, summary, status, and assignee.',
         {
@@ -85,7 +87,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'jira_get_issue',
         'Get full details for a Jira issue including description and recent comments.',
         {
@@ -117,7 +119,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'jira_create_issue',
         'Create a new Jira issue.',
         {
@@ -143,7 +145,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'jira_add_comment',
         'Add a comment to a Jira issue.',
         {
@@ -156,7 +158,7 @@ function buildServer(): McpServer {
         },
     );
 
-    srv.tool(
+    t(
         'jira_transition',
         'Move a Jira issue to a new status (e.g. "In Progress", "Done").',
         {

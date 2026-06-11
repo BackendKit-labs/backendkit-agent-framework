@@ -4,6 +4,8 @@ A production-ready coding agent engine built on `@backendkit-labs/agent-core`. B
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-coding)](https://www.npmjs.com/package/@backendkit-labs/agent-coding)
 
+> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
+
 ## Table of contents
 
 - [Installation](#installation)

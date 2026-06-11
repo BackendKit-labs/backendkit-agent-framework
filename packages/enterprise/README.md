@@ -4,6 +4,8 @@ Enterprise-grade AI agent setup with RAG (Retrieval-Augmented Generation) over a
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-enterprise)](https://www.npmjs.com/package/@backendkit-labs/agent-enterprise)
 
+> **Status: `core`** — Required by the enterprise use case. Breaking changes go through full review before merging.
+
 ## Table of contents
 
 - [Installation](#installation)

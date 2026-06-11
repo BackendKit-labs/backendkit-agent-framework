@@ -1,5 +1,7 @@
 # create-bk-agent
 
+> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
+
 CLI scaffolding tool for the BackendKit Labs agent framework. Generates a fully configured TypeScript agent project in seconds — choose your architecture, deployment mode, and LLM provider, and get a working project with all dependencies wired.
 
 ## Usage

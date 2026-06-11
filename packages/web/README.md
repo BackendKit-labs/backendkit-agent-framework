@@ -1,5 +1,7 @@
 # @backendkit-labs/agent-web
 
+> **Status: `stable`** — Maintained and production-ready. `TriggerBus` (cron/webhook/BullMQ) is `experimental` and frozen during the pilot phase.
+
 HTTP/WebSocket server layer for [@backendkit-labs/agent-core](https://www.npmjs.com/package/@backendkit-labs/agent-core).
 
 Wraps `AgentEngine` in a Fastify 5 server with streaming WebSocket sessions, JWT authentication, Prometheus metrics, rate limiting, a real-time monitor bus, and a flexible trigger system (cron jobs, webhooks, BullMQ queues).

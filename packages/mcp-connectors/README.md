@@ -1,5 +1,7 @@
 # @backendkit-labs/mcp-connectors
 
+> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
+
 Three production-ready MCP (Model Context Protocol) servers that expose enterprise SaaS integrations as agent tools: **HubSpot CRM**, **Jira**, and **Google Calendar**.
 
 Each connector ships as a standalone binary that runs in stdio mode (for use with any MCP client) or HTTP mode (for multi-tenant server deployments).

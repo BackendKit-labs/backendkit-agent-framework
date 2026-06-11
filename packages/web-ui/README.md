@@ -1,5 +1,7 @@
 # @backendkit-labs/agent-web-ui
 
+> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
+
 React component library and hooks for building chat interfaces and real-time monitoring dashboards that connect to `@backendkit-labs/agent-web`.
 
 Ships two ready-to-use app templates (`ChatApp`, `KanbanApp`) and composable primitives for building custom UIs.

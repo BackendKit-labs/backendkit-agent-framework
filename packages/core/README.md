@@ -4,6 +4,8 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-core)](https://www.npmjs.com/package/@backendkit-labs/agent-core)
 
+> **Status: `core`** — Required by the enterprise use case. Breaking changes go through full review before merging.
+
 ## Table of contents
 
 - [Installation](#installation)

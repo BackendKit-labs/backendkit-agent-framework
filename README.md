@@ -17,7 +17,10 @@ Prompts for a template and LLM provider, then scaffolds a ready-to-run project.
 | [`@backendkit-labs/agent-core`](packages/core) | **core** | Generic engine — model-agnostic, transport-agnostic |
 | [`@backendkit-labs/agent-enterprise`](packages/enterprise) | **core** | RAG + VaultWriter for enterprise deployments |
 | [`@backendkit-labs/agent-coding`](packages/coding) | **stable** | Coding agents, file tools, git integration, LLM providers |
+| [`@backendkit-labs/agent-web`](packages/web) | **stable** | HTTP/WebSocket server layer for browser-ready agent sessions |
+| [`@backendkit-labs/agent-web-ui`](packages/web-ui) | **stable** | React components for chat and monitoring UIs |
 | [`@backendkit-labs/mcp-server`](packages/mcp-server) | **stable** | MCP server — skills and code intelligence |
+| [`@backendkit-labs/mcp-connectors`](packages/mcp-connectors) | **stable** | HubSpot CRM, Jira, Google Calendar MCP servers |
 | [`create-bk-agent`](packages/create-bk-agent) | **stable** | CLI scaffolder |
 
 ## Subsystem status
@@ -59,6 +62,18 @@ or removal.
 | `agent-memory` | **experimental** | Episodic/semantic/procedural memory — frozen during pilot |
 | `observability` | **experimental** | Tracing and metrics — frozen during pilot |
 | `triggers` | **experimental** | Autonomous triggers (cron / webhook / event) — frozen during pilot |
+
+### `@backendkit-labs/agent-web` subsystem matrix
+
+| Subsystem | Status | Notes |
+|-----------|--------|-------|
+| `AgentServer` | **stable** | Fastify server, session management, HTTP + WS routing |
+| `SessionManager` | **stable** | Session lifecycle, idle sweep, fan-out |
+| `MonitorBus` | **stable** | Real-time session monitoring over WebSocket |
+| `JwtAuth` | **stable** | Bearer / query-param JWT authentication hook |
+| `MetricsCollector` | **stable** | Prometheus metrics endpoint |
+| `SessionMetaStore` | **stable** | In-memory and Redis session persistence |
+| `TriggerBus` | **experimental** | Cron / webhook / BullMQ autonomous triggers — frozen during pilot |
 
 ## Agent types
 

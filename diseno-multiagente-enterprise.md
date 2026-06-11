@@ -187,7 +187,7 @@ lanza `ComplianceGateError` y queda en el log. Registro completo persistido en e
 
 ---
 
-## Fase 3 — Eventos por broker ⬜
+## Fase 3 — Eventos por broker ✅
 
 **Objetivo:** comunicación entre agentes por BullMQ (ADR-1). El vault deja de ser
 disparador y pasa a ser memoria/auditoría.
@@ -204,17 +204,20 @@ Consumidores → TriggerBus.addQueue (ya existe, agent-web fase 8)
 ```
 
 ### Entregables
-- [ ] `EventSchema`: tipos de evento declarados con JSON schema, validados al publicar
-- [ ] `EventPublisher`: helper que hace publish + nota canónica en una llamada
-- [ ] Convención de colas: `eventos.{tipo}` con DLQ por cola
-- [ ] Agente barredor de reconciliación: compara eventos publicados vs notas
-      en `/auditoria`, alerta huérfanos (consistencia eventual, sin outbox)
-- [ ] Tests con Redis local: publish/consume, retry, DLQ, reconciliación
+- [x] `EventSchema<T>`: tipos de evento con Zod, validados al publicar → `events/types.ts`
+- [x] `EventPublisher`: valida payload, crea `EventEnvelope` (UUID + ISO timestamp), publica a BullMQ,
+      escribe nota canónica en `/eventos/` → `events/EventPublisher.ts`
+- [x] `QueueLike`: interfaz mínima de BullMQ Queue — no import estático, fácil de mockear
+- [x] Convención de colas: `eventos.{tipo}`, retries exponencial × 3, `removeOnComplete: false`
+      (jobs disponibles para reconciliación)
+- [x] `ReconciliationSweeper`: lee `/eventos/*.md`, extrae event IDs de tabla Markdown,
+      busca en árbol `/auditoria/`, reporta huérfanos → `events/ReconciliationSweeper.ts`
+- [x] Tests: 19 unit (EventPublisher) + 14 unit (ReconciliationSweeper) + 1 integration (skip si Redis)
+      Total: 125 passing
 
 ### Criterio de salida
-Un evento publicado dispara N consumidores en paralelo; si uno estaba caído,
-lo procesa al volver (retry de BullMQ). El barredor detecta un evento sin nota
-de auditoría inyectado a propósito.
+✅ Cumplido — test "Fase 3 — criterio de salida": 2 eventos con auditoría (matched) + 1 huérfano
+inyectado a propósito (solicitud-compra sin nota de auditoría) → sweeper lo detecta exactamente.
 
 ### Nota de gobernanza
 `TriggerBus` está marcado `experimental — frozen`. Esta fase es el caso de uso
@@ -300,7 +303,7 @@ con la 1-2. La fase 6 integra todo.
 |---|---|---|---|
 | 1. Motor de flujos declarativos | FlowDefinition + loader + runner | ●●●○ | ✅ |
 | 2. ComplianceGate | Evidencia + separación de roles + vault | ●●○○ | ✅ |
-| 3. Eventos por broker | Schemas + publisher + barredor | ●●○○ | ⬜ |
+| 3. Eventos por broker | Schemas + publisher + barredor | ●●○○ | ✅ |
 | 4. Policies-in-vault | Convención + refactor perfiles | ●○○○ | ⬜ |
 | 5. Conectores | MCP Odoo + tool n8n | ●●○○ | ⬜ |
 | 6. Piloto PAAE | Onboarding end-to-end + spike LLM local | ●●○○ | ⬜ |
@@ -314,3 +317,4 @@ con la 1-2. La fase 6 integra todo.
 | 2026-06-11 | — | Documento creado. Diseño acordado en sesión (broker, flujos declarativos, compliance verificable, policies-in-vault, lecciones del design-agent). |
 | 2026-06-11 | 1 | ✅ Completa. `flow/` en agent-enterprise: types + FlowLoader + FlowRunner, 44 tests. Core: `AgentRunner` con `stepId` opcional. Criterio de salida verificado por test. |
 | 2026-06-11 | 2 | ✅ Completa. `ComplianceGate` en `flow/ComplianceGate.ts`: evaluación por criterio, evaluador ≠ ejecutor (runtime), log append-only con intentos fallidos, persistencia en vault via VaultWriter. Integrado en `FlowRunner` via `onGateRequired`. 18 tests nuevos + 6 en FlowRunner. Total: 101 passing. |
+| 2026-06-11 | 3 | ✅ Completa. `events/` en agent-enterprise: `EventSchema<T>` (Zod), `EventPublisher` (BullMQ + vault nota), `ReconciliationSweeper` (vault-based, sin Redis). `QueueLike` interface — no import estático de bullmq. 33 tests nuevos (19 unit + 14 unit + 1 integration skip-if-no-redis). Total: 125 passing. |

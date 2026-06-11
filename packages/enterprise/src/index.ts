@@ -66,6 +66,20 @@ export type {
     ComplianceGateOptions,
 } from './flow';
 
+// ── Events (broker + reconciliation) ─────────────────────────────────────────
+
+export { EventPublisher, ReconciliationSweeper } from './events';
+export type {
+    QueueLike,
+    EventPublisherOptions,
+    ReconciliationSweeperOptions,
+    EventEnvelope,
+    EventSchema,
+    PublishOptions,
+    OrphanedEvent,
+    ReconciliationReport,
+} from './events';
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export { createEnterpriseSetup } from './factory';

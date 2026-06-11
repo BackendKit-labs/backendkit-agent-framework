@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  ci:
+    name: Build · Typecheck · Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Build (dependency order) ──────────────────────────────────────────────
+      - name: Build agent-core
+        run: npm run build -w packages/core
+
+      - name: Build agent-coding
+        run: npm run build -w packages/coding
+
+      - name: Build agent-enterprise
+        run: npm run build -w packages/enterprise
+
+      - name: Build agent-web
+        run: npm run build -w packages/web
+
+      - name: Build mcp-server
+        run: npm run build -w packages/mcp-server
+
+      - name: Build mcp-connectors
+        run: npm run build -w packages/mcp-connectors
+
+      - name: Build create-bk-agent
+        run: npm run build -w packages/create-bk-agent
+
+      # ── Typecheck ─────────────────────────────────────────────────────────────
+      - name: Typecheck all packages
+        run: npm run typecheck --workspaces --if-present
+
+      # ── Test ──────────────────────────────────────────────────────────────────
+      - name: Test
+        run: npm test --workspaces --if-present

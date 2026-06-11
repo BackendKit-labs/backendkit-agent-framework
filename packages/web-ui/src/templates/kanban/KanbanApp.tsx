@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Wifi, WifiOff, Loader2, Trash2, LayoutDashboard } from 'lucide-react';
+import { NavTabs } from '@/components/NavTabs';
+import { Wifi, WifiOff, Loader2, Trash2 } from 'lucide-react';
 import { useKanbanMonitor } from '@/hooks/useKanbanMonitor';
 import { KanbanBoard } from './KanbanBoard';
 
-const SERVER_URL = import.meta.env.VITE_MONITOR_URL ?? 'ws://localhost:4001/monitor';
+const MONITOR_URL = import.meta.env.VITE_MONITOR_URL ?? 'ws://localhost:4001/monitor';
 
 export default function KanbanApp() {
-  const [monitorUrl, setMonitorUrl] = useState(SERVER_URL);
+  const [monitorUrl, setMonitorUrl] = useState(MONITOR_URL);
   const [showUrlBar, setShowUrlBar] = useState(false);
 
   const { runs, status, activeSessions, connect, disconnect, clearDone } = useKanbanMonitor({
@@ -23,13 +24,13 @@ export default function KanbanApp() {
 
       {/* Header */}
       <header className="flex items-center gap-3 px-4 h-12 border-b border-border bg-card shrink-0">
-        <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-semibold tracking-tight">Agent Monitor</span>
+        <span className="text-sm font-semibold tracking-tight">BackendKit Agent</span>
+        <NavTabs />
 
         {isConnected && activeSessions.length > 0 && (
           <>
             <Separator orientation="vertical" className="h-4" />
-            <Badge variant="secondary" className="text-xs gap-1">
+            <Badge variant="secondary" className="text-xs gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
               {activeSessions.length} sesión{activeSessions.length !== 1 ? 'es' : ''} activa{activeSessions.length !== 1 ? 's' : ''}
             </Badge>
@@ -50,13 +51,7 @@ export default function KanbanApp() {
 
           <Separator orientation="vertical" className="h-4" />
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={clearDone}
-            title="Limpiar completados"
-          >
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearDone} title="Limpiar completados">
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
 
@@ -98,7 +93,6 @@ export default function KanbanApp() {
       {!isConnected && (
         <div className="flex flex-1 items-center justify-center text-center text-muted-foreground">
           <div className="space-y-3">
-            <LayoutDashboard className="h-10 w-10 mx-auto opacity-20" />
             <p className="text-sm">Conectate al servidor para monitorear los agentes en tiempo real.</p>
             <Button size="sm" onClick={connect}>Conectar</Button>
           </div>

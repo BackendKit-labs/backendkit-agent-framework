@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator';
 import { ChatWindow } from '@/components/chat/ChatWindow';
 import { InputBar } from '@/components/chat/InputBar';
 import { useAgentSession } from '@/hooks/useAgentSession';
+import { NavTabs } from '@/components/NavTabs';
 import { Wifi, WifiOff, Loader2, Trash2 } from 'lucide-react';
 
 const SERVER_URL = import.meta.env.VITE_AGENT_SERVER_URL ?? 'ws://localhost:4001/chat';
@@ -26,6 +27,7 @@ export default function App() {
       {/* Header */}
       <header className="flex items-center gap-3 px-4 h-12 border-b border-border bg-card shrink-0">
         <span className="text-sm font-semibold tracking-tight">BackendKit Agent</span>
+        <NavTabs />
 
         {activeAgent && (
           <>

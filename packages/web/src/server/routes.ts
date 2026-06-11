@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { SessionManager } from '../session/SessionManager';
+import type { MonitorBus } from '../monitor/MonitorBus';
 
-export function registerRoutes(app: FastifyInstance, sessions: SessionManager): void {
+export function registerRoutes(app: FastifyInstance, sessions: SessionManager, monitorBus?: MonitorBus): void {
 
     // ── Health ────────────────────────────────────────────────────────────────
     app.get('/health', async () => ({
         status: 'ok',
         sessions: sessions.size,
+        monitors: monitorBus?.size ?? 0,
         timestamp: new Date().toISOString(),
     }));
 
@@ -46,8 +48,9 @@ export function registerRoutes(app: FastifyInstance, sessions: SessionManager): 
                 const msg = JSON.parse(raw.toString());
 
                 if (msg.type === 'input' && typeof msg.content === 'string') {
-                    // Touch lastActivityAt via get()
                     sessions.get(session.id);
+                    // Broadcast user input to monitor observers before running
+                    monitorBus?.broadcastRunInput(session.id, msg.content);
                     // Fire-and-forget: engine.run() handles its own error boundary
                     void session.engine.run(msg.content).catch((err: unknown) => {
                         const message = err instanceof Error ? err.message : 'Engine error';
@@ -65,4 +68,19 @@ export function registerRoutes(app: FastifyInstance, sessions: SessionManager): 
 
         // Cleanup is handled by SessionManager's socket.on('close') hook
     });
+
+    // ── WebSocket monitor ─────────────────────────────────────────────────────
+    // Read-only observer — receives all session events tagged with sessionId.
+    // Protocol (server → client):
+    //   { type: 'monitor_hello', sessionIds: string[] }
+    //   { type: 'monitor_session_open', sessionId }
+    //   { type: 'monitor_session_close', sessionId }
+    //   { sessionId, type: 'run_input', content }
+    //   { sessionId, ...AgentEvent }
+    if (monitorBus) {
+        const bus = monitorBus;
+        app.get('/monitor', { websocket: true }, (socket: WebSocket, _req) => {
+            bus.subscribe(socket);
+        });
+    }
 }

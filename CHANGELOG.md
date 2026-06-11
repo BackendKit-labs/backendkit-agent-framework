@@ -1,5 +1,119 @@
 # Changelog
 
+## v0.22.0 (2026-06-10)
+
+### `@backendkit-labs/agent-web` 0.1.0 — nuevo paquete
+
+Capa HTTP/WebSocket que envuelve `AgentEngine` y lo expone al browser.
+
+#### `WebSocketTransport`
+
+Implementa la interfaz `Transport` de `agent-core` sobre un WebSocket de `@fastify/websocket`. Traduce `AgentEvent` a frames JSON. Maneja reconexiones y cierre limpio.
+
+```typescript
+// El engine recibe un WebSocketTransport en lugar de CallbackTransport
+const transport = new WebSocketTransport(socket);
+const engine = new AgentEngine({ transport, ... });
+```
+
+#### `SessionManager`
+
+Gestiona N sesiones concurrentes. Una `AgentEngine` instance por sesión. Sweep automático de sesiones idle (default: 30 min). Límite configurable de sesiones simultáneas (default: 100).
+
+#### `AgentServer`
+
+```typescript
+import { AgentServer } from '@backendkit-labs/agent-web';
+
+const server = new AgentServer({
+    port: 3000,
+    engineFactory: (sessionId, transport) => new AgentEngine({ transport, ... }),
+    auth: async (req, reply) => { /* JWT / API key / OIDC — hook pluggable */ },
+    cors: '*',
+    maxSessions: 100,
+    maxIdleMs: 30 * 60 * 1000,
+});
+
+await server.start();
+```
+
+**Rutas:**
+
+| Ruta | Descripción |
+|---|---|
+| `WS /chat` | Conectar sesión. Enviar `{ type: 'input', content }` / `{ type: 'abort' }` |
+| `GET /health` | Estado del servidor y número de sesiones activas |
+| `GET /sessions` | Lista de sesiones con timestamps |
+| `DELETE /sessions/:id` | Cerrar sesión específica |
+
+**Protocolo WebSocket (client → server):**
+
+```json
+{ "type": "input",  "content": "¿Cuál es la política de vacaciones?" }
+{ "type": "abort" }
+```
+
+El servidor devuelve `AgentEvent` JSON frames: `token`, `tool_call`, `tool_result`, `agent_switch`, `done`, `error`, etc. — mismos eventos que `CallbackTransport`.
+
+**Cliente HTML de prueba:** `client/index.html` — chat funcional vanilla JS, sin dependencias, sirve como referencia de implementación del protocolo.
+
+---
+
+### `@backendkit-labs/agent-web-ui` 0.1.0 — nuevo paquete
+
+Template React para el template `chat` del scaffold enterprise.
+
+**Stack:** React 18 + Vite + Tailwind CSS v4 + shadcn/ui + TypeScript
+
+#### `useAgentSession` hook
+
+```typescript
+const {
+    messages,      // ChatMessage[] — historial completo
+    status,        // 'disconnected' | 'connecting' | 'connected'
+    isRunning,     // true mientras el engine procesa
+    activeAgent,   // { id, name, icon } del agente activo
+    connect,
+    disconnect,
+    sendMessage,
+    abort,
+    clearMessages,
+} = useAgentSession({ url: 'ws://localhost:3000/chat' });
+```
+
+Maneja el estado completo del stream: acumula tokens en el mensaje activo, actualiza badges de tool calls en tiempo real, detecta cambios de agente.
+
+#### Componentes
+
+| Componente | Descripción |
+|---|---|
+| `ChatWindow` | Área de scroll con auto-scroll al último mensaje |
+| `MessageBubble` | Burbujas user/assistant con Markdown renderizado, cursor de streaming |
+| `ToolCallBadge` | Badge animado: spinner → verde (ok) / rojo (error) |
+| `InputBar` | Textarea auto-resize, Enter para enviar, botón Stop durante streaming |
+
+#### `App.tsx` — template chat completo
+
+- Header con badge del agente activo y estado de conexión
+- Barra de URL colapsable para cambiar el servidor sin recompilar
+- Dark theme por defecto (variables CSS de shadcn)
+- `VITE_AGENT_SERVER_URL` env var para configurar el servidor en build
+
+---
+
+### Pilot enterprise — web server
+
+`pilot/src/web-server.ts` — servidor de prueba que conecta el pilot vault con el browser:
+
+```bash
+PORT=4001 npm run web   # desde /pilot
+# → abre http://localhost:5173 (Vite dev server)
+```
+
+Validado end-to-end: browser conecta por WebSocket, agente busca en vault con RAG, responde en streaming token a token, badges de tool call se animan en vivo.
+
+---
+
 ## v0.21.0 (2026-06-10)
 
 ### `@backendkit-labs/agent-core` 0.20.2 → 0.21.0

@@ -3,6 +3,7 @@ import fastifyWebSocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { SessionManager } from '../session/SessionManager';
 import type { SessionManagerOptions } from '../session/SessionManager';
+import { MonitorBus } from '../monitor/MonitorBus';
 import { registerRoutes } from './routes';
 
 export type AuthHook = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -23,6 +24,7 @@ export interface AgentServerOptions extends SessionManagerOptions {
 export class AgentServer {
     private app: FastifyInstance;
     private sessions: SessionManager;
+    private readonly monitor: MonitorBus;
     private readonly port: number;
     private readonly host: string;
 
@@ -30,10 +32,13 @@ export class AgentServer {
         this.port = opts.port ?? 3000;
         this.host = opts.host ?? '0.0.0.0';
 
+        this.monitor = new MonitorBus();
+
         this.sessions = new SessionManager({
             engineFactory: opts.engineFactory,
             maxIdleMs: opts.maxIdleMs,
             maxSessions: opts.maxSessions,
+            monitorBus: this.monitor,
         });
 
         this.app = Fastify({ logger: opts.logger ?? false });
@@ -60,9 +65,10 @@ export class AgentServer {
         // Register websocket plugin + all routes inside a register() so Fastify
         // resolves the plugin before wiring routes (required for WS routes in v11).
         const sessions = this.sessions;
+        const monitor = this.monitor;
         this.app.register(async (instance) => {
             await instance.register(fastifyWebSocket);
-            registerRoutes(instance, sessions);
+            registerRoutes(instance, sessions, monitor);
         });
     }
 
@@ -78,5 +84,9 @@ export class AgentServer {
 
     get sessionManager(): SessionManager {
         return this.sessions;
+    }
+
+    get monitorBus(): MonitorBus {
+        return this.monitor;
     }
 }

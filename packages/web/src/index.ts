@@ -6,3 +6,6 @@ export type { Session, SessionManagerOptions, EngineFactory } from './session/Se
 
 export { WebSocketTransport } from './transport/WebSocketTransport';
 export type { WsMessage } from './transport/WebSocketTransport';
+
+export { MonitorBus } from './monitor/MonitorBus';
+export type { MonitorFrame } from './monitor/MonitorBus';

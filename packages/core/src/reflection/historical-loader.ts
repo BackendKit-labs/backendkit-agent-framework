@@ -269,16 +269,16 @@ export class HistoricalLoader {
     // Solo procesar NO-GO y NO-GO condicional
     if (veredicto !== 'NO-GO' && veredicto !== 'NO-GO condicional') return null;
 
-    // Extraer gate del frontmatter
-    const gateMatch = content.match(/title:\s*"Informe de Gate:\s*(.+?)"/);
+    // Extraer gate del frontmatter (new format: "Gate Report:", legacy: "Informe de Gate:")
+    const gateMatch = content.match(/title:\s*"(?:Gate Report|Informe de Gate):\s*(.+?)"/);
     const gate = gateMatch?.[1]?.toLowerCase() ?? 'unknown';
 
     // Extraer agente del frontmatter
     const agenteMatch = content.match(/auditor:\s*"(.+?)"/);
     const agente = agenteMatch?.[1] ?? 'unknown';
 
-    // Extraer fecha del frontmatter
-    const fechaMatch = content.match(/fecha:\s*"(.+?)"/);
+    // Extraer fecha del frontmatter (new key: date, legacy: fecha)
+    const fechaMatch = content.match(/(?:date|fecha):\s*"(.+?)"/);
     const fecha = fechaMatch?.[1] ?? new Date().toISOString();
 
     // Extraer dominio del contexto de la tarea

@@ -222,11 +222,11 @@ async function classifyWithLLM(
     .filter(a => a !== 'unknown')
     .join(', ');
 
-  const prompt = `Clasifica la siguiente solicitud en UNO de estos tipos de acción: ${actions}.
+  const prompt = `Classify the following request into EXACTLY ONE of these action types: ${actions}.
 
-Responde ÚNICAMENTE con JSON: {"action":"<tipo>"}
+Respond ONLY with JSON: {"action":"<type>"}
 
-Solicitud: "${input.slice(0, 500)}"`;
+Request: "${input.slice(0, 500)}"`;
 
   const result = await retry(
     () => client.chat([{ role: 'user', content: prompt }], undefined, 0.0),

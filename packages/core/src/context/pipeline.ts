@@ -147,16 +147,16 @@ export function formatPipelineForPrompt(result: PipelineResult): string[] {
     const sections: string[] = [];
 
     if (result.instructions.agentMd) {
-        sections.push(formatSection('Instrucciones del Proyecto (AGENT.md)', result.instructions.agentMd));
+        sections.push(formatSection('Project Instructions (AGENT.md)', result.instructions.agentMd));
     }
     if (result.instructions.userMd) {
-        sections.push(formatSection('Preferencias del Desarrollador (USER.md)', result.instructions.userMd));
+        sections.push(formatSection('Developer Preferences (USER.md)', result.instructions.userMd));
     }
     if (result.project.content) {
-        sections.push(formatSection('Contexto del Proyecto', result.project.content));
+        sections.push(formatSection('Project Context', result.project.content));
     }
     if (result.session.content) {
-        sections.push(formatSection('Sesion Activa', result.session.content));
+        sections.push(formatSection('Active Session', result.session.content));
     }
     if (result.lessons.memo) {
         const sanitized = result.lessons.memo
@@ -165,7 +165,7 @@ export function formatPipelineForPrompt(result: PipelineResult): string[] {
             .replace(/<<SYS>>|<\/SYS>/g, '')
             .replace(/^(SYSTEM:|ASSISTANT:|USER:)\s*/gim, '')
             .slice(0, 3000);
-        sections.push(formatSection('Lecciones Aprendidas (de auditorias previas)', sanitized));
+        sections.push(formatSection('Lessons Learned (from previous audits)', sanitized));
     }
 
     return sections;

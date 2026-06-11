@@ -149,12 +149,12 @@ export class ObsidianRAGProvider {
         return defineTool({
             name: 'search_knowledge',
             description:
-                'Busca información en la base de conocimiento de la empresa (vault de Obsidian). ' +
-                'Úsalo cuando necesites información específica del dominio, procesos, políticas o documentación interna.',
+                "Search the company's knowledge base (Obsidian vault). " +
+                'Use this when you need domain-specific information, processes, policies, or internal documentation.',
             input: z.object({
-                query: z.string().describe('Pregunta o tema a buscar en lenguaje natural'),
+                query: z.string().describe('Question or topic to search in natural language'),
                 top_k: z.number().int().min(1).max(20).optional()
-                    .describe('Número máximo de resultados (default: 5)'),
+                    .describe('Maximum number of results (default: 5)'),
             }),
             execute: async ({ query, top_k }) => {
                 return self.search(query, top_k);

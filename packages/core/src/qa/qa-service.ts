@@ -92,7 +92,7 @@ export class QAService {
             LLM_RETRY,
         );
         if (!result.ok) {
-            const fallback = `(QA review no disponible: ${result.error.message}. El codigo se acepta sin revision de QA.)`;
+            const fallback = `(QA review unavailable: ${result.error.message}. Code accepted without QA review.)`;
             this.opts.onQAReview?.(fallback);
             return null;
         }
@@ -156,10 +156,10 @@ export class QAService {
         if (!result.ok) {
             return {
                 approved: true,
-                review: `(QA no disponible: ${result.error.message}. Commit sin revision de QA.)`,
+                review: `(QA unavailable: ${result.error.message}. Commit without QA review.)`,
             };
         }
-        const review = result.value.content ?? '(QA no pudo generar revision)';
+        const review = result.value.content ?? '(QA could not generate a review)';
         const approved = this.evaluateReview(review);
         this.opts.onOutcome?.('qa-engineer', approved);
         return { approved, review };
@@ -214,7 +214,7 @@ export class QAService {
             LLM_RETRY,
         );
         if (!result.ok) {
-            return `(QA no disponible: ${result.error.message}. Corrige los errores manualmente.)`;
+            return `(QA unavailable: ${result.error.message}. Fix the errors manually.)`;
         }
         const diagnosis = result.value.content ?? '(QA could not generate a diagnosis)';
         this.opts.onQAReview?.(`QA Diagnosis - Failing Tests\n\n${diagnosis}`);
@@ -245,7 +245,7 @@ export class QAService {
         const lines = review.split('\n');
         const lower = review.toLowerCase();
 
-        const hasProblems = /(problema|error|falta|incorrecto|edge.case|caso.borde|testing.faltante|bloqueante|critico|mejorable|debe.corregir|necesita.cambios|issues.encontrados)/i.test(lower);
+        const hasProblems = /(problem|error|missing|incorrect|edge.case|testing.gap|blocker|critical|should.fix|needs.changes|issue|fail|warning|incomplete|vulnerability)/i.test(lower);
         if (!hasProblems) return hallazgos;
 
         let idx = 0;
@@ -253,13 +253,13 @@ export class QAService {
             const trimmed = line.trim();
             if (
                 (trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+[\.\)]\s/.test(trimmed)) &&
-                /(problema|error|falta|incorrecto|edge.case|testing|issue|bloqueante|critico|mejorable|cubrir|corregir|necesita|debe|mal|borde)/i.test(trimmed) &&
+                /(problem|error|missing|incorrect|edge.case|testing|issue|blocker|critical|cover|fix|needs|should|fail|bug|warning|incomplete|vulnerability)/i.test(trimmed) &&
                 trimmed.length > 10
             ) {
                 const severidad: 'critical' | 'high' | 'medium' | 'low' =
-                    /(bloqueante|critico|grave|security|critical)/i.test(trimmed) ? 'critical' :
-                        /(alto|alta|importante|major)/i.test(trimmed) ? 'high' :
-                            /(bajo|baja|minor|mejorable)/i.test(trimmed) ? 'low' :
+                    /(blocker|critical|severe|security|vulnerability)/i.test(trimmed) ? 'critical' :
+                        /(high|major|important)/i.test(trimmed) ? 'high' :
+                            /(low|minor)/i.test(trimmed) ? 'low' :
                                 'medium';
 
                 hallazgos.push({

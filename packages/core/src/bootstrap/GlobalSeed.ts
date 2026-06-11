@@ -49,47 +49,47 @@ async function ensureDir(dir: string, created: string[]): Promise<void> {
 // ── Templates ─────────────────────────────────────────────────────────────────
 
 function buildUserMdTemplate(appName: string): string {
-    return `# Preferencias del Desarrollador
+    return `# Developer Preferences
 
-> Editado por el usuario — el agente lee este archivo al arrancar.
+> Edited by the user — the agent reads this file at startup.
 
-## Estilo de comunicacion
-- Respuestas concisas y directas
-- Sin resumen al final de cada respuesta
-- Codigo sin comentarios obvios
+## Communication style
+- Concise, direct responses
+- No summary at the end of each response
+- Code without obvious comments
 
-## Stack preferido
-- <!-- Ej: Node.js + TypeScript, Python, Go -->
+## Preferred stack
+- <!-- E.g.: Node.js + TypeScript, Python, Go -->
 
-## Convenciones
-- <!-- Ej: conventional commits, kebab-case para archivos -->
+## Conventions
+- <!-- E.g.: conventional commits, kebab-case for files -->
 
-## Lo que NO quiero
-- Emojis en el codigo
-- Feature flags para cambios directos
-- Manejo de errores especulativo
+## What I DON'T want
+- Emojis in code
+- Feature flags for direct changes
+- Speculative error handling
 
-## Notas adicionales
-- <!-- Cualquier preferencia especifica para ${appName} -->
+## Additional notes
+- <!-- Any specific preferences for ${appName} -->
 `;
 }
 
 function buildAgentMdTemplate(projectName: string): string {
-    return `# ${projectName} — Instrucciones del Proyecto
+    return `# ${projectName} — Project Instructions
 
-> Editado por el equipo — el agente lee este archivo en cada sesion.
+> Edited by the team — the agent reads this file on every session.
 
 ## Stack
-- <!-- Ej: Node.js 20, TypeScript 5.7, NestJS 11, PostgreSQL -->
+- <!-- E.g.: Node.js 20, TypeScript 5.7, NestJS 11, PostgreSQL -->
 
-## Convenciones
-- <!-- Estructura de carpetas, patrones usados, nombres -->
+## Conventions
+- <!-- Folder structure, used patterns, naming -->
 
-## Reglas de este proyecto
-- <!-- Lo que el agente DEBE y NO DEBE hacer aqui -->
+## Project rules
+- <!-- What the agent MUST and MUST NOT do here -->
 
-## Contexto de negocio
-- <!-- Dominio, entidades clave, flujos principales -->
+## Business context
+- <!-- Domain, key entities, main flows -->
 `;
 }
 

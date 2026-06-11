@@ -77,8 +77,8 @@ export class AuditCiBlocker {
 
     const ok = criticalOpen.length === 0 && highOpen.length === 0;
     const message = ok
-      ? '✅ No hay hallazgos críticos o altos abiertos. Deploy permitido.'
-      : `❌ ${criticalOpen.length} crítico(s) y ${highOpen.length} alto(s) sin resolver. Deploy bloqueado.`;
+      ? '✅ No open critical or high findings. Deploy allowed.'
+      : `❌ ${criticalOpen.length} critical and ${highOpen.length} high finding(s) unresolved. Deploy blocked.`;
 
     return {
       ok,

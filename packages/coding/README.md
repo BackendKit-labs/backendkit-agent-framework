@@ -1,180 +1,478 @@
 # @backendkit-labs/agent-coding
 
-**Status: stable** — works and is maintained; will not be expanded during the pilot phase.
+A production-ready coding agent engine built on `@backendkit-labs/agent-core`. Bundles 10 specialized agents, filesystem tools, multi-provider support (DeepSeek, OpenAI, Anthropic, Ollama, Kimi, Grok), automatic stack detection, persistent memory, QA review, reflection, and an orchestration pipeline — all in a single `createCodingEngine()` call.
 
-Coding agent for the BackendKit agent framework — 10 specialized agents, file tools, git integration, LLM providers.
+[![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-coding)](https://www.npmjs.com/package/@backendkit-labs/agent-coding)
+
+## Table of contents
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [createCodingEngine](#createcodingengine)
+- [createCodingEngineFromConfig](#createcodingenginefromconfig)
+- [Providers](#providers)
+- [Built-in agents](#built-in-agents)
+- [Built-in tools](#built-in-tools)
+- [Skill packs](#skill-packs)
+- [Orchestration pipeline](#orchestration-pipeline)
+- [Reflection engine](#reflection-engine)
+- [MCP server integration](#mcp-server-integration)
+- [Multi-agent examples](#multi-agent-examples)
+- [Config file](#config-file)
+
+---
+
+## Installation
 
 ```bash
 npm install @backendkit-labs/agent-coding
 ```
 
-> **Quickstart**: `npx create-bk-agent my-project` — scaffolds a complete project in seconds.
+All provider adapters are bundled — no separate packages needed.
 
 ---
 
-## Usage
+## Quick start
 
-```ts
+```typescript
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
-import { CallbackTransport } from '@backendkit-labs/agent-core';
-
-const transport = new CallbackTransport((event) => {
-  if (event.type === 'token') process.stdout.write(event.content);
-});
 
 const engine = createCodingEngine({
-  providers:       { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
-  defaultProvider: 'anthropic',
-  workingDir:      process.cwd(),
-  appName:         'my-agent',
-  transport,
+  providers:       { deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! } },
+  defaultProvider: 'deepseek',
 });
 
-await engine.run('Add error handling to src/api/users.ts');
+await engine.run('List all TypeScript files in src/ and tell me which ones have no tests');
+```
+
+That single call gives you: 10 specialized agents, filesystem tools (read/write/edit/search), persistent project memory, skill loading, and stack auto-detection.
+
+---
+
+## createCodingEngine
+
+The primary factory. Returns a fully configured `AgentEngine`.
+
+### Options reference
+
+```typescript
+interface CodingEngineOptions {
+  // Required
+  providers:       ProvidersConfig;
+  defaultProvider: string;
+
+  // Agents and engine
+  defaultAgent?:          string;       // default: 'general'
+  workingDir?:            string;       // default: process.cwd()
+  maxIterations?:         number;       // default: 100
+  maxParallelAgents?:     number;       // default: 6
+
+  // I/O
+  transport?:             Transport;    // default: StdoutTransport
+
+  // App identity
+  appName?:               string;       // default: 'bk-agent' — used for ~/.{appName}/
+
+  // Persistence
+  disablePersistence?:    boolean;      // skip ProjectStore (useful for testing)
+
+  // MCP servers
+  mcpServers?:            MCPServerConfig[];
+
+  // Context sharing
+  subAgentContextMessages?: number;    // messages visible to sub-agents (recommend 10-20)
+
+  // Iteration control
+  onToolApproval?:   (toolName, agentId, argsPreview) => Promise<ToolApprovalDecision>;
+  onIterationLimit?: (stats: IterationStats) => Promise<boolean>;
+  onStep?:           (stats: IterationStats) => Promise<boolean>;
+
+  // Orchestration
+  orchestration?:    boolean | OrchestrationOptions;
+}
+```
+
+### Minimal setup
+
+```typescript
+const engine = createCodingEngine({
+  providers:       { deepseek: { apiKey: 'sk-...' } },
+  defaultProvider: 'deepseek',
+});
+```
+
+### Multiple providers
+
+```typescript
+const engine = createCodingEngine({
+  providers: {
+    deepseek:  { apiKey: process.env.DEEPSEEK_API_KEY! },
+    anthropic: { apiKey: process.env.ANTHROPIC_API_KEY!, model: 'claude-opus-4-8' },
+    ollama:    { host: 'http://localhost:11434', model: 'llama3.2' },
+  },
+  defaultProvider: 'deepseek',
+  // Each agent profile can specify a provider override
+});
+```
+
+### With full orchestration
+
+```typescript
+const engine = createCodingEngine({
+  providers:       { deepseek: { apiKey: '...' } },
+  defaultProvider: 'deepseek',
+  orchestration:   true,
+  // Enables:
+  //   intent detection → domain detection → risk scoring
+  //   policy engine → agent routing → QA auto-review → reflection
+});
+```
+
+### With MCP servers
+
+```typescript
+const engine = createCodingEngine({
+  providers:       { openai: { apiKey: '...' } },
+  defaultProvider: 'openai',
+  mcpServers: [
+    { name: 'github',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'],  env: { GITHUB_TOKEN: '...' } },
+    { name: 'postgres', command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres'], env: { DATABASE_URL: '...' } },
+  ],
+  subAgentContextMessages: 15,
+});
+```
+
+### With manual tool approval
+
+```typescript
+const engine = createCodingEngine({
+  providers:       { deepseek: { apiKey: '...' } },
+  defaultProvider: 'deepseek',
+  onToolApproval:  async (toolName, agentId, argsPreview) => {
+    const write = ['write_file', 'edit_file', 'run_command'];
+    if (!write.includes(toolName)) return 'approve';
+    console.log(`\n⚠  [${agentId}] ${toolName}:\n${argsPreview}\n`);
+    const a = await prompt('Approve? (y/n/all): ');
+    if (a === 'y')   return 'approve';
+    if (a === 'all') return 'approve_all';
+    return 'reject';
+  },
+});
+```
+
+---
+
+## createCodingEngineFromConfig
+
+Reads credentials from `~/.{appName}/config.json`. No code changes needed to switch providers:
+
+```typescript
+import { createCodingEngineFromConfig } from '@backendkit-labs/agent-coding';
+
+const engine = createCodingEngineFromConfig();
+
+// With overrides
+const engine = createCodingEngineFromConfig({
+  workingDir:    '/my-project',
+  orchestration: true,
+});
 ```
 
 ---
 
 ## Providers
 
-```ts
-import {
-  AnthropicProvider,
-  OllamaProvider,
-  OpenAICompatibleProvider,
-} from '@backendkit-labs/agent-coding';
+### DeepSeek
 
-// Anthropic (Claude)
-new AnthropicProvider(apiKey, model?)
-
-// Ollama — local LLM, no API key required
-new OllamaProvider({ host?: string, model?: string })
-// host default: http://localhost:11434
-// model default: llama3.2
-// checkConnection() verifies Ollama is running before first use
-
-// OpenAI / DeepSeek / any OpenAI-compatible API
-new OpenAICompatibleProvider({ apiKey, baseUrl, model })
+```typescript
+providers: {
+  deepseek: {
+    apiKey:       process.env.DEEPSEEK_API_KEY!,
+    model?:       'deepseek-chat',    // default
+    maxTokens?:   8192,
+    temperature?: 0.7,
+  }
+}
 ```
 
-**Local-first setup with Ollama:**
+### OpenAI
 
-```ts
-import { OllamaProvider } from '@backendkit-labs/agent-coding';
+```typescript
+providers: {
+  openai: {
+    apiKey:   process.env.OPENAI_API_KEY!,
+    model?:   'gpt-4o',
+    baseUrl?: 'https://api.openai.com/v1',
+  }
+}
+```
 
-const engine = createCodingEngine({
-  providers:       { local: new OllamaProvider({ model: 'qwen2.5-coder:7b' }) },
-  defaultProvider: 'local',
-  workingDir:      process.cwd(),
-  appName:         'my-agent',
-  transport,
-});
+### Anthropic (Claude)
+
+```typescript
+providers: {
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY!,
+    model?: 'claude-sonnet-4-6',    // default
+  }
+}
+```
+
+### Ollama (local — no API key)
+
+```bash
+# Prerequisites
+ollama serve
+ollama pull llama3.2
+```
+
+```typescript
+providers: {
+  ollama: {
+    host?:  'http://localhost:11434',
+    model?: 'llama3.2',
+  }
+}
+```
+
+### OpenAI-compatible (Kimi, Grok, any endpoint)
+
+```typescript
+providers: {
+  kimi: { apiKey: process.env.KIMI_API_KEY!, model: 'moonshot-v1-8k' },
+  grok: { apiKey: process.env.GROK_API_KEY!, model: 'grok-3' },
+  // Any OpenAI-compatible endpoint
+  vllm: { apiKey: 'local', baseUrl: 'http://localhost:8080/v1', model: 'my-model' },
+}
 ```
 
 ---
 
-## Built-in agents (10)
+## Built-in agents
 
-| Agent | ID | Specialty | Recommended model tier |
-|---|---|---|---|
-| General | `general` | Orchestrator — routes to specialists | smart |
-| Architecture | `architecture` | Design, patterns, ADRs | smart |
-| Security | `security` | Vulnerabilities, hardening | smart |
-| Project Manager | `project-manager` | /init workflow, planning | smart |
-| Coder | `coder` | Implementation, bulk edits | fast |
-| Backend | `backend` | APIs, databases, services | fast |
-| Frontend | `frontend` | UI, components, CSS | fast |
-| QA Engineer | `qa-engineer` | Tests, edge cases, code review | fast |
-| Infrastructure | `infrastructure` | Docker, CI/CD, cloud | fast |
-| Data | `data` | Pipelines, models, queries | fast |
+Ten specialist agents are bundled. Orchestration routes tasks automatically; you can also select explicitly.
 
-"Smart" agents reason and route — use a thinking/reasoning model. "Fast" agents execute tool calls in loops — use a cheap, low-latency model. See [per-agent model overrides](#per-agent-model-overrides) below.
+| Agent ID | Specialty |
+|----------|-----------|
+| `general` | General-purpose — default starting point |
+| `architect` | System design, ADRs, architecture decisions |
+| `backend-agent` | APIs, server logic, databases |
+| `frontend-agent` | React, CSS, accessibility, UX |
+| `devops-agent` | CI/CD, Docker, Kubernetes, infra |
+| `database-agent` | SQL, indexes, migrations, query tuning |
+| `security-reviewer` | Security audits, OWASP, threat modeling |
+| `qa-engineer` | Test strategy, edge cases, QA reviews |
+| `documentation-agent` | Docs, READMEs, API docs, changelogs |
+| `refactoring-agent` | Code cleanup, technical debt, design patterns |
+
+### Selecting an agent
+
+```typescript
+await engine.run('Audit src/ for SQL injection risks', { agentId: 'security-reviewer' });
+```
+
+### Adding custom agents
+
+Create `~/.bk-agent/agents/my-agent.json`:
+
+```json
+{
+  "id":           "my-agent",
+  "name":         "My Custom Agent",
+  "systemPrompt": "You are specialized in ...",
+  "tools":        ["read_file", "run_command"],
+  "provider":     "anthropic"
+}
+```
+
+Loaded automatically — no code changes needed.
 
 ---
 
 ## Built-in tools
 
-File operations (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`),
-command execution (`run_command`), memory (`save_learning`, `save_context`, `update_session`),
-audit trail (`save_audit`).
+All agents have access to these tools via `CODING_TOOLS`:
 
-All file tools are sandboxed to `workingDir` — path traversal is blocked at the framework level.
-
----
-
-## Skills
-
-Skills inject domain knowledge into the agent's context when triggered by keywords.
-
-```ts
-// Built-in global skills (always available)
-// conventional-commits, code-review, tdd, adr, security-checklist
-
-// Built-in language packs (activated by detected stack)
-// node-pack, python-pack, go-pack, java-pack, kotlin-pack
-
-// Install external skill packs
-// /skills install https://github.com/my-org/my-skills
-```
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read a file by path |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Apply a targeted patch to a file |
+| `list_directory` | List files in a directory |
+| `run_command` | Execute a shell command |
+| `search_files` | Recursive content search |
+| `save_context` | Write to `session.md` (persisted notes) |
+| `save_learning` | Append to `lecciones-aprendidas.md` |
+| `save_audit` | Write a structured audit entry |
+| `get_latest_audit` | Read the latest audit |
+| `list_audits` | List audit entries |
+| `save_user_preference` | Persist user preferences |
+| `update_session` | Update the in-progress session note |
 
 ---
 
-## createCodingEngine options
+## Skill packs
 
-```ts
-createCodingEngine({
-  providers,           // { [id]: { apiKey, model?, baseUrl? } }
-  defaultProvider,     // provider ID to use by default
-  workingDir,          // project root — all file tools are scoped here
-  appName,             // used for ~/.{appName}/ data directory
-  transport,           // CallbackTransport | StdoutTransport
-  maxIterations?,      // default: 50
-  iterationMode?,      // 'interactive' | 'auto' | 'step-by-step'
-  mcpServers?,         // MCP server configs for external tool providers
-  orchestration?,      // enable orchestration pipeline (risk scoring, gates)
-})
+Built-in packs activate based on detected project stack:
+
+| Pack | Activates for |
+|------|---------------|
+| `GLOBAL_BUILTIN_SKILLS` | All projects |
+| `NODE_PACK_SKILLS` | Node.js / TypeScript (`package.json`) |
+| `GO_PACK_SKILLS` | Go (`go.mod`) |
+| `JAVA_PACK_SKILLS` | Java (`pom.xml`, `build.gradle`) |
+| `KOTLIN_PACK_SKILLS` | Kotlin / Android |
+| `PYTHON_PACK_SKILLS` | Python (`requirements.txt`, `pyproject.toml`) |
+
+---
+
+## Orchestration pipeline
+
+When `orchestration: true`, an intelligent routing layer runs before each LLM call:
+
+```
+Input
+  → Intent Detection (feature? bug? refactor? question?)
+  → Domain Detection (backend? frontend? security? ops?)
+  → Risk Scoring (reads only? writes files? runs commands?)
+  → Policy Engine (enforce domain-level rules)
+  → Agent Selection (best agent for detected domain + risk)
+  → LLM Call
+  → QA Review (auto-review code-heavy responses)
+```
+
+### Custom orchestration
+
+```typescript
+orchestration: {
+  capabilityMatrix: {
+    'my-specialist': {
+      owns:       ['payments', 'billing'],
+      skills:     ['typescript', 'stripe'],
+      baseWeight: 0.95,
+    },
+  },
+  customRules: [
+    {
+      if:   { domain: 'security' },
+      then: { mustInclude: ['security-reviewer'] },
+    },
+  ],
+  enableQA:   true,
+  noQA:       false,
+  onQAReview: (review) => logger.info('[QA]', review),
+}
 ```
 
 ---
 
-## Per-agent model overrides
+## Reflection engine
 
-Each agent can run on a different model. Set `model` (and optionally `provider`) on the agent profile, or use environment variables so the split is configurable without code changes:
+Observes failures across runs, promotes recurring patterns into policy rules:
 
-```ts
-// createCodingEngine wires LLM_MODEL_SMART → reasoning agents, LLM_MODEL_FAST → execution agents
+```typescript
+orchestration: {
+  reflection: true,
+  // After each sprint:
+  // 1. Failures logged to FailureCatalog
+  // 2. Patterns with ≥3 occurrences promoted to PolicyRules
+  // 3. lecciones-aprendidas.md updated
+}
 ```
-
-| Env var | Default | Purpose |
-|---|---|---|
-| `LLM_MODEL` | `gpt-4o` | Base model — used by all agents with no explicit override |
-| `LLM_MODEL_FAST` | `LLM_MODEL` | Execution agents (coder, backend, frontend, qa, infra, data) |
-| `LLM_MODEL_SMART` | `LLM_MODEL` | Reasoning agents (general, architecture, security, project-manager) |
-
-Example `.env` for DeepSeek:
-
-```env
-LLM_API_KEY=sk-...
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
-LLM_MODEL_FAST=deepseek-chat
-LLM_MODEL_SMART=deepseek-reasoner
-```
-
-Example `.env` mixing providers (OpenAI fast + Anthropic smart):
-
-```env
-LLM_API_KEY=sk-openai-...
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=gpt-4o-mini
-LLM_MODEL_FAST=gpt-4o-mini
-# Smart agents need a separate provider registered in engine.ts
-```
-
-For completely different LLM backends per agent, register multiple providers and set `provider` on the `AgentProfile`. See `@backendkit-labs/agent-core` docs for the multi-provider setup.
 
 ---
 
-## License
+## MCP server integration
 
-MIT © [BackendKit Labs](https://github.com/BackendKit-labs)
+```typescript
+mcpServers: [
+  {
+    name:    'code-intelligence',
+    command: 'bk-mcp',               // @backendkit-labs/mcp-server
+    args:    [],
+    env:     { BK_APP_NAME: 'bk-agent', BK_CWD: process.cwd() },
+  },
+  {
+    name:    'github',
+    command: 'npx',
+    args:    ['-y', '@modelcontextprotocol/server-github'],
+    env:     { GITHUB_TOKEN: process.env.GITHUB_TOKEN! },
+  },
+],
+subAgentContextMessages: 20,
+```
+
+---
+
+## Multi-agent examples
+
+### Feature implementation
+
+```typescript
+await engine.run(`
+  Implement JWT authentication middleware for Express:
+  - Validate Bearer token in Authorization header
+  - Attach decoded user to req.user
+  - Return 401 with clear error messages
+  - Include unit tests with valid/expired/malformed token cases
+`);
+// architect plans → backend-agent implements → qa-engineer writes tests
+```
+
+### Security audit
+
+```typescript
+await engine.run(`
+  Audit all routes in src/routes/ for:
+  1. Missing auth middleware
+  2. SQL injection vulnerabilities
+  3. Exposed sensitive data
+  Output a prioritized fix list.
+`, { agentId: 'security-reviewer' });
+```
+
+### Database migration
+
+```typescript
+await engine.run(`
+  Write a zero-downtime migration: add NOT NULL column 
+  'last_login_at TIMESTAMP DEFAULT NOW()' to the users table (50M rows).
+  Include rollback script and backfill strategy.
+`, { agentId: 'database-agent' });
+```
+
+### Full stack refactor
+
+```typescript
+await engine.run(`
+  Refactor auth from session cookies to JWT.
+  Update both Express middleware and React login flow.
+  Keep backward compatibility for 2 more sprints.
+`);
+// backend-agent + frontend-agent + security-reviewer
+```
+
+---
+
+## Config file
+
+`~/.bk-agent/config.json`:
+
+```json
+{
+  "defaultProvider": "deepseek",
+  "providers": {
+    "deepseek": { "apiKey": "sk-xxxx", "model": "deepseek-chat" },
+    "anthropic": { "apiKey": "sk-ant-xxxx", "model": "claude-sonnet-4-6" },
+    "ollama":    { "host": "http://localhost:11434", "model": "llama3.2" }
+  },
+  "mcpServers": [
+    {
+      "name": "github",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "ghp_xxxx" }
+    }
+  ]
+}
+```

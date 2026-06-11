@@ -1,263 +1,1130 @@
 # @backendkit-labs/agent-core
 
-**Status: core** — required for the enterprise story; changes go through full review.
-See the [subsystem matrix](../../README.md#backendkit-labsagent-core-subsystem-matrix) for per-subsystem status (`qa`, `reflection`, `agent-memory`, `observability`, `triggers` are **experimental** and frozen during the pilot).
+The foundation engine for the BackendKit Labs agent framework. Provides everything needed to build, run, and compose AI agents: typed tool definitions, provider adapters, session memory, MCP client, workflow orchestration, and advanced multi-layer memory.
 
-Generic multi-agent engine for TypeScript — model-agnostic, transport-agnostic, extensible.
+[![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-core)](https://www.npmjs.com/package/@backendkit-labs/agent-core)
+
+## Table of contents
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [defineTool — typed tools with Zod](#definetool--typed-tools-with-zod)
+- [AgentEngine — the execution core](#agentengine--the-execution-core)
+- [createBaseEngine — high-level factory](#createbaseengine--high-level-factory)
+- [Providers](#providers)
+- [Transports](#transports)
+- [SessionMemory](#sessionmemory)
+- [MCP client](#mcp-client)
+- [Workflow engine](#workflow-engine)
+- [Advanced memory system](#advanced-memory-system)
+- [Observability](#observability)
+- [Skills and slash commands](#skills-and-slash-commands)
+- [Checkpoints](#checkpoints)
+- [Workspaces](#workspaces)
+- [Autonomous agents and triggers](#autonomous-agents-and-triggers)
+- [Delegation bus](#delegation-bus)
+- [Type reference](#type-reference)
+
+---
+
+## Installation
 
 ```bash
 npm install @backendkit-labs/agent-core
 ```
 
+Requires Node.js ≥ 18 and TypeScript ≥ 5.0.
+
 ---
 
 ## Quick start
 
-```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
-import { AnthropicProvider } from '@backendkit-labs/agent-coding';
+The fastest path to a running agent:
 
-const engine = createBaseEngine({
-  providers:       { claude: new AnthropicProvider(process.env.ANTHROPIC_API_KEY!) },
-  defaultProvider: 'claude',
-  agents: [{
-    id: 'assistant',
-    name: 'Assistant',
-    description: 'A helpful assistant',
-    systemPrompt: 'You are a helpful assistant.',
-    allowedTools: [],
-    delegatesTo: [],
-  }],
-});
+```typescript
+import {
+  AgentEngine,
+  AgentRegistry,
+  ToolRegistry,
+  ProviderRegistry,
+  defineTool,
+  z,
+  StdoutTransport,
+} from '@backendkit-labs/agent-core';
 
-await engine.run('Hello, what can you do?');
-```
-
-Or scaffold a full project:
-
-```bash
-npx create-bk-agent my-project
-```
-
----
-
-## Agent types
-
-| Factory | Package | Use case |
-|---------|---------|---------|
-| `createBaseEngine` | `agent-core` | Full control — bring your own agents, tools, provider |
-| `createCodingEngine` | `agent-coding` | Coding assistant with file tools, git, code execution |
-| `createAutonomousAgent` | `agent-core` | Event-driven — cron, webhooks, custom events |
-
----
-
-## Key APIs
-
-### `createBaseEngine(opts)`
-
-```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
-
-const engine = createBaseEngine({
-  providers:       { [id]: provider },   // LLMProvider instances
-  defaultProvider: 'my-provider',
-  agents:          [agentProfile],       // AgentProfile[]
-  tools:           [toolDef],            // ToolDefinition[]
-  defaultAgent:    'agent-id',
-  workingDir:      process.cwd(),        // for file tool sandboxing
-});
-
-await engine.run('user input');
-engine.abort();                          // cancel in-flight request
-engine.updateWorkingDir('/new/path');    // live workspace switch
-engine.reloadSkills();                   // reload YAML skills from disk
-```
-
-### `createAutonomousAgent(opts)`
-
-```ts
-import { createAutonomousAgent } from '@backendkit-labs/agent-core';
-
-const agent = createAutonomousAgent({
-  providers, defaultProvider, agents,
-  goal: 'Monitor PRs and flag security issues',
-  triggers: [
-    { type: 'schedule', cron: '0 9 * * 1-5', task: 'Send daily digest' },
-    { type: 'webhook',  path: '/github/pr',  secret: process.env.GH_SECRET },
-    { type: 'event',    topic: 'ci.failed' },
-  ],
-});
-
-await agent.start();
-process.on('SIGTERM', () => agent.stop());
-```
-
-### `defineTool(opts)`
-
-```ts
-import { defineTool, z } from '@backendkit-labs/agent-core';
-
-const myTool = defineTool({
-  name:        'get_weather',
-  description: 'Get current weather for a city',
+// 1. Define a tool
+const weatherTool = defineTool({
+  name: 'get_weather',
+  description: 'Returns current weather for a city',
   input: z.object({
     city: z.string().describe('City name'),
   }),
-  execute: async ({ city }) => {
-    return `Weather in ${city}: sunny, 22°C`;
+  execute: async ({ city }) => `Weather in ${city}: sunny, 22°C`,
+});
+
+// 2. Register tools and agents
+const tools = new ToolRegistry();
+tools.register(weatherTool);
+
+const agents = new AgentRegistry();
+agents.register({
+  id:           'general',
+  name:         'General Assistant',
+  systemPrompt: 'You are a helpful assistant. Use available tools when relevant.',
+  tools:        ['get_weather'],
+});
+
+// 3. Register an LLM provider
+const providers = new ProviderRegistry();
+providers.register('my-provider', myLLMProvider);
+
+// 4. Run
+const engine = new AgentEngine({
+  model:           { provider: 'my-provider', id: 'gpt-4o' },
+  agents,
+  tools,
+  providers,
+  defaultProvider: 'my-provider',
+  defaultAgentId:  'general',
+  transport:       new StdoutTransport(),
+  maxIterations:   10,
+  iterationMode:   'auto',
+});
+
+await engine.run("What's the weather in London?");
+```
+
+---
+
+## defineTool — typed tools with Zod
+
+`defineTool` wraps a function with a Zod input schema. The engine validates inputs before calling `execute`, and the TypeScript types flow through automatically.
+
+### Basic tool
+
+```typescript
+import { defineTool, z } from '@backendkit-labs/agent-core';
+
+const greetTool = defineTool({
+  name:        'greet',
+  description: 'Greet a user by name',
+  input:       z.object({ name: z.string() }),
+  execute:     async ({ name }) => `Hello, ${name}!`,
+});
+```
+
+### Optional parameters and defaults
+
+```typescript
+const searchTool = defineTool({
+  name:        'search_products',
+  description: 'Search the product catalog',
+  input: z.object({
+    query:    z.string().describe('Search term'),
+    category: z.string().optional().describe('Filter by category'),
+    limit:    z.number().min(1).max(50).default(10),
+    sort:     z.enum(['price_asc', 'price_desc', 'relevance']).default('relevance'),
+  }),
+  execute: async ({ query, category, limit, sort }) => {
+    const results = await db.products.search({ query, category, limit, sort });
+    return results.map(p => `${p.name} — $${p.price}`).join('\n');
   },
 });
 ```
 
-### `SkillManager` — install skill packs
+### Structured / nested input
 
-```ts
-import { createSkillManager } from '@backendkit-labs/agent-core';
+```typescript
+const createOrderTool = defineTool({
+  name:        'create_order',
+  description: 'Create a new customer order',
+  input: z.object({
+    customer: z.object({
+      id:    z.string(),
+      email: z.string().email(),
+    }),
+    items: z.array(z.object({
+      productId: z.string(),
+      qty:       z.number().int().positive(),
+    })).min(1),
+    shippingAddress: z.string(),
+    notes:           z.string().optional(),
+  }),
+  execute: async ({ customer, items, shippingAddress, notes }) => {
+    const order = await orders.create({ customer, items, shippingAddress, notes });
+    return `Order ${order.id} created for ${items.length} item(s).`;
+  },
+});
+```
+
+### Returning JSON
+
+Return a JSON string so the LLM can reason about structured data:
+
+```typescript
+const analyzeCodeTool = defineTool({
+  name:        'analyze_code',
+  description: 'Analyze code and return structured issues',
+  input: z.object({
+    code:     z.string(),
+    language: z.string(),
+  }),
+  execute: async ({ code, language }) => {
+    const issues = await analyzer.run(code, language);
+    return JSON.stringify({
+      issueCount: issues.length,
+      critical:   issues.filter(i => i.severity === 'critical'),
+      warnings:   issues.filter(i => i.severity === 'warning'),
+    });
+  },
+});
+```
+
+### Tool that throws (error signaling)
+
+When a tool throws, the engine catches the error and tells the LLM, which can retry with corrected arguments or apologize to the user:
+
+```typescript
+const lookupUserTool = defineTool({
+  name:        'lookup_user',
+  description: 'Look up a user by email',
+  input:       z.object({ email: z.string().email() }),
+  execute: async ({ email }) => {
+    const user = await db.users.findByEmail(email);
+    if (!user) throw new Error(`No user found with email ${email}`);
+    return JSON.stringify(user);
+  },
+});
+```
+
+---
+
+## AgentEngine — the execution core
+
+`AgentEngine` is the stateful agent runner. It owns the conversation loop, tool dispatch, multi-agent delegation, and iteration control.
+
+### Constructor options
+
+```typescript
+new AgentEngine({
+  // Required
+  model:           { provider: 'openai', id: 'gpt-4o' },
+  agents,
+  tools,
+  providers,
+  defaultProvider: 'openai',
+  defaultAgentId:  'general',
+
+  // I/O
+  transport:  new StdoutTransport(),
+  sessionId:  'session-xyz',
+
+  // Iteration control
+  maxIterations: 50,
+  iterationMode: 'auto',   // 'auto' | 'manual' | 'step-by-step' | 'interactive'
+
+  // Memory
+  sessionMemory: mySessionMemory,
+  memorySystem:  myMemorySystem,
+  historyPath:   '/path/to/history.json',
+
+  // MCP servers (connected lazily on first run)
+  mcpServers: [
+    { name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] }
+  ],
+
+  // Observability
+  observability: obsManager,
+  auditLog:      '/path/to/audit.ndjson',
+
+  // Context injected into the system prompt
+  projectContext: 'You are working in project X...',
+})
+```
+
+### Running the engine
+
+```typescript
+// Basic run — returns when done
+const result = await engine.run('Summarize the README.md file');
+console.log(result.final); // final assistant response
+
+// Run with a specific agent
+const result = await engine.run('Review this code for security issues', {
+  agentId: 'security-reviewer',
+});
+
+// Stream events to a UI
+const events: AgentEvent[] = [];
+await engine.run('Analyze the database schema', {
+  onEvent: (event) => {
+    if (event.type === 'chunk') process.stdout.write(event.content);
+    events.push(event);
+  },
+});
+```
+
+### Iteration modes
+
+| Mode | Behavior |
+|------|----------|
+| `'auto'` | Runs until complete or `maxIterations` reached |
+| `'manual'` | Pauses before write/execute tool calls, calls `onToolApproval` |
+| `'step-by-step'` | Calls `onStep` after every iteration; return `false` to stop |
+| `'interactive'` | Calls `onIterationLimit` when cap is reached; return `true` to continue |
+
+```typescript
+// Manual approval — user approves destructive tool calls
+const engine = new AgentEngine({
+  ...opts,
+  iterationMode:  'manual',
+  onToolApproval: async (toolName, agentId, argsPreview) => {
+    console.log(`[${agentId}] → ${toolName}:`, argsPreview);
+    const answer = await prompt('Approve? (y/n/all) ');
+    if (answer === 'y')   return 'approve';
+    if (answer === 'all') return 'approve_all';
+    return 'reject';
+  },
+});
+```
+
+```typescript
+// Step-by-step — inspect each iteration
+const engine = new AgentEngine({
+  ...opts,
+  iterationMode: 'step-by-step',
+  onStep: async (stats) => {
+    console.log(`Iteration ${stats.count}/${stats.max} — agent: ${stats.agentId}`);
+    return true; // false to stop
+  },
+});
+```
+
+### Multi-turn sessions
+
+The engine retains conversation history between `run()` calls on the same instance:
+
+```typescript
+await engine.run('My name is Alice.');
+await engine.run("What's my name?"); // → "Your name is Alice."
+```
+
+---
+
+## createBaseEngine — high-level factory
+
+`createBaseEngine` assembles all internals from a flat options object so you don't have to instantiate registries manually.
+
+```typescript
+import { createBaseEngine } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
+  providers:       { openai: myOpenAIProvider },
+  defaultProvider: 'openai',
+  agents:          myAgentList,        // AgentProfile[]
+  tools:           myToolList,         // ToolDefinition[]
+  defaultAgent:    'general',
+  transport:       new StdoutTransport(),
+  maxIterations:   100,
+  workingDir:      process.cwd(),
+});
+
+await engine.run('Hello!');
+```
+
+### With MCP servers and orchestration
+
+```typescript
+const engine = createBaseEngine({
+  providers:       { anthropic: myAnthropicProvider },
+  defaultProvider: 'anthropic',
+  agents:          myAgents,
+  tools:           myTools,
+  defaultAgent:    'general',
+  mcpServers: [
+    {
+      name:    'github',
+      command: 'npx',
+      args:    ['-y', '@modelcontextprotocol/server-github'],
+      env:     { GITHUB_TOKEN: process.env.GITHUB_TOKEN! },
+    },
+    {
+      name:    'postgres',
+      command: 'npx',
+      args:    ['-y', '@modelcontextprotocol/server-postgres', process.env.DATABASE_URL!],
+    },
+  ],
+  orchestration: true,       // enables intent detection + domain routing + QA review
+});
+```
+
+---
+
+## Providers
+
+Providers wrap LLM APIs and implement the `LLMProvider` interface. `ProviderRegistry` holds named providers that the engine selects per-agent.
+
+```typescript
+import { ProviderRegistry } from '@backendkit-labs/agent-core';
+
+const providers = new ProviderRegistry();
+
+// Register multiple providers — engine selects per-agent or falls back to defaultProvider
+providers.register('openai',    openAIProvider);
+providers.register('anthropic', anthropicProvider);
+providers.register('local',     ollamaProvider);
+```
+
+### Custom LLM provider
+
+Implement `LLMProvider` to add any API:
+
+```typescript
+import type { LLMProvider, LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@backendkit-labs/agent-core';
+
+class MyProvider implements LLMProvider {
+  async chat(
+    messages:  LLMMessage[],
+    tools:     ToolDefinition[],
+    callbacks: LLMStreamCallbacks,
+  ): Promise<void> {
+    const stream = await myAPI.stream({ messages, tools });
+    for await (const chunk of stream) {
+      if (chunk.type === 'text')     callbacks.onChunk(chunk.text);
+      if (chunk.type === 'tool_use') callbacks.onToolCall({ id: chunk.id, name: chunk.name, arguments: chunk.input });
+    }
+    callbacks.onDone();
+  }
+}
+
+providers.register('my-api', new MyProvider());
+```
+
+---
+
+## Transports
+
+Transports receive `AgentEvent` objects and deliver them to consumers.
+
+### StdoutTransport
+
+Prints events as formatted text — good for CLI tools:
+
+```typescript
+import { StdoutTransport } from '@backendkit-labs/agent-core';
+const engine = new AgentEngine({ ...opts, transport: new StdoutTransport() });
+```
+
+### CallbackTransport
+
+Routes events to your own function — use this for server integrations or streaming UIs:
+
+```typescript
+import { CallbackTransport } from '@backendkit-labs/agent-core';
+
+const transport = new CallbackTransport((event) => {
+  switch (event.type) {
+    case 'chunk':      process.stdout.write(event.content); break;
+    case 'tool_call':  console.log(`[tool] ${event.name}`); break;
+    case 'agent_switch': console.log(`→ ${event.to}`); break;
+    case 'done':       console.log('\n[done]'); break;
+  }
+});
+```
+
+### AgentEvent types
+
+| Type | Key fields | Description |
+|------|-----------|-------------|
+| `'chunk'` | `content: string` | Incremental LLM token |
+| `'tool_call'` | `name, args, result` | Tool called and returned |
+| `'agent_switch'` | `from, to` | Multi-agent delegation |
+| `'iteration'` | `count, max` | Iteration counter |
+| `'done'` | `final: string` | Run completed |
+| `'error'` | `message: string` | Recoverable error |
+
+---
+
+## SessionMemory
+
+`SessionMemory` stores conversation messages for the current session. `AgentEngine` manages it automatically; use it directly for custom initialization or testing.
+
+```typescript
+import { SessionMemory } from '@backendkit-labs/agent-core';
+
+const memory = new SessionMemory();
+
+// Seed with prior context
+memory.addMessage({ role: 'user',      content: 'My name is Alice.' });
+memory.addMessage({ role: 'assistant', content: 'Nice to meet you, Alice!' });
+
+const engine = new AgentEngine({ ...opts, sessionMemory: memory });
+
+await engine.run("What's my name?"); // → "Your name is Alice."
+```
+
+---
+
+## MCP client
+
+`MCPClientManager` connects to external MCP (Model Context Protocol) servers, discovers their tools, and makes them available to the engine. Supports stdio, Streamable HTTP, and SSE transports.
+
+### Stdio (most common)
+
+```typescript
+import { MCPClientManager } from '@backendkit-labs/agent-core';
+
+const mcp = new MCPClientManager();
+
+await mcp.connectStdio({
+  name:    'filesystem',
+  command: 'npx',
+  args:    ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+  env:     {},
+});
+
+const tools = mcp.getTools(); // ToolDefinition[] — discovered from the server
+```
+
+### HTTP transport
+
+```typescript
+await mcp.connectStreamableHTTP({
+  name:    'remote-server',
+  baseUrl: 'https://mcp.example.com',
+  apiKey:  process.env.MCP_API_KEY,
+});
+```
+
+### SSE transport (legacy servers)
+
+```typescript
+await mcp.connectSSE({
+  name: 'legacy-server',
+  url:  'http://localhost:8080/sse',
+});
+```
+
+### Multiple servers via engine options
+
+Passing `mcpServers` to `createBaseEngine` or `AgentEngine` is the recommended path — the engine manages the lifecycle, retries, and disconnect detection:
+
+```typescript
+const engine = createBaseEngine({
+  ...opts,
+  mcpServers: [
+    { name: 'github',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'],   env: { GITHUB_TOKEN: '...' } },
+    { name: 'slack',    command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'],     env: { SLACK_TOKEN: '...' } },
+    { name: 'postgres', command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres'],  env: { DATABASE_URL: '...' } },
+  ],
+});
+```
+
+### Disconnect detection (health monitoring)
+
+The client detects server crashes via `client.onclose` and marks them `'failed'`, preventing stale `'connected'` state:
+
+```typescript
+// The engine's MCPRegistrar wires this automatically.
+// For manual use:
+mcp.setDisconnectHandler((serverName) => {
+  console.warn(`MCP server "${serverName}" disconnected`);
+  // Re-attempt connection on next engine.run() call
+});
+```
+
+---
+
+## Workflow engine
+
+Build declarative multi-agent workflows with `WorkflowBuilder`. Steps can run sequentially, in parallel, or conditionally.
+
+### Sequential workflow
+
+```typescript
+import { workflow, agent } from '@backendkit-labs/agent-core';
+
+const reviewPipeline = workflow('code-review')
+  .step('fetch',   agent('general',           'List all TypeScript files in src/'))
+  .step('analyze', agent('security-reviewer', 'Review the files for security issues'))
+  .step('report',  agent('general',           'Summarize the findings into a report'));
+
+const result = await engine.runWorkflow(reviewPipeline);
+console.log(result.steps.report.output);
+```
+
+### Context passing between steps
+
+Steps reference previous outputs with `{{stepName.output}}`:
+
+```typescript
+const dataPipeline = workflow('etl')
+  .step('ingest',    agent('data-agent', 'Read /data/sales.csv'))
+  .step('transform', agent('data-agent', 'Clean {{ingest.output}}: fix nulls, normalize dates'))
+  .step('analyze',   agent('analyst',    'Find the top 5 trends in: {{transform.output}}'));
+```
+
+### Parallel steps
+
+```typescript
+const auditWorkflow = workflow('full-audit')
+  .parallel([
+    agent('frontend-agent',  'Audit React components for accessibility'),
+    agent('backend-agent',   'Audit API endpoints for security'),
+    agent('database-agent',  'Audit database schema for missing indexes'),
+  ])
+  .step('merge', agent('general', 'Synthesize all three audit reports'));
+```
+
+### Conditional steps
+
+```typescript
+const smartReview = workflow('smart-review')
+  .step('classify', agent('general', 'Classify this PR: feature, bug fix, or refactor. Reply with just the type.'))
+  .when('{{classify.output}} includes "bug"',
+    agent('qa-engineer', 'Focus on regression risk and edge cases')
+  )
+  .otherwise(
+    agent('general', 'Perform a standard code quality review')
+  );
+```
+
+### WorkflowRunner (direct usage)
+
+```typescript
+import { WorkflowRunner } from '@backendkit-labs/agent-core';
+
+const runner = new WorkflowRunner(engine);
+const result = await runner.run(myWorkflow, {
+  initialContext: { projectName: 'my-app', version: '2.0' },
+  onStepStart:    (name) => console.log(`▶ ${name}`),
+  onStepDone:     (name, out) => console.log(`✓ ${name}: ${out.slice(0, 80)}`),
+});
+
+// result.steps  — Map<stepName, { output, durationMs }>
+// result.total  — total wall time in ms
+// result.failed — boolean
+```
+
+---
+
+## Advanced memory system
+
+Beyond session history, agents can use a three-layer persistent memory. Each layer is independently configurable and backed by a pluggable store.
+
+| Layer | Purpose | Use case |
+|-------|---------|---------|
+| `EpisodicMemory` | What happened — events and interactions | "Last week we refactored auth" |
+| `SemanticMemory` | What is known — facts and domain knowledge | "Alice owns the auth module" |
+| `ProceduralMemory` | How to do it — step-by-step patterns | "Deploy: build → push → apply" |
+
+### Creating a full memory system
+
+```typescript
+import { createMemorySystem } from '@backendkit-labs/agent-core';
+
+const memory = createMemorySystem({
+  episodic: {
+    provider: 'json',
+    path:     '~/.bk-agent/projects/my-project/memory/episodes.json',
+  },
+  semantic: {
+    provider: 'json',
+    path:     '~/.bk-agent/projects/my-project/memory/knowledge.json',
+  },
+  procedural: {
+    provider: 'json',
+    path:     '~/.bk-agent/projects/my-project/memory/patterns.json',
+  },
+  retention: {
+    maxEpisodes:   500,
+    summarizeAfter: 50,
+    // Optional: compress old episodes with an LLM summary
+    summarizeFn: async (episodes) => {
+      const list = episodes.map((e, i) => `${i + 1}. ${e.content}`).join('\n');
+      return await llm.summarize(list);
+    },
+  },
+});
+
+// Pass to engine
+const engine = new AgentEngine({ ...opts, memorySystem: memory });
+```
+
+### Using each layer directly
+
+```typescript
+const { episodic, semantic, procedural } = memory;
+
+// --- Episodic ---
+await episodic.add({
+  content:   'User asked to refactor the auth module',
+  tags:      ['refactor', 'auth'],
+  timestamp: Date.now(),
+});
+
+const recentAuth = await episodic.search('auth', { limit: 5 });
+// [{ id, content, tags, timestamp }, ...]
+
+// --- Semantic ---
+await semantic.add({
+  key:   'auth-module-owner',
+  value: 'Alice (Backend Team)',
+  tags:  ['ownership', 'auth'],
+});
+
+const owner = await semantic.get('auth-module-owner');
+// 'Alice (Backend Team)'
+
+const authKnowledge = await semantic.search('auth', { limit: 10 });
+
+// --- Procedural ---
+await procedural.add({
+  name:  'deploy-to-staging',
+  steps: ['npm run build', 'docker build .', 'kubectl apply -f k8s/staging/'],
+  tags:  ['deployment'],
+});
+
+const deploySteps = await procedural.get('deploy-to-staging');
+```
+
+### In-memory store (testing)
+
+```typescript
+import { InMemoryStore, EpisodicMemory } from '@backendkit-labs/agent-core';
+
+const episodic = new EpisodicMemory(new InMemoryStore());
+await episodic.add({ content: 'test event', tags: [], timestamp: Date.now() });
+```
+
+### JSON file store (production)
+
+```typescript
+import { JsonFileStore, SemanticMemory } from '@backendkit-labs/agent-core';
+
+const semantic = new SemanticMemory(new JsonFileStore('/app/data/knowledge.json'));
+```
+
+### Memory tools (agents writing their own memory)
+
+`buildMemoryTools()` creates tool definitions that let agents read and write all three memory layers:
+
+```typescript
+import { buildMemoryTools } from '@backendkit-labs/agent-core';
+
+const memTools = buildMemoryTools(memory);
+// Returns: remember_episode, recall_episodes, store_knowledge, recall_knowledge,
+//          store_pattern, recall_pattern
+
+memTools.forEach(t => tools.register(t));
+```
+
+---
+
+## Observability
+
+`ObservabilityManager` ties together cost tracking, metrics collection, and distributed tracing.
+
+### Enable observability on the engine
+
+```typescript
+import { ObservabilityManager } from '@backendkit-labs/agent-core';
+
+const obs = new ObservabilityManager({
+  costTracking:   true,
+  metricsEnabled: true,
+  tracing:        true,
+});
+
+const engine = new AgentEngine({ ...opts, observability: obs });
+```
+
+### Cost tracking
+
+```typescript
+import { CostTracker, MODEL_PRICING } from '@backendkit-labs/agent-core';
+
+const tracker = new CostTracker();
+
+// MODEL_PRICING[model] = { input: $/1M tokens, output: $/1M tokens }
+console.log(MODEL_PRICING['gpt-4o']);         // { input: 2.50, output: 10.00 }
+console.log(MODEL_PRICING['claude-sonnet-4-6']); // { input: 3.00, output: 15.00 }
+
+tracker.record({ model: 'gpt-4o', inputTokens: 1500, outputTokens: 200 });
+
+console.log(`Cost: $${tracker.getTotalCostUSD().toFixed(6)}`); // $0.005750
+```
+
+### Metrics snapshot
+
+```typescript
+import { MetricsCollector } from '@backendkit-labs/agent-core';
+
+const metrics = new MetricsCollector();
+
+// After some runs:
+const snap = metrics.getSnapshot();
+// {
+//   sessionsActive:  3,
+//   runsTotal:       47,
+//   runsSucceeded:   44,
+//   runsFailed:       3,
+//   avgDurationMs:  1823,
+// }
+```
+
+### Custom span exporter
+
+Export traces to Jaeger, Honeycomb, Datadog, or any OpenTelemetry backend:
+
+```typescript
+import { Tracer } from '@backendkit-labs/agent-core';
+
+const tracer = new Tracer({
+  onSpan: (span) => {
+    honeycomb.sendEvent({
+      'span.name':     span.name,
+      'duration_ms':   span.durationMs,
+      'agent.id':      span.agentId,
+      'tool.calls':    span.toolCallCount,
+    });
+  },
+});
+```
+
+### Audit log (NDJSON)
+
+Every tool call can be logged to a newline-delimited JSON file:
+
+```typescript
+const engine = new AgentEngine({
+  ...opts,
+  auditLog: '/var/log/agent-audit.ndjson',
+  // Each line: { ts, agentId, toolName, args, result, durationMs }
+});
+```
+
+---
+
+## Skills and slash commands
+
+Skills are reusable prompt snippets that augment agent behavior. Slash commands let users invoke agent features directly.
+
+### Loading built-in skills
+
+```typescript
+import { SkillLoader, createSkillManager } from '@backendkit-labs/agent-core';
 
 const manager = createSkillManager('my-app');
-await manager.install('https://github.com/my-org/my-skills');
+
+// Install a skill pack from GitHub
+await manager.install({
+  source: 'github:backendkit-labs/skills#main',
+  pack:   'backend',
+});
+
+const installed = manager.listInstalled();
+// [{ id, name, pack, version }, ...]
+```
+
+### Inline skill definition
+
+```typescript
+import { SkillRegistry, SkillActivator } from '@backendkit-labs/agent-core';
+
+const registry = new SkillRegistry();
+
+registry.register({
+  id:          'pr-review',
+  name:        'PR Review',
+  description: 'Perform a thorough pull request review',
+  prompt:      `
+    Review this pull request with the following criteria:
+    1. Correctness — does the code do what the PR description claims?
+    2. Security — any new attack surface?
+    3. Performance — any obvious regressions?
+    4. Tests — are changes covered?
+    Output a concise review with LGTM or CHANGES REQUESTED at the end.
+  `,
+  tags: ['github', 'review'],
+});
+
+const activator = new SkillActivator(registry);
+const systemContext = activator.buildContext(['pr-review']);
+// Returns the skill prompt injected into the system context
 ```
 
 ### Slash commands
 
-```ts
+Built-in commands: `/help`, `/clear`, `/status`, `/skills`, `/agents`, `/workspace`, `/checkpoint`.
+
+```typescript
 import { SlashCommandRegistry, registerBuiltinCommands } from '@backendkit-labs/agent-core';
 
-const registry = new SlashCommandRegistry();
-registerBuiltinCommands(registry);  // adds /help /agents /skills /workspace /plugin etc.
+const cmds = new SlashCommandRegistry();
+registerBuiltinCommands(cmds);
 
-registry.register('/my-command', 'Description', async (ctx) => {
-  ctx.emit('Hello from my command!');
+// Custom command
+cmds.register({
+  name:        'deploy',
+  description: 'Trigger a deployment to an environment',
+  handler:     async (ctx) => {
+    const env = ctx.args[0] ?? 'staging';
+    await ci.triggerDeploy(env);
+    return `Deployment to ${env} triggered. Watch: https://ci.company.com/jobs/latest`;
+  },
 });
-```
 
-Built-in commands registered by `registerBuiltinCommands`:
-
-| Command | Description |
-|---------|-------------|
-| `/help` | List available commands |
-| `/agents` | List agents or switch active agent |
-| `/skills` | Manage skill packs — install, create, generate, update, uninstall |
-| `/workspace` | Manage multi-project workspaces — create, add, switch, remove |
-| `/plugin` | Manage MCP agent plugins — list, add, remove |
-| `/status` | Show current agent and model |
-| `/iteration` | Change iteration mode (interactive / auto / step-by-step) |
-| `/checkpoint` | Create, list, or load session checkpoints |
-
-### `/plugin` — MCP agent plugins
-
-Plugins are MCP servers that extend the agent with new tools (docker, k8s, etc.) without modifying the engine code. `/plugin add` installs the package via `npm install` into `~/.{appName}/plugins/<name>/` and launches it with `node` — no global installs, no npx overhead, works on Windows.
-
-Configuration is stored in `~/.{appName}/config.json` and loaded on next engine start.
-
-```bash
-# In the agent CLI
-/plugin list              # show active plugins
-/plugin add docker        # install @backendkit-labs/docker-agent
-/plugin add k8s           # install @backendkit-labs/k8s-agent
-/plugin remove docker     # remove a plugin (uninstalls package)
-```
-
-`/plugin add` auto-configures the plugin's LLM from the app's `defaultProvider` — no manual env editing needed:
-
-```jsonc
-// ~/.my-app/config.json (managed by /plugin add)
-{
-  "mcpServers": [
-    {
-      "name": "docker",
-      "command": "node",
-      "args": ["~/.my-app/plugins/docker/node_modules/@backendkit-labs/docker-agent/dist/mcp.js"],
-      "env": {
-        "LLM_PROVIDER": "deepseek",
-        "LLM_BASE_URL": "https://api.deepseek.com/v1",
-        "LLM_MODEL":    "deepseek-chat"
-      }
-    }
-  ]
+// Handle user input
+const input = '/deploy production';
+if (input.startsWith('/')) {
+  const response = await cmds.handle(input, agentContext);
+  console.log(response);
 }
 ```
 
-The `CommandContext` must have `appName` set for `/plugin` to know which config file to read:
+---
 
-```ts
-await registry.dispatch('/plugin add docker', {
-  emit: console.log,
-  appName: 'my-app',   // reads/writes ~/.my-app/config.json
+## Checkpoints
+
+Save and restore session state for recovery and branching.
+
+### Save a checkpoint
+
+```typescript
+import { createCheckpoint, listCheckpoints, readCheckpoint } from '@backendkit-labs/agent-core';
+
+// After a successful milestone
+await createCheckpoint({
+  sessionId:   'session-abc',
+  messages:    engine.getMessages(),
+  projectDir:  '/app/.bk-agent/projects/my-project',
+  description: 'After auth module refactor — all tests pass',
 });
+```
+
+### List and restore
+
+```typescript
+// List all checkpoints
+const summaries = await listCheckpoints('/app/.bk-agent/projects/my-project');
+// [{ id, timestamp, description, messageCount }, ...]
+
+// Restore a specific checkpoint
+const checkpoint = await readCheckpoint(summaries[0].id, '/app/.bk-agent/projects/my-project');
+
+const restoredMemory = new SessionMemory();
+restoredMemory.loadMessages(checkpoint.messages);
+
+const engine = new AgentEngine({ ...opts, sessionMemory: restoredMemory });
+await engine.run('Continue from where we left off');
+```
+
+### Compact a long session
+
+```typescript
+import { compactSession } from '@backendkit-labs/agent-core';
+
+// Compress a 200-message conversation to a short summary
+const compacted = await compactSession(
+  engine.getMessages(),
+  async (messages) => await llm.summarize(messages),
+);
+
+// Replace memory with compacted version to reduce context size
+engine.replaceMessages(compacted);
 ```
 
 ---
 
-## Per-agent model overrides
+## Workspaces
 
-Run routing/reasoning agents on a smarter model and tool-calling specialists on a cheaper one — without multiple engines or extra providers.
+Manage multiple projects and let agents switch context between them.
 
-### Same LLM, different models
+```typescript
+import {
+  loadWorkspaces, createWorkspace, addProject,
+  setActiveProject, buildWorkspaceContext,
+} from '@backendkit-labs/agent-core';
 
-Set `model` on the `AgentProfile`. The engine passes it as a per-call override; providers use `callbacks.model ?? this.model`, so agents without an override use the provider default unchanged.
+// One-time setup
+const config = await loadWorkspaces('my-app');
+await createWorkspace('my-app', 'work');
 
-```ts
-const engine = createBaseEngine({
-  providers: {
-    default: new OpenAICompatibleProvider({
-      apiKey:  process.env.LLM_API_KEY!,
-      baseUrl: 'https://api.deepseek.com/v1',
-      model:   'deepseek-chat',   // fallback for agents with no model override
-    }),
-  },
-  defaultProvider: 'default',
-  agents: [
-    { id: 'orchestrator', model: 'deepseek-reasoner', ... }, // smart — routing decisions
-    { id: 'coder',        model: 'deepseek-chat',     ... }, // fast  — bulk tool calls
-    { id: 'data-analyst', model: 'deepseek-chat',     ... }, // fast  — tool calls
-  ],
+await addProject('my-app', 'work', {
+  name: 'api-server',
+  path: '/home/user/projects/api-server',
 });
-```
 
-### Different LLM providers per agent
-
-Register multiple providers, then set `provider` on the agent profile. `model` is still a per-call override within the chosen provider.
-
-```ts
-const engine = createBaseEngine({
-  providers: {
-    deepseek:  new OpenAICompatibleProvider({
-      apiKey: process.env.DEEPSEEK_API_KEY!, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat',
-    }),
-    anthropic: new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY! }),
-  },
-  defaultProvider: 'deepseek',
-  agents: [
-    { id: 'coder',     provider: 'deepseek',  model: 'deepseek-chat'   },  // fast
-    { id: 'architect', provider: 'anthropic', model: 'claude-opus-4-8' },  // smart
-  ],
+await addProject('my-app', 'work', {
+  name: 'frontend',
+  path: '/home/user/projects/frontend',
 });
-```
 
-The two levels are independent:
+// Switch active project
+await setActiveProject('my-app', 'work', 'frontend');
 
-| Field | Selects | Fallback |
-|---|---|---|
-| `provider` | Which LLM backend (`ProviderRegistry`) | `defaultProvider` |
-| `model` | Which model within that backend | Provider's configured default |
-
----
-
-## Sub-path exports
-
-```ts
-import { ... } from '@backendkit-labs/agent-core';             // main
-import { ... } from '@backendkit-labs/agent-core/orchestration'; // Orchestrator, FSM, PolicyEngine
-import { ... } from '@backendkit-labs/agent-core/skills';        // SkillLoader, SkillManager
-import { ... } from '@backendkit-labs/agent-core/workflow';      // WorkflowBuilder, WorkflowRunner
-import { ... } from '@backendkit-labs/agent-core/triggers';      // TriggerManager, createAutonomousAgent
-import { ... } from '@backendkit-labs/agent-core/memory';        // MemorySystem, EpisodicMemory
-import { ... } from '@backendkit-labs/agent-core/observability'; // ObservabilityManager, Tracer
+// Build context string injected into the engine's system prompt
+const ctx = buildWorkspaceContext(await loadWorkspaces('my-app'));
+// "Active project: frontend (/home/user/projects/frontend)\nWorkspace: work\n..."
 ```
 
 ---
 
-## License
+## Autonomous agents and triggers
 
-MIT © [BackendKit Labs](https://github.com/BackendKit-labs)
+Create fire-and-forget agents that run on schedules or in response to events.
+
+### Scheduled agent (cron)
+
+```typescript
+import { createAutonomousAgent } from '@backendkit-labs/agent-core';
+
+const standupAgent = createAutonomousAgent({
+  engine:      myEngine,
+  schedule:    '0 9 * * 1-5',  // cron: weekdays at 9 AM
+  buildPrompt: () => 'Generate a daily standup summary from recent git commits and open PRs.',
+  onResult:    (output) => slack.postMessage('#standup', output),
+  onError:     (err) => logger.error('[standup-agent]', err),
+});
+
+await standupAgent.start();
+// Stops the cron job
+await standupAgent.stop();
+```
+
+### Event-driven agent
+
+```typescript
+import { EventBus } from '@backendkit-labs/agent-core';
+
+const eventBus = new EventBus();
+
+// Subscribe to an event
+eventBus.on('deployment.failed', async (payload) => {
+  const analysis = await engine.run(
+    `Investigate this deployment failure:\n${JSON.stringify(payload, null, 2)}`
+  );
+  await pagerduty.alert({ summary: analysis.final });
+});
+
+// Publish from your CI/CD system
+await eventBus.emit('deployment.failed', {
+  service:  'payment-api',
+  version:  '2.1.4',
+  errorLog: lastError,
+});
+```
+
+### TriggerManager (low-level)
+
+```typescript
+import { TriggerManager } from '@backendkit-labs/agent-core';
+
+const triggers = new TriggerManager();
+
+// Cron trigger
+triggers.addSchedule({
+  id:       'daily-report',
+  schedule: '0 8 * * *',
+  handler:  async () => engine.run('Generate daily report'),
+});
+
+// Webhook trigger
+triggers.addWebhook({
+  id:      'github-pr',
+  path:    '/webhooks/github',
+  handler: async (body) => engine.run(`Review PR: ${body.pull_request.title}`),
+});
+
+await triggers.start();
+```
+
+---
+
+## Delegation bus
+
+`DelegationBus` enables multi-agent collaboration — orchestrators delegate sub-tasks to specialized agents and collect results.
+
+```typescript
+import { DelegationBus } from '@backendkit-labs/agent-core';
+
+const bus = new DelegationBus();
+
+// Register specialized agents
+bus.register('security-agent', async (req) => ({
+  output:  (await securityEngine.run(req.prompt)).final,
+  agentId: 'security-agent',
+}));
+
+bus.register('data-agent', async (req) => ({
+  output:  (await dataEngine.run(req.prompt)).final,
+  agentId: 'data-agent',
+}));
+
+// Delegate from orchestrator
+const secResult = await bus.delegate({
+  targetAgentId: 'security-agent',
+  prompt:        'Audit this SQL query for injection risks: SELECT * FROM users WHERE id=' + input,
+  context:       currentMessages,
+});
+
+console.log(secResult.output);
+```
+
+---
+
+## Type reference
+
+Key types exported from `@backendkit-labs/agent-core`:
+
+```typescript
+// Engine
+AgentEngineOptions        // Full constructor options
+BaseEngineOptions         // Options for createBaseEngine
+
+// Agents
+AgentProfile              // { id, name, systemPrompt, tools, provider? }
+
+// Tools
+ToolDefinition            // { name, description, inputSchema, execute }
+TypedToolOptions          // Options for defineTool
+ExecutionContext           // Runtime context passed to tool.execute
+
+// LLM
+LLMProvider               // Interface for LLM adapters
+LLMMessage                // { role, content }
+LLMToolCall               // { id, name, arguments }
+LLMStreamCallbacks        // { onChunk, onToolCall, onDone, onError }
+ModelConfig               // { provider, id }
+
+// Memory
+SessionMemoryData         // Serialized session memory
+MemorySystemConfig        // createMemorySystem options
+MemoryStoreBackend        // 'json' | 'memory'
+Episode                   // Episodic memory entry
+Knowledge                 // Semantic memory entry
+Pattern                   // Procedural memory entry
+
+// MCP
+MCPServerConfig           // { name, command, args, env?, baseUrl?, url? }
+
+// Workflows
+WorkflowDef               // Compiled workflow definition
+WorkflowResult            // { steps, total, failed }
+WorkflowRunOptions        // WorkflowRunner.run() options
+
+// Iteration
+IterationMode             // 'auto' | 'manual' | 'step-by-step' | 'interactive'
+IterationStats            // { count, max, agentId }
+ToolApprovalDecision      // 'approve' | 'approve_all' | 'reject'
+
+// Observability
+ObservabilityConfig       // { costTracking, metricsEnabled, tracing }
+MetricsSnapshot           // Current counters snapshot
+Span                      // Tracing span
+SpanExporter              // Interface for custom exporters
+
+// Events
+AgentEvent                // Union of all transport event types
+```

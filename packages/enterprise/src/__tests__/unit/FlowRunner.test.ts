@@ -1,6 +1,7 @@
 import type { Transport } from '@backendkit-labs/agent-core';
 import { parseFlow } from '../../flow/FlowLoader';
 import { FlowRunner, interpolate } from '../../flow/FlowRunner';
+import { ComplianceGate } from '../../flow/ComplianceGate';
 import type { FlowTransition } from '../../flow/types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -309,5 +310,118 @@ describe('FlowRunner — compensation', () => {
         const result = await runner.run();
         expect(result.steps['preliquidacion'].status).toBe('skipped');
         expect(result.compensations).toEqual([]);
+    });
+});
+
+// ── FlowRunner: compliance gates ──────────────────────────────────────────────
+
+describe('FlowRunner — compliance gates', () => {
+    const GATE_FLOW = parseFlow(`
+flow: con-gate
+trigger: { type: manual }
+steps:
+  - id: ejecutar
+    agent: rrhh
+    prompt: "Ejecuta la tarea"
+    gate:
+      criteria:
+        - "Resultado documentado"
+        - "Sin errores en Odoo"
+      evaluator: auditor
+      evidence: required
+  - id: siguiente
+    agent: onboarding
+    after: [ejecutar]
+    prompt: "Paso siguiente"
+`);
+
+    it('calls onGateRequired after the step executes successfully', async () => {
+        const gateCalls: Array<{ stepId: string; output: string }> = [];
+
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'output del paso' }),
+            onGateRequired: async (gate, step, output) => {
+                gateCalls.push({ stepId: step.id, output });
+                gate.evaluateCriterion(0, 'auditor', true, 'ref-1');
+                gate.evaluateCriterion(1, 'auditor', true, 'ref-2');
+            },
+        });
+
+        const result = await runner.run();
+        expect(gateCalls).toHaveLength(1);
+        expect(gateCalls[0].stepId).toBe('ejecutar');
+        expect(gateCalls[0].output).toBe('output del paso');
+        expect(result.status).toBe('completed');
+    });
+
+    it('records gate_evaluation_started and gate_passed transitions', async () => {
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            onGateRequired: async (gate) => {
+                gate.evaluateCriterion(0, 'auditor', true, 'ev');
+                gate.evaluateCriterion(1, 'auditor', true, 'ev');
+            },
+        });
+        const result = await runner.run();
+        const events = result.transitions.filter(t => t.stepId === 'ejecutar').map(t => t.event);
+        expect(events).toContain('gate_evaluation_started');
+        expect(events).toContain('gate_passed');
+    });
+
+    it('fails the step when onGateRequired leaves the gate in pending state', async () => {
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            onGateRequired: async (_gate) => {
+                // only evaluates 1 of 2 criteria → verdict stays pending
+                _gate.evaluateCriterion(0, 'auditor', true, 'ev');
+            },
+        });
+        const result = await runner.run();
+        expect(result.steps['ejecutar'].status).toBe('failed');
+        expect(result.status).toBe('failed');
+        const events = result.transitions.filter(t => t.stepId === 'ejecutar').map(t => t.event);
+        expect(events).toContain('gate_failed');
+    });
+
+    it('fails the step when evaluator rejects the gate', async () => {
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            onGateRequired: async (gate) => {
+                gate.reject('auditor', 'output incompleto');
+            },
+        });
+        const result = await runner.run();
+        expect(result.steps['ejecutar'].status).toBe('failed');
+    });
+
+    it('auto-passes when onGateRequired is not provided', async () => {
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            // no onGateRequired
+        });
+        const result = await runner.run();
+        // Gate auto-passed → flow completes (same default as onApprovalRequired)
+        expect(result.status).toBe('completed');
+    });
+
+    it('skips onGateRequired for steps without gate criteria', async () => {
+        const gateCalls: string[] = [];
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            onGateRequired: async (_gate, step) => {
+                gateCalls.push(step.id);
+                _gate.evaluateCriterion(0, 'auditor', true, 'ev');
+                _gate.evaluateCriterion(1, 'auditor', true, 'ev');
+            },
+        });
+        await runner.run();
+        // Only 'ejecutar' has gate criteria; 'siguiente' does not
+        expect(gateCalls).toEqual(['ejecutar']);
     });
 });

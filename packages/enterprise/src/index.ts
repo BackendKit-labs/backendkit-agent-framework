@@ -43,6 +43,8 @@ export {
     FlowLoadError,
     FlowRunner,
     interpolate,
+    ComplianceGate,
+    ComplianceGateError,
 } from './flow';
 export type {
     FlowTrigger,
@@ -57,6 +59,11 @@ export type {
     FlowResult,
     FlowRunOptions,
     FlowAgentRunner,
+    GateCriterion,
+    GateLogEvent,
+    GateLogEntry,
+    GateRecord,
+    ComplianceGateOptions,
 } from './flow';
 
 // ── Factory ───────────────────────────────────────────────────────────────────

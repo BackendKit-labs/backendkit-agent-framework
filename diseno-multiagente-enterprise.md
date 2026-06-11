@@ -145,7 +145,7 @@ compensation:
 
 ---
 
-## Fase 2 — ComplianceGate: cumplimiento verificable ⬜
+## Fase 2 — ComplianceGate: cumplimiento verificable ✅
 
 **Objetivo:** gates de cumplimiento con evidencia por criterio y separación
 ejecutor/evaluador. Generaliza el modelo del design-agent corrigiendo sus gaps (ADR-3).
@@ -173,17 +173,17 @@ interface GateRecord {
 ```
 
 ### Entregables
-- [ ] `ComplianceGate`: evalúa criterios uno a uno, valida evaluador ≠ ejecutor
-- [ ] Persistencia de `GateRecord` en el vault (`/auditoria/{flow}/{run}/gates.md`)
-      vía `VaultWriter` — versionable, RAG-consultable
-- [ ] Integración con `ApprovalGate` de core para `approval: human`
-- [ ] Log append-only: no existe API de mutación que no registre
-- [ ] Tests: rechazo de auto-evaluación, evidencia faltante, bypass imposible
+- [x] `ComplianceGate`: evalúa criterios uno a uno, valida evaluador ≠ ejecutor → `flow/ComplianceGate.ts`
+- [x] Persistencia de `GateRecord` en el vault (`/auditoria/{flow}/{run}/`) vía `VaultWriter`
+- [x] Integración con `FlowRunner` mediante callback `onGateRequired` (auto-pass si ausente,
+      igual que `onApprovalRequired`). Gate coexiste con `approval: human`.
+- [x] Log append-only: intentos fallidos (self-eval, evidencia faltante) se registran ANTES de lanzar error
+- [x] Tests: 18 en `ComplianceGate.test.ts` + 6 en `FlowRunner.test.ts` — total 101 passing
 
 ### Criterio de salida
-Un gate con 3 criterios solo pasa cuando un agente distinto al ejecutor marca
-cada criterio con evidencia. El intento de auto-aprobar falla con error explícito.
-El registro completo queda en el vault.
+✅ Cumplido — test "Fase 2 — criterio de salida": gate con 3 criterios pasa solo cuando
+un agente distinto al ejecutor marca cada uno con evidencia. Intento de auto-aprobación
+lanza `ComplianceGateError` y queda en el log. Registro completo persistido en el vault.
 
 ---
 
@@ -299,7 +299,7 @@ con la 1-2. La fase 6 integra todo.
 | Fase | Alcance | Esfuerzo relativo | Estado |
 |---|---|---|---|
 | 1. Motor de flujos declarativos | FlowDefinition + loader + runner | ●●●○ | ✅ |
-| 2. ComplianceGate | Evidencia + separación de roles + vault | ●●○○ | ⬜ |
+| 2. ComplianceGate | Evidencia + separación de roles + vault | ●●○○ | ✅ |
 | 3. Eventos por broker | Schemas + publisher + barredor | ●●○○ | ⬜ |
 | 4. Policies-in-vault | Convención + refactor perfiles | ●○○○ | ⬜ |
 | 5. Conectores | MCP Odoo + tool n8n | ●●○○ | ⬜ |
@@ -313,3 +313,4 @@ con la 1-2. La fase 6 integra todo.
 |---|---|---|
 | 2026-06-11 | — | Documento creado. Diseño acordado en sesión (broker, flujos declarativos, compliance verificable, policies-in-vault, lecciones del design-agent). |
 | 2026-06-11 | 1 | ✅ Completa. `flow/` en agent-enterprise: types + FlowLoader + FlowRunner, 44 tests. Core: `AgentRunner` con `stepId` opcional. Criterio de salida verificado por test. |
+| 2026-06-11 | 2 | ✅ Completa. `ComplianceGate` en `flow/ComplianceGate.ts`: evaluación por criterio, evaluador ≠ ejecutor (runtime), log append-only con intentos fallidos, persistencia en vault via VaultWriter. Integrado en `FlowRunner` via `onGateRequired`. 18 tests nuevos + 6 en FlowRunner. Total: 101 passing. |

@@ -25,6 +25,7 @@ import {
     FlowTransition,
     FlowCompensationResult,
 } from './types';
+import { ComplianceGate, ComplianceGateError } from './ComplianceGate';
 
 export type FlowAgentRunner = (
     agentId: string,
@@ -47,8 +48,31 @@ export interface FlowRunOptions {
         step: FlowStep,
         previousOutputs: Record<string, string>,
     ) => Promise<boolean>;
+    /**
+     * Called after a step executes successfully when the step has a gate with
+     * `criteria` defined. Receives the pre-built `ComplianceGate` (already
+     * configured with executor, evidenceMode, and criteria from the YAML), the
+     * flow step, and the step's output.
+     *
+     * The callback must evaluate each criterion via `gate.evaluateCriterion()`.
+     * When it returns, `gate.verdict` is checked:
+     * - `'passed'` → step proceeds
+     * - anything else → step is marked failed
+     *
+     * If omitted, the gate is auto-passed (same default as `onApprovalRequired`).
+     */
+    onGateRequired?: (
+        gate: ComplianceGate,
+        step: FlowStep,
+        stepOutput: string,
+    ) => Promise<void>;
     /** Observer for the append-only transition log. */
     onTransition?: (transition: FlowTransition) => void;
+    /**
+     * Stable identifier for this run. Used in gate records persisted to the vault.
+     * Auto-generated when not provided.
+     */
+    runId?: string;
 }
 
 export class FlowRunner {
@@ -61,6 +85,7 @@ export class FlowRunner {
 
     async run(): Promise<FlowResult> {
         const stepsById = new Map(this.def.steps.map(s => [s.id, s]));
+        const runId = this.opts.runId ?? `run-${Date.now()}`;
 
         // ── Build the core workflow with interpolated prompts ────────────────
         const builder = new WorkflowBuilder(this.def.flow);
@@ -78,6 +103,35 @@ export class FlowRunner {
                 this.record({ stepId: stepId ?? '?', event: 'started' });
                 try {
                     const result = await this.opts.runAgent(agentId, input, context, stepId);
+
+                    // ── ComplianceGate evaluation ────────────────────────────
+                    const flowStep = stepsById.get(stepId!);
+                    const gate = flowStep?.gate;
+                    if (gate?.criteria?.length && gate.evaluator && this.opts.onGateRequired) {
+                        this.record({ stepId: stepId!, event: 'gate_evaluation_started' });
+                        const complianceGate = new ComplianceGate({
+                            stepId: stepId!,
+                            flowId: this.def.flow,
+                            runId,
+                            executor: agentId,
+                            criteria: gate.criteria,
+                            evidenceMode: gate.evidence ?? 'optional',
+                        });
+                        await this.opts.onGateRequired(complianceGate, flowStep!, result.content);
+                        if (complianceGate.verdict !== 'passed') {
+                            this.record({
+                                stepId: stepId!,
+                                event: 'gate_failed',
+                                detail: `verdict: ${complianceGate.verdict}`,
+                            });
+                            throw new ComplianceGateError(
+                                `gate for step "${stepId}" did not pass — verdict: ${complianceGate.verdict}`,
+                            );
+                        }
+                        this.record({ stepId: stepId!, event: 'gate_passed' });
+                    }
+                    // ────────────────────────────────────────────────────────
+
                     this.record({ stepId: stepId ?? '?', event: 'completed' });
                     return result;
                 } catch (err) {

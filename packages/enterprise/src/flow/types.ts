@@ -82,6 +82,9 @@ export type FlowTransitionEvent =
     | 'skipped'
     | 'rejected'
     | 'approval_requested'
+    | 'gate_evaluation_started'
+    | 'gate_passed'
+    | 'gate_failed'
     | 'compensation_started'
     | 'compensation_completed'
     | 'compensation_failed';

@@ -8,6 +8,8 @@
     "repl": "tsx src/repl.ts",
     "smoke": "tsx src/smoke-test.ts",
     "web": "tsx src/web-server.ts",
+    "paae": "tsx src/paae-pilot.ts",
+    "spike": "tsx src/llm-spike.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

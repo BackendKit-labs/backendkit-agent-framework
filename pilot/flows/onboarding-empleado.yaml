@@ -1,0 +1,91 @@
+flow: onboarding-empleado
+version: 1
+trigger:
+  type: manual
+
+# ── Steps ─────────────────────────────────────────────────────────────────────
+#
+# Sequence: welcome_draft → payroll_prep → manager_approval → confirm_onboarding
+# Agents communicate through the shared vault.
+# Policies are retrieved at runtime via domain search tools (ADR-4).
+
+steps:
+  - id: welcome_draft
+    agent: hr
+    prompt: |
+      A new employee is joining the company.
+      Employee name: {{payload.employee_name}}
+      Work email:    {{payload.employee_email}}
+      Department:    {{payload.department}}
+      Start date:    {{payload.start_date}}
+
+      Before drafting anything:
+      1. Use search_hr_kb to retrieve the current onboarding policy (search for "onboarding policy rrhh").
+      2. Draft a warm, professional welcome message for {{payload.employee_name}}.
+         Include: greeting, what to expect on day 1, and the key HR contacts to reach out to.
+      3. Use write_knowledge to save the welcome note in the vault.
+         Title it "Onboarding Welcome — {{payload.employee_name}}".
+
+  - id: payroll_prep
+    agent: finance
+    prompt: |
+      Prepare payroll readiness documentation for a new hire.
+      Employee name:        {{payload.employee_name}}
+      Department:           {{payload.department}}
+      Start date:           {{payload.start_date}}
+      Monthly gross salary: {{payload.salary}}
+
+      1. Use search_finance_kb to retrieve the current approval authority matrix
+         (search for "approval authority matrix finanzas").
+      2. Determine which approval levels apply to this salary level.
+      3. Use write_knowledge to save a "Payroll Readiness — {{payload.employee_name}}" note
+         documenting: applicable approval tier, whether pre-approvals are needed,
+         and overall payroll setup status (READY / PENDING).
+    after:
+      - welcome_draft
+
+  - id: manager_approval
+    agent: hr
+    prompt: |
+      Prepare an approval summary for the HR manager.
+
+      New hire: {{payload.employee_name}} | Department: {{payload.department}} | Start: {{payload.start_date}}
+
+      Search the vault for the welcome draft and payroll readiness notes written today
+      (search for "{{payload.employee_name}}").
+      Then produce a concise summary: is everything ready for approval? List any open items.
+    after:
+      - payroll_prep
+    gate:
+      approval: human
+
+  - id: confirm_onboarding
+    agent: hr
+    prompt: |
+      The onboarding package for {{payload.employee_name}} has been reviewed and approved
+      by the HR manager.
+
+      Use write_knowledge to save a final audit note titled
+      "Onboarding Confirmed — {{payload.employee_name}}" containing:
+
+      - Employee:    {{payload.employee_name}} ({{payload.employee_email}})
+      - Department:  {{payload.department}}
+      - Start date:  {{payload.start_date}}
+      - Status:      ONBOARDING APPROVED AND CONFIRMED
+      - Welcome:     SENT
+      - Payroll:     READY
+    after:
+      - manager_approval
+
+# ── Compensation ───────────────────────────────────────────────────────────────
+
+compensation:
+  - on: welcome_draft.failed
+    agent: hr
+    prompt: |
+      The welcome draft step failed for a new hire.
+      Employee: {{payload.employee_name}} | Department: {{payload.department}} | Start: {{payload.start_date}}
+
+      Use write_knowledge to save an alert note:
+      "ONBOARDING ALERT — Welcome draft failed for {{payload.employee_name}}.
+      Manual intervention required. Please contact HR immediately."

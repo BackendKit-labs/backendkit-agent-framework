@@ -5,6 +5,8 @@ export interface DeepSeekProviderOptions {
     apiKey: string;
     model?: string;
     maxRetries?: number;
+    /** Override the base URL. Defaults to DeepSeek API. Use http://localhost:11434/v1 for Ollama. */
+    baseUrl?: string;
 }
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -26,7 +28,7 @@ export class DeepSeekProvider implements LLMProvider {
     private readonly maxRetries: number;
 
     constructor(opts: DeepSeekProviderOptions) {
-        this.client     = new OpenAI({ apiKey: opts.apiKey, baseURL: DEEPSEEK_BASE_URL, maxRetries: 0 });
+        this.client     = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl ?? DEEPSEEK_BASE_URL, maxRetries: 0 });
         this.model      = opts.model ?? DEFAULT_MODEL;
         this.maxRetries = opts.maxRetries ?? 3;
     }

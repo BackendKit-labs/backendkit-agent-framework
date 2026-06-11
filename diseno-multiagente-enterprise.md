@@ -269,19 +269,23 @@ n8n real, ambos desde el REPL del piloto.
 
 ---
 
-## Fase 6 — Piloto PAAE end-to-end ⬜
+## Fase 6 — Piloto PAAE end-to-end ✅
 
 **Objetivo:** el flujo de onboarding completo definido SOLO con datos.
 Es el test de agnosticismo del framework.
 
 ### Entregables
-- [ ] `flows/onboarding-empleado.yaml` (fase 1) corriendo con agentes reales
-- [ ] Agentes definidos como pares `.json` + `.md` (mecanismo existente de `GlobalSeed`)
-- [ ] Políticas en el vault (fase 4)
-- [ ] Evento de contratación → broker → RRHH → [bienvenida ∥ preliquidación] →
-      aprobación humana → confirmación → auditoría completa en el vault
-- [ ] Spike de calidad LLM: mismo flujo con `llama3.2:3b` local vs DeepSeek,
-      mismo vault — documentar veredicto en el vault
+- [x] `pilot/flows/onboarding-empleado.yaml` — 4 pasos: welcome_draft (hr) →
+      payroll_prep (finance) → manager_approval (human gate) → confirm_onboarding (hr)
+      + compensación si welcome_draft falla
+- [x] Agentes usados: hr, finance (los 6 perfiles enterprise ya existentes desde Fase 4)
+- [x] Políticas en el vault — sembradas por `PolicySeeder.seed()` al arrancar el piloto
+- [x] `pilot/src/paae-pilot.ts` (`npm run paae`): re-indexa entre steps para que
+      cada agente encuentre notas escritas por el step anterior; audit trail completo en vault
+- [x] `pilot/src/llm-spike.ts` (`npm run spike`): DeepSeek vs Ollama llama3.2:3b
+      en el mismo prompt, escribe nota de comparación en `lecciones/`
+- [x] `DeepSeekProvider` extendido con `baseUrl?` para soportar endpoints compatibles
+      con OpenAI (Ollama `/v1`)
 
 ### Criterio de salida
 Definir un SEGUNDO flujo distinto (ej. solicitud de compra) toma < 1 día y

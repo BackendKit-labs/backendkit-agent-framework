@@ -7,7 +7,7 @@ import type {
     WorkflowStepResult,
 } from './types';
 
-type AgentRunner = (agentId: string, input: string, context?: string) => Promise<{ content: string }>;
+type AgentRunner = (agentId: string, input: string, context?: string, stepId?: string) => Promise<{ content: string }>;
 
 interface WorkflowRunnerOptions extends WorkflowRunOptions {
     runAgent: AgentRunner;
@@ -113,7 +113,7 @@ export class WorkflowRunner {
             : undefined;
 
         try {
-            const { content } = await this.opts.runAgent(step.agentId, step.input, context);
+            const { content } = await this.opts.runAgent(step.agentId, step.input, context, step.id);
             results[step.id] = { stepId: step.id, agentId: step.agentId, content, status: 'completed' };
             completed.add(step.id);
             this.opts.transport.emit({ type: 'workflow_step_complete', step: step.id, success: true });

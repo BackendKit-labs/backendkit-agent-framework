@@ -29,6 +29,36 @@ export {
     VAULT_FOLDERS,
 } from './profiles';
 
+// ── Declarative flows ─────────────────────────────────────────────────────────
+
+export {
+    FlowTriggerSchema,
+    FlowGateSchema,
+    FlowStepSchema,
+    FlowCompensationSchema,
+    FlowDefinitionSchema,
+    parseFlow,
+    loadFlow,
+    loadFlowsFromDir,
+    FlowLoadError,
+    FlowRunner,
+    interpolate,
+} from './flow';
+export type {
+    FlowTrigger,
+    FlowGate,
+    FlowStep,
+    FlowCompensation,
+    FlowDefinition,
+    FlowTransition,
+    FlowTransitionEvent,
+    FlowStepResult,
+    FlowCompensationResult,
+    FlowResult,
+    FlowRunOptions,
+    FlowAgentRunner,
+} from './flow';
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export { createEnterpriseSetup } from './factory';

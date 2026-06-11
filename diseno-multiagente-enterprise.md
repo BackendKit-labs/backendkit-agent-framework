@@ -87,7 +87,7 @@ fase 4: el uso real decide qué se consolida.
 
 ---
 
-## Fase 1 — Motor de flujos declarativos ⬜
+## Fase 1 — Motor de flujos declarativos ✅
 
 **Objetivo:** flujos de negocio definidos en YAML, interpretados sobre
 `WorkflowBuilder`/`WorkflowRunner` (core, stable). La pieza que fija el patrón
@@ -130,16 +130,18 @@ compensation:
 ```
 
 ### Entregables
-- [ ] Tipos `FlowDefinition`, `FlowStep`, `FlowGate` + schema Zod de validación
-- [ ] `FlowLoader`: YAML → validación → `WorkflowBuilder`
-- [ ] `FlowRunner`: ejecución con resolución de `after` (DAG simple), interpolación
-      de `{{payload}}`, registro de cada transición
-- [ ] Soporte `compensation` (pasos de reversa on-failure)
-- [ ] Tests: carga válida/inválida, DAG con paralelos, compensación
+- [x] Tipos `FlowDefinition`, `FlowStep`, `FlowGate` + schema Zod de validación → `flow/types.ts`
+- [x] `FlowLoader`: YAML → validación estructural (Zod) + semántica (dup ids, refs,
+      ciclos, coherencia de trigger, evaluador ≠ ejecutor estático) → `flow/FlowLoader.ts`
+- [x] `FlowRunner`: envuelve `WorkflowRunner` de core, interpolación `{{payload.x.y}}`,
+      log de transiciones append-only → `flow/FlowRunner.ts`
+- [x] Soporte `compensation` (corre solo para steps `failed`, no `skipped`)
+- [x] Tests: 44 (FlowLoader 22 + FlowRunner 22)
+- [x] Cambio mínimo en core: `AgentRunner` recibe `stepId` opcional (retrocompatible)
 
 ### Criterio de salida
-Un flujo de 3 pasos con dependencias se define SOLO en YAML y corre end-to-end
-con agentes mock. Cero código específico del flujo.
+✅ Cumplido — test "runs a 3-step DAG defined only in YAML end-to-end": flujo de
+3 pasos con dependencias, definido solo en YAML, corre con agentes mock.
 
 ---
 
@@ -296,7 +298,7 @@ con la 1-2. La fase 6 integra todo.
 
 | Fase | Alcance | Esfuerzo relativo | Estado |
 |---|---|---|---|
-| 1. Motor de flujos declarativos | FlowDefinition + loader + runner | ●●●○ | ⬜ |
+| 1. Motor de flujos declarativos | FlowDefinition + loader + runner | ●●●○ | ✅ |
 | 2. ComplianceGate | Evidencia + separación de roles + vault | ●●○○ | ⬜ |
 | 3. Eventos por broker | Schemas + publisher + barredor | ●●○○ | ⬜ |
 | 4. Policies-in-vault | Convención + refactor perfiles | ●○○○ | ⬜ |
@@ -310,3 +312,4 @@ con la 1-2. La fase 6 integra todo.
 | Fecha | Fase | Avance |
 |---|---|---|
 | 2026-06-11 | — | Documento creado. Diseño acordado en sesión (broker, flujos declarativos, compliance verificable, policies-in-vault, lecciones del design-agent). |
+| 2026-06-11 | 1 | ✅ Completa. `flow/` en agent-enterprise: types + FlowLoader + FlowRunner, 44 tests. Core: `AgentRunner` con `stepId` opcional. Criterio de salida verificado por test. |

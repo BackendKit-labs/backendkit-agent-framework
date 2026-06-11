@@ -49,17 +49,9 @@ function Section({ def, runs }: SectionProps) {
         {total === 0 ? (
           <p className="text-center text-xs text-muted-foreground/40 py-2">vacío</p>
         ) : (
-          <div className="flex flex-wrap gap-3">
-            {mainRuns.map(run => (
-              <div key={run.id} className="w-72 shrink-0">
-                <KanbanCard run={run} />
-              </div>
-            ))}
-            {errorRuns.map(run => (
-              <div key={run.id} className="w-72 shrink-0">
-                <KanbanCard run={run} />
-              </div>
-            ))}
+          <div className="flex flex-col gap-2">
+            {mainRuns.map(run => <KanbanCard key={run.id} run={run} />)}
+            {errorRuns.map(run => <KanbanCard key={run.id} run={run} />)}
           </div>
         )}
       </div>

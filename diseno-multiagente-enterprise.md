@@ -248,18 +248,20 @@ comportamiento cambia sin redeploy.
 
 ---
 
-## Fase 5 — Conectores de integración ⬜
+## Fase 5 — Conectores de integración ✅
 
 **Objetivo:** las integraciones externas como servidores MCP + tool n8n.
 Patrón ya probado en `mcp-connectors` (HubSpot, Jira, GCal).
 
 ### Entregables
-- [ ] Servidor MCP **Odoo** (módulos empleados + nómina): `odoo_employee_create`,
-      `odoo_employee_get`, `payroll_prepare`, `payroll_confirm`
-      — mismo patrón de auth por env vars, binarios stdio/HTTP,
-      y el fix conocido del hang de TypeScript (`t = srv.tool.bind(srv) as any`)
-- [ ] Tool `n8n_trigger`: POST a webhook de n8n con payload + correlation id
-- [ ] Documentación de cada conector (env vars, ejemplos)
+- [x] Servidor MCP **Odoo** (`packages/mcp-connectors/src/odoo/server.ts`):
+      `odoo_employee_create`, `odoo_employee_get`, `payroll_prepare`, `payroll_confirm`
+      — auth via `ODOO_URL/DB/USER/PASSWORD`, binario `bk-mcp-odoo` stdio/HTTP,
+      `t = srv.tool.bind(srv) as any` fix, sesión JSON-RPC cacheada
+- [x] Tool `n8n_trigger` (`packages/enterprise/src/integrations/n8nTriggerTool.ts`):
+      POST con `{ event, correlationId, ...payload }` — opt-in via `n8nWebhookUrl` en factory
+      o env var `N8N_WEBHOOK_URL`; 11 tests
+- [x] `mcp-connectors@0.1.2` · `agent-enterprise@0.3.6` · 186 tests
 
 ### Criterio de salida
 Un agente crea un empleado en Odoo de pruebas vía MCP y dispara un workflow

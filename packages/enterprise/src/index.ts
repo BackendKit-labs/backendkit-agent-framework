@@ -85,6 +85,11 @@ export type {
     ReconciliationReport,
 } from './events';
 
+// ── Integrations ──────────────────────────────────────────────────────────────
+
+export { createN8nTriggerTool } from './integrations';
+export type { N8nTriggerOptions } from './integrations';
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export { createEnterpriseSetup } from './factory';

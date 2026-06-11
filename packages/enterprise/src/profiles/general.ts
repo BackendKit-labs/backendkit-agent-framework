@@ -25,6 +25,7 @@ Always be direct and business-focused. Cite your sources.`,
         ENTERPRISE_TOOLS.SEARCH_GENERAL,
         ENTERPRISE_TOOLS.WRITE_KNOWLEDGE,
         ENTERPRISE_TOOLS.ASK_AGENT,
+        ENTERPRISE_TOOLS.N8N_TRIGGER,
     ],
     delegatesTo: ['support', 'hr', 'sales', 'finance', 'ops'],
 };

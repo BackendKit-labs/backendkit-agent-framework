@@ -1,13 +1,14 @@
 {
   "name": "@backendkit-labs/mcp-connectors",
-  "version": "0.1.1",
-  "description": "Enterprise MCP connectors — HubSpot CRM, Jira, Google Calendar",
+  "version": "0.1.2",
+  "description": "Enterprise MCP connectors — HubSpot CRM, Jira, Google Calendar, Odoo ERP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "bk-mcp-hubspot": "./dist/hubspot/server.js",
     "bk-mcp-jira":    "./dist/jira/server.js",
-    "bk-mcp-gcal":    "./dist/gcal/server.js"
+    "bk-mcp-gcal":    "./dist/gcal/server.js",
+    "bk-mcp-odoo":    "./dist/odoo/server.js"
   },
   "files": ["dist/", "README.md"],
   "repository": {

@@ -8,6 +8,8 @@ export const ENTERPRISE_TOOLS = {
     SEARCH_OPS:        'search_ops_kb',
     WRITE_KNOWLEDGE:   'write_knowledge',
     ASK_AGENT:         'ask_agent',
+    /** Registered when EnterpriseSetupOptions.n8nWebhookUrl is provided. */
+    N8N_TRIGGER:       'n8n_trigger',
 } as const;
 
 /** Vault subfolder for each department. */

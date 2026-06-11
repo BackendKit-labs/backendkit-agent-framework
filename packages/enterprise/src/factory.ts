@@ -19,6 +19,7 @@ import {
     ENTERPRISE_TOOLS,
     VAULT_FOLDERS,
 } from './profiles';
+import { createN8nTriggerTool } from './integrations';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,12 @@ export interface EnterpriseSetupOptions {
     extraProfiles?: AgentProfile[];
     /** Max iterations per engine run. Default: 20. */
     maxIterations?: number;
+    /**
+     * n8n webhook URL. When provided, registers the `n8n_trigger` tool so agents
+     * with it in their allowedTools (e.g. the General agent) can fire n8n workflows.
+     * Falls back to N8N_WEBHOOK_URL env var if omitted.
+     */
+    n8nWebhookUrl?: string;
 }
 
 export interface EnterpriseSetup {
@@ -141,6 +148,12 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
 
         // Write to vault
         tools.register(writer.createTool('general'));
+
+        // n8n integration (opt-in — only when a webhook URL is configured)
+        const n8nUrl = opts.n8nWebhookUrl ?? process.env.N8N_WEBHOOK_URL;
+        if (n8nUrl) {
+            tools.register(createN8nTriggerTool({ webhookUrl: n8nUrl }));
+        }
 
         // Agents
         const agents = new AgentRegistry();

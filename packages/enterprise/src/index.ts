@@ -14,3 +14,22 @@ export { VaultWriter } from './rag/VaultWriter';
 export type { VaultWriterOptions, WriteNoteParams } from './rag/VaultWriter';
 
 export { SimpleEmbedder } from './rag/SimpleEmbedder';
+
+// ── Enterprise profiles ───────────────────────────────────────────────────────
+
+export {
+    GENERAL_PROFILE,
+    SUPPORT_PROFILE,
+    HR_PROFILE,
+    SALES_PROFILE,
+    FINANCE_PROFILE,
+    OPS_PROFILE,
+    ALL_ENTERPRISE_PROFILES,
+    ENTERPRISE_TOOLS,
+    VAULT_FOLDERS,
+} from './profiles';
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+export { createEnterpriseSetup } from './factory';
+export type { EnterpriseSetupOptions, EnterpriseSetup } from './factory';

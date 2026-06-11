@@ -2,8 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { SessionManager } from '../session/SessionManager';
 import type { MonitorBus } from '../monitor/MonitorBus';
+import type { MetricsCollector } from '../metrics/MetricsCollector';
 
-export function registerRoutes(app: FastifyInstance, sessions: SessionManager, monitorBus?: MonitorBus): void {
+export function registerRoutes(
+    app: FastifyInstance,
+    sessions: SessionManager,
+    monitorBus?: MonitorBus,
+    metrics?: MetricsCollector,
+    metricsPath?: string,
+): void {
 
     // ── Health ────────────────────────────────────────────────────────────────
     app.get('/health', async () => ({
@@ -12,6 +19,15 @@ export function registerRoutes(app: FastifyInstance, sessions: SessionManager, m
         monitors: monitorBus?.size ?? 0,
         timestamp: new Date().toISOString(),
     }));
+
+    // ── Prometheus metrics ────────────────────────────────────────────────────
+    if (metrics) {
+        const path = metricsPath ?? '/metrics';
+        app.get(path, async (_req, reply) => {
+            const body = await metrics.collect();
+            reply.header('Content-Type', metrics.contentType).send(body);
+        });
+    }
 
     // ── Sessions ─────────────────────────────────────────────────────────────
 
@@ -29,11 +45,14 @@ export function registerRoutes(app: FastifyInstance, sessions: SessionManager, m
     // The engine sends AgentEvents as JSON frames; the client sends:
     //   { type: 'input', content: '...' }    ← user message
     //   { type: 'abort' }                    ← cancel current run
-    app.get('/chat', { websocket: true }, (socket: WebSocket, _req) => {
+    app.get('/chat', { websocket: true }, (socket: WebSocket, req) => {
         let session: ReturnType<SessionManager['create']>;
 
+        // Pass authenticated userId if auth is configured (set by JwtAuth preHandler)
+        const userId = req.user?.sub;
+
         try {
-            session = sessions.create(socket);
+            session = sessions.create(socket, userId);
             // Announce session id so the client can reference it
             socket.send(JSON.stringify({ type: 'session_created', sessionId: session.id }));
         } catch (err: unknown) {
@@ -49,13 +68,18 @@ export function registerRoutes(app: FastifyInstance, sessions: SessionManager, m
 
                 if (msg.type === 'input' && typeof msg.content === 'string') {
                     sessions.get(session.id);
+                    metrics?.messageReceived();
                     // Broadcast user input to monitor observers before running
                     monitorBus?.broadcastRunInput(session.id, msg.content);
-                    // Fire-and-forget: engine.run() handles its own error boundary
-                    void session.engine.run(msg.content).catch((err: unknown) => {
-                        const message = err instanceof Error ? err.message : 'Engine error';
-                        socket.send(JSON.stringify({ type: 'error', message }));
-                    });
+                    // Track run duration via metrics
+                    const finish = metrics?.runStarted();
+                    void session.engine.run(msg.content)
+                        .then(() => finish?.('success'))
+                        .catch((err: unknown) => {
+                            finish?.('error');
+                            const message = err instanceof Error ? err.message : 'Engine error';
+                            socket.send(JSON.stringify({ type: 'error', message }));
+                        });
                 }
 
                 if (msg.type === 'abort') {

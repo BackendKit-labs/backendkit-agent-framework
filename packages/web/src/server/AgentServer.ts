@@ -4,11 +4,28 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { SessionManager } from '../session/SessionManager';
 import type { SessionManagerOptions } from '../session/SessionManager';
 import { MonitorBus } from '../monitor/MonitorBus';
+import { MetricsCollector } from '../metrics/MetricsCollector';
+import type { MetricsCollectorOptions } from '../metrics/MetricsCollector';
+import type { SessionMetaStore } from '../store/SessionMetaStore';
 import { registerRoutes } from './routes';
 
 export type AuthHook = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
-export interface AgentServerOptions extends SessionManagerOptions {
+export interface RateLimitOptions {
+    /** Max requests per IP per time window. Default: 100. */
+    max?: number;
+    /** Time window string (e.g. '1 minute', '30 seconds'). Default: '1 minute'. */
+    timeWindow?: string;
+}
+
+export interface MetricsOptions extends MetricsCollectorOptions {
+    /** Enable Prometheus /metrics endpoint. Default: false. */
+    enabled: boolean;
+    /** Path for the metrics endpoint. Default: '/metrics'. */
+    path?: string;
+}
+
+export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics' | 'store'> {
     /** TCP port to listen on. Default: 3000. */
     port?: number;
     /** Host to bind to. Default: '0.0.0.0'. */
@@ -19,26 +36,48 @@ export interface AgentServerOptions extends SessionManagerOptions {
     logger?: boolean | object;
     /** Allowed CORS origins. Default: '*'. */
     cors?: string | string[];
+    /**
+     * Rate limiting per IP.  Requires @fastify/rate-limit to be installed.
+     * @example { max: 60, timeWindow: '1 minute' }
+     */
+    rateLimiting?: RateLimitOptions;
+    /**
+     * Prometheus metrics.  Requires prom-client to be installed.
+     * @example { enabled: true, path: '/metrics' }
+     */
+    metrics?: MetricsOptions;
+    /**
+     * Durable store for session metadata (Redis, etc.).
+     * Default: in-memory (no persistence).
+     */
+    store?: SessionMetaStore;
 }
 
 export class AgentServer {
     private app: FastifyInstance;
     private sessions: SessionManager;
     private readonly monitor: MonitorBus;
-    private readonly port: number;
+    private readonly collector: MetricsCollector | undefined;
+    private readonly _port: number;
     private readonly host: string;
 
     constructor(opts: AgentServerOptions) {
-        this.port = opts.port ?? 3000;
+        this._port = opts.port ?? 3000;
         this.host = opts.host ?? '0.0.0.0';
 
         this.monitor = new MonitorBus();
+
+        this.collector = opts.metrics?.enabled
+            ? new MetricsCollector({ prefix: opts.metrics.prefix, collectNodeMetrics: opts.metrics.collectNodeMetrics })
+            : undefined;
 
         this.sessions = new SessionManager({
             engineFactory: opts.engineFactory,
             maxIdleMs: opts.maxIdleMs,
             maxSessions: opts.maxSessions,
             monitorBus: this.monitor,
+            metrics: this.collector,
+            store: opts.store,
         });
 
         this.app = Fastify({ logger: opts.logger ?? false });
@@ -57,6 +96,21 @@ export class AgentServer {
             reply.code(204).send();
         });
 
+        // Rate limiting (optional dep)
+        if (opts.rateLimiting) {
+            const rl = opts.rateLimiting;
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const rateLimitPlugin = require('@fastify/rate-limit');
+                void this.app.register(rateLimitPlugin, {
+                    max: rl.max ?? 100,
+                    timeWindow: rl.timeWindow ?? '1 minute',
+                });
+            } catch {
+                console.warn('[agent-web] @fastify/rate-limit not found — rate limiting disabled. Run: npm i @fastify/rate-limit');
+            }
+        }
+
         if (opts.auth) {
             const authHook = opts.auth;
             this.app.addHook('preHandler', authHook);
@@ -66,20 +120,26 @@ export class AgentServer {
         // resolves the plugin before wiring routes (required for WS routes in v11).
         const sessions = this.sessions;
         const monitor = this.monitor;
+        const collector = this.collector;
+        const metricsPath = opts.metrics?.path;
         this.app.register(async (instance) => {
             await instance.register(fastifyWebSocket);
-            registerRoutes(instance, sessions, monitor);
+            registerRoutes(instance, sessions, monitor, collector, metricsPath);
         });
     }
 
     async start(): Promise<string> {
-        const address = await this.app.listen({ port: this.port, host: this.host });
+        const address = await this.app.listen({ port: this._port, host: this.host });
         return address;
     }
 
     async stop(): Promise<void> {
         this.sessions.close();
         await this.app.close();
+    }
+
+    get port(): number {
+        return this._port;
     }
 
     get sessionManager(): SessionManager {

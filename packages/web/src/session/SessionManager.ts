@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AgentEngine, AgentEvent } from '@backendkit-labs/agent-core';
 import { WebSocketTransport } from '../transport/WebSocketTransport';
 import type { MonitorBus } from '../monitor/MonitorBus';
+import type { MetricsCollector } from '../metrics/MetricsCollector';
+import type { SessionMetaStore } from '../store/SessionMetaStore';
 import type { WebSocket } from 'ws';
 
 export interface Session {
@@ -10,6 +12,8 @@ export interface Session {
     transport: WebSocketTransport;
     createdAt: Date;
     lastActivityAt: Date;
+    /** Set when JWT auth is active. */
+    userId?: string;
 }
 
 export type EngineFactory = (sessionId: string, transport: WebSocketTransport) => AgentEngine;
@@ -23,6 +27,10 @@ export interface SessionManagerOptions {
     maxSessions?: number;
     /** Optional monitor bus — broadcasts all session events to connected observers. */
     monitorBus?: MonitorBus;
+    /** Optional Prometheus metrics collector. */
+    metrics?: MetricsCollector;
+    /** Optional durable store for session metadata (Redis, etc.). */
+    store?: SessionMetaStore;
 }
 
 export class SessionManager {
@@ -31,6 +39,8 @@ export class SessionManager {
     private readonly maxSessions: number;
     private readonly engineFactory: EngineFactory;
     private readonly monitorBus: MonitorBus | undefined;
+    private readonly metrics: MetricsCollector | undefined;
+    private readonly store: SessionMetaStore | undefined;
     private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor(opts: SessionManagerOptions) {
@@ -38,6 +48,8 @@ export class SessionManager {
         this.maxIdleMs = opts.maxIdleMs ?? 30 * 60 * 1000;
         this.maxSessions = opts.maxSessions ?? 100;
         this.monitorBus = opts.monitorBus;
+        this.metrics = opts.metrics;
+        this.store = opts.store;
 
         // sweep idle sessions every minute
         this.sweepTimer = setInterval(() => this.sweepIdle(), 60_000);
@@ -45,7 +57,7 @@ export class SessionManager {
     }
 
     /** Create a new session and wire a WebSocket to it. */
-    create(socket: WebSocket): Session {
+    create(socket: WebSocket, userId?: string): Session {
         if (this.sessions.size >= this.maxSessions) {
             throw new Error(`Max concurrent sessions (${this.maxSessions}) reached`);
         }
@@ -64,17 +76,26 @@ export class SessionManager {
         }
 
         const engine = this.engineFactory(id, transport);
+        const now = new Date();
 
         const session: Session = {
             id,
             engine,
             transport,
-            createdAt: new Date(),
-            lastActivityAt: new Date(),
+            createdAt: now,
+            lastActivityAt: now,
+            userId,
         };
 
         this.sessions.set(id, session);
         this.monitorBus?.notifySessionOpen(id);
+        this.metrics?.sessionOpened();
+        this.store?.set(id, {
+            id,
+            createdAt: now.toISOString(),
+            lastActivityAt: now.toISOString(),
+            userId,
+        }).catch(() => { /* non-fatal */ });
 
         socket.on('close', () => this.destroy(id));
 
@@ -83,7 +104,15 @@ export class SessionManager {
 
     get(id: string): Session | undefined {
         const session = this.sessions.get(id);
-        if (session) session.lastActivityAt = new Date();
+        if (session) {
+            session.lastActivityAt = new Date();
+            this.store?.set(id, {
+                id,
+                createdAt: session.createdAt.toISOString(),
+                lastActivityAt: session.lastActivityAt.toISOString(),
+                userId: session.userId,
+            }).catch(() => { /* non-fatal */ });
+        }
         return session;
     }
 
@@ -94,11 +123,13 @@ export class SessionManager {
         try { session.transport.close(); } catch { /* may already be closed */ }
         this.sessions.delete(id);
         this.monitorBus?.notifySessionClose(id);
+        this.metrics?.sessionClosed();
+        this.store?.delete(id).catch(() => { /* non-fatal */ });
     }
 
-    list(): Pick<Session, 'id' | 'createdAt' | 'lastActivityAt'>[] {
-        return [...this.sessions.values()].map(({ id, createdAt, lastActivityAt }) => ({
-            id, createdAt, lastActivityAt,
+    list(): Pick<Session, 'id' | 'createdAt' | 'lastActivityAt' | 'userId'>[] {
+        return [...this.sessions.values()].map(({ id, createdAt, lastActivityAt, userId }) => ({
+            id, createdAt, lastActivityAt, userId,
         }));
     }
 
@@ -112,6 +143,7 @@ export class SessionManager {
             this.sweepTimer = null;
         }
         for (const id of [...this.sessions.keys()]) this.destroy(id);
+        this.store?.close().catch(() => { /* non-fatal */ });
     }
 
     private sweepIdle(): void {

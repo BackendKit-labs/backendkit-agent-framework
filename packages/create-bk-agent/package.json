@@ -1,6 +1,6 @@
 {
   "name": "create-bk-agent",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "description": "Create a new BackendKit agent project",
   "main": "dist/src/index.js",
   "bin": {
@@ -21,6 +21,12 @@
     "build": "tsc",
     "prepack": "node scripts/copy-templates.js && npm run build",
     "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@backendkit-labs/agent-core": "^0.22.0"
+  },
+  "peerDependenciesMeta": {
+    "@backendkit-labs/agent-core": { "optional": true }
   },
   "dependencies": {
     "prompts": "^2.4.2"

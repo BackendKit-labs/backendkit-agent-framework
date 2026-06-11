@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/mcp-server",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "MCP server for agent-framework — skills, code intelligence, agent context",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

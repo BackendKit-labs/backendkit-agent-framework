@@ -7,6 +7,8 @@
     "packages/coding",
     "packages/mcp-server",
     "packages/enterprise",
+    "packages/web",
+    "packages/web-ui",
     "pilot",
     "examples/*"
   ],

@@ -36,10 +36,21 @@ export class MCPClientManager {
     private initialized = false;
     private initPromise: Promise<void> | null = null;
 
+    private disconnectHandler: ((serverName: string) => void) | null = null;
+
     constructor(private readonly configs: MCPServerConfig[]) {
         for (const cfg of configs) {
             this.serverStates.set(cfg.name, 'pending');
         }
+    }
+
+    /**
+     * Register a callback that fires whenever a previously-connected server
+     * drops its connection unexpectedly (process crash, network loss, etc.).
+     * Called by MCPRegistrar to trigger tool/agent cleanup and schedule retry.
+     */
+    setDisconnectHandler(cb: (serverName: string) => void): void {
+        this.disconnectHandler = cb;
     }
 
     /**
@@ -105,7 +116,11 @@ export class MCPClientManager {
     /** Disconnects all MCP servers. */
     async disconnect(): Promise<void> {
         await Promise.allSettled(
-            this.servers.map(s => s.client.close().catch(() => undefined))
+            this.servers.map(s => {
+                // Suppress onclose callbacks for intentional disconnects
+                s.client.onclose = undefined;
+                return s.client.close().catch(() => undefined);
+            })
         );
         this.servers = [];
         for (const name of this.serverStates.keys()) {
@@ -181,6 +196,7 @@ export class MCPClientManager {
         await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'stdio' });
+        client.onclose = () => { this.handleDisconnect(config.name); };
     }
 
     private async connectRemote(config: MCPServerConfig): Promise<void> {
@@ -214,6 +230,7 @@ export class MCPClientManager {
         await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'streamable-http' });
+        client.onclose = () => { this.handleDisconnect(config.name); };
     }
 
     private async connectSSE(
@@ -227,6 +244,14 @@ export class MCPClientManager {
         await client.connect(transport, { timeout: timeoutMs });
         const tools = await this.discoverTools(config, client);
         this.servers.push({ config, client, tools, transportUsed: 'sse' });
+        client.onclose = () => { this.handleDisconnect(config.name); };
+    }
+
+    private handleDisconnect(serverName: string): void {
+        if (this.serverStates.get(serverName) !== 'connected') return;
+        this.serverStates.set(serverName, 'failed');
+        this.servers = this.servers.filter(s => s.config.name !== serverName);
+        this.disconnectHandler?.(serverName);
     }
 
     private buildClient(): Client {

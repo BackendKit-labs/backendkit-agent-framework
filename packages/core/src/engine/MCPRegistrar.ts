@@ -24,7 +24,17 @@ export class MCPRegistrar {
         blockedCmds: string[];
     }>>();
 
-    constructor(private readonly opts: MCPRegistrarOptions) {}
+    constructor(private readonly opts: MCPRegistrarOptions) {
+        opts.mcpManager?.setDisconnectHandler(name => this.handleServerDisconnect(name));
+    }
+
+    private handleServerDisconnect(serverName: string): void {
+        if (this.mcpRegisteredServers.has(serverName)) {
+            this.unregisterServer(serverName);
+        }
+        // Reset attempt counter so crash-recovery gets a fresh retry budget
+        this.mcpInitAttempts = 0;
+    }
 
     async ensureInitialized(): Promise<void> {
         if (!this.opts.mcpManager) return;

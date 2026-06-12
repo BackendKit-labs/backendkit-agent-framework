@@ -1,14 +1,15 @@
 {
   "name": "@backendkit-labs/mcp-connectors",
-  "version": "0.1.2",
-  "description": "Enterprise MCP connectors — HubSpot CRM, Jira, Google Calendar, Odoo ERP",
+  "version": "0.1.3",
+  "description": "Enterprise MCP connectors — HubSpot CRM, Jira, Google Calendar, Odoo ERP, AI Vault",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "bk-mcp-hubspot": "./dist/hubspot/server.js",
-    "bk-mcp-jira":    "./dist/jira/server.js",
-    "bk-mcp-gcal":    "./dist/gcal/server.js",
-    "bk-mcp-odoo":    "./dist/odoo/server.js"
+    "bk-mcp-hubspot":   "./dist/hubspot/server.js",
+    "bk-mcp-jira":      "./dist/jira/server.js",
+    "bk-mcp-gcal":      "./dist/gcal/server.js",
+    "bk-mcp-odoo":      "./dist/odoo/server.js",
+    "bk-mcp-ai-vault":  "./dist/ai-vault/server.js"
   },
   "files": ["dist/", "README.md"],
   "repository": {
@@ -24,6 +25,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@backendkit-labs/agent-enterprise": "^0.3.6",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "zod": "^3.23.0"
   },

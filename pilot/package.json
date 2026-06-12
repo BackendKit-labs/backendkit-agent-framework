@@ -10,6 +10,7 @@
     "web": "tsx src/web-server.ts",
     "paae": "tsx src/paae-pilot.ts",
     "spike": "tsx src/llm-spike.ts",
+    "ai-agent": "tsx src/ai-agent.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

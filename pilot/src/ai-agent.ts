@@ -259,11 +259,15 @@ async function main(): Promise<void> {
 
             // ── Run ───────────────────────────────────────────────────────────
             console.log('');
+            const agentBeforeRun = currentAgentId;
             try {
                 await engine.run(line);
             } catch (err) {
                 console.error(`\n  Error: ${(err as Error).message}`);
             }
+            // Restore active agent — ask_agent switches internally but doesn't switch back
+            currentAgentId = agentBeforeRun;
+            engine.switchAgent(agentBeforeRun);
             console.log('');
 
             // Auto re-index so insights written this turn are searchable next turn

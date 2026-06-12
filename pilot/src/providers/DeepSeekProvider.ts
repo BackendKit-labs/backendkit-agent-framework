@@ -7,6 +7,8 @@ export interface DeepSeekProviderOptions {
     maxRetries?: number;
     /** Override the base URL. Defaults to DeepSeek API. Use http://localhost:11434/v1 for Ollama. */
     baseUrl?: string;
+    /** Temperature. Reasoning models (deepseek-reasoner) require 1. Default: 0 for chat, 1 for reasoner. */
+    temperature?: number;
 }
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -26,11 +28,15 @@ export class DeepSeekProvider implements LLMProvider {
     private readonly client: OpenAI;
     private readonly model: string;
     private readonly maxRetries: number;
+    private readonly temperature: number;
 
     constructor(opts: DeepSeekProviderOptions) {
         this.client     = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl ?? DEEPSEEK_BASE_URL, maxRetries: 0 });
         this.model      = opts.model ?? DEFAULT_MODEL;
         this.maxRetries = opts.maxRetries ?? 3;
+        // Reasoning models require temperature=1; chat models work best at 0
+        const isReasoner = (opts.model ?? DEFAULT_MODEL).includes('reasoner');
+        this.temperature = opts.temperature ?? (isReasoner ? 1 : 0);
     }
 
     async chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void> {
@@ -70,6 +76,7 @@ export class DeepSeekProvider implements LLMProvider {
             messages:       messages as OpenAI.Chat.ChatCompletionMessageParam[],
             tools:          oaiTools.length ? oaiTools    : undefined,
             tool_choice:    oaiTools.length ? 'auto'      : undefined,
+            temperature:    this.temperature,
             stream:         true,
             stream_options: { include_usage: true },
         });

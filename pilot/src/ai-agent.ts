@@ -35,7 +35,8 @@ import { DeepSeekProvider } from './providers/DeepSeekProvider';
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const API_KEY    = process.env.DEEPSEEK_API_KEY ?? '';
-const LLM_MODEL  = process.env.LLM_MODEL ?? 'deepseek-chat';
+const LLM_MODEL  = process.env.LLM_MODEL ?? 'deepseek-reasoner';
+const IS_REASONER = LLM_MODEL.includes('reasoner') || LLM_MODEL.startsWith('o');
 const VAULT_PATH = process.env.AI_VAULT_PATH
     ?? 'C:/Users/mairon.cuello/development/workspace-ia/ai-vault';
 const INDEX_PATH = path.join(os.homedir(), '.bk-agent', 'rag', 'ai-vault.json');
@@ -114,7 +115,7 @@ function printBanner(): void {
     console.log('  ║         AI Design Agent  — BackendKit Labs        ║');
     console.log('  ╚══════════════════════════════════════════════════╝');
     console.log(`  Vault:    ${VAULT_PATH}`);
-    console.log(`  LLM:      DeepSeek ${LLM_MODEL}`);
+    console.log(`  LLM:      DeepSeek ${LLM_MODEL}${IS_REASONER ? '  (reasoning mode)' : ''}`);
     console.log(`  Modules:  ML · Deep Learning · Transformers · RAG`);
     console.log(`            LLMs · Agents · GenAI · MLOps`);
     console.log('');
@@ -159,7 +160,12 @@ async function main(): Promise<void> {
 
     // ── Provider ──────────────────────────────────────────────────────────────
     const providers = new ProviderRegistry();
-    providers.register('deepseek', new DeepSeekProvider({ apiKey: API_KEY, model: LLM_MODEL }));
+    providers.register('deepseek', new DeepSeekProvider({
+        apiKey:      API_KEY,
+        model:       LLM_MODEL,
+        // Reasoning models (R1, o3…) require temperature=1 — setting 0 degrades quality
+        temperature: IS_REASONER ? 1 : 0,
+    }));
 
     // ── Transport ─────────────────────────────────────────────────────────────
     let currentAgentId = 'architect';

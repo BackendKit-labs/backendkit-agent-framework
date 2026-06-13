@@ -26,6 +26,7 @@ import {
     FlowCompensationResult,
 } from './types';
 import { ComplianceGate, ComplianceGateError } from './ComplianceGate';
+import type { EnterpriseReflection } from '../reflection/index.js';
 
 export type FlowAgentRunner = (
     agentId: string,
@@ -68,6 +69,12 @@ export interface FlowRunOptions {
     ) => Promise<void>;
     /** Observer for the append-only transition log. */
     onTransition?: (transition: FlowTransition) => void;
+    /**
+     * Cable 1: enterprise reflection adapter.
+     * When set, every ComplianceGate outcome (pass AND fail) is recorded in the
+     * failure catalog so recurring failures can be promoted to deterministic rules.
+     */
+    reflection?: EnterpriseReflection;
     /**
      * Stable identifier for this run. Used in gate records persisted to the vault.
      * Auto-generated when not provided.
@@ -118,6 +125,17 @@ export class FlowRunner {
                             evidenceMode: gate.evidence ?? 'optional',
                         });
                         await this.opts.onGateRequired(complianceGate, flowStep!, result.content);
+
+                        // ── Cable 1: record outcome in enterprise reflection ───
+                        // Fires for BOTH pass and fail — failures feed the catalog,
+                        // passes build the "no incidents" signal used by demotion.
+                        if (this.opts.reflection) {
+                            this.opts.reflection
+                                .recordGateOutcome(complianceGate.getRecord())
+                                .catch(() => { /* best-effort — never blocks the flow */ });
+                        }
+                        // ──────────────────────────────────────────────────────
+
                         if (complianceGate.verdict !== 'passed') {
                             this.record({
                                 stepId: stepId!,

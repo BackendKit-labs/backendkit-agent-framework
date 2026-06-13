@@ -12,6 +12,7 @@ interface Frontmatter {
     description?: string;
     tags?: string[] | string;
     semantic_topics?: string[];
+    related_notes?: string[];
     [key: string]: unknown;
 }
 
@@ -179,8 +180,11 @@ export class VaultIndexer {
         const topicHints = Array.isArray(meta.semantic_topics)
             ? `\n\nTopics: ${(meta.semantic_topics as string[]).join(', ')}`
             : '';
+        const relatedHints = Array.isArray(meta.related_notes) && meta.related_notes.length
+            ? `\n\nRelated: ${(meta.related_notes as string[]).join(', ')}`
+            : '';
 
-        const sections = chunkBody(body + topicHints);
+        const sections = chunkBody(body + topicHints + relatedHints);
         if (sections.length === 0) return [];
 
         return sections.map(sec => ({

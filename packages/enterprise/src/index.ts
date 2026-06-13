@@ -90,6 +90,11 @@ export type {
 export { createN8nTriggerTool } from './integrations';
 export type { N8nTriggerOptions } from './integrations';
 
+// ── Reflection (enterprise adapter) ──────────────────────────────────────────
+
+export { EnterpriseReflection, recordGateOutcome, ENTERPRISE_DOMAINS, SEVERITY_THRESHOLD } from './reflection';
+export type { EnterpriseReflectionOptions, PendingPromotion, GateBridgeResult } from './reflection';
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export { createEnterpriseSetup } from './factory';

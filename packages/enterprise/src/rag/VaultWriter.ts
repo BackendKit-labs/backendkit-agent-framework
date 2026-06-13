@@ -1,4 +1,5 @@
-import * as fs from 'fs/promises';
+import * as fs   from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import type { ToolDefinition } from '@backendkit-labs/agent-core';
@@ -16,6 +17,7 @@ export interface WriteNoteParams {
     agentId: string;
     tags?: string[];
     description?: string;
+    related_notes?: string[];
 }
 
 /**
@@ -24,18 +26,21 @@ export interface WriteNoteParams {
  * Notes use standard YAML frontmatter so the VaultIndexer picks them up
  * on the next incremental index() call, making them immediately searchable
  * by any agent or human that queries the vault.
+ *
+ * Concurrent writes are serialized with a per-file lock (wx atomic open)
+ * so multiple agents writing simultaneously cannot corrupt each other's notes.
  */
 export class VaultWriter {
-    private readonly vaultPath: string;
+    private readonly vaultPath:   string;
     private readonly agentFolder: string;
 
     constructor(opts: VaultWriterOptions) {
-        this.vaultPath = opts.vaultPath;
+        this.vaultPath   = opts.vaultPath;
         this.agentFolder = opts.agentFolder ?? 'agentes';
     }
 
     async writeNote(params: WriteNoteParams): Promise<string> {
-        const { title, content, agentId, tags = [], description = '' } = params;
+        const { title, content, agentId, tags = [], description = '', related_notes = [] } = params;
 
         const date = new Date().toISOString().slice(0, 10);
         const slug = title
@@ -48,25 +53,13 @@ export class VaultWriter {
             .slice(0, 60);
 
         const filename = `${date}-${slug}.md`;
-        const dir = path.join(this.vaultPath, this.agentFolder);
+        const dir      = path.join(this.vaultPath, this.agentFolder);
         await fs.mkdir(dir, { recursive: true });
 
-        const tagsLine = tags.length
-            ? `[${tags.map(t => `"${t}"`).join(', ')}]`
-            : '[]';
-
-        const lines: string[] = [
-            '---',
-            `title: "${title}"`,
-            `author: "agent/${agentId}"`,
-            `date: ${date}`,
-            `tags: ${tagsLine}`,
-        ];
-        if (description) lines.push(`description: "${description}"`);
-        lines.push('---', '', content);
-
         const filePath = path.join(dir, filename);
-        await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+        const body     = buildNote({ title, content, agentId, tags, description, related_notes, date });
+
+        await withFileLock(filePath, () => fs.writeFile(filePath, body, 'utf-8'));
         return filePath;
     }
 
@@ -95,11 +88,77 @@ export class VaultWriter {
                 description: z.string().optional().describe(
                     'One-line summary shown in search results',
                 ),
+                related_notes: z.array(z.string()).default([]).describe(
+                    'Titles of related notes in the vault, e.g. ["RAG Pipeline", "Arquitectura de Datos"]. ' +
+                    'These are embedded as context so semantic search connects this note to its neighbors.',
+                ),
             }),
-            execute: async ({ title, content, tags, description }) => {
-                const filePath = await self.writeNote({ title, content, agentId, tags, description });
+            execute: async ({ title, content, tags, description, related_notes }) => {
+                const filePath = await self.writeNote({ title, content, agentId, tags, description, related_notes });
                 return `Knowledge saved to vault: ${path.basename(filePath)}`;
             },
         });
     }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function buildNote(p: WriteNoteParams & { date: string }): string {
+    const tagsLine = p.tags?.length
+        ? `[${p.tags.map(t => `"${t}"`).join(', ')}]`
+        : '[]';
+
+    const lines: string[] = [
+        '---',
+        `title: "${p.title}"`,
+        `author: "agent/${p.agentId}"`,
+        `date: ${p.date}`,
+        `tags: ${tagsLine}`,
+    ];
+    if (p.description) lines.push(`description: "${p.description}"`);
+    if (p.related_notes?.length) {
+        lines.push(`related_notes: [${p.related_notes.map(n => `"${n}"`).join(', ')}]`);
+    }
+    lines.push('---', '', p.content);
+    return lines.join('\n');
+}
+
+/**
+ * Serialize writes to the same file path using an adjacent .lock file.
+ * Uses O_EXCL (wx flag) for atomic creation — only one process/coroutine
+ * can hold the lock at a time. Retries with exponential backoff.
+ */
+async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const lockPath   = `${filePath}.lock`;
+    const maxRetries = 10;
+    const baseDelay  = 50;
+
+    let fd: fsSync.promises.FileHandle | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            // wx = O_WRONLY | O_CREAT | O_EXCL — fails atomically if lock exists
+            fd = await fs.open(lockPath, 'wx');
+            break;
+        } catch {
+            if (attempt < maxRetries - 1) {
+                await sleep(baseDelay * 2 ** attempt + Math.random() * baseDelay);
+            } else {
+                throw new Error(`Could not acquire lock for ${path.basename(filePath)} after ${maxRetries} attempts`);
+            }
+        }
+    }
+
+    try {
+        return await fn();
+    } finally {
+        if (fd) {
+            await fd.close().catch(() => {});
+            await fs.unlink(lockPath).catch(() => {});
+        }
+    }
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }

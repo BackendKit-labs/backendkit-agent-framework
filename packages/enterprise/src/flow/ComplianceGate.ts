@@ -16,6 +16,16 @@ import { VaultWriter } from '../rag/VaultWriter';
 export interface GateCriterion {
     id: string;
     description: string;
+    /**
+     * Enterprise domain this criterion belongs to (e.g. 'legal', 'rrhh').
+     * Used by GateReflectionBridge to file incidents in the correct domain catalog.
+     */
+    domain?: string;
+    /**
+     * Explicit failureType from ENTERPRISE_DOMAINS.
+     * When set, incidents are filed deterministically without keyword matching.
+     */
+    failureType?: string;
     passed?: boolean;
     evidence?: string;
     evaluatedBy?: string;

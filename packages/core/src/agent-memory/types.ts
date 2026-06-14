@@ -40,6 +40,7 @@ export interface MemoryStoreBackend {
     upsert(id: string, record: StoredRecord): void;
     getAll(): StoredRecord[];
     deleteOldest(keepNewest: number): void;
+    deleteByIds(ids: string[]): void;
     count(): number;
 }
 

@@ -639,7 +639,7 @@ const memory = createMemorySystem({
     path:     '~/.bk-agent/projects/my-project/memory/patterns.json',
   },
   retention: {
-    maxEpisodes:   500,
+    maxEpisodes:   500,   // prunes by relevance score when exceeded (v0.22.3+)
     summarizeAfter: 50,
     // Optional: compress old episodes with an LLM summary
     summarizeFn: async (episodes) => {
@@ -690,6 +690,25 @@ await procedural.add({
 const deploySteps = await procedural.get('deploy-to-staging');
 ```
 
+### Forgetting curve (v0.22.3+)
+
+When `maxEpisodes` is set and the limit is exceeded, `EpisodicMemory` prunes by **relevance score** rather than raw age:
+
+```
+relevanceScore = recency(0.6) × 1/(1 + daysSince × 0.1)
+               + utility(0.4) × log(1 + recallCount)
+```
+
+Episodes that are recalled frequently survive longer than episodes that sit idle. `recall()` automatically increments `recallCount` on every matched record — no extra calls needed.
+
+```typescript
+// Episode recalled 4× over 30 days: score ~0.43
+// Episode that sat idle for 30 days: score ~0.15
+// → idle episode is pruned first when the store is full
+```
+
+The `recallCount` and `lastRecalledAt` fields are persisted in `JsonFileStore` and survive restarts.
+
 ### In-memory store (testing)
 
 ```typescript
@@ -706,6 +725,23 @@ import { JsonFileStore, SemanticMemory } from '@backendkit-labs/agent-core';
 
 const semantic = new SemanticMemory(new JsonFileStore('/app/data/knowledge.json'));
 ```
+
+### MemoryStoreBackend interface
+
+All backends implement:
+
+```typescript
+interface MemoryStoreBackend {
+  insert(record: StoredRecord): void;
+  upsert(id: string, record: StoredRecord): void;
+  getAll(): StoredRecord[];
+  deleteOldest(keepNewest: number): void;
+  deleteByIds(ids: string[]): void;   // v0.22.3+: used by relevance-based pruning
+  count(): number;
+}
+```
+
+`deleteByIds` is used internally by `EpisodicMemory` pruning. Use it in custom backends to support the forgetting curve.
 
 ### Memory tools (agents writing their own memory)
 

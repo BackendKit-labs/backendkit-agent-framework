@@ -11,8 +11,8 @@
     "packages/web",
     "packages/web-ui",
     "packages/create-bk-agent",
-    "pilot",
-    "examples/*"
+    "examples/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

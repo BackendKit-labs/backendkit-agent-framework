@@ -37,6 +37,11 @@ export class JsonFileStore implements MemoryStoreBackend {
         }
     }
 
+    deleteByIds(ids: string[]): void {
+        const set = new Set(ids);
+        this.persist(this.load().filter(r => !set.has(r.id)));
+    }
+
     count(): number { return this.load().length; }
 
     private load(): StoredRecord[] {

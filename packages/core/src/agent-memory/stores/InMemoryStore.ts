@@ -21,5 +21,10 @@ export class InMemoryStore implements MemoryStoreBackend {
         }
     }
 
+    deleteByIds(ids: string[]): void {
+        const set = new Set(ids);
+        this.records = this.records.filter(r => !set.has(r.id));
+    }
+
     count(): number { return this.records.length; }
 }

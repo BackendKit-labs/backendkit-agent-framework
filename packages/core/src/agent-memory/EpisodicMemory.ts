@@ -7,6 +7,8 @@ import { keywordScore } from './scoring';
 interface EpisodeRecord extends StoredRecord {
     content: string;
     tags: string[];
+    recallCount: number;
+    lastRecalledAt: string | null;
 }
 
 /**
@@ -32,12 +34,16 @@ export class EpisodicMemory {
     /** Store an experience. Returns the new episode ID. */
     remember(content: string, tags: string[] = []): string {
         const id = randomUUID();
-        this.backend.insert({ id, content, tags, createdAt: new Date().toISOString() });
+        this.backend.insert({ id, content, tags, createdAt: new Date().toISOString(), recallCount: 0, lastRecalledAt: null });
 
         this.episodesSinceSummary++;
 
         if (this.maxEpisodes < Infinity && this.backend.count() > this.maxEpisodes) {
-            this.backend.deleteOldest(this.maxEpisodes);
+            // Prune by relevance score — frequently-recalled episodes survive over stale ones.
+            const all    = this.backend.getAll() as EpisodeRecord[];
+            const sorted = [...all].sort((a, b) => episodeRelevance(b) - episodeRelevance(a));
+            const toDelete = sorted.slice(this.maxEpisodes).map(r => r.id);
+            if (toDelete.length > 0) this.backend.deleteByIds(toDelete);
         }
 
         if (this.summarizeFn && this.episodesSinceSummary >= this.summarizeAfter) {
@@ -48,13 +54,22 @@ export class EpisodicMemory {
         return id;
     }
 
-    /** Retrieve episodes most relevant to a text query (keyword overlap). */
+    /** Retrieve episodes most relevant to a text query (keyword overlap). Increments recallCount on matched records. */
     recall(query: string, limit = 10): Episode[] {
-        return (this.backend.getAll() as EpisodeRecord[])
-            .map(r => ({ ...toEpisode(r), score: keywordScore(query, `${r.content} ${r.tags.join(' ')}`) }))
-            .filter(e => (e.score ?? 0) > 0)
-            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+        const now = new Date().toISOString();
+        const all = this.backend.getAll() as EpisodeRecord[];
+
+        const scored = all
+            .map(r => ({ r, score: keywordScore(query, `${r.content} ${r.tags.join(' ')}`) }))
+            .filter(x => x.score > 0)
+            .sort((a, b) => b.score - a.score)
             .slice(0, limit);
+
+        for (const { r } of scored) {
+            this.backend.upsert(r.id, { ...r, recallCount: (r.recallCount ?? 0) + 1, lastRecalledAt: now });
+        }
+
+        return scored.map(x => ({ ...toEpisode(x.r), score: x.score }));
     }
 
     /** Retrieve episodes that carry a specific tag, newest first. */
@@ -97,4 +112,17 @@ function makeBackend(cfg: EpisodicConfig): MemoryStoreBackend {
     return cfg.provider === 'json' && cfg.path
         ? new JsonFileStore(cfg.path)
         : new InMemoryStore();
+}
+
+/**
+ * Relevance score for pruning: balances recency with how often the episode has been recalled.
+ * Frequently-accessed episodes decay slower than stale ones never retrieved.
+ *   recency  = 1 / (1 + daysSince * 0.1)  → halves every ~10 days
+ *   utility  = log(1 + recallCount)         → logarithmic utility gain per recall
+ */
+function episodeRelevance(r: EpisodeRecord): number {
+    const daysSince = (Date.now() - new Date(r.createdAt).getTime()) / 86_400_000;
+    const recency   = 1 / (1 + daysSince * 0.1);
+    const utility   = Math.log1p(r.recallCount ?? 0);
+    return recency * 0.6 + utility * 0.4;
 }

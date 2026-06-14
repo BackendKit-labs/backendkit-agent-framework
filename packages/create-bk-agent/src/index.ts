@@ -62,6 +62,8 @@ function buildNextSteps(choices: UserChoices): string[] {
             ? 'node test-flow.mjs calificacion-lead   # or propuesta-comercial'
             : tmpl === 'marketing'
             ? 'node test-flow.mjs articulo-blog       # or campana-leads'
+            : tmpl === 'soporte'
+            ? 'node test-flow.mjs atencion-ticket     # or incidente-critico'
             : '# Define your flows in flows/ and run: node test-flow.mjs';
         return [
             'Add your API key to .env',

@@ -6,7 +6,7 @@ export type ArchitectureId   = 'multi-agent' | 'single' | 'coding' | 'autonomous
 export type SkillPack        = 'node' | 'python' | 'go' | 'docker';
 export type DeployMode       = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library' | 'web';
 export type ProviderId       = 'anthropic' | 'openai' | 'deepseek' | 'ollama';
-export type WorkflowTemplate = 'ventas' | 'marketing' | 'blank';
+export type WorkflowTemplate = 'ventas' | 'marketing' | 'soporte' | 'blank';
 
 export interface UserChoices {
     projectName:       string;
@@ -124,6 +124,11 @@ const WORKFLOW_TEMPLATE_CHOICES = [
         title: p('Marketing', 22) + 'Blog articles + lead gen campaigns with parallel steps',
         value: 'marketing' as WorkflowTemplate,
         description: '6 agents: content strategist, copywriter, SEO, social, campaign, analytics',
+    },
+    {
+        title: p('Soporte al cliente', 22) + 'Ticket triage, L1/L2/L3 escalation and critical incident management',
+        value: 'soporte' as WorkflowTemplate,
+        description: '6 agents: triage, support L1, technical L2, escalation L3, communication, knowledge',
     },
     {
         title: p('Blank', 22) + 'Empty orchestrator.yaml — define your own agents and flows',

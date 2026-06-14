@@ -27,8 +27,21 @@ export { TaskStore }           from './server/TaskStore';
 export { AgentClient }         from './client/AgentClient';
 export type { AgentClientOptions, RunOptions } from './client/AgentClient';
 
-// ── Resilience ────────────────────────────────────────────────────────────────
+// ── Resilience — circuit breaker (@backendkit-labs/circuit-breaker) ───────────
+export {
+    CircuitBreaker,
+    CircuitBreakerState,
+    CircuitBreakerRegistry,
+    CircuitBreakerOpenError,
+    isHttpServerError,
+} from './resilience/CircuitBreaker';
+export type {
+    CircuitBreakerConfig,
+    CircuitBreakerOptions,
+    CircuitBreakerMetrics,
+    CircuitState,           // backward-compat alias for CircuitBreakerState
+} from './resilience/CircuitBreaker';
+
+// ── Resilience — retry (@backendkit-labs/retry) ───────────────────────────────
 export { withRetry }           from './resilience/retry';
 export type { RetryOptions }   from './resilience/retry';
-export { CircuitBreaker }      from './resilience/CircuitBreaker';
-export type { CircuitBreakerOptions, CircuitState } from './resilience/CircuitBreaker';

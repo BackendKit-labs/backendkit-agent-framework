@@ -2,19 +2,22 @@ import prompts from 'prompts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ArchitectureId = 'multi-agent' | 'single' | 'coding' | 'autonomous' | 'minimal' | 'enterprise';
-export type SkillPack      = 'node' | 'python' | 'go' | 'docker';
-export type DeployMode     = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library' | 'web';
-export type ProviderId     = 'anthropic' | 'openai' | 'deepseek' | 'ollama';
+export type ArchitectureId   = 'multi-agent' | 'single' | 'coding' | 'autonomous' | 'minimal' | 'enterprise' | 'orchestrator';
+export type SkillPack        = 'node' | 'python' | 'go' | 'docker';
+export type DeployMode       = 'repl' | 'mcp-http' | 'mcp-stdio' | 'hybrid' | 'library' | 'web';
+export type ProviderId       = 'anthropic' | 'openai' | 'deepseek' | 'ollama';
+export type WorkflowTemplate = 'ventas' | 'marketing' | 'blank';
 
 export interface UserChoices {
-    projectName:  string;
-    architecture: ArchitectureId;
-    skillPacks:   SkillPack[];
-    deployMode:   DeployMode | undefined;
-    provider:     ProviderId;
+    projectName:       string;
+    architecture:      ArchitectureId;
+    skillPacks:        SkillPack[];
+    deployMode:        DeployMode | undefined;
+    provider:          ProviderId;
     /** Absolute path to Obsidian vault — only set when architecture === 'enterprise' */
-    vaultPath?:   string;
+    vaultPath?:        string;
+    /** Workflow template — only set when architecture === 'orchestrator' */
+    workflowTemplate?: WorkflowTemplate;
 }
 
 // ── Option definitions ────────────────────────────────────────────────────────
@@ -51,6 +54,11 @@ const ARCHITECTURE_CHOICES = [
         title: p('Enterprise', 22) + 'Local LLM + Obsidian knowledge base — no cloud needed',
         value: 'enterprise' as ArchitectureId,
         description: 'Business agent with RAG over your company docs, runs 100% on-premise',
+    },
+    {
+        title: p('Orchestrator', 22) + 'Multi-step workflows with specialist agents and approval gates',
+        value: 'orchestrator' as ArchitectureId,
+        description: 'Static flows triggered by task patterns + dynamic LLM planning as fallback',
     },
 ];
 
@@ -104,6 +112,26 @@ const PROVIDER_CHOICES = [
     { title: p('Ollama (local)', 32)               + 'llama3.2, codellama — no API key needed',     value: 'ollama'    as ProviderId },
 ];
 
+// ── Workflow template choices (orchestrator only) ─────────────────────────────
+
+const WORKFLOW_TEMPLATE_CHOICES = [
+    {
+        title: p('Ventas B2B', 22) + 'Lead qualification (BANT) + commercial proposal with approval gates',
+        value: 'ventas' as WorkflowTemplate,
+        description: '6 agents: lead, proposal, pricing, legal, CRM, writer',
+    },
+    {
+        title: p('Marketing', 22) + 'Blog articles + lead gen campaigns with parallel steps',
+        value: 'marketing' as WorkflowTemplate,
+        description: '6 agents: content strategist, copywriter, SEO, social, campaign, analytics',
+    },
+    {
+        title: p('Blank', 22) + 'Empty orchestrator.yaml — define your own agents and flows',
+        value: 'blank' as WorkflowTemplate,
+        description: 'Start from scratch with a minimal config stub',
+    },
+];
+
 // ── Conditional question helpers ──────────────────────────────────────────────
 
 const NEEDS_SKILLS: ArchitectureId[] = ['multi-agent', 'single'];
@@ -121,6 +149,10 @@ const whenDeploy = (_prev: any, v: Record<string, any>) =>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const whenVault = (_prev: any, v: Record<string, any>) =>
     v.architecture === 'enterprise' ? 'text' : null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const whenWorkflowTemplate = (_prev: any, v: Record<string, any>) =>
+    v.architecture === 'orchestrator' ? 'select' : null;
 
 // ── Main question flow ────────────────────────────────────────────────────────
 
@@ -167,6 +199,14 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
                 validate: (v: string) =>
                     v.trim().length > 0 || 'Vault path is required for enterprise agents',
             },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            {
+                type: whenWorkflowTemplate as any,
+                name: 'workflowTemplate',
+                message: 'Workflow template:',
+                choices: WORKFLOW_TEMPLATE_CHOICES,
+                initial: 0,
+            },
             {
                 type: 'select',
                 name: 'provider',
@@ -181,11 +221,12 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
     if (!raw.projectName || !raw.architecture || !raw.provider) return null;
 
     return {
-        projectName:  raw.projectName  as string,
-        architecture: raw.architecture as ArchitectureId,
-        skillPacks:   (raw.skillPacks  ?? []) as SkillPack[],
-        deployMode:   (raw.deployMode  ?? undefined) as DeployMode | undefined,
-        provider:     raw.provider     as ProviderId,
-        vaultPath:    (raw.vaultPath   ?? undefined) as string | undefined,
+        projectName:       raw.projectName       as string,
+        architecture:      raw.architecture      as ArchitectureId,
+        skillPacks:        (raw.skillPacks        ?? []) as SkillPack[],
+        deployMode:        (raw.deployMode        ?? undefined) as DeployMode | undefined,
+        provider:          raw.provider           as ProviderId,
+        vaultPath:         (raw.vaultPath         ?? undefined) as string | undefined,
+        workflowTemplate:  (raw.workflowTemplate  ?? undefined) as WorkflowTemplate | undefined,
     };
 }

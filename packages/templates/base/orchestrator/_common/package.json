@@ -1,0 +1,16 @@
+{
+  "name": "my-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node node_modules/@backendkit-labs/orchestrator-agent/dist/server.js",
+    "test:flow": "node test-flow.mjs"
+  },
+  "dependencies": {
+    "@backendkit-labs/orchestrator-agent": "^0.2.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

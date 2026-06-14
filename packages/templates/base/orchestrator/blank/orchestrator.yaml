@@ -1,0 +1,34 @@
+version: 1
+
+orchestrator:
+  name: "My Orchestrator"
+  provider: __PROVIDER_ID__
+  vault:
+    path: ./vault
+    embedder: simple          # or "ollama" for semantic search (requires Ollama running)
+
+__PROVIDERS_BLOCK__
+
+# Optional: define static flows triggered by regex patterns on the task string.
+# If no flow matches, the orchestrator plans steps dynamically using the LLM.
+#
+# flows:
+#   - id: my-flow
+#     file: ./flows/my-flow.yaml
+#     trigger: "keyword1|keyword2|phrase to match"
+
+# Define your specialist agents below.
+# Each agent = the same LLM called with a different system prompt.
+# gate: true means the output requires human approval before the flow continues.
+agents:
+  - id: my-agent
+    name: "My Specialist Agent"
+    description: >
+      Describe what this agent does and what tasks it handles.
+      Be specific — the orchestrator uses this description to decide
+      which agent to assign each step to.
+    capabilities: [list, your, keywords, here]
+    provider: __PROVIDER_ID__
+    # gate: true
+    # gate_criteria:
+    #   - "Criterion that must be met before continuing"

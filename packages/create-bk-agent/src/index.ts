@@ -25,6 +25,7 @@ function describeChoices(choices: UserChoices): string {
         autonomous:    'Autonomous daemon',
         minimal:       'Minimal / embedded',
         enterprise:    'Enterprise (local LLM + RAG)',
+        orchestrator:  'Orchestrator',
     };
     const deploy: Record<string, string> = {
         repl:       'Terminal REPL',
@@ -36,6 +37,10 @@ function describeChoices(choices: UserChoices): string {
     };
 
     const archLabel = arch[choices.architecture] ?? choices.architecture;
+    if (choices.architecture === 'orchestrator') {
+        const tmpl = choices.workflowTemplate ?? 'blank';
+        return `${archLabel} — ${tmpl} template`;
+    }
     if (!choices.deployMode) return archLabel;
     return `${archLabel} — ${deploy[choices.deployMode] ?? choices.deployMode}`;
 }
@@ -49,6 +54,22 @@ function buildNextSteps(choices: UserChoices): string[] {
     if (arch === 'coding')     return ['Edit AGENT.md to describe your project', 'npm run dev'];
     if (arch === 'autonomous') return ['Configure triggers in src/index.ts', 'npm run dev'];
     if (arch === 'minimal')    return ['Implement your LLM provider in src/index.ts', 'npm run dev'];
+
+    // Orchestrator
+    if (arch === 'orchestrator') {
+        const tmpl = choices.workflowTemplate ?? 'blank';
+        const testCmd = tmpl === 'ventas'
+            ? 'node test-flow.mjs calificacion-lead   # or propuesta-comercial'
+            : tmpl === 'marketing'
+            ? 'node test-flow.mjs articulo-blog       # or campana-leads'
+            : '# Define your flows in flows/ and run: node test-flow.mjs';
+        return [
+            'Add your API key to .env',
+            'Edit orchestrator.yaml to customize agents for your domain',
+            tmpl !== 'blank' ? 'Review and adapt vault/ knowledge files to your company' : 'Define your agents and flows in orchestrator.yaml',
+            testCmd,
+        ];
+    }
 
     // Enterprise — local LLM + RAG
     if (arch === 'enterprise') {
@@ -128,11 +149,15 @@ export async function main(argv: string[]): Promise<void> {
 
     const steps = buildNextSteps(choices);
 
+    const envLine = choices.architecture === 'orchestrator'
+        ? '   # .env created — add your API key'
+        : '   cp .env.example .env      # add your API key';
+
     console.log(`
 ✅  Done! Your agent is ready.
 
    cd ${choices.projectName}
-   cp .env.example .env      # add your API key
+${envLine}
 ${steps.map(s => `   ${s}`).join('\n')}
 
 Documentation: https://github.com/BackendKit-labs/backendkit-agent-framework

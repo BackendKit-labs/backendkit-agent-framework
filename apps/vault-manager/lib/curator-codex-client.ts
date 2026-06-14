@@ -9,8 +9,36 @@ import {
 } from '@backendkit-labs/curator-codex-agent';
 import type { CuratorLLMProvider } from '@backendkit-labs/curator-codex-agent';
 
+// ── Transport detection ───────────────────────────────────────────────────────
+// If CURATOR_CODEX_URL is set, all calls go to the standalone HTTP service.
+// Otherwise, classes are instantiated in-process (dev / single-host mode).
+
+const CURATOR_HTTP = process.env.CURATOR_CODEX_URL?.replace(/\/$/, '');
+const CURATOR_KEY  = process.env.CURATOR_CODEX_API_KEY ?? '';
+
+function httpHeaders(): Record<string, string> {
+    return {
+        'Content-Type': 'application/json',
+        ...(CURATOR_KEY ? { Authorization: `Bearer ${CURATOR_KEY}` } : {}),
+    };
+}
+
+async function httpPost<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${CURATOR_HTTP}${path}`, {
+        method:  'POST',
+        headers: httpHeaders(),
+        body:    JSON.stringify(body),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(`curator-codex ${path} → ${res.status}: ${(err as any).message ?? res.statusText}`);
+    }
+    return res.json() as Promise<T>;
+}
+
+// ── Local-mode helpers ────────────────────────────────────────────────────────
+
 function makeProvider(): CuratorLLMProvider {
-    // vault-manager uses DEEPSEEK_API_KEY; curator-codex reads CURATOR_API_KEY
     const apiKey = process.env.CURATOR_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '';
     return createProvider({
         provider: (process.env.CURATOR_PROVIDER ?? 'deepseek') as 'deepseek',
@@ -20,7 +48,10 @@ function makeProvider(): CuratorLLMProvider {
     });
 }
 
-// ── Curation ──────────────────────────────────────────────────────────────────
+// Module-level cache: persists across Next.js requests in the same process
+const engineCache = new Map<string, KnowledgeEngine>();
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export interface CurateResult {
     notesWritten:     string[];
@@ -38,6 +69,11 @@ export async function curateFile(
     fileName:  string,
     vaultPath: string,
 ): Promise<CurateResult> {
+    if (CURATOR_HTTP) {
+        return httpPost<CurateResult>('/curator/file', { vaultPath, fileName, content });
+    }
+
+    // Local mode
     const tmpDir  = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'vault-ingest-'));
     const tmpFile = nodePath.join(tmpDir, fileName);
 
@@ -57,17 +93,14 @@ export async function curateFile(
 
             generatedContent = await fsp.readFile(notePath, 'utf-8').catch(() => null);
 
-            // Title from filename (strip date prefix)
             generatedTitle = nodePath.basename(notePath, '.md')
                 .replace(/^\d{4}-\d{2}-\d{2}-/, '')
                 .replace(/-/g, ' ');
 
-            // Area from first subdirectory relative to vaultPath
             const rel   = nodePath.relative(vaultPath, notePath);
             const parts = rel.split(nodePath.sep);
             area = parts.length > 1 ? parts[0] : 'general';
 
-            // Tags from YAML frontmatter: tags: [a, b, c]
             if (generatedContent) {
                 const fmMatch  = generatedContent.match(/^---\n([\s\S]*?)\n---/);
                 const tagsLine = fmMatch?.[1].match(/^tags:\s*\[([^\]]*)\]/m);
@@ -86,16 +119,19 @@ export async function curateFile(
     }
 }
 
-// ── RAG / Semantic Search ─────────────────────────────────────────────────────
-
-// Module-level cache: persists across Next.js requests in the same process
-const engineCache = new Map<string, KnowledgeEngine>();
-
 export async function searchVault(
     vaultPath: string,
     query:     string,
     topK      = 8,
 ) {
+    if (CURATOR_HTTP) {
+        return httpPost<Awaited<ReturnType<KnowledgeEngine['search']>>>(
+            '/knowledge/search',
+            { vaultPath, query, topK },
+        );
+    }
+
+    // Local mode
     if (!engineCache.has(vaultPath)) {
         const engine = new KnowledgeEngine(makeProvider(), vaultPath);
         await engine.initialize();
@@ -105,6 +141,11 @@ export async function searchVault(
 }
 
 export async function reindexVault(vaultPath: string) {
+    if (CURATOR_HTTP) {
+        return httpPost('/knowledge/reindex', { vaultPath });
+    }
+
+    // Local mode
     const engine = engineCache.get(vaultPath)
         ?? new KnowledgeEngine(makeProvider(), vaultPath);
     const result = await engine.reload();

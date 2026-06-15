@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import type { RunState } from '@/lib/gateway';
 import { RunCard } from './run-card';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { cn } from '@/components/ui';
 
 interface Column {
@@ -25,28 +25,33 @@ export function KanbanBoard() {
     const [runs,        setRuns]        = useState<RunState[]>([]);
     const [loading,     setLoading]     = useState(true);
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+    const [connected,   setConnected]   = useState(false);
     const [error,       setError]       = useState<string | null>(null);
 
-    const fetchRuns = useCallback(async () => {
-        try {
-            const res = await fetch('/api/runs');
-            if (!res.ok) { setError(`Gateway error ${res.status}`); return; }
-            const data = await res.json() as RunState[];
-            setRuns(data);
-            setLastRefresh(new Date());
-            setError(null);
-        } catch (e) {
-            setError((e as Error).message);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+    const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'http://localhost:3400';
 
     useEffect(() => {
-        fetchRuns();
-        const interval = setInterval(fetchRuns, 3_000);
-        return () => clearInterval(interval);
-    }, [fetchRuns]);
+        const es = new EventSource(`${gatewayUrl}/api/runs/stream`);
+
+        es.onmessage = (e: MessageEvent<string>) => {
+            try {
+                setRuns(JSON.parse(e.data) as RunState[]);
+                setLastRefresh(new Date());
+                setConnected(true);
+                setLoading(false);
+                setError(null);
+            } catch { /* ignore malformed frame */ }
+        };
+
+        es.onopen = () => { setConnected(true); setError(null); };
+
+        es.onerror = () => {
+            setConnected(false);
+            setError('SSE disconnected — reconnecting…');
+        };
+
+        return () => es.close();
+    }, []);
 
     function runsForColumn(col: Column): RunState[] {
         return runs.filter(r => r.status === col.key || (col.extra && r.status === col.extra));
@@ -58,19 +63,21 @@ export function KanbanBoard() {
             <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-2.5">
                 <span className="text-xs text-muted-foreground">
                     {loading
-                        ? 'Loading…'
+                        ? <span className="flex items-center gap-1.5"><RefreshCw className="h-3 w-3 animate-spin" /> Connecting…</span>
                         : error
-                            ? <span className="text-red-400">Gateway unreachable — {error}</span>
-                            : `${runs.length} run${runs.length !== 1 ? 's' : ''} · refreshed ${lastRefresh?.toLocaleTimeString()}`
+                            ? <span className="flex items-center gap-1.5 text-red-400"><WifiOff className="h-3 w-3" />{error}</span>
+                            : `${runs.length} run${runs.length !== 1 ? 's' : ''} · updated ${lastRefresh?.toLocaleTimeString()}`
                     }
                 </span>
-                <button
-                    onClick={fetchRuns}
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                    <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
-                    Refresh
-                </button>
+                <span className={cn(
+                    'flex items-center gap-1.5 text-xs',
+                    connected ? 'text-emerald-400' : 'text-muted-foreground',
+                )}>
+                    {connected
+                        ? <><Wifi className="h-3 w-3" /> live</>
+                        : <><WifiOff className="h-3 w-3" /> offline</>
+                    }
+                </span>
             </div>
 
             {/* Kanban columns */}
@@ -101,7 +108,6 @@ export function KanbanBoard() {
                                         <RunCard
                                             key={run.id}
                                             run={run}
-                                            onRefresh={fetchRuns}
                                         />
                                     ))
                                 )}

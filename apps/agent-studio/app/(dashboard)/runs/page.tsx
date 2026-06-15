@@ -9,7 +9,7 @@ export default function RunsPage() {
         <div className="flex flex-1 flex-col overflow-hidden">
             <Topbar
                 title="Runs"
-                subtitle="Real-time orchestrator run monitor — refreshes every 3 s"
+                subtitle="Real-time orchestrator run monitor — live via SSE"
             />
             <div className="flex-1 overflow-hidden">
                 <KanbanBoard />

@@ -67,11 +67,10 @@ function ActionDialog({ open, onClose, title, description, placeholder, actionLa
 }
 
 interface RunCardProps {
-    run:       RunState;
-    onRefresh: () => void;
+    run: RunState;
 }
 
-export function RunCard({ run, onRefresh }: RunCardProps) {
+export function RunCard({ run }: RunCardProps) {
     const [expanded,     setExpanded]     = useState(false);
     const [approveOpen,  setApproveOpen]  = useState(false);
     const [rejectOpen,   setRejectOpen]   = useState(false);
@@ -89,7 +88,6 @@ export function RunCard({ run, onRefresh }: RunCardProps) {
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify(body),
             });
-            onRefresh();
         } finally { setActionBusy(false); }
     }
 

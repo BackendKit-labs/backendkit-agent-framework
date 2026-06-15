@@ -10,18 +10,30 @@ export type RunStatus =
     | 'failed'
     | 'cancelled';
 
+export interface StepResult {
+    stepId:     string;
+    agentId:    string;
+    capability: string;
+    task?:      string;
+    output:     string;
+    success:    boolean;
+    durationMs: number;
+}
+
 export interface RunState {
-    id:            string;
-    flowId:        string;
-    status:        RunStatus;
-    input:         Record<string, unknown>;
-    results:       unknown[];
-    gateStepId?:   string;
-    failedStepId?: string;
-    summary?:      string;
-    error?:        string;
-    createdAt:     string;
-    updatedAt:     string;
+    id:             string;
+    flowId:         string;
+    status:         RunStatus;
+    input:          Record<string, unknown>;
+    results:        StepResult[];
+    currentStepId?: string;
+    gateStepId?:    string;
+    gateCriteria?:  string[];
+    failedStepId?:  string;
+    summary?:       string;
+    error?:         string;
+    createdAt:      string;
+    updatedAt:      string;
 }
 
 export interface AgentInstance {

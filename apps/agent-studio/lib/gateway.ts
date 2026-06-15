@@ -49,6 +49,41 @@ export interface AgentHealth {
     instances:   AgentInstance[];
 }
 
+export interface FlowStep {
+    id:      string;
+    agent:   string;
+    task:    string;
+    gate?:   boolean;
+    require?: boolean;
+}
+
+export interface FlowConfig {
+    id:          string;
+    file:        string;
+    trigger:     string;
+    name?:       string;
+    description?: string;
+    steps:       FlowStep[];
+    error?:      string;
+}
+
+export interface AgentConfig {
+    id:          string;
+    description: string;
+    strategy:    string;
+    capability?: string;
+    timeout?:    number;
+    gate?:       boolean;
+    instances:   { url: string }[];
+}
+
+export interface OrchestratorConfig {
+    orchestrator: { name: string; data_dir: string };
+    agents:       AgentConfig[];
+    flows:        FlowConfig[];
+    settings:     { maxConcurrentFlows: number };
+}
+
 // ── API calls (server-side only) ──────────────────────────────────────────────
 
 export async function listRuns(): Promise<RunState[]> {
@@ -92,4 +127,12 @@ export async function listAgents(): Promise<AgentHealth[]> {
         if (!res.ok) return [];
         return res.json() as Promise<AgentHealth[]>;
     } catch { return []; }
+}
+
+export async function getConfig(): Promise<OrchestratorConfig | null> {
+    try {
+        const res = await fetch(`${GATEWAY_URL}/api/config`, { cache: 'no-store' });
+        if (!res.ok) return null;
+        return res.json() as Promise<OrchestratorConfig>;
+    } catch { return null; }
 }

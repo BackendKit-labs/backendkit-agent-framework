@@ -16,7 +16,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
     { href: '/runs',   icon: LayoutGrid, label: 'Runs'   },
     { href: '/agents', icon: Bot,        label: 'Agents' },
-    { href: '/flows',  icon: Workflow,   label: 'Flows', disabled: true },
+    { href: '/flows',  icon: Workflow,   label: 'Flows' },
 ];
 
 export function Sidebar() {

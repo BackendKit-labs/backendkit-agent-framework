@@ -1,14 +1,15 @@
-import type { AgentHealth } from '@/lib/gateway';
+import type { AgentHealth, AgentConfig } from '@/lib/gateway';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, XCircle, Zap, Users } from 'lucide-react';
+import { CheckCircle2, XCircle, Zap, Users, Clock, Tag } from 'lucide-react';
 
 interface AgentHealthCardProps {
-    agent: AgentHealth;
+    agent:  AgentHealth;
+    config?: AgentConfig;
 }
 
-export function AgentHealthCard({ agent }: AgentHealthCardProps) {
-    const allOk    = agent.instances.every(i => i.ok);
-    const anyOk    = agent.instances.some(i => i.ok);
+export function AgentHealthCard({ agent, config }: AgentHealthCardProps) {
+    const allOk     = agent.instances.every(i => i.ok);
+    const anyOk     = agent.instances.some(i => i.ok);
     const overallOk = agent.instances.length === 0 ? false : allOk;
 
     return (
@@ -34,6 +35,29 @@ export function AgentHealthCard({ agent }: AgentHealthCardProps) {
                     {agent.strategy}
                 </span>
             </div>
+
+            {/* Config meta: capability + timeout */}
+            {config && (config.capability || config.timeout) && (
+                <div className="mt-2 flex flex-wrap gap-2 pl-6">
+                    {config.capability && (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                            <Tag   className="h-3 w-3 shrink-0" />
+                            <span className="font-mono">{config.capability}</span>
+                        </div>
+                    )}
+                    {config.timeout && (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                            <Clock className="h-3 w-3 shrink-0" />
+                            <span>{(config.timeout / 1000).toFixed(0)}s timeout</span>
+                        </div>
+                    )}
+                    {config.gate && (
+                        <span className="rounded bg-amber-950/40 border border-amber-700/30 px-1.5 py-0.5 text-[10px] text-amber-400">
+                            gate
+                        </span>
+                    )}
+                </div>
+            )}
 
             {/* Instances */}
             <div className="mt-3 space-y-1.5">
@@ -66,10 +90,11 @@ export function AgentHealthCard({ agent }: AgentHealthCardProps) {
 }
 
 interface AgentGridProps {
-    agents: AgentHealth[];
+    agents:       AgentHealth[];
+    agentConfigs?: AgentConfig[];
 }
 
-export function AgentGrid({ agents }: AgentGridProps) {
+export function AgentGrid({ agents, agentConfigs = [] }: AgentGridProps) {
     if (agents.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
@@ -86,6 +111,7 @@ export function AgentGrid({ agents }: AgentGridProps) {
 
     const okCount   = agents.filter(a => a.instances.every(i => i.ok)).length;
     const downCount = agents.length - okCount;
+    const configMap = Object.fromEntries(agentConfigs.map(c => [c.id, c]));
 
     return (
         <div className="space-y-4">
@@ -106,7 +132,7 @@ export function AgentGrid({ agents }: AgentGridProps) {
             {/* Cards grid */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {agents.map(agent => (
-                    <AgentHealthCard key={agent.id} agent={agent} />
+                    <AgentHealthCard key={agent.id} agent={agent} config={configMap[agent.id]} />
                 ))}
             </div>
         </div>

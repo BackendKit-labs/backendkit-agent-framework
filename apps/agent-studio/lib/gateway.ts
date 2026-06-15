@@ -50,11 +50,14 @@ export interface AgentHealth {
 }
 
 export interface FlowStep {
-    id:      string;
-    agent:   string;
-    task:    string;
-    gate?:   boolean;
-    require?: boolean;
+    id:             string;
+    agent:          string;
+    task:           string;
+    capability?:    string;
+    depends_on?:    string[];
+    gate?:          boolean;
+    gate_criteria?: string[];
+    require?:       boolean;
 }
 
 export interface FlowConfig {
@@ -68,13 +71,14 @@ export interface FlowConfig {
 }
 
 export interface AgentConfig {
-    id:          string;
-    description: string;
-    strategy:    string;
-    capability?: string;
-    timeout?:    number;
-    gate?:       boolean;
-    instances:   { url: string }[];
+    id:             string;
+    description:    string;
+    strategy:       string;
+    capability?:    string;
+    timeout?:       number;
+    gate?:          boolean;
+    gate_criteria?: string[];
+    instances:      { url: string; apiKey?: string }[];
 }
 
 export interface OrchestratorConfig {
@@ -135,4 +139,30 @@ export async function getConfig(): Promise<OrchestratorConfig | null> {
         if (!res.ok) return null;
         return res.json() as Promise<OrchestratorConfig>;
     } catch { return null; }
+}
+
+// ── Config CRUD (client-side — calls gateway which proxies to orchestrator) ───
+
+export async function saveAgent(agent: AgentConfig): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch('/api/config/agents', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(agent),
+    });
+    return res.json() as Promise<{ ok: boolean; error?: string }>;
+}
+
+export async function deleteAgent(id: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`/api/config/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return res.json() as Promise<{ ok: boolean }>;
+}
+
+export async function saveFlow(flow: FlowConfig): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch('/api/config/flows', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flow),
+    });
+    return res.json() as Promise<{ ok: boolean; error?: string }>;
+}
+
+export async function deleteFlow(id: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`/api/config/flows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return res.json() as Promise<{ ok: boolean }>;
 }

@@ -78,6 +78,7 @@ export interface AgentConfig {
     timeout?:       number;
     gate?:          boolean;
     gate_criteria?: string[];
+    image?:         string;   // Docker image (set when agent has been containerised)
     instances:      { url: string; apiKey?: string }[];
 }
 
@@ -172,6 +173,7 @@ export async function deleteFlow(id: string): Promise<{ ok: boolean }> {
 export interface DeploySpec {
     id:             string;
     image:          string;
+    name?:          string;          // custom container name prefix
     containerPort?: number;
     env?:           Record<string, string>;
     memoryMb?:      number;
@@ -180,6 +182,8 @@ export interface DeploySpec {
     description?:   string;
     strategy?:      string;
     capability?:    string;
+    instances?:     number;          // replicas (default 1)
+    mounts?:        string[];        // ["hostPath:containerPath[:ro]", ...]
 }
 
 export interface DeployedInstance {
@@ -189,6 +193,12 @@ export interface DeployedInstance {
     url:        string;
     status:     string;
     createdAt:  string;
+    replica?:   number;
+}
+
+export interface DeploySettings {
+    vaultHostPath: string | null;
+    runtime:       string;
 }
 
 export async function listDeployments(): Promise<DeployedInstance[]> {
@@ -199,7 +209,26 @@ export async function listDeployments(): Promise<DeployedInstance[]> {
     } catch { return []; }
 }
 
-export async function deployAgent(spec: DeploySpec): Promise<{ ok: boolean; agentId?: string; instanceId?: string; url?: string; error?: string }> {
+export async function getDeploySettings(): Promise<DeploySettings> {
+    try {
+        const res = await fetch('/api/deploy/settings', { cache: 'no-store' });
+        if (!res.ok) return { vaultHostPath: null, runtime: 'docker' };
+        return res.json() as Promise<DeploySettings>;
+    } catch { return { vaultHostPath: null, runtime: 'docker' }; }
+}
+
+export async function listConfigAgents(): Promise<AgentConfig[]> {
+    try {
+        const res = await fetch('/api/config/agents', { cache: 'no-store' });
+        if (!res.ok) return [];
+        return res.json() as Promise<AgentConfig[]>;
+    } catch { return []; }
+}
+
+export async function deployAgent(spec: DeploySpec): Promise<{
+    ok: boolean; agentId?: string; instanceId?: string; url?: string;
+    replicas?: Array<{ instanceId: string; url: string }>; error?: string;
+}> {
     const res = await fetch('/api/deploy', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
     });

@@ -166,3 +166,47 @@ export async function deleteFlow(id: string): Promise<{ ok: boolean }> {
     const res = await fetch(`/api/config/flows/${encodeURIComponent(id)}`, { method: 'DELETE' });
     return res.json() as Promise<{ ok: boolean }>;
 }
+
+// ── Deploy API (Docker runtime) ───────────────────────────────────────────────
+
+export interface DeploySpec {
+    id:             string;
+    image:          string;
+    containerPort?: number;
+    env?:           Record<string, string>;
+    memoryMb?:      number;
+    cpus?:          number;
+    apiKey?:        string;
+    description?:   string;
+    strategy?:      string;
+    capability?:    string;
+}
+
+export interface DeployedInstance {
+    instanceId: string;
+    agentId:    string;
+    image:      string;
+    url:        string;
+    status:     string;
+    createdAt:  string;
+}
+
+export async function listDeployments(): Promise<DeployedInstance[]> {
+    try {
+        const res = await fetch('/api/deploy', { cache: 'no-store' });
+        if (!res.ok) return [];
+        return res.json() as Promise<DeployedInstance[]>;
+    } catch { return []; }
+}
+
+export async function deployAgent(spec: DeploySpec): Promise<{ ok: boolean; agentId?: string; instanceId?: string; url?: string; error?: string }> {
+    const res = await fetch('/api/deploy', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
+    });
+    return res.json();
+}
+
+export async function undeployAgent(agentId: string): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/deploy/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+    return res.json();
+}

@@ -2,7 +2,7 @@
 import type React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Bot, Workflow, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, Bot, Workflow, Container, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/components/ui';
 
@@ -16,7 +16,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
     { href: '/runs',   icon: LayoutGrid, label: 'Runs'   },
     { href: '/agents', icon: Bot,        label: 'Agents' },
-    { href: '/flows',  icon: Workflow,   label: 'Flows' },
+    { href: '/flows',  icon: Workflow,   label: 'Flows'  },
+    { href: '/deploy', icon: Container,  label: 'Deploy' },
 ];
 
 export function Sidebar() {

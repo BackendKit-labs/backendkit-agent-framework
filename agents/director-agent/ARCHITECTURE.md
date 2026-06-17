@@ -154,14 +154,50 @@ El vault contiene **conocimiento operacional del ecosistema**, no código fuente
 └── workspaces.json        ← workspaces multi-proyecto (ya existe)
 ```
 
+### Implementación — `@backendkit-labs/infra` (packages/infra)
+
+Paquete SDK publicable que centraliza toda la lógica de paths y la inicialización del directorio de infraestructura. **Todos los componentes del ecosistema deben usar este paquete** en lugar de construir paths manualmente.
+
+```typescript
+import { getBkHome, bkPaths, initBkHome } from '@backendkit-labs/infra';
+
+// En el arranque de cualquier agente:
+await initBkHome();  // crea ~/.backendkit/ si no existe — idempotente
+
+// Paths tipados:
+bkPaths.vault('mi-proyecto')      // ~/.backendkit/vaults/mi-proyecto/
+bkPaths.ragIndex('mi-proyecto')   // ~/.backendkit/rag/mi-proyecto.json
+bkPaths.data('orchestrator')      // ~/.backendkit/data/orchestrator/
+bkPaths.directorMemory()          // ~/.backendkit/director/
+bkPaths.directorGoals()           // ~/.backendkit/director/goals.json
+```
+
+**`initBkHome()` crea en el primer arranque:**
+```
+~/.backendkit/
+├── vaults/shared/
+├── rag/
+├── data/orchestrator/
+├── data/orchestrator-mcp/
+├── data/vault-manager/
+├── director/
+│   ├── goals.json        ← seed: []
+│   └── user-model.json   ← seed: {}
+└── README.md
+```
+
+**Componentes ya integrados:** `codex-context-agent-v2`, `director-agent`.
+**Pendiente integrar:** `orchestrator-agent`, `orchestrator-mcp-agent`, `vault-manager`.
+
 ### Notas importantes
 
-**`~/.bk-agent/` lo crea bk-agent en su primer inicio.** El resto del ecosistema asume que ese directorio existe. Implicaciones:
-- Si bk-agent no fue iniciado, `BK_HOME` no existe y los componentes que lo usen fallarán.
-- El platform necesita lógica de inicialización propia: si `BK_HOME` no existe, crearlo con la estructura mínima (vaults/, rag/, data/, director/) sin depender de que bk-agent haya corrido antes.
-- Pendiente: decidir si la inicialización de `BK_HOME` la hace un script de setup del platform, el director-agent en su primer arranque, o bk-agent sigue siendo el responsable.
+**`~/.backendkit/` lo crea el platform en el primer arranque** (vía `initBkHome()` de `@backendkit-labs/infra`). No depende de que bk-agent haya corrido antes. Cualquier componente que llame `initBkHome()` al arrancar garantiza que el directorio existe.
 
-**El nombre `~/.bk-agent/` es provisorio.** Se evaluará cambiarlo (ej. `~/.backendkit/`) cuando se defina la identidad de marca del producto. El env var `BK_HOME` abstrae esto — cambiar el nombre solo requiere actualizar el default en un lugar. Pendiente para más adelante.
+**`~/.bk-agent/` lo crea bk-agent en su primer inicio.** Es el home de bk-agent (agents, skills, projects, sessions, plugins). Se mantendrá separado hasta que bk-agent migre a `BK_HOME`. En esa migración, el contenido relevante se moverá a `~/.backendkit/` y bk-agent pasará a usar `BK_HOME`. Implicaciones actuales:
+- Si bk-agent no fue iniciado, `~/.bk-agent/` no existe — pero `~/.backendkit/` sí existirá si cualquier componente del platform ya corrió.
+- Los dos directorios coexisten hasta que bk-agent migre.
+
+**El nombre `~/.backendkit/` está decidido.** Reemplaza `~/.bk-agent/` como home del platform. El env var `BK_HOME` permite override (ej. `/var/backendkit` en servidores). La migración de bk-agent para usar `BK_HOME` queda pendiente.
 
 ### Regla de paths para cada componente
 
@@ -184,16 +220,16 @@ codex-context-agent v1 estaba integrado con bk-agent y generó vaults bajo su co
 3. Actualizar bk-agent config para usar codex v2 en vez de v1
 4. Los índices RAG de `~/.bk-agent/rag/` ya están en el lugar correcto — no se mueven
 
-### Cambio en codex-context-agent-v2 (pendiente)
+### Cambio en codex-context-agent-v2 (✅ implementado)
 
+Usa `@backendkit-labs/infra` — paths migrados a `~/.backendkit/`:
 ```typescript
 // src/project.ts
-const BK_HOME   = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
-const vaultPath = path.join(BK_HOME, 'vaults', projectName);  // antes: ~/.codex-vaults/
+await initBkHome();
+const vaultPath = bkPaths.vault(projectName);   // ~/.backendkit/vaults/{project}/
 
 // src/knowledge/rag-provider.ts
-const BK_HOME = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
-return path.join(BK_HOME, 'rag', `${name}.json`);             // antes: ~/.codex-context/rag/
+return bkPaths.ragIndex(path.basename(vaultPath)); // ~/.backendkit/rag/{name}.json
 ```
 
 ## Configuración (director.yaml)

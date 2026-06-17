@@ -1,7 +1,7 @@
 {
-  "name": "@backendkit-labs/studio-agent",
+  "name": "@backendkit-labs/fleet-agent",
   "version": "0.1.0",
-  "description": "Studio Agent — MCP server that wraps the orchestrator-gateway HTTP API (:3400). Lets the orchestrator query run status, manage agent/flow config, and control deployments.",
+  "description": "Fleet Agent — MCP server for Docker/Kubernetes deployment operations via orchestrator-gateway (:3400). Scope: deploy, stop, list containers, health. Orchestration (flows, runs, gates) goes directly to orchestrator-mcp-agent.",
   "private": true,
   "type": "module",
   "main": "dist/server.js",

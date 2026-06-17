@@ -25,28 +25,37 @@ providers:
     model: qwen2.5-coder
     api_key: ollama
 
-# Agentes del ecosistema a cablear como servidores MCP (stdio).
-# Los paths son relativos a este archivo. Descomentá a medida que estén construidos.
+# Agentes conectados al director via MCP stdio.
+# Paths relativos a este archivo. Descomentá a medida que estén listos.
+#
+# Arquitectura de conexión:
+#   codex       → codex-context-agent-v2  (vault RAG, sin Ollama)
+#   runs        → orchestrator-mcp-agent  (flows, runs, gates — MCP directo, sin gateway)
+#   fleet       → fleet-agent             (deploy Docker/K8s — vía gateway :3400)
+#   coder       → bk-agent --mcp          (código, spec-driven, QA)
 agents:
-  - name: codex                 # Conocimiento — vault RAG (sin Ollama)
+  - name: codex
     command: node
     args: ["../codex-context-agent-v2/dist/server.js"]
     env:
       CODEX_API_KEY: ${DEEPSEEK_API_KEY}
       CODEX_PROVIDER: deepseek
 
+  - name: runs                  # Orquestación: flows, runs, gates, config — MCP directo
+    command: node
+    args: ["../orchestrator-mcp-agent/dist/server.js"]
+    env:
+      ORCHESTRATOR_CONFIG: ${ORCHESTRATOR_CONFIG}
+
+  - name: fleet                 # Deploy Docker/K8s — vía gateway HTTP :3400
+    command: node
+    args: ["../fleet-agent/dist/server.js"]
+    env:
+      GATEWAY_URL: ${GATEWAY_URL}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY}
+
   # - name: coder               # Código — bk-agent (requiere modo --mcp, pendiente)
   #   command: node
   #   args: ["../../apps/bk-agent/dist/bin/cli.js", "--mcp"]
   #   env:
   #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-
-  # - name: orchestrator        # Planificación — orchestrator-agent (tools piden config_path)
-  #   command: node
-  #   args: ["../orchestrator-agent/dist/server.js"]
-
-  # - name: fleet               # Operaciones — orchestrator-mcp-agent (pools, deploy, flows)
-  #   command: node
-  #   args: ["../orchestrator-mcp-agent/dist/server.js"]
-  #   env:
-  #     ORCHESTRATOR_CONFIG: ../../examples/workflow.mcp-agents/orchestrator-mcp.yaml

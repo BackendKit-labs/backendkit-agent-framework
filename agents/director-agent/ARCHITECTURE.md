@@ -44,8 +44,8 @@ agent     agent   (bk-    context  agent   agent      especialistas
 | `curator-agent` | ✅ | vault Obsidian | ingesta masiva de documentos enterprise con LLM |
 | `curator-codex-agent` | ✅ | vault + HTTP API | análisis código + RAG + seguridad, HTTP Protocol v1 |
 | `workspace-manager` | ✅ | workspaces multi-proyecto | gestión de vaults y proyectos |
-| `studio-agent` | ⬜ a crear | `agent-studio` HTTP :3001 | leer runs en vivo, actualizar config agentes/flows, estado de salud |
-| `vault-manager-agent` | ⬜ a crear | `vault-manager` HTTP :3000 | enviar docs a auditoría humana, consultar cola, importar vaults |
+| `studio-agent` | ✅ | orchestrator-gateway HTTP :3400 | list_runs, start_flow, approve/reject/retry gate, list_agents, get_config, deploy_agent, stop_agent |
+| `vault-manager-agent` | ✅ | `vault-manager` HTTP :3000 | list_vaults, search_knowledge, list_notes, ingest_text (cola de auditoría humana), sync_vault |
 | `orchestrator-gateway` | ✅ | `orchestrator-mcp-agent` | bridge HTTP↔MCP para agent-studio (:3400) |
 | `run-recovery-daemon` | ✅ | orchestrator runs | recupera runs colgados, health de agentes |
 | `synthesizer-agent` | ✅ | planner + writer | síntesis de skills desde runs exitosos |
@@ -156,8 +156,8 @@ agents:
 | fleet (Stack B) conectado | ⬜ |
 | orchestrator (Stack A) conectado | ⬜ |
 | bk-agent --mcp (coder) | ⬜ |
-| studio-agent (wrapper agent-studio) | ⬜ |
-| vault-manager-agent (wrapper vault-manager) | ⬜ |
+| studio-agent (wrapper gateway :3400) | ✅ |
+| vault-manager-agent (wrapper vault-manager :3000) | ✅ |
 | Vault curado con conocimiento operacional | ⬜ |
 | WebSocket :3500 | ⬜ |
 | docker-compose.enterprise.yml | ⬜ |

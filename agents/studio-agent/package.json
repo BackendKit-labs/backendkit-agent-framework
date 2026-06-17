@@ -1,0 +1,23 @@
+{
+  "name": "@backendkit-labs/studio-agent",
+  "version": "0.1.0",
+  "description": "Studio Agent — MCP server that wraps the orchestrator-gateway HTTP API (:3400). Lets the orchestrator query run status, manage agent/flow config, and control deployments.",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc --noCheck",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=20.0.0" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

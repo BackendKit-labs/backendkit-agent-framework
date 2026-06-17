@@ -17,7 +17,9 @@ export interface ProjectContext {
  *   2. Git root detected from CWD
  *   3. CWD as fallback (non-git directories)
  *
- * Vault is always at: ~/.codex-vaults/{project-name}/
+ * Vault location: $BK_HOME/vaults/{project-name}/
+ *   BK_HOME defaults to ~/.bk-agent/ — the unified platform infrastructure dir.
+ *   Override with BK_HOME env var (e.g. for server deployments or rename).
  */
 export async function resolveProject(): Promise<ProjectContext> {
     const startPath = process.env.CODEX_PROJECT_PATH ?? process.cwd();
@@ -38,7 +40,8 @@ export async function resolveProject(): Promise<ProjectContext> {
         projectName = path.basename(startPath);
     }
 
-    const vaultPath = path.join(os.homedir(), '.codex-vaults', projectName);
+    const bkHome   = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
+    const vaultPath = path.join(bkHome, 'vaults', projectName);
     await fs.mkdir(vaultPath, { recursive: true });
 
     return { projectName, projectRoot, vaultPath };

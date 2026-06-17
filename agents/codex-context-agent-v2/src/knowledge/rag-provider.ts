@@ -41,7 +41,8 @@ export class CuratorRagProvider {
     }
 
     private getIndexPath(): string {
-        return path.join(os.homedir(), '.codex-context', 'rag', `${path.basename(this.vaultPath)}.json`);
+        const bkHome = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
+        return path.join(bkHome, 'rag', `${path.basename(this.vaultPath)}.json`);
     }
 
     async indexVault(): Promise<{ indexed: number; updated: number }> {

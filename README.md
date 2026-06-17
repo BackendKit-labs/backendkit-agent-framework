@@ -1,6 +1,12 @@
-# BackendKit Agent Framework
+# BackendKit Platform
 
-Multi-agent framework for TypeScript — build coding assistants, autonomous agents, domain specialists, and MCP servers from a single engine.
+The unified TypeScript monorepo for the BackendKit agent ecosystem. Three tiers:
+
+- **`packages/`** — the SDK (publishable to npm): a model- and transport-agnostic multi-agent engine for coding assistants, autonomous agents, domain specialists, and MCP servers.
+- **`agents/`** — deployable MCP servers built on the SDK (orchestrator, director, codex-context, docker, k8s, and more).
+- **`apps/`** — end-user products (agent-studio, vault-manager, the bk-agent CLI).
+
+Examples live in `examples/` (reference only, outside the workspace build).
 
 ## Quickstart
 

@@ -31,9 +31,9 @@
                     "prepublishOnly":  "npm run build"
                 },
     "dependencies":  {
-                         "@backendkit-labs/agent-core":  "workspace:*",
-                         "@backendkit-labs/agent-enterprise":  "workspace:*",
-                         "@backendkit-labs/curator-agent":  "workspace:*",
+                         "@backendkit-labs/agent-core":  "*",
+                         "@backendkit-labs/agent-enterprise":  "*",
+                         "@backendkit-labs/curator-agent":  "*",
                          "dotenv":  "^16.0.0",
                          "openai":  "^4.0.0"
                      },

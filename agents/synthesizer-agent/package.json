@@ -8,9 +8,9 @@
                     "start":  "node dist/server.js"
                 },
     "dependencies":  {
-                         "@backendkit-labs/agent-core":  "workspace:*",
-                         "@backendkit-labs/agent-coding":  "workspace:*",
-                         "@backendkit-labs/agent-protocol":  "workspace:*",
+                         "@backendkit-labs/agent-core":  "*",
+                         "@backendkit-labs/agent-coding":  "*",
+                         "@backendkit-labs/agent-protocol":  "*",
                          "dotenv":  "^16.0.0"
                      },
     "devDependencies":  {

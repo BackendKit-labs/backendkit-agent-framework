@@ -18,8 +18,8 @@
                     "prepublishOnly":  "npm run build"
                 },
     "dependencies":  {
-                         "@backendkit-labs/agent-enterprise":  "workspace:*",
-                         "@backendkit-labs/agent-protocol":  "workspace:*",
+                         "@backendkit-labs/agent-enterprise":  "*",
+                         "@backendkit-labs/agent-protocol":  "*",
                          "@kubernetes/client-node":  "^1.4.0",
                          "@modelcontextprotocol/sdk":  "^1.12.0",
                          "@types/better-sqlite3":  "^7.6.13",

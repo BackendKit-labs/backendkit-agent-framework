@@ -38,7 +38,7 @@
                          "react-dom":  "^18.3.1",
                          "react-dropzone":  "^14.3.5",
                          "recharts":  "^2.15.0",
-                         "@backendkit-labs/curator-codex-agent":  "workspace:*",
+                         "@backendkit-labs/curator-codex-agent":  "*",
                          "server-only":  "^0.0.1",
                          "tailwind-merge":  "^2.6.0",
                          "tailwindcss-animate":  "^1.0.7"

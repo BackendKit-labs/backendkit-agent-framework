@@ -16,14 +16,15 @@ import { loadSoul, buildSystemPrompt } from './soul.js';
 
 // ── Director AgentProfile ─────────────────────────────────────────────────────
 
-function buildDirectorProfile(systemPrompt: string): AgentProfile {
+function buildDirectorProfile(systemPrompt: string, mcpToolNames: string[]): AgentProfile {
     return {
         id:          'director',
         name:        'Director',
         icon:        '◆',
-        description: 'Brain of the BackendKit ecosystem. Understands natural language and routes to the right specialist.',
+        description: 'Brain of the BackendKit ecosystem. Calls MCP tools directly to answer and act.',
         systemPrompt,
-        allowedTools: ['*'],   // all MCP tools from connected agents
+        // Explicit list of MCP tools only — excludes ask_agent (no sub-agents to delegate to)
+        allowedTools: mcpToolNames,
     };
 }
 
@@ -67,7 +68,8 @@ export async function buildDirectorEngine(
     await mcp.initialize();
 
     const connectedServers = mcp.getServerInfo();
-    const mcpTools         = mcp.getTools();
+    const mcpTools     = mcp.getTools();
+    const mcpToolNames = mcpTools.map(t => t.name);
 
     // ── Build system prompt from SOUL + live topology ─────────────────────────
     const soul     = loadSoul(configDir);
@@ -87,7 +89,7 @@ export async function buildDirectorEngine(
     for (const t of mcpTools) tools.register(t);
 
     const agents = new AgentRegistry();
-    agents.register(buildDirectorProfile(systemPrompt));
+    agents.register(buildDirectorProfile(systemPrompt, mcpToolNames));
 
     const providers = new ProviderRegistry();
     providers.register(providerName, new DirectorProvider({

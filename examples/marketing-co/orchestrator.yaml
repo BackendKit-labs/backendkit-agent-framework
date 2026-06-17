@@ -1,0 +1,72 @@
+version: 2
+
+orchestrator:
+  name: "marketing-co orchestrator"
+  data_dir: ".marketing-co-data"
+
+agents:
+  - id: content-strategist
+    description: "Plans content strategy: editorial briefs, angles, buyer personas, content calendars"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/content-strategist:latest
+    instances:
+      - url: "http://localhost:${CONTENT_STRATEGIST_PORT:-3310}"
+
+  - id: copywriter
+    description: "Writes articles, ad copies, landing pages, and email nurture sequences"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/copywriter:latest
+    instances:
+      - url: "http://localhost:${COPYWRITER_PORT:-3311}"
+
+  - id: seo-agent
+    description: "Optimises content for SEO: meta tags, keyword analysis, on-page improvements"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/seo-agent:latest
+    instances:
+      - url: "http://localhost:${SEO_PORT:-3312}"
+
+  - id: social-media-agent
+    description: "Creates social media distribution plans for LinkedIn and Twitter/X"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/social-media-agent:latest
+    instances:
+      - url: "http://localhost:${SOCIAL_PORT:-3313}"
+
+  - id: campaign-agent
+    description: "Designs complete lead-gen campaign strategies: SMART goals, ICP, channel mix, budgets"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/campaign-agent:latest
+    instances:
+      - url: "http://localhost:${CAMPAIGN_PORT:-3314}"
+
+  - id: analytics-agent
+    description: "Defines KPIs, measurement plans, tracking setup, dashboards, and ROI targets"
+    transport: http
+    strategy: round-robin
+    capability: execute
+    image: mcp/marketing-co/analytics-agent:latest
+    instances:
+      - url: "http://localhost:${ANALYTICS_PORT:-3315}"
+
+flows:
+  - id: articulo-blog
+    file: flows/articulo-blog.yaml
+    trigger: "articulo|blog|redactar|contenido|post|escribir"
+
+  - id: campana-leads
+    file: flows/campana-leads.yaml
+    trigger: "campana|leads|generacion|captacion|conversion|campaña"
+
+settings:
+  maxConcurrentFlows: 5

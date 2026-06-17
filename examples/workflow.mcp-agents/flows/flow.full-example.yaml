@@ -1,0 +1,124 @@
+# ============================================================
+# flows/mi-flow.yaml — EJEMPLO COMPLETO CON TODOS LOS CAMPOS
+# ============================================================
+
+version: 2
+
+# id: debe coincidir con flows[].id en orchestrator-mcp.yaml
+id: knowledge-search-llm-full
+
+# name y description se muestran en el Kanban y en /flows del studio
+name: "Knowledge Search con LLM (ejemplo completo)"
+description: >
+  Clasifica la pregunta, busca en el vault y sintetiza con LLM.
+  Incluye gate de aprobación y retry ante fallo de búsqueda.
+
+steps:
+
+  # ── Step básico ────────────────────────────────────────────────────────────
+  - id: classify
+    # Referencia al id del agente en orchestrator-mcp.yaml
+    agent: triage
+
+    # task: el prompt/instrucción que recibe el agente.
+    # Soporta interpolación de variables:
+    #   {{payload.campo}}         → valor del input que enviaste al flow
+    #   {{steps.step-id.output}}  → output de un step anterior
+    task: |
+      Clasificá la siguiente pregunta y extraé una query precisa para buscar
+      en el vault de conocimiento.
+
+      Pregunta: {{payload.query}}
+      Contexto adicional: {{payload.context}}
+
+      Devolvé JSON con: { category, search_query, confidence }
+
+    # capability sobreescribe el default del agente solo para este step.
+    # Omitir para usar el default del agente (generalmente "execute").
+    capability: execute
+
+    # input: campos extra que se mezclan con task, flow_input y prior_results
+    # en el payload que recibe el agente. Útil para pasar config estática.
+    input:
+      language: "es"
+      max_results: 5
+
+    # depends_on: lista de step ids que deben completar antes de ejecutar este.
+    # Omitir o dejar vacío para que arranque de inmediato (primer paso del pipeline).
+    depends_on: []
+
+    # gate: true → el flow pausa DESPUÉS de que este step termina.
+    # El Kanban muestra Approve / Reject. Aprobar continúa con el siguiente step.
+    # Rechazar cancela el flow (status: cancelled).
+    gate: true
+
+    # gate_criteria: lista de condiciones que el revisor humano debe verificar.
+    # Se muestran en el Kanban como checklist visual (caja ámbar).
+    # Si se omite, usa los gate_criteria del agente en orchestrator-mcp.yaml.
+    gate_criteria:
+      - "La categoría está correctamente identificada"
+      - "La search_query es relevante y bien formada"
+      - "El nivel de confianza es aceptable (> 0.7)"
+
+  # ── Step con required (retry ante fallo) ──────────────────────────────────
+  - id: search
+    agent: curator
+    task: |
+      Buscá en el vault todo lo relevante para la siguiente query.
+
+      Query: {{steps.classify.output}}
+      Input original: {{payload.query}}
+
+    depends_on: [classify]    # espera que classify complete (y sea aprobado si tenía gate)
+
+    # required: true → si este step falla (error HTTP o timeout), el flow
+    # queda en status waiting_retry en lugar de continuar o fallar definitivamente.
+    # El Kanban muestra el botón Retry para reintentar solo este step.
+    # Los steps anteriores exitosos NO se re-ejecutan.
+    required: true
+
+    # Sin gate ni gate_criteria → el flow continúa automáticamente si el step es exitoso
+
+  # ── Step final sin gate ni required ───────────────────────────────────────
+  - id: synthesize
+    agent: synthesizer
+
+    task: |
+      Sintetizá los resultados del vault en una respuesta coherente y bien
+      estructurada para el usuario.
+
+      PREGUNTA ORIGINAL:
+      {{payload.query}}
+
+      CLASIFICACIÓN:
+      {{steps.classify.output}}
+
+      RESULTADOS DEL VAULT:
+      {{steps.search.output}}
+
+      Devolvé la respuesta en markdown, con secciones claras y sin alucinaciones.
+
+    capability: execute
+
+    # Depende de los dos steps anteriores — espera que ambos completen.
+    depends_on: [classify, search]
+
+    # Sin gate → el flow termina con status "done" cuando este step completa.
+    # Sin required → si falla, el flow queda en status "failed" (no retryable).
+
+
+# ── Referencia rápida de interpolación ────────────────────────────────────────
+#
+#  {{payload.campo}}            → campo del input enviado con start_flow / run_flow
+#  {{steps.step-id.output}}     → string de output del step con id "step-id"
+#
+#  El agente recibe en su payload:
+#  {
+#    task:          string,          ← el campo task de este step con variables resueltas
+#    flow_input:    Record<unknown>, ← el input original del flow completo (payload.*)
+#    prior_results: [               ← outputs de todos los steps anteriores exitosos
+#      { step: "classify", agent: "triage", output: "..." },
+#      { step: "search",   agent: "curator", output: "..." },
+#    ],
+#    ...step.input                  ← los campos extra de input: del step
+#  }

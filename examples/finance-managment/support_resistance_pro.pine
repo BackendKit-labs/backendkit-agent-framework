@@ -1,0 +1,209 @@
+//@version=6
+indicator("Support/Resistance Pro", overlay = true, max_lines_count = 100)
+
+// ── CONFIGURACION ──────────────────────────────────────────────────────────────
+int   pivot_length = input.int(20,    title = "Pivot Length",    minval = 5,    maxval = 50)
+int   atr_length   = input.int(14,    title = "ATR Length")
+int   max_levels   = input.int(5,     title = "Niveles maximos", minval = 2,    maxval = 8)
+float zone_pct     = input.float(0.15, title = "Zona ATR %",     minval = 0.05, maxval = 0.5, step = 0.05)
+bool  show_zones   = input.bool(true,  title = "Mostrar Niveles")
+bool  show_signals = input.bool(true,  title = "Mostrar Senales")
+
+// ── BASE ────────────────────────────────────────────────────────────────────────
+float atr       = ta.atr(atr_length)
+float zone_size = atr * zone_pct
+float vol_ma    = ta.sma(volume, 20)
+float rsi       = ta.rsi(close, 14)
+
+// ── PIVOTS ──────────────────────────────────────────────────────────────────────
+float ph = ta.pivothigh(high, pivot_length, pivot_length)
+float pl = ta.pivotlow(low,   pivot_length, pivot_length)
+
+// ── NIVELES CON CLUSTERING Y FORTALEZA ────────────────────────────────────────
+// Cuando multiples pivots caen dentro de 1 ATR se agrupan en un nivel
+// La fortaleza (touches) sube cada vez que un pivot confirma la zona
+var array<float> res_levels  = array.new_float(0)
+var array<int>   res_touches = array.new_int(0)
+var array<float> sup_levels  = array.new_float(0)
+var array<int>   sup_touches = array.new_int(0)
+
+if not na(ph)
+    int match = -1
+    if array.size(res_levels) > 0
+        for i = 0 to array.size(res_levels) - 1
+            if match == -1 and math.abs(array.get(res_levels, i) - ph) < atr
+                match := i
+    if match >= 0
+        array.set(res_touches, match, array.get(res_touches, match) + 1)
+        // Precio del nivel = promedio ponderado para ajustar la zona
+        array.set(res_levels, match, (array.get(res_levels, match) + ph) / 2)
+    else
+        array.unshift(res_levels,  ph)
+        array.unshift(res_touches, 1)
+        if array.size(res_levels) > max_levels
+            array.pop(res_levels)
+            array.pop(res_touches)
+
+if not na(pl)
+    int match = -1
+    if array.size(sup_levels) > 0
+        for i = 0 to array.size(sup_levels) - 1
+            if match == -1 and math.abs(array.get(sup_levels, i) - pl) < atr
+                match := i
+    if match >= 0
+        array.set(sup_touches, match, array.get(sup_touches, match) + 1)
+        array.set(sup_levels, match, (array.get(sup_levels, match) + pl) / 2)
+    else
+        array.unshift(sup_levels,  pl)
+        array.unshift(sup_touches, 1)
+        if array.size(sup_levels) > max_levels
+            array.pop(sup_levels)
+            array.pop(sup_touches)
+
+// ── NIVEL MAS CERCANO ARRIBA Y ABAJO ──────────────────────────────────────────
+// No es el mas reciente — es el mas proximo al precio actual
+float nearest_res     = na
+float nearest_sup     = na
+int   nearest_res_str = 0
+int   nearest_sup_str = 0
+
+if array.size(res_levels) > 0
+    for i = 0 to array.size(res_levels) - 1
+        float lvl = array.get(res_levels, i)
+        if lvl > close
+            if na(nearest_res) or lvl < nearest_res
+                nearest_res     := lvl
+                nearest_res_str := array.get(res_touches, i)
+
+if array.size(sup_levels) > 0
+    for i = 0 to array.size(sup_levels) - 1
+        float lvl = array.get(sup_levels, i)
+        if lvl < close
+            if na(nearest_sup) or lvl > nearest_sup
+                nearest_sup     := lvl
+                nearest_sup_str := array.get(sup_touches, i)
+
+// ── SENALES ────────────────────────────────────────────────────────────────────
+bool vol_spike        = volume > vol_ma * 1.5
+
+// Breakout: cierre mas alla de la zona con volumen
+bool breakout_bullish = show_signals and not na(nearest_res) and
+                        close > nearest_res + zone_size and vol_spike
+
+bool breakout_bearish = show_signals and not na(nearest_sup) and
+                        close < nearest_sup - zone_size and vol_spike
+
+// Bounce: precio toca la zona, RSI confirma que no esta sobreextendido
+bool bounce_bullish   = show_signals and not na(nearest_sup) and
+                        low  <= nearest_sup + zone_size and
+                        close > nearest_sup and close > close[1] and rsi < 55
+
+bool bounce_bearish   = show_signals and not na(nearest_res) and
+                        high >= nearest_res - zone_size and
+                        close < nearest_res and close < close[1] and rsi > 45
+
+// ── LINEAS — se limpian y redibujan en la ultima barra ────────────────────────
+var array<line> all_lines = array.new_line(0)
+
+if barstate.islast and show_zones
+    if array.size(all_lines) > 0
+        for i = 0 to array.size(all_lines) - 1
+            line.delete(array.get(all_lines, i))
+    array.clear(all_lines)
+
+    // Resistencias: rojo — mas oscuro y grueso cuanto mayor sea la fortaleza
+    if array.size(res_levels) > 0
+        for i = 0 to array.size(res_levels) - 1
+            float lvl  = array.get(res_levels, i)
+            int   str  = array.get(res_touches, i)
+            int   opac = str >= 4 ? 10 : str >= 2 ? 30 : 55
+            int   wid  = str >= 4 ? 3  : str >= 2 ? 2  : 1
+
+            array.push(all_lines, line.new(bar_index - pivot_length * 3, lvl, bar_index, lvl,
+                        color=color.new(color.red, opac), width=wid,
+                        style=line.style_dashed, extend=extend.right))
+            array.push(all_lines, line.new(bar_index - pivot_length * 3, lvl + zone_size, bar_index, lvl + zone_size,
+                        color=color.new(color.red, 80), width=1,
+                        style=line.style_dotted, extend=extend.right))
+
+    // Soportes: verde
+    if array.size(sup_levels) > 0
+        for i = 0 to array.size(sup_levels) - 1
+            float lvl  = array.get(sup_levels, i)
+            int   str  = array.get(sup_touches, i)
+            int   opac = str >= 4 ? 10 : str >= 2 ? 30 : 55
+            int   wid  = str >= 4 ? 3  : str >= 2 ? 2  : 1
+
+            array.push(all_lines, line.new(bar_index - pivot_length * 3, lvl, bar_index, lvl,
+                        color=color.new(color.green, opac), width=wid,
+                        style=line.style_dashed, extend=extend.right))
+            array.push(all_lines, line.new(bar_index - pivot_length * 3, lvl - zone_size, bar_index, lvl - zone_size,
+                        color=color.new(color.green, 80), width=1,
+                        style=line.style_dotted, extend=extend.right))
+
+// ── SENALES VISUALES ────────────────────────────────────────────────────────────
+plotshape(breakout_bullish, "Bullish Breakout", shape.triangleup,   location.belowbar, color=color.lime,   size=size.normal, text="BREAK UP")
+plotshape(breakout_bearish, "Bearish Breakout", shape.triangledown, location.abovebar, color=color.red,    size=size.normal, text="BREAK DOWN")
+plotshape(bounce_bullish,   "Support Bounce",   shape.circle,       location.belowbar, color=color.green,  size=size.small,  text="BOUNCE")
+plotshape(bounce_bearish,   "Resist Reject",    shape.circle,       location.abovebar, color=color.orange, size=size.small,  text="REJECT")
+
+// ── TABLA ─────────────────────────────────────────────────────────────────────
+var table t = table.new(position.top_left, 2, 8, bgcolor=color.new(color.black, 10), border_width=1)
+
+if barstate.islast
+    table.cell(t, 0, 0, "S/R PRO", text_color=color.white, bgcolor=color.new(color.blue, 20))
+    table.cell(t, 1, 0, "NIVEL / FUERZA", text_color=color.white, bgcolor=color.new(color.blue, 20))
+
+    table.cell(t, 0, 1, "RESISTENCIA", text_color=color.white)
+    if not na(nearest_res)
+        float dist_r  = ((nearest_res - close) / close) * 100
+        string str_r  = nearest_res_str >= 4 ? "[FUERTE]" : nearest_res_str >= 2 ? "[MEDIA]" : "[DEBIL]"
+        table.cell(t, 1, 1, str.tostring(nearest_res, "#.##") + " (+" + str.tostring(dist_r, "#.##") + "%) " + str_r,
+                   text_color=color.red)
+    else
+        table.cell(t, 1, 1, "N/A", text_color=color.gray)
+
+    table.cell(t, 0, 2, "SOPORTE", text_color=color.white)
+    if not na(nearest_sup)
+        float dist_s  = ((nearest_sup - close) / close) * 100
+        string str_s  = nearest_sup_str >= 4 ? "[FUERTE]" : nearest_sup_str >= 2 ? "[MEDIA]" : "[DEBIL]"
+        table.cell(t, 1, 2, str.tostring(nearest_sup, "#.##") + " (" + str.tostring(dist_s, "#.##") + "%) " + str_s,
+                   text_color=color.green)
+    else
+        table.cell(t, 1, 2, "N/A", text_color=color.gray)
+
+    table.cell(t, 0, 3, "RANGO", text_color=color.white)
+    if not na(nearest_res) and not na(nearest_sup)
+        float range_pct = ((nearest_res - nearest_sup) / close) * 100
+        string position = close > (nearest_res + nearest_sup) / 2 ? "MITAD ALTA" : "MITAD BAJA"
+        table.cell(t, 1, 3, str.tostring(range_pct, "#.##") + "% | " + position, text_color=color.yellow)
+    else
+        table.cell(t, 1, 3, "N/A", text_color=color.gray)
+
+    table.cell(t, 0, 4, "SENAL", text_color=color.white)
+    string sig      = breakout_bullish ? "BREAKOUT UP"   :
+                      breakout_bearish ? "BREAKOUT DOWN" :
+                      bounce_bullish   ? "SUPPORT BOUNCE" :
+                      bounce_bearish   ? "RESIST REJECT"  : "NINGUNA"
+    color  sig_col  = breakout_bullish or bounce_bullish ? color.green :
+                      breakout_bearish                   ? color.red   :
+                      bounce_bearish                     ? color.orange : color.gray
+    table.cell(t, 1, 4, sig, text_color=sig_col)
+
+    table.cell(t, 0, 5, "RSI", text_color=color.white)
+    table.cell(t, 1, 5, str.tostring(rsi, "#.#"),
+               text_color=rsi > 70 ? color.red : rsi < 30 ? color.green : color.gray)
+
+    table.cell(t, 0, 6, "VOLUMEN", text_color=color.white)
+    float vol_ratio = volume / vol_ma
+    table.cell(t, 1, 6, str.tostring(vol_ratio, "#.##") + "x",
+               text_color=vol_ratio >= 1.5 ? color.orange : color.gray)
+
+    table.cell(t, 0, 7, "ATR", text_color=color.white)
+    table.cell(t, 1, 7, str.tostring(atr, "#.##"), text_color=color.orange)
+
+// ── ALERTAS ───────────────────────────────────────────────────────────────────
+alertcondition(breakout_bullish, "SR Bullish Breakout", "Ruptura alcista de resistencia con volumen")
+alertcondition(breakout_bearish, "SR Bearish Breakout", "Ruptura bajista de soporte con volumen")
+alertcondition(bounce_bullish,   "SR Support Bounce",   "Rebote en soporte confirmado")
+alertcondition(bounce_bearish,   "SR Resist Reject",    "Rechazo en resistencia confirmado")

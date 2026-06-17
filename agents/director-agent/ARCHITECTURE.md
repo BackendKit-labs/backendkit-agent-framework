@@ -154,6 +154,15 @@ El vault contiene **conocimiento operacional del ecosistema**, no código fuente
 └── workspaces.json        ← workspaces multi-proyecto (ya existe)
 ```
 
+### Notas importantes
+
+**`~/.bk-agent/` lo crea bk-agent en su primer inicio.** El resto del ecosistema asume que ese directorio existe. Implicaciones:
+- Si bk-agent no fue iniciado, `BK_HOME` no existe y los componentes que lo usen fallarán.
+- El platform necesita lógica de inicialización propia: si `BK_HOME` no existe, crearlo con la estructura mínima (vaults/, rag/, data/, director/) sin depender de que bk-agent haya corrido antes.
+- Pendiente: decidir si la inicialización de `BK_HOME` la hace un script de setup del platform, el director-agent en su primer arranque, o bk-agent sigue siendo el responsable.
+
+**El nombre `~/.bk-agent/` es provisorio.** Se evaluará cambiarlo (ej. `~/.backendkit/`) cuando se defina la identidad de marca del producto. El env var `BK_HOME` abstrae esto — cambiar el nombre solo requiere actualizar el default en un lugar. Pendiente para más adelante.
+
 ### Regla de paths para cada componente
 
 | Componente | Path actual | Path unificado |

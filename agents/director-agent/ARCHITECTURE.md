@@ -118,6 +118,75 @@ El vault contiene **conocimiento operacional del ecosistema**, no código fuente
 
 **No curar**: código fuente (`src/`), archivos de instalación, `.env`, `package.json`, `test-*.mjs`.
 
+## Infraestructura de vaults — BK_HOME
+
+### Decisión de diseño (acordada)
+
+**`vault-manager` es el registro central de todos los vaults del sistema.** Define dónde vive cada vault, quién puede acceder, y qué rol tiene. Todos los componentes deben conocer las rutas de vault a través de vault-manager (vía `vault-manager-agent` MCP) o derivándolas de la convención `$BK_HOME`.
+
+**`~/.bk-agent/` es el `BK_HOME`** — el directorio de infraestructura del ecosistema. Ya existe y contiene: agents, projects (memoria+audits), rag indexes, skills, plugins, config, workspaces. No se crea un `~/.backendkit/` paralelo para no romper instalaciones existentes.
+
+### Estructura unificada
+
+```
+~/.bk-agent/               ← BK_HOME (env var BK_HOME, default ~/.bk-agent/)
+├── vaults/                ← TODAS las notas curadas de todos los vaults
+│   ├── {project-name}/    ← vault por proyecto (codex-context-agent v2)
+│   ├── enterprise/        ← vault empresarial compartido
+│   └── shared/            ← conocimiento compartido entre proyectos
+│
+├── rag/                   ← TODOS los índices RAG (ya existe con 5 vaults indexados)
+│   └── {vault-name}.json
+│
+├── data/                  ← state de runtime de cada componente
+│   ├── orchestrator/      ← runs, config.db (orchestrator-agent)
+│   ├── orchestrator-mcp/  ← runs.db, config.db (orchestrator-mcp-agent)
+│   └── vault-manager/     ← vault.db SQLite (vault-manager app)
+│
+├── director/              ← memoria del director
+│   ├── goals.json
+│   └── user-model.json
+│
+├── agents/                ← perfiles custom de agentes (ya existe)
+├── skills/                ← skills custom (ya existe)
+├── projects/              ← memoria por proyecto de bk-agent (ya existe)
+├── config.json            ← config de providers/MCP (ya existe)
+└── workspaces.json        ← workspaces multi-proyecto (ya existe)
+```
+
+### Regla de paths para cada componente
+
+| Componente | Path actual | Path unificado |
+|---|---|---|
+| codex-context-agent-v2 (notas) | `~/.codex-vaults/{project}/` | `$BK_HOME/vaults/{project}/` |
+| codex-context-agent-v2 (RAG) | `~/.codex-context/rag/{project}.json` | `$BK_HOME/rag/{project}.json` |
+| orchestrator-agent (data) | `.orchestrator/` local | `$BK_HOME/data/orchestrator/` |
+| orchestrator-mcp-agent (data) | local junto al yaml | `$BK_HOME/data/orchestrator-mcp/` |
+| vault-manager (SQLite) | `data/vault.db` relativo | `$BK_HOME/data/vault-manager/vault.db` |
+| director-agent (memoria) | TBD | `$BK_HOME/director/` |
+| knowledge-agent (RAG) | `~/.bk-agent/rag/` | `$BK_HOME/rag/` ✅ ya correcto |
+| bk-agent (projects) | `~/.bk-agent/projects/` | `$BK_HOME/projects/` ✅ ya correcto |
+
+### Migración codex v1 → v2
+
+codex-context-agent v1 estaba integrado con bk-agent y generó vaults bajo su configuración propia. La migración es:
+1. Mover notas v1 (`~/.codex-vaults/{name}/`) → `$BK_HOME/vaults/{name}/` vía `clone_vault`
+2. Registrar cada vault en vault-manager (path, label, ownerRole)
+3. Actualizar bk-agent config para usar codex v2 en vez de v1
+4. Los índices RAG de `~/.bk-agent/rag/` ya están en el lugar correcto — no se mueven
+
+### Cambio en codex-context-agent-v2 (pendiente)
+
+```typescript
+// src/project.ts
+const BK_HOME   = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
+const vaultPath = path.join(BK_HOME, 'vaults', projectName);  // antes: ~/.codex-vaults/
+
+// src/knowledge/rag-provider.ts
+const BK_HOME = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
+return path.join(BK_HOME, 'rag', `${name}.json`);             // antes: ~/.codex-context/rag/
+```
+
 ## Configuración (director.yaml)
 
 El director conecta al **fleet (Stack B)**, al **orquestador (Stack A)** y a **codex** — no a los especialistas individuales.

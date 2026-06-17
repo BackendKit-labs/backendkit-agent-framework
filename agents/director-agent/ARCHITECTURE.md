@@ -9,27 +9,46 @@ El Director es la **inteligencia central y cara conversacional** del ecosistema 
 ## Arquitectura de tres capas
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    DIRECTOR                         │
-│  "Qué hay que hacer y cuándo"                       │
-│  Conversación con el usuario, decide qué flow       │
-│  iniciar, aprueba gates, monitorea, deploya agentes │
-│  Conocimiento: vault propio del ecosistema          │
-└──────────────────────┬──────────────────────────────┘
-                       │ start_flow / approve / status / deploy
-┌──────────────────────▼──────────────────────────────┐
-│                  ORQUESTADOR                        │
-│  "Cómo ejecutarlo"                                  │
-│  Descompone el objetivo en pasos, coordina          │
-│  agentes especialistas, maneja orden y errores      │
-└──┬──────────┬──────────┬──────────┬─────────────────┘
-   │          │          │          │
-   ▼          ▼          ▼          ▼
-docker     k8s        coder     codex-context
-agent      agent      (bk-agent)  agent
-experto    experto    experto en  experto en
-en Docker  en K8s     código      conocimiento
+┌─────────────────────────────────────────────────────────────────┐
+│                          DIRECTOR                               │
+│  "Qué hay que hacer y cuándo"                                   │
+│  Conversación con el usuario, decide qué flow iniciar,          │
+│  aprueba gates, monitorea, deploya agentes al ecosistema        │
+│  Conocimiento: vault propio del ecosistema                      │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ start_flow / approve / status / deploy
+┌─────────────────────────────▼───────────────────────────────────┐
+│                        ORQUESTADOR                              │
+│  "Cómo ejecutarlo"                                              │
+│  Descompone el objetivo en pasos, coordina agentes              │
+│  especialistas, maneja orden, gates y errores                   │
+└──┬────────┬────────┬────────┬────────┬────────┬─────────────────┘
+   │        │        │        │        │        │
+   ▼        ▼        ▼        ▼        ▼        ▼
+docker    k8s     coder   codex-  studio  vault-mgr  ... otros
+agent     agent   (bk-    context  agent   agent      especialistas
+                  agent)  agent     ↕        ↕
+                                  agent-  vault-
+                                  studio  manager
+                                  (:3001)  (:3000)
 ```
+
+### Catálogo de agentes especialistas
+
+| Agente | Estado | Wrappea | Capacidades |
+|---|---|---|---|
+| `docker-agent` | ✅ | Docker daemon | containers, compose, swarm, volumes, registry, build |
+| `k8s-agent` | ✅ | Kubernetes API | apply manifests, inspect resources, logs, exec |
+| `bk-agent` (coder) | ⬜ `--mcp` pendiente | `apps/bk-agent` | spec-driven dev, 10 especialistas coding, QA, git |
+| `codex-context-agent-v2` | ✅ | vault RAG local | curate_path, curate_link, search_vault, read_note |
+| `curator-agent` | ✅ | vault Obsidian | ingesta masiva de documentos enterprise con LLM |
+| `curator-codex-agent` | ✅ | vault + HTTP API | análisis código + RAG + seguridad, HTTP Protocol v1 |
+| `workspace-manager` | ✅ | workspaces multi-proyecto | gestión de vaults y proyectos |
+| `studio-agent` | ⬜ a crear | `agent-studio` HTTP :3001 | leer runs en vivo, actualizar config agentes/flows, estado de salud |
+| `vault-manager-agent` | ⬜ a crear | `vault-manager` HTTP :3000 | enviar docs a auditoría humana, consultar cola, importar vaults |
+| `orchestrator-gateway` | ✅ | `orchestrator-mcp-agent` | bridge HTTP↔MCP para agent-studio (:3400) |
+| `run-recovery-daemon` | ✅ | orchestrator runs | recupera runs colgados, health de agentes |
+| `synthesizer-agent` | ✅ | planner + writer | síntesis de skills desde runs exitosos |
 
 ## Dos planos de orquestación
 
@@ -47,39 +66,37 @@ El ecosistema tiene dos orquestadores complementarios. El director los usa segú
 - `curate_path` / `curate_link` — incorporar nuevo conocimiento al vault
 - `vault_status` — estado del vault
 
-### Plano de operaciones (fleet — Stack B)
+### Plano de operaciones — Stack B (fleet)
 - `start_flow(flow_id, input)` — iniciar un flow declarativo conocido
 - `list_runs` — monitorear ejecuciones en curso
 - `orchestrator_approve(run_id)` — aprobar un gate
 - `orchestrator_reject(run_id)` — rechazar un gate
 - `list_agents` — ver qué agentes están deployados y su salud
 - `get_config` — ver qué flows y agentes están configurados
+- `POST /api/deploy` — deployar un nuevo agente como contenedor
 
-### Plano de planificación (orchestrator — Stack A)
+### Plano de planificación — Stack A (orchestrator)
 - `orchestrator_run(task, config_path)` — lanzar tarea compleja sin flow previo
 - `orchestrator_status(run_id)` — monitorear
 - `orchestrator_approve(run_id)` — aprobar gates
 
-### Deploy de flota (via gateway HTTP)
-- `POST /api/deploy` — deployar un nuevo agente como contenedor
-- `DELETE /api/deploy/:id` — detener un agente
-
 ## Tools que el director NO necesita directamente
 
 El orquestador llama a los especialistas — el director no:
-- `docker-agent` tools → los usa el orquestador
-- `k8s-agent` tools → ídem
-- `bk-agent` (coder) tools → ídem
-- `curator-agent` tools → ídem
+- `docker-agent`, `k8s-agent`, `bk-agent`, `curator-agent` → los usa el orquestador
+- `studio-agent`, `vault-manager-agent` → también los usa el orquestador (dentro de flows)
 
 ## Flujo operacional típico
 
 ```
 Usuario → Director
-  1. Director busca en vault el flow correcto
-  2. Director llama start_flow("onboarding-empleado", {nombre: "Juan", fecha: "2026-07-01"})
-  3. Orquestador ejecuta pasos con agentes especialistas
-  4. Orquestador alcanza gate → Director es notificado
+  1. Director busca en vault el flow correcto (search_vault)
+  2. Director llama start_flow("onboarding-empleado", {nombre: "Juan"})
+  3. Orquestador ejecuta pasos:
+       → vault-manager-agent: envía contrato a cola de auditoría humana
+       → bk-agent: genera scripts de onboarding técnico
+       → studio-agent: registra el nuevo agente en el pool
+  4. Orquestador alcanza gate → Director notificado
   5. Director presenta gate al usuario con contexto
   6. Usuario aprueba → Director llama approve(run_id)
   7. Orquestador continúa y completa
@@ -97,13 +114,13 @@ El vault contiene **conocimiento operacional del ecosistema**, no código fuente
 | `orchestrator-agent/docs/` | Entiende gates, reflection, cuándo usar orquestación dinámica |
 | `codex-context-agent-v2/docs/` | Sabe qué puede hacer con el vault de conocimiento |
 | `director-agent/SOUL.md` + `director.yaml` | Se conoce a sí mismo y al ecosistema |
-| READMEs de agentes especializados | Sabe qué puede deployar y para qué sirve cada uno |
+| READMEs de cada agente especialista | Sabe qué puede deployar y para qué sirve cada uno |
 
-**No curar**: código fuente (`src/`), archivos de instalación, troubleshooting, `.env`, `package.json`.
+**No curar**: código fuente (`src/`), archivos de instalación, `.env`, `package.json`, `test-*.mjs`.
 
 ## Configuración (director.yaml)
 
-El director conecta solo al **fleet (Stack B)** y al **orquestador (Stack A)** como MCP servers — no a los agentes especialistas individuales.
+El director conecta al **fleet (Stack B)**, al **orquestador (Stack A)** y a **codex** — no a los especialistas individuales.
 
 ```yaml
 director:
@@ -121,8 +138,8 @@ agents:
 
 | Interfaz | Estado | Descripción |
 |---|---|---|
-| REPL terminal | ✅ disponible | `node dist/repl.js` — interacción directa |
-| MCP stdio | ✅ disponible | Claude Desktop / Claude Code lo consumen como tool |
+| REPL terminal | ✅ | `node dist/repl.js` — interacción directa |
+| MCP stdio | ✅ | Claude Desktop / Claude Code lo consumen como tool |
 | WebSocket :3500 | ⬜ pendiente | Chat web / director-desktop |
 | Gateway (Telegram/Slack) | ⬜ futuro | Presencia multi-plataforma |
 
@@ -135,10 +152,12 @@ agents:
 | provider.ts (OpenAI-compatible, configurable) | ✅ |
 | repl.ts (REPL terminal) | ✅ |
 | server.ts (MCP stdio: director_chat, director_clear, director_status) | ✅ |
-| codex conectado | ✅ |
-| fleet (Stack B) conectado | ⬜ pendiente |
-| orchestrator (Stack A) conectado | ⬜ pendiente |
-| bk-agent --mcp | ⬜ pendiente |
-| Vault curado | ⬜ pendiente |
-| WebSocket :3500 | ⬜ pendiente |
-| docker-compose.enterprise.yml | ⬜ pendiente |
+| codex-context-agent-v2 conectado | ✅ |
+| fleet (Stack B) conectado | ⬜ |
+| orchestrator (Stack A) conectado | ⬜ |
+| bk-agent --mcp (coder) | ⬜ |
+| studio-agent (wrapper agent-studio) | ⬜ |
+| vault-manager-agent (wrapper vault-manager) | ⬜ |
+| Vault curado con conocimiento operacional | ⬜ |
+| WebSocket :3500 | ⬜ |
+| docker-compose.enterprise.yml | ⬜ |

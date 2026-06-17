@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { execSync } from 'node:child_process';
+import { initBkHome, bkPaths } from '@backendkit-labs/infra';
 
 export interface ProjectContext {
     projectName: string;
@@ -40,8 +40,8 @@ export async function resolveProject(): Promise<ProjectContext> {
         projectName = path.basename(startPath);
     }
 
-    const bkHome   = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
-    const vaultPath = path.join(bkHome, 'vaults', projectName);
+    await initBkHome();
+    const vaultPath = bkPaths.vault(projectName);
     await fs.mkdir(vaultPath, { recursive: true });
 
     return { projectName, projectRoot, vaultPath };

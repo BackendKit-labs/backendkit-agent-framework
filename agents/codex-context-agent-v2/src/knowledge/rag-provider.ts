@@ -1,7 +1,7 @@
 import { ObsidianRAGProvider } from '@backendkit-labs/agent-enterprise';
 import { TransformersEmbedder, type EmbedderProgress } from './transformers-embedder.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { bkPaths } from '@backendkit-labs/infra';
 
 export interface RagSearchResult {
     title: string;
@@ -41,8 +41,7 @@ export class CuratorRagProvider {
     }
 
     private getIndexPath(): string {
-        const bkHome = process.env.BK_HOME ?? path.join(os.homedir(), '.bk-agent');
-        return path.join(bkHome, 'rag', `${path.basename(this.vaultPath)}.json`);
+        return bkPaths.ragIndex(path.basename(this.vaultPath));
     }
 
     async indexVault(): Promise<{ indexed: number; updated: number }> {

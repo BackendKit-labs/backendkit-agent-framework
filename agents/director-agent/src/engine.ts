@@ -8,6 +8,7 @@ import {
     CallbackTransport,
     MCPClientManager,
 } from '@backendkit-labs/agent-core';
+import { initBkHome, bkPaths } from '@backendkit-labs/infra';
 import type { AgentEvent, AgentProfile } from '@backendkit-labs/agent-core';
 import type { DirectorConfig } from './config.js';
 import { resolveAgentArgs } from './config.js';
@@ -43,6 +44,9 @@ export async function buildDirectorEngine(
     configDir: string,
     onEvent?:  (evt: AgentEvent) => void,
 ): Promise<DirectorRuntime> {
+
+    // Initialize ~/.backendkit/ on first run (idempotent)
+    await initBkHome();
 
     const providerName = config.director.provider;
     const providerCfg  = config.providers[providerName];

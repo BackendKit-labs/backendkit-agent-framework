@@ -91,7 +91,7 @@ const CODE_EXTENSIONS = [
     '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.c', '.cpp', '.kt', '.swift',
 ];
 
-const DOC_EXTENSIONS = ['.md', '.txt', '.pdf'];
+const DOC_EXTENSIONS = ['.md', '.txt', '.pdf', '.yaml', '.yml'];
 
 export function isCodeFile(filePath: string): boolean {
     return CODE_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext));

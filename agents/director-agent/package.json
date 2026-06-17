@@ -1,0 +1,34 @@
+{
+  "name": "@backendkit-labs/director-agent",
+  "version": "0.1.0",
+  "description": "Director Agent — conversational brain of the BackendKit ecosystem. Understands natural language, classifies intent, and routes to the right plane (planning, ops, code, knowledge) without reimplementing any of them.",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "director-agent": "./dist/repl.js"
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "start": "node dist/repl.js",
+    "repl": "node dist/repl.js",
+    "serve": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-enterprise": "*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.0.0",
+    "yaml": "^2.4.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

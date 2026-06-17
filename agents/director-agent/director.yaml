@@ -1,0 +1,52 @@
+# Director Agent — configuración del ecosistema
+#
+# El director se conecta a los agentes especialistas vía MCP (stdio) y le da
+# al LLM todas sus herramientas para que rutee. El LLM es configurable: cambiá
+# `director.provider` para usar otro modelo sin tocar código.
+
+director:
+  name: Director
+  provider: deepseek          # ← deepseek | openai | ollama  (claude requiere adapter Anthropic, ver provider.ts)
+  ws_port: 3500               # AgentServer WebSocket (front-door de chat)
+  max_iterations: 20
+
+# Proveedores LLM (OpenAI-compatible). El director usa el de `director.provider`.
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    model: deepseek-reasoner
+    api_key: ${DEEPSEEK_API_KEY}
+  openai:
+    base_url: https://api.openai.com/v1
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+  ollama:
+    base_url: http://localhost:11434/v1
+    model: qwen2.5-coder
+    api_key: ollama
+
+# Agentes del ecosistema a cablear como servidores MCP (stdio).
+# Los paths son relativos a este archivo. Descomentá a medida que estén construidos.
+agents:
+  - name: codex                 # Conocimiento — vault RAG (sin Ollama)
+    command: node
+    args: ["../codex-context-agent-v2/dist/server.js"]
+    env:
+      CODEX_API_KEY: ${DEEPSEEK_API_KEY}
+      CODEX_PROVIDER: deepseek
+
+  # - name: coder               # Código — bk-agent (requiere modo --mcp, pendiente)
+  #   command: node
+  #   args: ["../../apps/bk-agent/dist/bin/cli.js", "--mcp"]
+  #   env:
+  #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+
+  # - name: orchestrator        # Planificación — orchestrator-agent (tools piden config_path)
+  #   command: node
+  #   args: ["../orchestrator-agent/dist/server.js"]
+
+  # - name: fleet               # Operaciones — orchestrator-mcp-agent (pools, deploy, flows)
+  #   command: node
+  #   args: ["../orchestrator-mcp-agent/dist/server.js"]
+  #   env:
+  #     ORCHESTRATOR_CONFIG: ../../examples/workflow.mcp-agents/orchestrator-mcp.yaml

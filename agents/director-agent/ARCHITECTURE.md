@@ -44,7 +44,7 @@ agent     agent   (bk-    context  agent   agent      especialistas
 | `curator-agent` | ✅ | vault Obsidian | ingesta masiva de documentos enterprise con LLM |
 | `curator-codex-agent` | ✅ | vault + HTTP API | análisis código + RAG + seguridad, HTTP Protocol v1 |
 | `workspace-manager` | ✅ | workspaces multi-proyecto | gestión de vaults y proyectos |
-| `studio-agent` | ✅ | orchestrator-gateway HTTP :3400 | list_runs, start_flow, approve/reject/retry gate, list_agents, get_config, deploy_agent, stop_agent |
+| `fleet-agent` | ✅ | orchestrator-gateway HTTP :3400 | deploy_agent, stop_agent, list_deployments, deploy_settings, fleet_health (solo deploy — orquestación va directo a orchestrator-mcp-agent) |
 | `vault-manager-agent` | ✅ | `vault-manager` HTTP :3000 | list_vaults, search_knowledge, list_notes, ingest_text (cola de auditoría humana), sync_vault |
 | `orchestrator-gateway` | ✅ | `orchestrator-mcp-agent` | bridge HTTP↔MCP para agent-studio (:3400) |
 | `run-recovery-daemon` | ✅ | orchestrator runs | recupera runs colgados, health de agentes |
@@ -153,8 +153,8 @@ agents:
 | repl.ts (REPL terminal) | ✅ |
 | server.ts (MCP stdio: director_chat, director_clear, director_status) | ✅ |
 | codex-context-agent-v2 conectado | ✅ |
-| fleet (Stack B) conectado | ⬜ |
-| orchestrator (Stack A) conectado | ⬜ |
+| runs (orchestrator-mcp-agent MCP directo) en director.yaml | ✅ |
+| fleet (fleet-agent → gateway :3400) en director.yaml | ✅ |
 | bk-agent --mcp (coder) | ⬜ |
 | studio-agent (wrapper gateway :3400) | ✅ |
 | vault-manager-agent (wrapper vault-manager :3000) | ✅ |

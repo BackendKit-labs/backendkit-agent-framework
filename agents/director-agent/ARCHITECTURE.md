@@ -257,6 +257,86 @@ agents:
 | WebSocket :3500 | ⬜ pendiente | Chat web / director-desktop |
 | Gateway (Telegram/Slack) | ⬜ futuro | Presencia multi-plataforma |
 
+## Mejoras pendientes — aprendizaje y memoria
+
+### MemorySystem 3-tier (del framework, no implementado en el director)
+
+El framework ya tiene `MemorySystem` en `@backendkit-labs/agent-core` con tres capas. El director actualmente solo persiste `goals.json` y `user-model.json` como archivos planos — no usa las tres capas del framework.
+
+```
+Episódica  → qué pasó: flows iniciados, gates aprobados, decisiones tomadas, outcomes
+Semántica  → quién es el usuario, qué le importa, contexto de su organización, preferencias
+Procedural → patrones aprendidos: qué flows resuelven qué tipos de requests, routing óptimo
+```
+
+**Paths bajo BK_HOME:**
+```
+~/.backendkit/memory/episodic.json    ← log de acciones cross-session
+~/.backendkit/memory/semantic.json    ← perfil del usuario y org
+~/.backendkit/memory/procedural.json  ← patrones y flows que funcionan
+```
+
+**Implementación:** agregar `MemorySystem` a `buildDirectorEngine()` en `engine.ts`.
+Los tools de memoria se inyectan al engine y el LLM los usa automáticamente para
+recordar contexto de sesiones anteriores sin que el usuario lo pida.
+
+### Auto-aprendizaje y síntesis de skills
+
+bk-agent tiene esto implementado (`ReflectionEngine`, `PatternDetector`, `PolicyPromoter`).
+El director debería tener su propio loop de aprendizaje sobre el routing y los flows:
+
+```
+Director inicia flow → orquestador ejecuta → outcome registrado en memoria episódica
+     ↓
+PatternDetector detecta patrón repetible (mismo tipo de request → mismo flow exitoso)
+     ↓
+synthesizer-agent genera nuevo static flow YAML (ya existe en agents/)
+     ↓
+Flow guardado en orchestrator config store (vía vault-manager-agent o runs.save_flow)
+     ↓
+Próxima vez: director encuentra el flow directo en el vault, sin planificación dinámica
+```
+
+**Diferencia con el orquestador:** el orquestador aprende sobre *ejecución* (gates, fallos de pasos).
+El director aprende sobre *routing* (qué intención lleva a qué flow, qué usuarios prefieren qué).
+Son capas complementarias — el orquestador ya tiene reflection Cable 1+2, el director agrega
+la capa de aprendizaje orientada al usuario.
+
+### La cadena completa de aprendizaje (diseño objetivo)
+
+```
+Usuario → Director
+  │  MemorySystem: recuerda al usuario, sus patrones, flows que le funcionaron
+  ↓
+Orquestador
+  │  Reflection Cable 1+2: aprende de gates y fallos de ejecución
+  ↓
+Especialistas (docker, k8s, coder, codex...)
+  │  Ejecutan y devuelven resultado
+  ↓
+Director recibe outcome → actualiza memoria episódica → detecta patrones
+  → synthesizer-agent sintetiza skill → nuevo static flow disponible
+```
+
+### SkillManager
+
+El framework tiene `SkillManager` en `@backendkit-labs/agent-core`. El director debería
+cargar skills desde `~/.backendkit/skills/` (cuando ese directorio exista) para inyectar
+capacidades procedurales adicionales al engine según el contexto detectado.
+
+### Relación con el vault RAG
+
+El vault (codex-v2) es la **memoria semántica de dominio** — conocimiento curado del ecosistema.
+La `MemorySystem` del framework es la **memoria operacional** — historial de acciones y patrones
+aprendidos en tiempo real. Son complementarios, no redundantes:
+
+| | Vault RAG (codex-v2) | MemorySystem |
+|---|---|---|
+| Qué guarda | Conocimiento del dominio (docs, flows, arquitectura) | Historial operacional (acciones, outcomes, patrones) |
+| Cómo se puebla | `curate_path` / `curate_link` (explícito) | Automáticamente en cada run |
+| Búsqueda | Semántica vectorial | Por tiempo, tag, similitud textual |
+| Lifetime | Permanente, versionado | Acumulativo, puede purgarse |
+
 ## Estado de implementación
 
 | Componente | Estado |
@@ -272,6 +352,10 @@ agents:
 | bk-agent --mcp (coder) | ⬜ |
 | studio-agent (wrapper gateway :3400) | ✅ |
 | vault-manager-agent (wrapper vault-manager :3000) | ✅ |
-| Vault curado con conocimiento operacional | ⬜ |
+| Vault curado con conocimiento operacional | ✅ 73 notas |
+| MemorySystem 3-tier (episódica/semántica/procedural) | ⬜ |
+| Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
+| Síntesis de skills vía synthesizer-agent | ⬜ |
+| SkillManager integrado al engine | ⬜ |
 | WebSocket :3500 | ⬜ |
 | docker-compose.enterprise.yml | ⬜ |

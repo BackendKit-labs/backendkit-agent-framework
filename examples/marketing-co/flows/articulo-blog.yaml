@@ -1,0 +1,41 @@
+version: 2
+id: articulo-blog
+name: "Creación de Artículo de Blog"
+description: >
+  Pipeline completo para crear y distribuir un artículo de blog técnico.
+  Desde el brief estratégico hasta el plan de distribución en redes sociales.
+
+steps:
+  - id: s1-brief
+    agent: content-strategist
+    capability: execute
+    task: "Crear el brief editorial completo: ángulo, estructura, buyer persona, puntos clave y CTA"
+    depends_on: []
+    gate: true
+    gate_criteria:
+      - "El ángulo editorial es diferenciador y relevante para la audiencia"
+      - "La estructura propuesta cubre las necesidades del buyer persona"
+      - "El CTA está alineado con el objetivo de negocio"
+
+  - id: s2-redaccion
+    agent: copywriter
+    capability: execute
+    task: "Redactar el artículo de blog completo siguiendo el brief del paso anterior"
+    depends_on: [s1-brief]
+
+  - id: s3-seo
+    agent: seo-agent
+    capability: execute
+    task: "Revisar y optimizar el artículo para SEO: meta tags, densidad de keywords, mejoras on-page"
+    depends_on: [s2-redaccion]
+    gate: true
+    gate_criteria:
+      - "Meta título y descripción están dentro de los límites de caracteres"
+      - "Las mejoras de alta prioridad están identificadas y priorizadas"
+      - "El artículo alcanza puntuación SEO ≥ 80/100"
+
+  - id: s4-redes
+    agent: social-media-agent
+    capability: execute
+    task: "Crear el plan de distribución en LinkedIn y Twitter con posts y calendario"
+    depends_on: [s3-seo]

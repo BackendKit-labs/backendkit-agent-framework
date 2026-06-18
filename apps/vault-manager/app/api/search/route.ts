@@ -1,16 +1,20 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { auth }           from '@/lib/auth';
-import { db, schema }     from '@/db';
-import { eq }             from 'drizzle-orm';
-import { canAccessVault } from '@/lib/permissions';
-import type { UserRole }  from '@/db/schema';
-import { searchVault }    from '@/lib/curator-codex-client';
+import { auth }              from '@/lib/auth';
+import { isServiceRequest }  from '@/lib/service-auth';
+import { db, schema }        from '@/db';
+import { eq }                from 'drizzle-orm';
+import { canAccessVault }    from '@/lib/permissions';
+import type { UserRole }     from '@/db/schema';
+import { searchVault }       from '@/lib/curator-codex-client';
 
 // GET /api/search?q=...&vaultId=...&topK=8
 export async function GET(req: NextRequest) {
-    const session = await auth();
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const isService = isServiceRequest(req);
+    if (!isService) {
+        const session = await auth();
+        if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const url     = new URL(req.url);
     const query   = url.searchParams.get('q')?.trim() ?? '';
@@ -27,9 +31,10 @@ export async function GET(req: NextRequest) {
         : await db.select().from(schema.vaultDefinitions)
             .where(eq(schema.vaultDefinitions.active, true));
 
+    const session = isService ? null : await auth();
     const accessible = candidates.filter(v =>
-        canAccessVault(
-            session.user.role as UserRole,
+        isService || canAccessVault(
+            session!.user.role as UserRole,
             v.ownerRole as 'admin' | 'technical' | 'business',
         ),
     );

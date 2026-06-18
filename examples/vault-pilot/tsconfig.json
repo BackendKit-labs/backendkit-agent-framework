@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "5.0",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@backendkit-labs/agent-core":       ["../packages/core/src/index.ts"],
+      "@backendkit-labs/agent-coding":     ["../packages/coding/src/index.ts"],
+      "@backendkit-labs/agent-enterprise": ["../packages/enterprise/src/index.ts"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["src"]
+}

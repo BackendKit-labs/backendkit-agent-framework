@@ -1,0 +1,61 @@
+# Director Agent — configuración del ecosistema
+#
+# El director se conecta a los agentes especialistas vía MCP (stdio) y le da
+# al LLM todas sus herramientas para que rutee. El LLM es configurable: cambiá
+# `director.provider` para usar otro modelo sin tocar código.
+
+director:
+  name: Director
+  provider: deepseek          # ← deepseek | openai | ollama  (claude requiere adapter Anthropic, ver provider.ts)
+  ws_port: 3500               # AgentServer WebSocket (front-door de chat)
+  max_iterations: 20
+
+# Proveedores LLM (OpenAI-compatible). El director usa el de `director.provider`.
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    model: deepseek-reasoner
+    api_key: ${DEEPSEEK_API_KEY}
+  openai:
+    base_url: https://api.openai.com/v1
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+  ollama:
+    base_url: http://localhost:11434/v1
+    model: qwen2.5-coder
+    api_key: ollama
+
+# Agentes conectados al director via MCP stdio.
+# Paths relativos a este archivo. Descomentá a medida que estén listos.
+#
+# Arquitectura de conexión:
+#   codex       → codex-context-agent-v2  (vault RAG, sin Ollama)
+#   runs        → orchestrator-mcp-agent  (flows, runs, gates — MCP directo, sin gateway)
+#   fleet       → fleet-agent             (deploy Docker/K8s — vía gateway :3400)
+#   coder       → bk-agent --mcp          (código, spec-driven, QA)
+agents:
+  - name: codex
+    command: node
+    args: ["../codex-context-agent-v2/dist/server.js"]
+    env:
+      CODEX_API_KEY: ${DEEPSEEK_API_KEY}
+      CODEX_PROVIDER: deepseek
+
+  - name: runs                  # Orquestación: flows, runs, gates, config — MCP directo
+    command: node
+    args: ["../orchestrator-mcp-agent/dist/server.js"]
+    env:
+      ORCHESTRATOR_CONFIG: ${ORCHESTRATOR_CONFIG}
+
+  - name: fleet                 # Deploy Docker/K8s — vía gateway HTTP :3400
+    command: node
+    args: ["../fleet-agent/dist/server.js"]
+    env:
+      GATEWAY_URL: ${GATEWAY_URL}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY}
+
+  # - name: coder               # Código — bk-agent (requiere modo --mcp, pendiente)
+  #   command: node
+  #   args: ["../../apps/bk-agent/dist/bin/cli.js", "--mcp"]
+  #   env:
+  #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}

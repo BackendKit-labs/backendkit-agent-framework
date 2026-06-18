@@ -1,17 +1,10 @@
 {
-  "name": "agent-framework",
+  "name": "backendkit-platform",
   "version": "0.14.0",
   "private": true,
   "workspaces": [
-    "packages/core",
-    "packages/coding",
-    "packages/mcp-server",
-    "packages/mcp-connectors",
-    "packages/enterprise",
-    "packages/web",
-    "packages/web-ui",
-    "packages/create-bk-agent",
-    "examples/*",
+    "packages/*",
+    "agents/*",
     "apps/*"
   ],
   "scripts": {

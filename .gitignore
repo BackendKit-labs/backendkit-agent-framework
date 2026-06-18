@@ -11,5 +11,10 @@ security.md
 roadmap.md
 AGENT.md
 
-# Examples live in github.com/backendkit-dev/agent-framework-examples
-examples/
+# Runtime/state artifacts — never track
+.orchestrator/
+*.lance/
+.codex-manifest.json
+
+# Examples are now a tier of the platform monorepo (examples/).
+# The standalone agent-framework-examples repo remains the upstream source.

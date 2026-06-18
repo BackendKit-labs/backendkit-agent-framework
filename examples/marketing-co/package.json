@@ -1,0 +1,20 @@
+{
+  "name": "marketing-co-agents",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Marketing company agent fleet — fully containerised with @backendkit-labs/agent-protocol",
+  "scripts": {
+    "start:all": "node agents/content-strategist.mjs & node agents/copywriter.mjs & node agents/seo-agent.mjs & node agents/social-media-agent.mjs & node agents/campaign-agent.mjs & node agents/analytics-agent.mjs",
+    "content-strategist": "node agents/content-strategist.mjs",
+    "copywriter": "node agents/copywriter.mjs",
+    "seo": "node agents/seo-agent.mjs",
+    "social": "node agents/social-media-agent.mjs",
+    "campaign": "node agents/campaign-agent.mjs",
+    "analytics": "node agents/analytics-agent.mjs",
+    "build": "node build-images.mjs"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-protocol": "^0.1.0"
+  }
+}

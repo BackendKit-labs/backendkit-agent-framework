@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "created": "2026-06-17T23:35:45.151Z",
+  "lastUpdated": "2026-06-17T23:37:46.659Z",
+  "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents/director-agent",
+  "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
+  "files": {
+    "SOUL.md": {
+      "relativePath": "SOUL.md",
+      "hash": "a144f0a984c49435a06627e17d5140acaccae3384e585f2c142e0c933a9ac365",
+      "size": 2181,
+      "modified": "2026-06-17T21:27:28.629Z",
+      "analyzedAt": "2026-06-17T23:35:57.012Z",
+      "status": "success"
+    },
+    "director.yaml": {
+      "relativePath": "director.yaml",
+      "hash": "2d2eaad596fb6ffee093573084f620b587f99e1db6cc95c03db3bfc5edca8708",
+      "size": 2248,
+      "modified": "2026-06-17T22:12:57.195Z",
+      "analyzedAt": "2026-06-17T23:36:35.782Z",
+      "status": "success"
+    },
+    "ARCHITECTURE.md": {
+      "relativePath": "ARCHITECTURE.md",
+      "hash": "14a4b49040888cefbafb171ce32c58dddea89a2a55df7628ad923d418bd1d6c2",
+      "size": 15048,
+      "modified": "2026-06-17T22:56:49.179Z",
+      "analyzedAt": "2026-06-17T23:37:46.659Z",
+      "status": "success"
+    }
+  }
+}

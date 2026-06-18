@@ -14,6 +14,7 @@ AGENT.md
 # Runtime/state artifacts — never track
 .orchestrator/
 *.lance/
+.codex-manifest.json
 
 # Examples are now a tier of the platform monorepo (examples/).
 # The standalone agent-framework-examples repo remains the upstream source.

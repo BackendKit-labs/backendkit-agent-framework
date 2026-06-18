@@ -424,6 +424,29 @@ aprendidos en tiempo real. Son complementarios, no redundantes:
 | Búsqueda | Semántica vectorial | Por tiempo, tag, similitud textual |
 | Lifetime | Permanente, versionado | Acumulativo, puede purgarse |
 
+## Seguridad — control de acceso (roles y permisos)
+
+En una infraestructura de agentes para empresa, **el que controla la consola NO
+controla todo**. El sistema distingue quién pide algo y si tiene derecho. Diseño
+completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
+
+- **El LLM no es una frontera de seguridad.** El director hace routing blando; la
+  frontera dura es código determinístico debajo, que el LLM no puede saltear.
+- **On-behalf-of:** el director actúa con los permisos reducidos del usuario,
+  nunca con los suyos (evita el "confused deputy").
+- **La REPL es modo dev/admin.** El acceso enterprise va por front-door
+  autenticado (web/WS con login) — la identidad se establece al loguearse.
+- **Modelo:** Principal (JWT firmado: userId, roles, tenant) → Capability →
+  Role → Policy → Enforcement (en el orquestador) → Audit.
+- **Separación de funciones:** quien inicia ≠ quien aprueba (ej: hr-staff inicia
+  `liquidacion-nomina`, finance-admin la aprueba en un gate). Reusa los gates +
+  reflection Cable 2 existentes, ahora role-aware.
+- **Arquitectura en 3 piezas:** `packages/identity` (verify local + tipos),
+  `apps/auth-service` (AuthN: login + JWT, extrae NextAuth de vault-manager),
+  `packages/policy-engine` (AuthZ: decisión allow/deny — Casbin o json-rules-engine).
+- vault-manager NO es el dueño del auth — es un consumidor más. La identidad es
+  infraestructura transversal con su propio servicio (patrón IdP).
+
 ## Estado de implementación
 
 | Componente | Estado |
@@ -444,5 +467,9 @@ aprendidos en tiempo real. Son complementarios, no redundantes:
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |
+| packages/identity (verify + Principal) | ⬜ |
+| apps/auth-service (AuthN: login + JWT) | ⬜ |
+| packages/policy-engine (AuthZ) | ⬜ |
+| Enforcement role-aware en orquestador | ⬜ |
 | WebSocket :3500 | ⬜ |
 | docker-compose.enterprise.yml | ⬜ |

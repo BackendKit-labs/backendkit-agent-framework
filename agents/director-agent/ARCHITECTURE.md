@@ -104,7 +104,7 @@ Tarea de código, flujo conversacional, un dominio:
   → bk-agent: general → backend + security + QA, streaming en tiempo real
 ```
 
-### La combinación ideal
+### La combinación ideal — árbol completo del ecosistema
 
 bk-agent puede funcionar de dos formas en el ecosistema:
 1. Como **agente conversacional directo** — el usuario le habla desde el director
@@ -112,14 +112,39 @@ bk-agent puede funcionar de dos formas en el ecosistema:
 
 ```
 Director
-  ├── bk-agent (--mcp)          ← tarea de código → proceso único, streaming
-  └── orchestrator-agent        ← tarea multi-sistema → múltiples procesos, async
-        ├── docker-agent         (stdio MCP)
-        ├── k8s-agent            (stdio MCP)
-        ├── bk-agent             (stdio MCP — también puede ser especialista aquí)
-        ├── codex-v2             (stdio MCP)
-        └── curator-codex-agent  (HTTP)
+  │
+  ├── codex          (9t, stdio MCP)   ← conocimiento y vault RAG
+  ├── fleet          (5t, stdio MCP)   ← deploy Docker/K8s via gateway HTTP
+  │     └── orchestrator-gateway :3400
+  │
+  ├── coder [⬜]     (stdio MCP)       ← bk-agent --mcp: tarea de código,
+  │     └── bk-agent                    proceso único, streaming en tiempo real
+  │           ├── backend-agent         (interno, mismo proceso)
+  │           ├── security-agent        (interno)
+  │           ├── qa-engineer           (interno)
+  │           └── ... (10 especialistas)
+  │
+  ├── runs           (stdio MCP)       ← Stack B: flows conocidos, config, gates
+  │     └── orchestrator-mcp-agent
+  │           ├── curator-codex-agent  (HTTP :3200, Agent Protocol v1)
+  │           ├── synthesizer-agent    (HTTP)
+  │           ├── triage-agent         (HTTP)
+  │           └── formatter-agent      (HTTP)
+  │
+  └── orchestrator [⬜] (stdio MCP)   ← Stack A: planificación dinámica LLM,
+        └── orchestrator-agent           gates, reflection Cable 1+2
+              ├── docker-agent         (stdio MCP)
+              ├── k8s-agent            (stdio MCP)
+              ├── bk-agent             (stdio MCP — también especialista aquí)
+              ├── codex-v2             (stdio MCP)
+              └── curator-codex-agent  (HTTP)
+
+[⬜] = pendiente de conectar
 ```
+
+**Nota:** `bk-agent` aparece en dos lugares:
+- Como `coder` directo en el director — para tareas conversacionales de código
+- Como especialista de `orchestrator-agent` — cuando el orchestrator lo necesita en un pipeline
 
 ## Tools que el director necesita directamente
 

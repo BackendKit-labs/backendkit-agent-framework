@@ -53,4 +53,23 @@ export const bkPaths = {
 
     /** Director user model file */
     directorUserModel: () => path.join(getBkHome(), 'director', 'user-model.json'),
+
+    // ── MemorySystem 3-tier ────────────────────────────────────────────────────
+
+    /** Root directory for all MemorySystem files */
+    memoryDir: () => path.join(getBkHome(), 'memory'),
+
+    /** Episodic memory — log of actions, flows started, gates approved, outcomes */
+    memoryEpisodic: () => path.join(getBkHome(), 'memory', 'episodic.json'),
+
+    /** Semantic memory — user profile, org context, preferences */
+    memorySemantic: () => path.join(getBkHome(), 'memory', 'semantic.json'),
+
+    /** Procedural memory — learned patterns, routing shortcuts, successful flows */
+    memoryProcedural: () => path.join(getBkHome(), 'memory', 'procedural.json'),
+
+    // ── Skills ────────────────────────────────────────────────────────────────
+
+    /** Root directory for platform-level skills (YAML files) */
+    skillsDir: () => path.join(getBkHome(), 'skills'),
 };

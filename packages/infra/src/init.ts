@@ -14,6 +14,8 @@ const DIRS = [
     'data/orchestrator-mcp',
     'data/vault-manager',
     'director',
+    'memory',
+    'skills',
 ];
 
 /**
@@ -21,8 +23,15 @@ const DIRS = [
  * Key = path relative to BK_HOME, value = file content.
  */
 const SEED_FILES: Record<string, string> = {
-    'director/goals.json': JSON.stringify([], null, 2) + '\n',
+    // Director flat memory (legacy simple store)
+    'director/goals.json':      JSON.stringify([], null, 2) + '\n',
     'director/user-model.json': JSON.stringify({}, null, 2) + '\n',
+
+    // MemorySystem 3-tier seed files
+    'memory/episodic.json':   JSON.stringify([], null, 2) + '\n',
+    'memory/semantic.json':   JSON.stringify({}, null, 2) + '\n',
+    'memory/procedural.json': JSON.stringify({ patterns: [], learnedFlows: [] }, null, 2) + '\n',
+
     'README.md': `# BackendKit Platform — Infrastructure Home
 
 This directory (\`~/.backendkit/\`) is the unified infrastructure root
@@ -32,17 +41,22 @@ for the BackendKit Platform. It is created automatically on first run.
 
 \`\`\`
 ~/.backendkit/
-├── vaults/              # Curated knowledge notes (codex-context-agent-v2)
-│   ├── {project}/       # Per-project vault
-│   └── shared/          # Shared knowledge across projects
-├── rag/                 # Semantic search indexes (auto-generated)
+├── vaults/                  # Curated knowledge notes (codex-context-agent-v2)
+│   ├── {project}/           # Per-project vault
+│   └── shared/              # Shared knowledge across projects
+├── rag/                     # Semantic search indexes (auto-generated)
+├── memory/                  # Director MemorySystem 3-tier
+│   ├── episodic.json        # Log of actions, flows, gates, outcomes
+│   ├── semantic.json        # User profile, org context, preferences
+│   └── procedural.json      # Learned patterns and routing shortcuts
+├── skills/                  # Platform-level skills (YAML — loaded by SkillManager)
 ├── data/
-│   ├── orchestrator/    # orchestrator-agent runtime state
-│   ├── orchestrator-mcp/# orchestrator-mcp-agent runtime state
-│   └── vault-manager/   # vault-manager SQLite database
-└── director/            # director-agent memory
-    ├── goals.json        # Long-term goals (cross-session)
-    └── user-model.json   # User preferences and patterns
+│   ├── orchestrator/        # orchestrator-agent runtime state
+│   ├── orchestrator-mcp/    # orchestrator-mcp-agent runtime state
+│   └── vault-manager/       # vault-manager SQLite database
+└── director/
+    ├── goals.json            # Long-term goals (cross-session)
+    └── user-model.json       # User preferences and patterns
 \`\`\`
 
 ## Configuration

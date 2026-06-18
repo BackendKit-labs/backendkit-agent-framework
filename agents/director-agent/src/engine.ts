@@ -7,6 +7,7 @@ import {
     ProviderRegistry,
     CallbackTransport,
     MCPClientManager,
+    createMemorySystem,
 } from '@backendkit-labs/agent-core';
 import { initBkHome, bkPaths } from '@backendkit-labs/infra';
 import type { AgentEvent, AgentProfile } from '@backendkit-labs/agent-core';
@@ -88,12 +89,25 @@ export async function buildDirectorEngine(
     }));
     const systemPrompt = buildSystemPrompt(soul, topology);
 
+    // ── MemorySystem 3-tier ───────────────────────────────────────────────────
+    const memory = createMemorySystem({
+        episodic:   { provider: 'json', path: bkPaths.memoryEpisodic() },
+        semantic:   { provider: 'json', path: bkPaths.memorySemantic() },
+        procedural: { provider: 'json', path: bkPaths.memoryProcedural() },
+        retention:  { maxEpisodes: 500 },
+    });
+    const memoryTools = memory.getTools();
+
     // ── Registries ────────────────────────────────────────────────────────────
     const tools = new ToolRegistry();
     for (const t of mcpTools) tools.register(t);
+    for (const t of memoryTools) tools.register(t);
+
+    // allowedTools: MCP tools + memory tools (excludes ask_agent)
+    const allToolNames = [...mcpToolNames, ...memoryTools.map(t => t.name)];
 
     const agents = new AgentRegistry();
-    agents.register(buildDirectorProfile(systemPrompt, mcpToolNames));
+    agents.register(buildDirectorProfile(systemPrompt, allToolNames));
 
     const providers = new ProviderRegistry();
     providers.register(providerName, new DirectorProvider({
@@ -118,6 +132,7 @@ export async function buildDirectorEngine(
         transport,
         maxIterations:   config.director.max_iterations,
         iterationMode:   'auto',
+        memorySystem:    memory,
     });
 
     return { engine, mcp, provider: providerName, model: providerCfg.model };

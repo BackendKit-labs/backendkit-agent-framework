@@ -52,12 +52,88 @@ agent     agent   (bk-    context  agent   agent      especialistas
 
 ## Dos planos de orquestación
 
-El ecosistema tiene dos orquestadores complementarios. El director los usa según el tipo de tarea:
+El ecosistema tiene dos orquestadores con **responsabilidades distintas** — no son variantes del mismo concepto:
 
-| Plano | Agente | Cuándo lo usa el director |
-|---|---|---|
-| **Stack A — Planificación** | `orchestrator-agent` | Objetivos complejos sin flow previo. El LLM planea dinámicamente, tiene gates, reflection Cable 1+2, aprende. |
-| **Stack B — Operaciones** | `orchestrator-mcp-agent` + `orchestrator-gateway` | Flows conocidos y declarativos. Deploy de agentes, gestión de flota, ejecución de templates. API limpia: `start_flow`, `deploy`, `list_agents`. |
+| Plano | Agente | Rol | Modo |
+|---|---|---|---|
+| **Stack A** | `orchestrator-agent` | **Operador autónomo de plataforma** — infra, scheduling, reportes, automatización. El Hermes del ecosistema. | PROACTIVO — corre por su cuenta |
+| **Stack B** | `orchestrator-mcp-agent` + gateway | **Motor de flujos de negocio** — ejecuta flows declarativos conocidos (ventas, onboarding, soporte). | REACTIVO — lo dispara el director o un webhook |
+
+### Stack B — Motor de flujos de negocio
+
+Conoce el **"qué"** — procesos de negocio definidos. Ejecuta flows declarativos con agentes HTTP (Agent Protocol v1). API limpia: `start_flow`, `list_runs`, `approve`, `get_config`.
+
+```
+Iniciado por:  Director / webhook externo
+Duración:      Finita (run completo)
+Agentes:       HTTP Protocol v1
+Aprende:       No (flows estáticos)
+```
+
+### Stack A — Operador autónomo de plataforma (el Hermes del ecosistema)
+
+Conoce el **"cómo"** — cómo desplegar, conectar, automatizar, monitorear. Es
+**proactivo**: corre por su cuenta, iniciado por cron/eventos, con duración
+potencialmente perpetua. Equivale a Hermes aplicado a la infraestructura.
+
+```
+Iniciado por:  Cron / evento / trigger externo / director
+Duración:      Permanente / recurrente / perpetua
+Agentes:       MCP stdio/HTTP especializados
+Aprende:       Sí — reflection Cable 1+2, RAG vault
+```
+
+**Capacidades tipo Hermes:**
+
+```
+Scheduling y automatización:
+  "Generá el reporte de ventas todos los viernes a las 18:00"
+  "Revisá cada hora si hay containers caídos y reinicialos"
+  "Hacé backup del vault todos los domingos"
+  "Cuando llegue un commit, corré el pipeline"
+
+Reportes automáticos:
+  "Reporte diario de infraestructura → Slack"
+  "Reporte semanal de runs → email"
+  "Alerta si k8s CPU > 80%"
+
+Flows perpetuos:
+  "Monitoreá el cluster en producción — siempre activo"
+  "Escuchá el webhook de GitHub — procesá cada PR"
+  "Mantené el vault sincronizado con Confluence"
+
+Infraestructura bajo demanda:
+  "Deployá 3 réplicas del agente de ventas en Kubernetes"
+  "Conectá el CRM de Salesforce como agente MCP"
+  "Creá el workflow N8N para el trigger de HubSpot"
+```
+
+**Agentes MCP de Stack A:**
+
+```
+orchestrator-agent (Stack A)
+  ├── docker-agent        ✅  contenedores, imágenes, compose, swarm
+  ├── k8s-agent           ✅  namespaces, deployments, scaling
+  ├── codex-v2            ✅  consultar/actualizar vault
+  ├── scheduler-mcp       ⬜  cron + one-shot + eventos (flows perpetuos)
+  ├── notification-mcp    ⬜  Slack, email, Telegram, webhook
+  ├── n8n-mcp             ⬜  CRUD workflows N8N, triggers, ejecuciones
+  └── external-mcp        ⬜  conectores a APIs externas vía MCP client
+```
+
+`scheduler-mcp` + `notification-mcp` son el corazón — scheduling y delivery de
+resultados. Todo lo demás se construye sobre eso.
+
+### Comparativa Director vs Stack A vs Stack B
+
+| | Director | Stack A | Stack B |
+|---|---|---|---|
+| **Modo** | Reactivo | Proactivo | Reactivo |
+| **Iniciado por** | Usuario habla | Cron / evento | Director / webhook |
+| **Duración** | Una conversación | Permanente/recurrente | Finita (run completo) |
+| **Contexto** | Conversación + vault | Vault + memoria propia | Plan + estado del run |
+| **Salida** | Respuesta al usuario | Reporte / acción / alerta | Resultado del flow |
+| **Aprende** | MemorySystem 3-tier | Reflection Cable 1+2 | No |
 
 ## Comparativa: orchestrator-agent vs bk-agent (multi-agente)
 
@@ -467,6 +543,10 @@ completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |
+| scheduler-mcp (cron + one-shot + eventos) | ⬜ |
+| notification-mcp (Slack, email, Telegram, webhook) | ⬜ |
+| n8n-mcp (CRUD workflows N8N) | ⬜ |
+| external-mcp (conectores APIs externas) | ⬜ |
 | packages/identity (verify + Principal) | ⬜ |
 | apps/auth-service (AuthN: login + JWT) | ⬜ |
 | packages/policy-engine (AuthZ) | ⬜ |

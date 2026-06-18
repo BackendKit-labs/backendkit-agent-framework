@@ -45,6 +45,8 @@ agents:
     command: node
     args: ["../orchestrator-mcp-agent/dist/server.js"]
     env:
+      # Uses ~/.backendkit/config/orchestrator-mcp.yaml by default (created by initBkHome).
+      # Override with ORCHESTRATOR_CONFIG env var to point to a custom config.
       ORCHESTRATOR_CONFIG: ${ORCHESTRATOR_CONFIG}
 
   - name: fleet                 # Deploy Docker/K8s — vía gateway HTTP :3400

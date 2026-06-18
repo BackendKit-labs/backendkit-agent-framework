@@ -59,7 +59,7 @@ export const OrchestratorMcpConfigSchema = z.object({
         api_key:  z.string().optional(),
         tenant_id: z.string().optional(),
     }),
-    agents: z.array(AgentConfigSchema).min(1),
+    agents: z.array(AgentConfigSchema).default([]),
     flows:  z.array(FlowEntrySchema).optional().default([]),
 });
 

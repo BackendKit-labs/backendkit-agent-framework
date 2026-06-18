@@ -62,12 +62,19 @@ export async function buildDirectorEngine(
     }
 
     // ── MCP: connect to all configured agents ─────────────────────────────────
-    const mcpConfigs = config.agents.map(entry => ({
-        name:    entry.name,
-        command: entry.command,
-        args:    resolveAgentArgs(entry, configDir),
-        env:     entry.env,
-    }));
+    // For the 'runs' entry, if ORCHESTRATOR_CONFIG is not set, default to BK_HOME seed config
+    const mcpConfigs = config.agents.map(entry => {
+        const env = { ...(entry.env ?? {}) };
+        if (entry.name === 'runs' && !env['ORCHESTRATOR_CONFIG']) {
+            env['ORCHESTRATOR_CONFIG'] = bkPaths.orchestratorMcpConfig();
+        }
+        return {
+            name:    entry.name,
+            command: entry.command,
+            args:    resolveAgentArgs(entry, configDir),
+            env,
+        };
+    });
 
     const mcp = new MCPClientManager(mcpConfigs);
     await mcp.initialize();

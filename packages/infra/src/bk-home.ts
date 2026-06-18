@@ -72,4 +72,12 @@ export const bkPaths = {
 
     /** Root directory for platform-level skills (YAML files) */
     skillsDir: () => path.join(getBkHome(), 'skills'),
+
+    // ── Config ────────────────────────────────────────────────────────────────
+
+    /** Platform config directory */
+    configDir: () => path.join(getBkHome(), 'config'),
+
+    /** orchestrator-mcp-agent seed config */
+    orchestratorMcpConfig: () => path.join(getBkHome(), 'config', 'orchestrator-mcp.yaml'),
 };

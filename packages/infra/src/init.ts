@@ -16,6 +16,7 @@ const DIRS = [
     'director',
     'memory',
     'skills',
+    'config',
 ];
 
 /**
@@ -26,6 +27,33 @@ const SEED_FILES: Record<string, string> = {
     // Director flat memory (legacy simple store)
     'director/goals.json':      JSON.stringify([], null, 2) + '\n',
     'director/user-model.json': JSON.stringify({}, null, 2) + '\n',
+
+    // orchestrator-mcp-agent seed config (no agents, no flows — extend as you deploy)
+    'config/orchestrator-mcp.yaml': [
+        '# BackendKit Platform — Orchestrator MCP config',
+        '# This is the seed config. Add agents and flows as you deploy them.',
+        '# Agents registered via deploy_agent() are added to config.db automatically.',
+        '',
+        'version: 2',
+        '',
+        'orchestrator:',
+        '  name: "BackendKit Orchestrator"',
+        '  data_dir: "${BK_HOME}/data/orchestrator-mcp"',
+        '',
+        '# Agents are empty by default — add as you deploy.',
+        '# Example (HTTP agent):',
+        '# agents:',
+        '#   - id: docker',
+        '#     description: "Docker specialist"',
+        '#     transport: http',
+        '#     capability: execute',
+        '#     instances:',
+        '#       - url: "http://localhost:3401"',
+        '',
+        'agents: []',
+        '',
+        '# flows: []  # Add static flows here or via save_flow()',
+    ].join('\n') + '\n',
 
     // MemorySystem 3-tier seed files
     'memory/episodic.json':   JSON.stringify([], null, 2) + '\n',

@@ -117,7 +117,8 @@ orchestrator-agent (Stack A)
   ├── codex-v2            ✅  consultar/actualizar vault
   ├── scheduler-mcp       ⬜  cron + one-shot + eventos (flows perpetuos)
   ├── notification-mcp    ⬜  Slack, email, Telegram, webhook
-  ├── n8n-mcp             ⬜  CRUD workflows N8N, triggers, ejecuciones
+  ├── n8n-mcp             ⚠️  BASE existe: createN8nTriggerTool() en packages/enterprise
+  │                          (dispara webhook). Falta: CRUD workflows, estado ejecuciones
   └── external-mcp        ⬜  conectores a APIs externas vía MCP client
 ```
 
@@ -545,7 +546,7 @@ completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
 | SkillManager integrado al engine | ⬜ |
 | scheduler-mcp (cron + one-shot + eventos) | ⬜ |
 | notification-mcp (Slack, email, Telegram, webhook) | ⬜ |
-| n8n-mcp (CRUD workflows N8N) | ⬜ |
+| n8n-mcp (CRUD workflows + ejecuciones) | ⚠️ base existe en packages/enterprise (`createN8nTriggerTool` — dispara webhook). Extender con CRUD y consulta de ejecuciones via N8N REST API |
 | external-mcp (conectores APIs externas) | ⬜ |
 | packages/identity (verify + Principal) | ⬜ |
 | apps/auth-service (AuthN: login + JWT) | ⬜ |

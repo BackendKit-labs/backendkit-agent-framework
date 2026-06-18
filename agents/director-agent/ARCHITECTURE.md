@@ -59,6 +59,68 @@ El ecosistema tiene dos orquestadores complementarios. El director los usa segú
 | **Stack A — Planificación** | `orchestrator-agent` | Objetivos complejos sin flow previo. El LLM planea dinámicamente, tiene gates, reflection Cable 1+2, aprende. |
 | **Stack B — Operaciones** | `orchestrator-mcp-agent` + `orchestrator-gateway` | Flows conocidos y declarativos. Deploy de agentes, gestión de flota, ejecución de templates. API limpia: `start_flow`, `deploy`, `list_agents`. |
 
+## Comparativa: orchestrator-agent vs bk-agent (multi-agente)
+
+Ambos coordinan múltiples agentes pero con modelos de ejecución opuestos.
+
+### Modelo de ejecución
+
+| | **orchestrator-agent (Stack A)** | **bk-agent** |
+|---|---|---|
+| Dónde corren los agentes | **Procesos separados** — cada agente es un MCP server independiente (stdio o HTTP) | **Un solo proceso Node.js** — todos los agentes son perfiles dentro del mismo engine |
+| Comunicación | MCP protocol (stdio) o HTTP Agent Protocol v1 | `ask_agent` tool → `DelegationBus` → cambio de perfil interno |
+| Planificación | LLM genera plan JSON (`subtasks[]` con `depends_on`) **antes** de ejecutar | LLM decide en tiempo real a quién delegar con `ask_agent` |
+| Paralelismo | Explícito — subtareas sin `depends_on` en común corren simultáneamente (BullMQ) | Implícito — múltiples `ask_agent` en la misma respuesta corren en paralelo (DelegationBus, max 6) |
+| Escala | Multi-máquina — Redis/BullMQ distribuye subtareas a workers | Single-machine — un proceso |
+| Modo de respuesta | **Asíncrono** — devuelve `runId`, el resultado llega después | **Síncrono** — el usuario ve el streaming en tiempo real |
+
+### Dominio y especialización
+
+| | **orchestrator-agent** | **bk-agent** |
+|---|---|---|
+| Dominio | Cualquiera — lo definen los agentes registrados | Código — 10 especialistas fijos (backend, security, QA, frontend, etc.) |
+| Agentes | Externos, independientes, cualquier lenguaje/runtime | Perfiles YAML/JSON en el mismo proceso |
+| Tools | Cada agente tiene sus propias tools | Todos comparten el mismo toolset (read_file, write_file, execute_command, ripgrep) |
+| Añadir agente | Registrar un MCP server en `orchestrator.yaml` | Crear `{id}.json` + `{id}.md` en `~/.bk-agent/agents/` |
+
+### Control y aprendizaje
+
+| | **orchestrator-agent** | **bk-agent** |
+|---|---|---|
+| Gates | Explícitos en el plan (`gate: true`) — pausa y espera aprobación humana | QA reviewer inline — evalúa la respuesta automáticamente, no pausa el flujo |
+| Reflection | Cable 1+2 — registra incidentes en vault, detecta patrones de fallo, promueve policy rules que fuerzan gates | ReflectionEngine — detecta patrones de error por dominio, promueve políticas por proyecto |
+| Memoria | Episódica cross-run (inyecta outputs exitosos de runs anteriores al contexto del agente) | Per-project (sesion-actual.md, contexto-proyecto.md, history.json, patterns.json) |
+
+### Cuándo usa el director cada uno
+
+```
+Tarea multi-sistema, multi-dominio, varios procesos:
+  "Deployá el nuevo servicio de auth, revisá seguridad, cargá docs al vault"
+  → orchestrator-agent: planifica dinámicamente, delega a docker-agent +
+    security-agent + codex, gates en pasos críticos
+
+Tarea de código, flujo conversacional, un dominio:
+  "Implementá el módulo JWT según nuestra spec, con tests y code review"
+  → bk-agent: general → backend + security + QA, streaming en tiempo real
+```
+
+### La combinación ideal
+
+bk-agent puede funcionar de dos formas en el ecosistema:
+1. Como **agente conversacional directo** — el usuario le habla desde el director
+2. Como **especialista de código** dentro de un pipeline del orchestrator-agent
+
+```
+Director
+  ├── bk-agent (--mcp)          ← tarea de código → proceso único, streaming
+  └── orchestrator-agent        ← tarea multi-sistema → múltiples procesos, async
+        ├── docker-agent         (stdio MCP)
+        ├── k8s-agent            (stdio MCP)
+        ├── bk-agent             (stdio MCP — también puede ser especialista aquí)
+        ├── codex-v2             (stdio MCP)
+        └── curator-codex-agent  (HTTP)
+```
+
 ## Tools que el director necesita directamente
 
 ### Plano de conocimiento (codex)

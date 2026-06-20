@@ -571,23 +571,25 @@ Activar en producción: `enforce: true` en `director.yaml` + `JWT_SECRET` en `.e
 | bk-agent --mcp (coder) | ⬜ |
 | studio-agent (wrapper gateway :3400) | ✅ |
 | vault-manager-agent (wrapper vault-manager :3000) | ✅ |
-| Vault curado con conocimiento operacional | ✅ 73 notas |
+| Vault curado con conocimiento operacional | ✅ 83 notas |
 | MemorySystem 3-tier (episódica/semántica/procedural) integrado en engine.ts | ✅ |
 | **Capa 1 — Identidad JWT** (`src/auth/jwt.ts`, `src/auth/context.ts`) | ✅ |
 | **Capa 2 — RBAC** (`src/auth/policy.ts`, `access_control` en director.yaml) | ✅ |
 | **Capa 3 — ABAC** (`src/auth/abac.ts`, `conditions` en director.yaml) | ✅ |
 | **Capa 4 — Vault filter** (`src/auth/vault-filter.ts`, `vault_visibility` en director.yaml) | ✅ |
 | **Capa 5 — Auditoría NDJSON** (`src/auth/audit.ts`, `~/.backendkit/audit/director-access.ndjson`) | ✅ |
+| **config-agent** (gestión centralizada de config + secretos) | ✅ conectado + RBAC |
+| **schedule-agent** (scheduling one-time + cron → ejecuta flows) | ✅ conectado + RBAC |
+| **health-checker** (monitoreo del ecosistema completo) | ✅ conectado + RBAC |
+| **notification-agent** (notificaciones multi-canal: email, Slack, Telegram, push) | ✅ conectado + RBAC |
+| bk-agent --mcp (coder) | ⬜ requiere modo --mcp en bk-agent |
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |
-| scheduler-mcp (cron + one-shot + eventos) | ⬜ |
-| notification-mcp (Slack, email, Telegram, webhook) | ⬜ |
 | n8n-mcp (CRUD workflows + ejecuciones) | ⚠️ base existe en packages/enterprise (`createN8nTriggerTool` — dispara webhook). Extender con CRUD y consulta de ejecuciones via N8N REST API |
 | external-mcp (conectores APIs externas) | ⬜ |
 | packages/identity (extraer src/auth/ como paquete compartido) | ⬜ |
 | apps/auth-service (AuthN central: login + JWT firmado con clave pública) | ⬜ |
 | Enforcement role-aware en orquestador (gates con capability) | ⬜ |
-| ABAC: condiciones sobre horario, monto, departamento | ⬜ |
 | WebSocket :3500 | ⬜ |
 | docker-compose.enterprise.yml | ⬜ |

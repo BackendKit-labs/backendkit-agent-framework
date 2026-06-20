@@ -77,15 +77,15 @@ agents:
       # SCHEDULER_DB_PATH: ~/.backendkit/scheduler/tasks.db   ← default
 
   - name: health                # Salud del ecosistema completo (orquestador, agentes, env, vault, broker)
-    command: node
-    args: ["../health-checker/dist/health-checker.js"]
+    command: npx
+    args: ["tsx", "../health-checker/health-checker.ts"]
     env:
       ORCHESTRATOR_URL: ${ORCHESTRATOR_URL}
       # BROKER_URL: redis://localhost:6379   ← opcional
 
   - name: notifier              # Notificaciones multi-canal (email, Slack, Telegram, Discord, push)
-    command: node
-    args: ["../notification-agent/dist/notification-agent.js"]
+    command: npx
+    args: ["tsx", "../notification-agent/src/notification-agent.ts"]
     env:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -190,3 +190,51 @@ access_control:
               - { time: weekday, in: [0, 6] }
               - { time: hour, lt: 8 }
               - { time: hour, gte: 18 }
+
+    # ── Config (gestión centralizada de configuración) ─────────────────────────
+    get_config:        { allowed_roles: ["*"] }
+    list_configs:      { allowed_roles: ["*"] }
+    get_config_schema: { allowed_roles: ["*"] }
+    validate_config:   { allowed_roles: ["*"] }
+    diff_config:       { allowed_roles: ["admin", "dev", "devops"] }
+    set_config:        { allowed_roles: ["admin", "devops"] }
+    set_secret:        { allowed_roles: ["admin"] }
+    import_config:     { allowed_roles: ["admin"] }
+    restore_config:    { allowed_roles: ["admin"] }
+    commit_config:     { allowed_roles: ["admin", "devops"] }
+    reload_config:     { allowed_roles: ["admin", "devops"] }
+    detect_env:        { allowed_roles: ["admin", "devops"] }
+    serve_config_ui:   { allowed_roles: ["admin"] }
+
+    # ── Scheduler (programación de tareas) ─────────────────────────────────────
+    # El scheduler tiene su propio RBAC interno (userRole param): aquí solo se controla
+    # el acceso a nivel de tool desde el director.
+    schedule_task:     { allowed_roles: ["*"] }
+    list_scheduled:    { allowed_roles: ["*"] }
+    task_status:       { allowed_roles: ["*"] }
+    cancel_task:       { allowed_roles: ["*"] }
+    reschedule:        { allowed_roles: ["*"] }
+    get_current_time:  { allowed_roles: ["*"] }
+    get_user_timezone: { allowed_roles: ["*"] }
+
+    # ── Health (monitoreo del ecosistema) ──────────────────────────────────────
+    system_health:    { allowed_roles: ["*"] }
+    check_agent:      { allowed_roles: ["*"] }
+    check_scheduler:  { allowed_roles: ["*"] }
+    check_vault:      { allowed_roles: ["*"] }
+    check_environment: { allowed_roles: ["admin", "devops"] }
+    check_messaging:  { allowed_roles: ["admin", "devops"] }
+    end_to_end_test:  { allowed_roles: ["admin", "devops"] }
+
+    # ── Notifier (notificaciones multi-canal) ──────────────────────────────────
+    notify_user:              { allowed_roles: ["*"] }
+    send_notification:        { allowed_roles: ["*"] }
+    notify_scheduled:         { allowed_roles: ["*"] }
+    user_channels:            { allowed_roles: ["*"] }
+    list_channels:            { allowed_roles: ["*"] }
+    register_device:          { allowed_roles: ["*"] }
+    unregister_device:        { allowed_roles: ["*"] }
+    test_channel:             { allowed_roles: ["admin", "devops"] }
+    get_notification_history: { allowed_roles: ["admin", "hr"] }
+    register_user_channels:   { allowed_roles: ["admin", "hr"] }
+    list_devices:             { allowed_roles: ["admin", "devops"] }

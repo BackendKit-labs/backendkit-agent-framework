@@ -582,7 +582,7 @@ Activar en producción: `enforce: true` en `director.yaml` + `JWT_SECRET` en `.e
 | **schedule-agent** (scheduling one-time + cron → ejecuta flows) | ✅ conectado + RBAC |
 | **health-checker** (monitoreo del ecosistema completo) | ✅ conectado + RBAC |
 | **notification-agent** (notificaciones multi-canal: email, Slack, Telegram, push) | ✅ conectado + RBAC |
-| bk-agent --mcp (coder) | ⬜ requiere modo --mcp en bk-agent |
+| **coder** (bk-coder-v2/orchestrator — SDD: backend, QA, security, infra) | ✅ conectado + RBAC |
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |

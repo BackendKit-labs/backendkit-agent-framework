@@ -56,11 +56,13 @@ agents:
       GATEWAY_URL: ${GATEWAY_URL}
       GATEWAY_API_KEY: ${GATEWAY_API_KEY}
 
-  # - name: coder               # Código — bk-agent (requiere modo --mcp, pendiente)
-  #   command: node
-  #   args: ["../../apps/bk-agent/dist/bin/cli.js", "--mcp"]
-  #   env:
-  #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+  - name: coder                 # bk-coder-v2 — Orchestrator V2 (SDD: backend, QA, security, infra)
+    command: node
+    args: ["../bk-coder-v2/orchestrator/dist/server.js"]
+    env:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # config_path se pasa como argumento en cada tool call (soporta múltiples proyectos)
 
   - name: config                # Gestión centralizada de config + secretos de todos los agentes
     command: node
@@ -190,6 +192,17 @@ access_control:
               - { time: weekday, in: [0, 6] }
               - { time: hour, lt: 8 }
               - { time: hour, gte: 18 }
+
+    # ── Coder v2 (Orchestrator V2 — SDD flows) ────────────────────────────────
+    # config_path es un argumento en cada llamada, no afecta la autorización aquí.
+    orchestrator_run:             { allowed_roles: ["admin", "dev", "tech-lead"] }
+    orchestrator_status:          { allowed_roles: ["*"] }
+    orchestrator_approve:         { allowed_roles: ["admin", "tech-lead"] }
+    orchestrator_list_agents:     { allowed_roles: ["*"] }
+    orchestrator_list_runs:       { allowed_roles: ["admin", "dev", "tech-lead"] }
+    orchestrator_reflect:         { allowed_roles: ["admin", "tech-lead"] }
+    orchestrator_reflect_promote: { allowed_roles: ["admin"] }
+    orchestrator_reflect_demote:  { allowed_roles: ["admin"] }
 
     # ── Config (gestión centralizada de configuración) ─────────────────────────
     get_config:        { allowed_roles: ["*"] }

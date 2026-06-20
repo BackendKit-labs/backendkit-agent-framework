@@ -26,6 +26,28 @@ Vault de conocimiento del proyecto. Curar código/docs y buscar contexto antes d
 - `mcp__codex__reindex_vault` — reconstruir índice semántico
 - `mcp__codex__reset_vault` — borrar vault, índice y manifests (irreversible)
 
+### coder — Orchestrator V2 (bk-coder-v2, SDD)
+
+Motor de implementación de código. Coordina Backend-MCP, QA-MCP, Security-MCP e Infra-MCP
+en un flujo de 10 pasos con gates humanos. **Todas las tools requieren `config_path`** —
+la ruta al `orchestrator.yaml` del proyecto (permite múltiples proyectos con un solo agente).
+
+- `mcp__coder__orchestrator_run` — inicia un task: SDD flow o planning dinámico LLM. Args: `config_path`, `task`, `flow_id?`, `payload?`
+- `mcp__coder__orchestrator_status` — estado de un run: completado, esperando gate, fallado
+- `mcp__coder__orchestrator_approve` — aprueba o rechaza un gate humano y reanuda la ejecución
+- `mcp__coder__orchestrator_list_agents` — agentes configurados en el orchestrator.yaml
+- `mcp__coder__orchestrator_list_runs` — historial de runs filtrable por status
+- `mcp__coder__orchestrator_reflect` — dashboard de patterns detectados y policy rules activas (Cable 1+2)
+- `mcp__coder__orchestrator_reflect_promote` — promueve un pattern a regla determinística
+- `mcp__coder__orchestrator_reflect_demote` — elimina una regla con alta tasa de fallo
+
+**Flujo SDD estándar (`flow_id: "sdd-implement"`):**
+```
+[Gate] design-review → backend-phase-1 → [Gate] qa-phase-1 →
+backend-phase-2 → [Gate] qa-phase-2 → backend-phase-3 → [Gate] qa-phase-3 →
+[Gate] security-review → infra-generation → [Gate] final-qa
+```
+
 ### runs — Orquestación de flows (Stack B)
 
 Motor de flows declarativos. Ejecuta procesos de negocio conocidos con gates y pasos.
@@ -121,6 +143,21 @@ Entrega inteligente de notificaciones con fallback automático, quiet hours y de
 | "Curá este directorio / archivo" | `codex__curate_path` |
 | "Curá este repo / esta URL" | `codex__curate_link` |
 | "Reindexá el vault" | `codex__reindex_vault` |
+
+### Implementación de código (Coder v2)
+
+| Intención del usuario | Tool |
+|---|---|
+| "Implementá X según la spec" / "ejecutá SDD" | `coder__orchestrator_run` (flow_id: sdd-implement) |
+| "¿Cómo va el run de código?" | `coder__orchestrator_status` |
+| "Aprobá el gate de seguridad" | `coder__orchestrator_approve` (approved: true) |
+| "Rechazá el gate, hay issues" | `coder__orchestrator_approve` (approved: false) |
+| "¿Qué agentes tiene configurados el coder?" | `coder__orchestrator_list_agents` |
+| "Historial de implementaciones" | `coder__orchestrator_list_runs` |
+| "¿Qué patterns detectó el sistema?" | `coder__orchestrator_reflect` |
+
+> Siempre pedile al usuario el `config_path` del proyecto antes de llamar al coder,
+> o buscalo con `codex__search_vault("orchestrator.yaml path")`.
 
 ### Flows y orquestación
 | Intención del usuario | Tool |

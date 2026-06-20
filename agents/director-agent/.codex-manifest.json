@@ -1,32 +1,200 @@
 {
   "version": "1.0",
   "created": "2026-06-17T23:35:45.151Z",
-  "lastUpdated": "2026-06-17T23:37:46.659Z",
+  "lastUpdated": "2026-06-20T22:43:32.588Z",
   "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents/director-agent",
   "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
   "files": {
     "SOUL.md": {
       "relativePath": "SOUL.md",
-      "hash": "a144f0a984c49435a06627e17d5140acaccae3384e585f2c142e0c933a9ac365",
-      "size": 2181,
-      "modified": "2026-06-17T21:27:28.629Z",
-      "analyzedAt": "2026-06-17T23:35:57.012Z",
+      "hash": "e891c47c6d85bda7836ca1595503ac89a3387612f3dada4fea6f2fde35907b8f",
+      "size": 2990,
+      "modified": "2026-06-18T00:17:33.256Z",
+      "analyzedAt": "2026-06-18T21:19:01.380Z",
       "status": "success"
     },
     "director.yaml": {
       "relativePath": "director.yaml",
-      "hash": "2d2eaad596fb6ffee093573084f620b587f99e1db6cc95c03db3bfc5edca8708",
-      "size": 2248,
-      "modified": "2026-06-17T22:12:57.195Z",
-      "analyzedAt": "2026-06-17T23:36:35.782Z",
+      "hash": "2ce62475c47a7d1e45911f4bca990f5218a653778e55def4fd9ce53462876227",
+      "size": 2482,
+      "modified": "2026-06-18T00:21:26.415Z",
+      "analyzedAt": "2026-06-18T21:19:04.288Z",
       "status": "success"
     },
     "ARCHITECTURE.md": {
       "relativePath": "ARCHITECTURE.md",
-      "hash": "14a4b49040888cefbafb171ce32c58dddea89a2a55df7628ad923d418bd1d6c2",
-      "size": 15048,
-      "modified": "2026-06-17T22:56:49.179Z",
-      "analyzedAt": "2026-06-17T23:37:46.659Z",
+      "hash": "70cfdd89de19982630b2e0537ca9634e4645430a7f483ae1ea9ca598efba37a2",
+      "size": 31425,
+      "modified": "2026-06-20T22:40:02.762Z",
+      "analyzedAt": "2026-06-20T22:42:29.806Z",
+      "status": "success"
+    },
+    "src\\config.ts": {
+      "relativePath": "src\\config.ts",
+      "hash": "51e5710e4c1732d2954b91020764d0aaec58e099d64656ec05197ae66a123f3e",
+      "size": 4545,
+      "modified": "2026-06-20T22:34:15.871Z",
+      "analyzedAt": "2026-06-20T22:42:58.481Z",
+      "status": "success"
+    },
+    "proposals\\doctor-agent.md": {
+      "relativePath": "proposals\\doctor-agent.md",
+      "hash": "533cdd122214bfae1d866e4a179c041882d3320ed0ca917876f7c1e4c00cbe07",
+      "size": 2254,
+      "modified": "2026-06-18T20:25:44.281Z",
+      "analyzedAt": "2026-06-18T21:19:05.279Z",
+      "status": "success"
+    },
+    "proposals\\Top-10-mejoras.md": {
+      "relativePath": "proposals\\Top-10-mejoras.md",
+      "hash": "d64e720d81a328291b0213592eecdb6cb18a80eca023b2d0a70ad6f3e770b55e",
+      "size": 6808,
+      "modified": "2026-06-18T21:10:08.150Z",
+      "analyzedAt": "2026-06-18T21:19:12.480Z",
+      "status": "success"
+    },
+    "ACCESS-CONTROL.md": {
+      "relativePath": "ACCESS-CONTROL.md",
+      "hash": "ff2cc6fd6b7846c2563736d7dd2fdd6937eccf9cbfa520993201f4bf3ba6a21c",
+      "size": 22693,
+      "modified": "2026-06-20T22:39:51.968Z",
+      "analyzedAt": "2026-06-20T22:42:46.462Z",
+      "status": "success"
+    },
+    "proposals\\codex-context-agent.md": {
+      "relativePath": "proposals\\codex-context-agent.md",
+      "hash": "bc58260c2490c2278f0f519d0adbd3c89e1b51411b2a1fb9882708fe0532720f",
+      "size": 10089,
+      "modified": "2026-06-18T20:35:12.147Z",
+      "analyzedAt": "2026-06-18T21:19:15.178Z",
+      "status": "success"
+    },
+    "proposals\\roles-por-ususario.md": {
+      "relativePath": "proposals\\roles-por-ususario.md",
+      "hash": "42f4b71e8a920c329a646a629c47880197d0eafdb925bb800ac0b526732e1564",
+      "size": 8513,
+      "modified": "2026-06-18T20:41:15.521Z",
+      "analyzedAt": "2026-06-18T21:19:21.640Z",
+      "status": "success"
+    },
+    "src\\soul.ts": {
+      "relativePath": "src\\soul.ts",
+      "hash": "b437bfc6852e960380901678cb7fc65ae088fc9c8e8a2f8f7211a4843dc10cf3",
+      "size": 1404,
+      "modified": "2026-06-18T00:17:33.299Z",
+      "analyzedAt": "2026-06-18T21:19:46.596Z",
+      "status": "success"
+    },
+    "src\\provider.ts": {
+      "relativePath": "src\\provider.ts",
+      "hash": "ad301b0f2439db42edb6a4724aaa66246593421e9a3856c870886595e714df8e",
+      "size": 4749,
+      "modified": "2026-06-18T00:17:33.285Z",
+      "analyzedAt": "2026-06-18T21:19:46.598Z",
+      "status": "success"
+    },
+    "src\\server.ts": {
+      "relativePath": "src\\server.ts",
+      "hash": "f1cc1c56751028af39218823d9d940d69a7d8604ee3d18c234bbc7c39f91ac59",
+      "size": 6284,
+      "modified": "2026-06-20T22:36:15.797Z",
+      "analyzedAt": "2026-06-20T22:43:32.588Z",
+      "status": "success"
+    },
+    "src\\engine.ts": {
+      "relativePath": "src\\engine.ts",
+      "hash": "482c59b23811bcac7302499f5d8bf6b2da235be039700b282ce58a4f4cb63e40",
+      "size": 13924,
+      "modified": "2026-06-20T22:35:57.168Z",
+      "analyzedAt": "2026-06-20T22:43:00.798Z",
+      "status": "success"
+    },
+    "src\\repl.ts": {
+      "relativePath": "src\\repl.ts",
+      "hash": "74ec5d325a88c51ead8b82d073efb35bed7beca5dc8856f63b1262d85dab843e",
+      "size": 8272,
+      "modified": "2026-06-18T00:17:33.289Z",
+      "analyzedAt": "2026-06-18T21:19:46.599Z",
+      "status": "success"
+    },
+    "proposals\\health-cheker.md": {
+      "relativePath": "proposals\\health-cheker.md",
+      "hash": "97ddd668cdb65815acede573f4407fb2be2350af09ff9c0a5a32f1d29ddaf6b7",
+      "size": 5134,
+      "modified": "2026-06-19T13:25:33.784Z",
+      "analyzedAt": "2026-06-20T22:42:14.641Z",
+      "status": "success"
+    },
+    "proposals\\vscode-terminal.md": {
+      "relativePath": "proposals\\vscode-terminal.md",
+      "hash": "48560704f5767e4f8599d0bd47093a9738393135a4e50d1285f10417b02b059c",
+      "size": 5516,
+      "modified": "2026-06-18T20:39:34.402Z",
+      "analyzedAt": "2026-06-20T22:42:16.282Z",
+      "status": "success"
+    },
+    "src\\auth\\jwt.ts": {
+      "relativePath": "src\\auth\\jwt.ts",
+      "hash": "569e7d08fe5d8920eec7ef74e707486a86ef440800b83c357133ca8852f9957d",
+      "size": 1710,
+      "modified": "2026-06-20T21:59:14.720Z",
+      "analyzedAt": "2026-06-20T22:42:19.056Z",
+      "status": "success"
+    },
+    "src\\auth\\context.ts": {
+      "relativePath": "src\\auth\\context.ts",
+      "hash": "676b537a67c94dbb089cc3f106bf92e14257a2a0963bc1dcbb6ce0507281c7a9",
+      "size": 401,
+      "modified": "2026-06-20T21:59:04.931Z",
+      "analyzedAt": "2026-06-20T22:42:19.064Z",
+      "status": "success"
+    },
+    "src\\auth\\audit.ts": {
+      "relativePath": "src\\auth\\audit.ts",
+      "hash": "2b25a0b710e7cfc510c8c052b05eb5465d5aa8a17806f250244407617093268b",
+      "size": 2909,
+      "modified": "2026-06-20T22:37:03.665Z",
+      "analyzedAt": "2026-06-20T22:42:21.076Z",
+      "status": "success"
+    },
+    "src\\auth\\policy.ts": {
+      "relativePath": "src\\auth\\policy.ts",
+      "hash": "89c735965bc2969149d7dba78b8f78ff5dc739981c27dcb52f67ebfecd0060f6",
+      "size": 3093,
+      "modified": "2026-06-20T22:34:02.076Z",
+      "analyzedAt": "2026-06-20T22:42:23.534Z",
+      "status": "success"
+    },
+    "src\\auth\\abac.ts": {
+      "relativePath": "src\\auth\\abac.ts",
+      "hash": "f4387b2d9826b09ccd9fd44d52421952903f5d28f43766ea5c07a2d2ac6b8314",
+      "size": 3888,
+      "modified": "2026-06-20T22:12:35.210Z",
+      "analyzedAt": "2026-06-20T22:42:31.014Z",
+      "status": "success"
+    },
+    "proposals\\scheduler-agent.md": {
+      "relativePath": "proposals\\scheduler-agent.md",
+      "hash": "8ee5aaa19f675122badd983864a965256d5dff8eda77da7bb40a4487f8d253dd",
+      "size": 10962,
+      "modified": "2026-06-18T21:20:15.293Z",
+      "analyzedAt": "2026-06-20T22:42:37.161Z",
+      "status": "success"
+    },
+    "src\\auth\\types.ts": {
+      "relativePath": "src\\auth\\types.ts",
+      "hash": "203ba55a0cb66a1f01141c9c713d2784e6f5acbd9b12e2459f5716d0b3e45bd9",
+      "size": 260,
+      "modified": "2026-06-20T21:58:58.936Z",
+      "analyzedAt": "2026-06-20T22:42:53.573Z",
+      "status": "success"
+    },
+    "src\\auth\\vault-filter.ts": {
+      "relativePath": "src\\auth\\vault-filter.ts",
+      "hash": "2eed0db6c89eb777be19c8d5e5d34d5d7e5c0450ced794d9143e577cca533c46",
+      "size": 4324,
+      "modified": "2026-06-20T22:23:45.500Z",
+      "analyzedAt": "2026-06-20T22:42:54.315Z",
       "status": "success"
     }
   }

@@ -62,6 +62,40 @@ agents:
   #   env:
   #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
 
+  - name: config                # Gestión centralizada de config + secretos de todos los agentes
+    command: node
+    args: ["../config-agent/dist/config-agent.js"]
+    env:
+      CONFIG_MASTER_KEY: ${CONFIG_MASTER_KEY}
+      # CONFIG_DATA_DIR: ~/.backendkit/config   ← default
+
+  - name: scheduler             # Scheduling de tareas one-time y cron → ejecuta flows del orquestador
+    command: node
+    args: ["../schedule-agent/dist/index.js"]
+    env:
+      ORCHESTRATOR_URL: ${ORCHESTRATOR_URL}
+      # SCHEDULER_DB_PATH: ~/.backendkit/scheduler/tasks.db   ← default
+
+  - name: health                # Salud del ecosistema completo (orquestador, agentes, env, vault, broker)
+    command: node
+    args: ["../health-checker/dist/health-checker.js"]
+    env:
+      ORCHESTRATOR_URL: ${ORCHESTRATOR_URL}
+      # BROKER_URL: redis://localhost:6379   ← opcional
+
+  - name: notifier              # Notificaciones multi-canal (email, Slack, Telegram, Discord, push)
+    command: node
+    args: ["../notification-agent/dist/notification-agent.js"]
+    env:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SCHEDULER_URL: ${SCHEDULER_URL}
+
 # ── Control de acceso (Capa 1 + 2) ───────────────────────────────────────────
 #
 # enforce: false  → bypass total (dev/REPL). Cambiar a true en producción.

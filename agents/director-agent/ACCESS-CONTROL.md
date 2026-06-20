@@ -169,16 +169,381 @@ Criterio:
   aprueba nómina SOLO si monto < 100k Y en horario laboral Y no es su propia
   solicitud"*. Eso es condicional — ahí brilla un rules engine.
 
+## Implementado: Capa 1 y Capa 2 en el director-agent
+
+Las dos primeras capas están implementadas directamente en el director. Son la
+frontera de acceso para el canal MCP (Claude Desktop / Claude Code).
+
+### Archivos
+
+```
+src/auth/
+  types.ts    — Principal { id, role, department? } + ADMIN_PRINCIPAL
+  context.ts  — AsyncLocalStorage<{ principal }> (contexto por-request)
+  jwt.ts      — signToken / verifyToken (HS256 con jose)
+  policy.ts   — PolicyEngine: authorize(principal, toolName) → bool
+```
+
+### Capa 1 — Identidad del usuario (JWT en `server.ts`)
+
+`director_chat` ahora acepta `user_token?: string`. El flujo al recibir un
+mensaje:
+
+```
+1. ¿Llegó user_token?
+   Sí → verifyToken(token) → Principal { id, role, department }
+   No  + JWT_SECRET seteado → rechaza: "Autenticación requerida"
+   No  + JWT_SECRET ausente → ADMIN_PRINCIPAL (modo dev/REPL)
+
+2. requestContext.run({ principal }, () => engine.run(message))
+   ↑ el Principal viaja por toda la cadena async sin cambiar firmas
+```
+
+**Control de modo empresa:** `JWT_SECRET` en `.env` es el interruptor.
+Sin él, el director arranca en modo dev (REPL / sin autenticación).
+Con él, cada request que no traiga token es rechazado antes de llegar al LLM.
+
+### Capa 2 — Matriz de permisos RBAC (`engine.ts` + `director.yaml`)
+
+Cada tool MCP se envuelve en `guardTool()` antes de registrarse en el
+`ToolRegistry`. Al llamar una tool, el wrapper lee el `Principal` del
+`AsyncLocalStorage` y consulta el `PolicyEngine`:
+
+```typescript
+// guardTool en engine.ts — se aplica a rawMcpTools antes de registrarlos
+execute: async (args, ctx) => {
+    const principal = requestContext.getStore()?.principal ?? ADMIN_PRINCIPAL;
+    if (!policy.authorize(principal, tool.name)) {
+        return policy.denyMessage(principal, tool.name); // string, no excepción
+    }
+    return tool.execute(args, ctx);
+}
+```
+
+El LLM **no puede saltear** este check — ocurre dentro del `execute()` de la
+tool, después de que el LLM ya eligió llamarla. Si el rol no alcanza, recibe
+el mensaje de denegación como resultado de tool y lo comunica al usuario.
+
+### Configuración en `director.yaml`
+
+```yaml
+access_control:
+  enforce: true           # false = bypass total (dev mode)
+  default_deny: false     # tools sin política → permitidas
+  tools:
+    search_vault:  { allowed_roles: ["*"] }
+    vault_status:  { allowed_roles: ["*"] }
+    read_note:     { allowed_roles: ["*"] }
+    curate_path:   { allowed_roles: ["admin", "dev", "tech-lead"] }
+    curate_link:   { allowed_roles: ["admin", "dev", "tech-lead"] }
+    init_embedder: { allowed_roles: ["admin", "devops"] }
+    reindex_vault: { allowed_roles: ["admin", "devops"] }
+    clone_vault:   { allowed_roles: ["admin", "devops"] }
+    reset_vault:   { allowed_roles: ["admin"] }
+```
+
+La `PolicyEngine` acepta tanto el nombre corto (`reset_vault`) como el nombre
+MCP completo (`mcp__codex__reset_vault`) — los trata como la misma política.
+
+### Comportamiento en REPL
+
+El REPL (`repl.ts`) llama `engine.run()` directamente, sin pasar por `server.ts`.
+El `requestContext` no tiene store → `guardTool` cae a `ADMIN_PRINCIPAL` → acceso
+total. La REPL sigue siendo modo dev/admin como está diseñado.
+
+### Capa 3 — ABAC (`src/auth/abac.ts`)
+
+Evalúa condiciones sobre atributos, argumentos de la tool y tiempo. Se ejecuta
+después de que RBAC pasa — nunca reemplaza RBAC, lo extiende.
+
+**Átomos disponibles:**
+
+| Átomo | Ejemplo YAML | Descripción |
+|---|---|---|
+| `user` | `{ user: role, neq: admin }` | Atributo del Principal: `role`, `department`, `id` |
+| `arg` | `{ arg: monto, gt: 10000 }` | Campo del argumento que el LLM pasa a la tool |
+| `time` | `{ time: hour, lt: 8 }` | Hora (`hour`), minuto (`minute`), día de semana (`weekday` 0=Dom…6=Sáb) |
+
+**Compuestos:** `all` (AND), `any` (OR), `not` (NOT).
+
+**Efectos:** `deny` (deniega y devuelve `reason`) · `allow` (permite, corta evaluación).
+Si ninguna condición hace match → permite (RBAC ya pasó).
+
+**Ejemplo real (`reset_vault` en `director.yaml`):**
+```yaml
+reset_vault:
+  allowed_roles: ["admin"]
+  conditions:
+    - effect: deny
+      reason: "reset_vault bloqueado fuera del horario laboral (Lun-Vie 8:00-18:00)"
+      match:
+        any:
+          - { time: weekday, in: [0, 6] }
+          - { time: hour, lt: 8 }
+          - { time: hour, gte: 18 }
+```
+
+**Ejemplo con args (hipotético `run_flow`):**
+```yaml
+conditions:
+  - effect: deny
+    reason: "Montos > $10,000 requieren rol admin"
+    match:
+      all:
+        - { arg: monto, gt: 10000 }
+        - { user: role, neq: admin }
+  - effect: deny
+    reason: "Operaciones de alto riesgo fuera de horario laboral"
+    match:
+      all:
+        - { arg: risk, eq: high }
+        - any:
+            - { time: hour, lt: 8 }
+            - { time: hour, gte: 18 }
+```
+
+---
+
+### Lo que verifica el test (27/27)
+
+```
+RBAC:
+  HR (maria)    → search_vault ✅   reset_vault ❌   curate_path ❌
+  Dev (ana)     → curate_path ✅    reset_vault ❌   reindex_vault ❌
+  Sales (carlos)→ search_vault ✅   curate_path ❌   reset_vault ❌
+  Admin (pedro) → reset_vault ✅    curate_path ✅   reindex_vault ✅
+  Nombres MCP completos (mcp__codex__*) → misma política ✅
+  Tool sin política con default_deny=false → permitida ✅
+  Token con firma inválida → rechazado ✅
+
+ABAC (tiempo):
+  Dev curate_path lunes 10:00 ✅        Dev curate_path sábado ❌
+  Admin curate_path sábado ✅           (admin no tiene restricción de fin de semana)
+  Devops reindex_vault lunes 10:00 ✅   Devops reindex_vault lunes 07:00 ❌
+  Devops reindex_vault sábado ❌        Admin reindex_vault cualquier hora ✅
+  Admin reset_vault lunes 10:00 ✅      Admin reset_vault lunes 07:00 ❌
+  Admin reset_vault sábado ❌           (incluso admin bloqueado fuera de horario)
+
+ABAC (args):
+  Sales monto=$5k → ✅     Sales monto=$15k → ❌ (supera $10k)
+  Admin monto=$15k → ✅    (admin sin límite)
+  Sales risk=high 10:00 → ✅    Sales risk=high 20:00 → ❌ (fuera de horario)
+```
+
+### Mensaje de denegación (ejemplo)
+
+```
+Autorización denegada: el rol "hr" (usuario: maria) no puede ejecutar
+"reset_vault". Roles permitidos: admin.
+```
+
+El LLM recibe este string como resultado de tool y lo traduce al usuario en
+lenguaje natural.
+
+---
+
+## Implementado: Capa 4 — Aislamiento de datos en el vault
+
+### Problema
+
+Capa 2 (RBAC) controla **si un usuario puede llamar a `search_vault`**. Capa 4
+controla **qué notas aparecen en los resultados**. Sin Capa 4, HR puede buscar
+"balance financiero", el resultado incluye `finanzas/reporte-q1.md`, y aunque
+no pueda *ejecutar* un flow financiero, ya conoce información sensible.
+
+### Implementación (`src/auth/vault-filter.ts`)
+
+`VaultFilter` opera sobre el resultado real del MCP tool, no sobre la intención
+del LLM. `search_vault` de codex-context-agent-v2 devuelve un JSON:
+
+```json
+{
+  "query": "...",
+  "results": [
+    { "title": "Reporte Q1", "sourcePath": "finanzas/reporte-q1-2026.md", ... },
+    { "title": "Overview",   "sourcePath": "overview.md", ... }
+  ],
+  "synthesized": { "basedOn": ["finanzas/reporte-q1-2026.md", "overview.md"] }
+}
+```
+
+El wrapper en `engine.ts` intercepta ese JSON, filtra `results` por
+`isPathAllowed(principal, r.sourcePath)`, descarta la síntesis si sus fuentes
+incluyen paths restringidos, y agrega `_accessNote` con el conteo filtrado.
+
+### Configuración (`vault_visibility` en `director.yaml`)
+
+```yaml
+vault_visibility:
+  default_roles: ["*"]          # paths sin namespace → visibles para todos
+  paths:                        # longest-match wins
+    "finanzas/":   ["admin", "finance"]
+    "rh/":         ["admin", "hr"]
+    "ventas/":     ["admin", "sales"]
+    "backend/":    ["admin", "dev", "tech-lead", "devops"]
+    "infra/":      ["admin", "devops"]
+    "config/":     ["admin", "devops"]
+```
+
+### `read_note` — bloqueo por path
+
+Cuando el LLM llama `read_note({ path_or_title: "finanzas/reporte-q1.md" })`,
+el wrapper detecta que el arg parece una ruta (contiene `/`) y la verifica
+**antes** de llamar al tool. Si el principal no tiene acceso:
+
+```
+Acceso denegado: tu rol "hr" no tiene visibilidad sobre "finanzas/reporte-q1.md".
+Namespaces accesibles para tu rol: rh/.
+```
+
+Para llamadas por título puro (`"Reporte Q1"` sin `/`), el arg pasa sin
+bloqueo previo — la protección real viene del filtrado de `search_vault` que
+impide que el LLM descubra el título de la nota restringida en primer lugar.
+
+### Lo que verificó el test (43/43)
+
+```
+isPathAllowed (20 casos):
+  overview.md → todos ✅
+  ARCHITECTURE.md → hr (default=*) ✅
+  finanzas/ → finance ✅, admin ✅, hr ❌, sales ❌, dev ❌
+  rh/ → hr ✅, admin ✅, sales ❌, finance ❌
+  ventas/ → sales ✅, hr ❌
+  backend/ → dev ✅, devops ✅, hr ❌, sales ❌
+  /finanzas/ con slash inicial → normalizado correctamente ✅
+
+filterSearchResults (16 casos — 5 notas de 4 namespaces distintos):
+  HR     → ve rh/ + overview.md (2), síntesis descartada, 3 filtrados notificados
+  Finance → ve finanzas/ + overview.md (2), síntesis conservada
+  Admin   → ve los 5, sin _accessNote, síntesis intacta
+  Texto no-JSON → pasa sin tocar ✅
+
+extractPathArg (4 casos):
+  "rh/politicas.md" → extrae ✅   "Politicas RH" → undefined ✅
+
+denyReadMessage (3 casos):
+  Menciona rol, path y namespaces accesibles ✅
+```
+
+---
+
+## Implementado: Capa 5 — Auditoría completa
+
+### Propósito
+
+Cada decisión de acceso queda registrada en un log NDJSON persistente:
+- 📋 Compliance (SOX, ISO 27001): trazabilidad completa de quién hizo qué
+- 🔍 Forensic: reconstruir el historial si algo sale mal
+- 📊 Análisis: conteo de denegaciones por rol, herramienta, periodo
+- 🚨 Alertas: detección de patrones anómalos (fuera de horario, roles inusuales)
+
+### Formato de entrada (`src/auth/audit.ts`)
+
+```json
+{
+  "ts":         "2026-06-22T10:01:00.000Z",
+  "userId":     "maria",
+  "role":       "hr",
+  "department": "people",
+  "tool":       "read_note",
+  "decision":   "denied",
+  "layer":      "vault",
+  "reason":     "Acceso denegado: tu rol \"hr\" no tiene visibilidad sobre \"finanzas/reporte-q1.md\".",
+  "durationMs": 3,
+  "extra":      { "vaultPath": "finanzas/reporte-q1.md" }
+}
+```
+
+Campos:
+| Campo | Descripción |
+|---|---|
+| `ts` | ISO 8601 — cuándo ocurrió |
+| `userId` / `role` / `department` | Principal que hizo la llamada |
+| `tool` | Nombre corto de la tool (sin `mcp__server__`) |
+| `decision` | `allowed` o `denied` |
+| `layer` | Qué capa denegó: `rbac` / `abac` / `vault` (ausente si `allowed`) |
+| `reason` | Mensaje de denegación textual |
+| `durationMs` | Tiempo desde entrada al wrapper hasta decisión final |
+| `extra` | Datos adicionales: `vaultPath`, `filteredCount` |
+
+### Archivo de log
+
+```
+~/.backendkit/audit/director-access.ndjson
+```
+
+Una entrada JSON por línea (NDJSON). El directorio se crea automáticamente si no existe. Path configurable via `access_control.audit.path`.
+
+```yaml
+audit:
+  enabled: true
+  # path: /custom/path/audit.ndjson   ← opcional
+```
+
+### Una sola entrada por llamada
+
+La arquitectura de capas garantiza exactamente **una entrada por tool call**:
+
+| Escenario | Quién loguea | `layer` |
+|---|---|---|
+| Tool no-vault denegada por RBAC | `guardTool` | `rbac` |
+| Tool no-vault denegada por ABAC | `guardTool` | `abac` |
+| Tool no-vault permitida | `guardTool` | ausente |
+| `read_note` con path restringido | `applyVaultFilter` | `vault` |
+| `read_note` con path permitido | `applyVaultFilter` | ausente |
+| `search_vault` (con o sin filtrado) | `applyVaultFilter` | ausente + `extra.filteredCount` |
+
+### Consulta del log con `jq`
+
+```bash
+# Todas las denegaciones de hoy
+jq 'select(.decision=="denied")' ~/.backendkit/audit/director-access.ndjson
+
+# Intentos fuera de horario (ABAC)
+jq 'select(.layer=="abac")' ~/.backendkit/audit/director-access.ndjson
+
+# Actividad por usuario
+jq 'select(.userId=="maria")' ~/.backendkit/audit/director-access.ndjson
+
+# Vault filtrado (búsquedas con resultados ocultados)
+jq 'select(.tool=="search_vault" and .extra.filteredCount > 0)' \
+  ~/.backendkit/audit/director-access.ndjson
+
+# Intentos de acceso a paths restringidos
+jq 'select(.layer=="vault") | {userId, role, vaultPath: .extra.vaultPath}' \
+  ~/.backendkit/audit/director-access.ndjson
+```
+
+### Lo que verificó el test (22/22)
+
+```
+buildAuditPath: default en .backendkit/audit/*.ndjson ✅, custom path resuelto ✅
+Escritura NDJSON: 4 entradas escritas y leídas correctamente ✅
+Formato NDJSON: una entrada por línea, cada línea es JSON válido ✅
+write() fire-and-forget: 5ta entrada escrita sin bloquear ✅
+layer en AuthzResult:
+  RBAC denial → layer="rbac" ✅   ABAC deny → layer="abac" ✅
+  Allowed result → layer=undefined ✅
+Campo extra:
+  read_note denied → extra.vaultPath ✅
+  search_vault → extra.filteredCount=3 ✅
+  read_note allowed → extra.vaultPath ✅
+```
+
+---
+
 ## Decisiones pendientes
 
-1. **Motor del policy-engine:** Casbin (purpose-built authz) vs json-rules-engine
-   (un motor para authz + reglas de negocio role-aware de Cable 2).
-2. **Alcance del auth-service:** servicio propio mínimo (JWT + usuarios/roles) vs
-   federar desde ya a un IdP (Keycloak/Authentik).
-3. **Modelo de policy:** RBAC primero, ABAC después (atributos: rol + departamento
-   + horario).
-4. **Punto de enforcement:** el orquestador (recomendado) verifica el token
-   firmado antes de cada paso.
+1. **Alcance del auth-service:** servicio propio mínimo (JWT + usuarios/roles)
+   vs federar desde ya a un IdP (Keycloak/Authentik).
+2. **Punto de enforcement en el orquestador:** hoy el check vive en el director.
+   El orquestador también debería verificar el token antes de cada paso de flow
+   (separación de funciones con gates role-aware).
+3. **`packages/identity`:** extraer `src/auth/` a un paquete compartido que
+   todos los agentes del ecosistema puedan importar.
+4. **ABAC avanzado:** las condiciones actuales cubren atributos, args y tiempo.
+   Para condiciones entre campos (`arg.solicitante != user.id` — quien pide ≠ quien aprueba)
+   se necesita un segundo paso de evaluación con contexto cruzado.
 
 ## La capa de seguridad en el stack
 

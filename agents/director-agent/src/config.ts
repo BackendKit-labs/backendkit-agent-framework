@@ -18,6 +18,35 @@ const AgentSchema = z.object({
     env:     z.record(z.string()).optional(),
 });
 
+const AbacConditionSchema = z.object({
+    effect: z.enum(['allow', 'deny']).default('deny'),
+    reason: z.string(),
+    match:  z.unknown(),
+});
+
+const ToolPolicySchema = z.object({
+    allowed_roles: z.array(z.string()),
+    conditions:    z.array(AbacConditionSchema).optional(),
+});
+
+const AuditConfigSchema = z.object({
+    enabled: z.boolean().default(false),
+    path:    z.string().optional(),   // override del path del log NDJSON
+});
+
+const VaultVisibilitySchema = z.object({
+    default_roles: z.array(z.string()).default(['*']),
+    paths:         z.record(z.array(z.string())).default({}),
+});
+
+const AccessControlSchema = z.object({
+    enforce:          z.boolean().default(false),
+    default_deny:     z.boolean().default(false),
+    audit:            AuditConfigSchema.optional(),
+    vault_visibility: VaultVisibilitySchema.optional(),
+    tools:            z.record(ToolPolicySchema).default({}),
+});
+
 export const DirectorConfigSchema = z.object({
     director: z.object({
         name:           z.string().default('Director'),
@@ -25,12 +54,15 @@ export const DirectorConfigSchema = z.object({
         ws_port:        z.number().default(3500),
         max_iterations: z.number().default(20),
     }),
-    providers: z.record(ProviderSchema).default({}),
-    agents:    z.array(AgentSchema).default([]),
+    providers:      z.record(ProviderSchema).default({}),
+    agents:         z.array(AgentSchema).default([]),
+    access_control: AccessControlSchema.optional(),
 });
 
-export type DirectorConfig = z.infer<typeof DirectorConfigSchema>;
-export type AgentEntry     = z.infer<typeof AgentSchema>;
+export type DirectorConfig        = z.infer<typeof DirectorConfigSchema>;
+export type AgentEntry            = z.infer<typeof AgentSchema>;
+export type AccessControlConfig   = z.infer<typeof AccessControlSchema>;
+export type VaultVisibilityConfig = z.infer<typeof VaultVisibilitySchema>;
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 

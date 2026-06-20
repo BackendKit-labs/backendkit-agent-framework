@@ -505,24 +505,56 @@ aprendidos en tiempo real. Son complementarios, no redundantes:
 
 En una infraestructura de agentes para empresa, **el que controla la consola NO
 controla todo**. El sistema distingue quién pide algo y si tiene derecho. Diseño
-completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
+completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md).
+
+### Implementado: Capa 1 y Capa 2
+
+Las dos primeras capas están activas en el director. Viven en `src/auth/`.
+
+**Capa 1 — Identidad (JWT):** `director_chat` acepta `user_token?: string`.
+Si `JWT_SECRET` está seteado en `.env`, el token es requerido y verificado (HS256).
+Sin token + `JWT_SECRET` → rechaza. Sin `JWT_SECRET` → modo dev (admin implícito).
+
+```
+Usuario → director_chat({ message, user_token: "eyJ..." })
+  → verifyToken() → Principal { id: "maria", role: "hr", department: "people" }
+  → requestContext.run({ principal })   ← viaja por toda la cadena async
+    → engine.run(message)
+```
+
+**Capa 2 — RBAC (`access_control` en `director.yaml`):** cada MCP tool se
+envuelve en `guardTool()` al construir el engine. El wrapper lee el `Principal`
+del `AsyncLocalStorage` antes de ejecutar. El LLM no puede saltear el check —
+ocurre dentro del `execute()`, después de que el LLM ya eligió la tool.
+
+```
+LLM elige mcp__codex__reset_vault
+  → guardTool intercepta
+  → PolicyEngine.authorize({ role: "hr" }, "reset_vault") → false
+  → devuelve "Autorización denegada: el rol hr no puede ejecutar reset_vault.
+              Roles permitidos: admin."  ← el LLM lo recibe como tool result
+```
+
+Activar en producción: `enforce: true` en `director.yaml` + `JWT_SECRET` en `.env`.
+
+### Principios (no negociables)
 
 - **El LLM no es una frontera de seguridad.** El director hace routing blando; la
   frontera dura es código determinístico debajo, que el LLM no puede saltear.
 - **On-behalf-of:** el director actúa con los permisos reducidos del usuario,
   nunca con los suyos (evita el "confused deputy").
 - **La REPL es modo dev/admin.** El acceso enterprise va por front-door
-  autenticado (web/WS con login) — la identidad se establece al loguearse.
-- **Modelo:** Principal (JWT firmado: userId, roles, tenant) → Capability →
-  Role → Policy → Enforcement (en el orquestador) → Audit.
-- **Separación de funciones:** quien inicia ≠ quien aprueba (ej: hr-staff inicia
-  `liquidacion-nomina`, finance-admin la aprueba en un gate). Reusa los gates +
-  reflection Cable 2 existentes, ahora role-aware.
-- **Arquitectura en 3 piezas:** `packages/identity` (verify local + tipos),
-  `apps/auth-service` (AuthN: login + JWT, extrae NextAuth de vault-manager),
-  `packages/policy-engine` (AuthZ: decisión allow/deny — Casbin o json-rules-engine).
-- vault-manager NO es el dueño del auth — es un consumidor más. La identidad es
-  infraestructura transversal con su propio servicio (patrón IdP).
+  autenticado (web/WS con login). El REPL cae a `ADMIN_PRINCIPAL` porque no
+  pasa por `server.ts`.
+
+### Pendiente (arquitectura completa)
+
+- `packages/identity`: extraer `src/auth/` a paquete compartido por todos los agentes.
+- `apps/auth-service`: emisor central de JWTs (AuthN). Hoy `JWT_SECRET` es compartido; en
+  producción un servicio firma y el director solo verifica con la clave pública.
+- Enforcement role-aware en el orquestador: gates que exigen capability específica
+  (quien inicia ≠ quien aprueba — separación de funciones).
+- ABAC avanzado: condiciones cruzadas entre campos (`arg.solicitante != user.id`).
 
 ## Estado de implementación
 
@@ -540,7 +572,12 @@ completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
 | studio-agent (wrapper gateway :3400) | ✅ |
 | vault-manager-agent (wrapper vault-manager :3000) | ✅ |
 | Vault curado con conocimiento operacional | ✅ 73 notas |
-| MemorySystem 3-tier (episódica/semántica/procedural) | ⬜ |
+| MemorySystem 3-tier (episódica/semántica/procedural) integrado en engine.ts | ✅ |
+| **Capa 1 — Identidad JWT** (`src/auth/jwt.ts`, `src/auth/context.ts`) | ✅ |
+| **Capa 2 — RBAC** (`src/auth/policy.ts`, `access_control` en director.yaml) | ✅ |
+| **Capa 3 — ABAC** (`src/auth/abac.ts`, `conditions` en director.yaml) | ✅ |
+| **Capa 4 — Vault filter** (`src/auth/vault-filter.ts`, `vault_visibility` en director.yaml) | ✅ |
+| **Capa 5 — Auditoría NDJSON** (`src/auth/audit.ts`, `~/.backendkit/audit/director-access.ndjson`) | ✅ |
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |
@@ -548,9 +585,9 @@ completo en [`ACCESS-CONTROL.md`](./ACCESS-CONTROL.md). Resumen:
 | notification-mcp (Slack, email, Telegram, webhook) | ⬜ |
 | n8n-mcp (CRUD workflows + ejecuciones) | ⚠️ base existe en packages/enterprise (`createN8nTriggerTool` — dispara webhook). Extender con CRUD y consulta de ejecuciones via N8N REST API |
 | external-mcp (conectores APIs externas) | ⬜ |
-| packages/identity (verify + Principal) | ⬜ |
-| apps/auth-service (AuthN: login + JWT) | ⬜ |
-| packages/policy-engine (AuthZ) | ⬜ |
-| Enforcement role-aware en orquestador | ⬜ |
+| packages/identity (extraer src/auth/ como paquete compartido) | ⬜ |
+| apps/auth-service (AuthN central: login + JWT firmado con clave pública) | ⬜ |
+| Enforcement role-aware en orquestador (gates con capability) | ⬜ |
+| ABAC: condiciones sobre horario, monto, departamento | ⬜ |
 | WebSocket :3500 | ⬜ |
 | docker-compose.enterprise.yml | ⬜ |

@@ -10,11 +10,16 @@ import {
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
 import { initBkHome, bkPaths } from '@backendkit-labs/infra';
-import type { AgentEvent, AgentProfile } from '@backendkit-labs/agent-core';
+import type { AgentEvent, AgentProfile, ToolDefinition } from '@backendkit-labs/agent-core';
 import type { DirectorConfig } from './config.js';
 import { resolveAgentArgs } from './config.js';
 import { DirectorProvider } from './provider.js';
 import { loadSoul, buildSystemPrompt } from './soul.js';
+import { PolicyEngine }                 from './auth/policy.js';
+import { VaultFilter }                  from './auth/vault-filter.js';
+import { AuditLogger, buildAuditPath }  from './auth/audit.js';
+import { requestContext, type RequestContext } from './auth/context.js';
+import { ADMIN_PRINCIPAL } from './auth/types.js';
 
 // ── Director AgentProfile ─────────────────────────────────────────────────────
 
@@ -33,11 +38,149 @@ function buildDirectorProfile(systemPrompt: string, mcpToolNames: string[]): Age
 // ── Engine factory ────────────────────────────────────────────────────────────
 
 export interface DirectorRuntime {
-    engine:     AgentEngine;
-    mcp:        MCPClientManager;
+    engine:       AgentEngine;
+    mcp:          MCPClientManager;
     /** Registered provider name (e.g. 'deepseek') */
-    provider:   string;
-    model:      string;
+    provider:     string;
+    model:        string;
+    policyEngine: PolicyEngine | null;
+    vaultFilter:  VaultFilter | null;
+    auditLogger:  AuditLogger | null;
+}
+
+// ── Helpers compartidos ───────────────────────────────────────────────────────
+
+const VAULT_FILTER_TOOLS = new Set(['read_note', 'search_vault']);
+
+function shortToolName(fullName: string): string {
+    return fullName.split('__').at(-1) ?? fullName;
+}
+
+function principal() {
+    return (requestContext.getStore() as RequestContext | undefined)?.principal ?? ADMIN_PRINCIPAL;
+}
+
+function rawArgs(args: unknown): Record<string, unknown> {
+    return (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+}
+
+// ── Capa 2+3: RBAC + ABAC guard ──────────────────────────────────────────────
+//
+// Loguea para herramientas NO-vault (vault tools las loguea applyVaultFilter).
+// Esto garantiza exactamente UNA entrada de auditoría por llamada a tool.
+
+function guardTool(
+    tool:  ToolDefinition,
+    policy: PolicyEngine,
+    audit:  AuditLogger | null,
+): ToolDefinition {
+    const short    = shortToolName(tool.name);
+    const isVault  = VAULT_FILTER_TOOLS.has(short);
+
+    return {
+        ...tool,
+        execute: async (args, ctx) => {
+            const start = Date.now();
+            const p     = principal();
+            const a     = rawArgs(args);
+            const auth  = policy.authorize(p, tool.name, a);
+
+            if (!auth.allowed) {
+                if (!isVault) audit?.write({
+                    ts: new Date().toISOString(), userId: p.id, role: p.role,
+                    department: p.department, tool: short,
+                    decision: 'denied', layer: auth.layer, reason: auth.reason,
+                    durationMs: Date.now() - start,
+                });
+                return auth.reason ?? policy.denyMessage(p, tool.name);
+            }
+
+            const result = await tool.execute(args, ctx);
+
+            if (!isVault) audit?.write({
+                ts: new Date().toISOString(), userId: p.id, role: p.role,
+                department: p.department, tool: short,
+                decision: 'allowed', durationMs: Date.now() - start,
+            });
+
+            return result;
+        },
+    };
+}
+
+// ── Capa 4: vault filter + auditoría de vault ─────────────────────────────────
+//
+// Envuelve la tool YA guardada. Loguea las decisiones de vault (read_note
+// denegado por path, search_vault con resultados filtrados).
+
+function applyVaultFilter(
+    tool:  ToolDefinition,
+    filter: VaultFilter,
+    audit:  AuditLogger | null,
+): ToolDefinition {
+    const short = shortToolName(tool.name);
+    if (!VAULT_FILTER_TOOLS.has(short)) return tool;
+
+    return {
+        ...tool,
+        execute: async (args, ctx) => {
+            const start = Date.now();
+            const p     = principal();
+            const a     = rawArgs(args);
+
+            // read_note: check path ANTES de llamar a la tool guardada
+            if (short === 'read_note') {
+                const notePath = filter.extractPathArg(a);
+                if (notePath && !filter.isPathAllowed(p, notePath)) {
+                    const reason = filter.denyReadMessage(p, notePath);
+                    audit?.write({
+                        ts: new Date().toISOString(), userId: p.id, role: p.role,
+                        department: p.department, tool: short,
+                        decision: 'denied', layer: 'vault', reason,
+                        durationMs: Date.now() - start,
+                        extra: { vaultPath: notePath },
+                    });
+                    return reason;
+                }
+            }
+
+            // Llama la tool guardada (guardTool NO loguea para vault tools)
+            const result = await tool.execute(args, ctx);
+
+            if (short === 'search_vault') {
+                const filtered = filter.filterSearchResults(p, result);
+
+                // Calcula cuántos resultados fueron filtrados
+                let filteredCount = 0;
+                try {
+                    const orig = JSON.parse(result) as { results?: unknown[] };
+                    const filt = JSON.parse(filtered) as { results?: unknown[] };
+                    filteredCount = (orig.results?.length ?? 0) - (filt.results?.length ?? 0);
+                } catch { /* non-JSON → 0 */ }
+
+                audit?.write({
+                    ts: new Date().toISOString(), userId: p.id, role: p.role,
+                    department: p.department, tool: short,
+                    decision: 'allowed', durationMs: Date.now() - start,
+                    extra: filteredCount > 0 ? { filteredCount } : undefined,
+                });
+
+                return filtered;
+            }
+
+            // read_note permitido
+            audit?.write({
+                ts: new Date().toISOString(), userId: p.id, role: p.role,
+                department: p.department, tool: short,
+                decision: 'allowed', durationMs: Date.now() - start,
+                extra: typeof a['path_or_title'] === 'string'
+                    ? { vaultPath: a['path_or_title'] }
+                    : undefined,
+            });
+
+            return result;
+        },
+    };
 }
 
 export async function buildDirectorEngine(
@@ -80,7 +223,28 @@ export async function buildDirectorEngine(
     await mcp.initialize();
 
     const connectedServers = mcp.getServerInfo();
-    const mcpTools     = mcp.getTools();
+    const rawMcpTools = mcp.getTools();
+
+    // ── Policy engine (Capa 2 + 3) ───────────────────────────────────────────
+    const policyEngine = config.access_control
+        ? new PolicyEngine(config.access_control)
+        : null;
+
+    // ── Vault filter (Capa 4) ─────────────────────────────────────────────────
+    const vaultFilter = config.access_control?.vault_visibility
+        ? new VaultFilter(config.access_control.vault_visibility)
+        : null;
+
+    // ── Audit logger (Capa 5) ─────────────────────────────────────────────────
+    const auditCfg    = config.access_control?.audit;
+    const auditLogger = auditCfg?.enabled
+        ? new AuditLogger(buildAuditPath(auditCfg.path))
+        : null;
+
+    const mcpTools = rawMcpTools
+        .map(t => policyEngine ? guardTool(t, policyEngine, auditLogger) : t)
+        .map(t => vaultFilter  ? applyVaultFilter(t, vaultFilter, auditLogger) : t);
+
     const mcpToolNames = mcpTools.map(t => t.name);
 
     // ── Build system prompt from SOUL + live topology ─────────────────────────
@@ -142,7 +306,7 @@ export async function buildDirectorEngine(
         memorySystem:    memory,
     });
 
-    return { engine, mcp, provider: providerName, model: providerCfg.model };
+    return { engine, mcp, provider: providerName, model: providerCfg.model, policyEngine, vaultFilter, auditLogger };
 }
 
 /** Resolves the director.yaml path: explicit arg > env var > default location. */

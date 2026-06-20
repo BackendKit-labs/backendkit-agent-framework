@@ -17,6 +17,9 @@ import { z }                    from 'zod';
 import type { AgentEvent }      from '@backendkit-labs/agent-core';
 import { loadConfig }           from './config.js';
 import { buildDirectorEngine, resolveConfigPath } from './engine.js';
+import { verifyToken, isEnterpriseMode } from './auth/jwt.js';
+import { requestContext }        from './auth/context.js';
+import { ADMIN_PRINCIPAL }       from './auth/types.js';
 
 const log = (msg: string) => process.stderr.write(`[director-agent] ${msg}\n`);
 
@@ -33,11 +36,17 @@ async function main(): Promise<void> {
         if (evt.type === 'token') outputBuffer += evt.content;
     };
 
-    const { engine, mcp } = await buildDirectorEngine(config, configDir, onEvent);
+    const { engine, mcp, policyEngine, auditLogger } = await buildDirectorEngine(config, configDir, onEvent);
 
     const info = mcp.getServerInfo();
     log(`Agentes conectados: ${info.map(s => `${s.name}(${s.toolCount}t)`).join(', ') || 'ninguno'}`);
     log(`Provider: ${config.director.provider} / ${config.providers[config.director.provider]?.model}`);
+
+    const enforcing      = policyEngine?.isEnforcing() ?? false;
+    const enterpriseMode = isEnterpriseMode();
+    if (enforcing)       log('RBAC activo — políticas de access_control cargadas');
+    if (enterpriseMode)  log('Modo empresa activo — JWT_SECRET configurado');
+    if (auditLogger)     log(`Auditoría activa → ${auditLogger.path}`);
 
     // ── MCP tools ─────────────────────────────────────────────────────────────
 
@@ -51,16 +60,34 @@ async function main(): Promise<void> {
         'director_chat',
         'Enviá un mensaje al Director en lenguaje natural. Entiende intención, busca contexto, y delega al agente correcto (conocimiento, planificación, ops, código). Devuelve la respuesta completa.',
         {
-            message: z.string().describe('Mensaje en lenguaje natural para el Director'),
+            message:    z.string().describe('Mensaje en lenguaje natural para el Director'),
+            user_token: z.string().optional().describe('JWT del usuario autenticado (requerido cuando JWT_SECRET está configurado)'),
         },
-        async ({ message }: { message: string }) => {
-            outputBuffer = '';
-            try {
-                await engine.run(message);
-                return { content: [{ type: 'text' as const, text: outputBuffer || '(sin respuesta)' }] };
-            } catch (err) {
-                return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }] };
+        async ({ message, user_token }: { message: string; user_token?: string }) => {
+            // ── Capa 1: identidad del usuario ─────────────────────────────────
+            let principal = ADMIN_PRINCIPAL;
+
+            if (user_token) {
+                try {
+                    principal = await verifyToken(user_token);
+                } catch (err) {
+                    return { content: [{ type: 'text' as const, text: `Error de autenticación: ${(err as Error).message}` }] };
+                }
+            } else if (enterpriseMode) {
+                return { content: [{ type: 'text' as const, text: 'Autenticación requerida: JWT_SECRET está configurado. Incluí user_token en el request.' }] };
             }
+            // Si no hay JWT_SECRET → dev/REPL mode, usamos ADMIN_PRINCIPAL sin restricción.
+
+            // ── Run con contexto de Principal ─────────────────────────────────
+            outputBuffer = '';
+            return requestContext.run({ principal }, async () => {
+                try {
+                    await engine.run(message);
+                    return { content: [{ type: 'text' as const, text: outputBuffer || '(sin respuesta)' }] };
+                } catch (err) {
+                    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }] };
+                }
+            });
         },
     );
 

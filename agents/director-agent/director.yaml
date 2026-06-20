@@ -61,3 +61,98 @@ agents:
   #   args: ["../../apps/bk-agent/dist/bin/cli.js", "--mcp"]
   #   env:
   #     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+
+# ── Control de acceso (Capa 1 + 2) ───────────────────────────────────────────
+#
+# enforce: false  → bypass total (dev/REPL). Cambiar a true en producción.
+# default_deny:   → qué hacer con tools sin política (false = permite, true = deniega)
+# JWT_SECRET env var controla si se exige autenticación por token (ver .env.example)
+#
+# Roles de ejemplo:
+#   admin     — acceso total
+#   dev       — lectura + curación
+#   tech-lead — lectura + curación
+#   hr        — lectura de vault + flows de RR.HH.
+#   sales     — lectura de vault
+#   finance   — lectura de vault
+#   devops    — curación + deploy + infra
+access_control:
+  enforce: true
+  default_deny: false     # herramientas sin política → permitidas (permissive)
+
+  # ── Capa 5: auditoría ───────────────────────────────────────────────────────
+  # Log NDJSON (una entrada JSON por línea) en ~/.backendkit/audit/director-access.ndjson
+  # path: opcional — override de la ruta del archivo de log
+  audit:
+    enabled: true
+
+  # ── Capa 4: aislamiento de datos en el vault ────────────────────────────────
+  # Controla qué namespaces (prefijos de path) puede leer cada rol.
+  # El prefijo más largo que coincida gana (longest-match).
+  # Las notas sin prefijo coincidente usan default_roles.
+  vault_visibility:
+    default_roles: ["*"]      # notas sin namespace restringido → visibles para todos
+    paths:
+      "finanzas/":   ["admin", "finance"]
+      "rh/":         ["admin", "hr"]
+      "ventas/":     ["admin", "sales"]
+      "backend/":    ["admin", "dev", "tech-lead", "devops"]
+      "infra/":      ["admin", "devops"]
+      "config/":     ["admin", "devops"]
+
+  tools:
+    # ── Codex (vault RAG) ──────────────────────────────────────────────────────
+    search_vault: { allowed_roles: ["*"] }
+    vault_status: { allowed_roles: ["*"] }
+    read_note:    { allowed_roles: ["*"] }
+
+    curate_path:
+      allowed_roles: ["admin", "dev", "tech-lead"]
+      conditions:
+        # Dev y tech-lead no pueden curar en fin de semana (weekday 0=Dom, 6=Sáb)
+        - effect: deny
+          reason: "Curación de paths deshabilitada en fin de semana para roles no-admin"
+          match:
+            all:
+              - { user: role, neq: admin }
+              - { time: weekday, in: [0, 6] }
+
+    curate_link:
+      allowed_roles: ["admin", "dev", "tech-lead"]
+      conditions:
+        - effect: deny
+          reason: "Curación de links deshabilitada en fin de semana para roles no-admin"
+          match:
+            all:
+              - { user: role, neq: admin }
+              - { time: weekday, in: [0, 6] }
+
+    init_embedder: { allowed_roles: ["admin", "devops"] }
+
+    reindex_vault:
+      allowed_roles: ["admin", "devops"]
+      conditions:
+        # Devops solo puede reindexar en horario laboral (8:00–18:00, Lun-Vie)
+        - effect: deny
+          reason: "Reindexación fuera de horario laboral (Lun-Vie 8:00-18:00) solo permitida para admin"
+          match:
+            all:
+              - { user: role, neq: admin }
+              - any:
+                  - { time: weekday, in: [0, 6] }
+                  - { time: hour, lt: 8 }
+                  - { time: hour, gte: 18 }
+
+    clone_vault: { allowed_roles: ["admin", "devops"] }
+
+    reset_vault:
+      allowed_roles: ["admin"]
+      conditions:
+        # Incluso admin: reset bloqueado en fin de semana y fuera de horario laboral
+        - effect: deny
+          reason: "reset_vault bloqueado fuera del horario laboral (Lun-Vie 8:00-18:00)"
+          match:
+            any:
+              - { time: weekday, in: [0, 6] }
+              - { time: hour, lt: 8 }
+              - { time: hour, gte: 18 }

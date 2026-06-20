@@ -45,6 +45,7 @@ import { createProvider, type ProviderName } from './providers/index.js';
 import { findAllFiles, loadManifest, saveManifest, hasFileChanged, updateManifestEntry, createManifest } from './checksum.js';
 import { resolveProject, findNote } from './project.js';
 import type { ProjectContext } from './project.js';
+import { CodexAuditLogger, buildCodexAuditPath } from './audit.js';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ interface CurationState {
     lastCompletedAt?: Date;
 }
 
-function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState): McpServer {
+function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState, audit?: CodexAuditLogger): McpServer {
     const srv = new McpServer({ name: 'codex-context-agent', version: '0.1.0' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const t = srv.tool.bind(srv) as any;
@@ -108,6 +109,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
 
                     // SHA256 manifest: skip unchanged files (no LLM call, no duplicates)
                     if (!(await hasFileChanged(targetPath, rel, manifest))) {
+                        audit?.write({ event: 'curate.file.skipped', path: targetPath, status: 'skipped' });
                         return { content: [{ type: 'text' as const, text: JSON.stringify({
                             status: 'skipped',
                             message: 'File unchanged since last curation (SHA256 match)',
@@ -115,6 +117,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                         }) }] };
                     }
 
+                    const fileStart = Date.now();
                     curation.activeJobs++;
                     const result = await analyzer.analyzeFile(targetPath, targetPath);
                     const transient = result.errors?.some(e => /LLM call failed|Cannot read file|Cannot extract PDF/i.test(e));
@@ -126,6 +129,12 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                         .then(() => log('✓ Vault reindexed after single-file curation'))
                         .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`))
                         .finally(() => { curation.activeJobs--; curation.lastCompletedAt = new Date(); });
+                    audit?.write({
+                        event: transient ? 'curate.file.failed' : 'curate.file.done',
+                        path: targetPath, status: transient ? 'failed' : 'done',
+                        durationMs: Date.now() - fileStart,
+                        error: transient ? result.errors?.join('; ') : undefined,
+                    });
                     return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
                 }
 
@@ -168,6 +177,11 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                 const docCount  = changed.filter(f => /\.(md|txt)$/.test(f.relativePath)).length;
 
                 // Process in background without blocking, then auto-reindex
+                const dirStart = Date.now();
+                audit?.write({
+                    event: 'curate.dir.start', path: targetPath, status: 'processing',
+                    extra: { totalFiles: files.length, changedFiles: changed.length, skippedFiles: files.length - changed.length, codeFiles: codeCount, docFiles: docCount },
+                });
                 curation.activeJobs++;
                 (async () => {
                     try {
@@ -195,8 +209,14 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                         log(`✓ Curated ${changed.length} changed files from ${targetPath} (${files.length - changed.length} unchanged)`);
                         await engine.reload();
                         log('✓ Vault reindexed automatically');
+                        audit?.write({
+                            event: 'curate.dir.done', path: targetPath, status: 'done',
+                            durationMs: Date.now() - dirStart,
+                            extra: { filesProcessed: changed.length, filesSkipped: files.length - changed.length },
+                        });
                     } catch (err) {
                         log(`⚠ Curation/reindex failed: ${(err as Error).message}`);
+                        audit?.write({ event: 'curate.dir.failed', path: targetPath, status: 'failed', durationMs: Date.now() - dirStart, error: (err as Error).message });
                     } finally {
                         curation.activeJobs--;
                         curation.lastCompletedAt = new Date();
@@ -261,6 +281,8 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                         .digest('hex').slice(0, 12);
                     const tempDir = path.join(os.tmpdir(), `codex-link-${urlHash}`);
 
+                    const gitStart = Date.now();
+                    audit?.write({ event: 'curate.git.start', url, status: 'processing', extra: { branch, subPath } });
                     curation.activeJobs++;
                     (async () => {
                         try {
@@ -300,8 +322,10 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
 
                             await engine.reload();
                             log(`✓ curate_link complete: ${files.length} files from ${url}`);
+                            audit?.write({ event: 'curate.git.done', url, status: 'done', durationMs: Date.now() - gitStart, extra: { filesProcessed: files.length } });
                         } catch (err) {
                             log(`✗ curate_link failed (${url}): ${(err as Error).message}`);
+                            audit?.write({ event: 'curate.git.failed', url, status: 'failed', durationMs: Date.now() - gitStart, error: (err as Error).message });
                         } finally {
                             await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
                             curation.activeJobs--;
@@ -359,6 +383,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     }
 
                     // Use the URL itself as source_path so dedup works across re-runs
+                    const httpStart = Date.now();
                     const curator = new DocumentationCurator({ provider: makeProvider(), vaultPath: ctx.vaultPath });
                     const result = await curator.curateText(text, url, undefined, url);
 
@@ -367,6 +392,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                         .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`));
 
                     log(`✓ curate_link complete: ${result.notesWritten.length} notes from ${url}`);
+                    audit?.write({ event: 'curate.http.done', url, status: 'done', durationMs: Date.now() - httpStart, extra: { notesWritten: result.notesWritten.length } });
                     return {
                         content: [{
                             type: 'text' as const,
@@ -385,6 +411,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     };
                 }
             } catch (err) {
+                audit?.write({ event: 'curate.http.failed', url, status: 'failed', error: (err as Error).message });
                 return {
                     content: [{
                         type: 'text' as const,
@@ -409,10 +436,15 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
             autoSynthesize: z.boolean().optional().describe('Generate a synthesis note combining top results (default: true)'),
         },
         async ({ query, topK, autoSynthesize }: { query: string; topK?: number; autoSynthesize?: boolean }) => {
+            const searchStart = Date.now();
             try {
                 const response = await engine.search(query, {
                     topK,
                     autoSynthesize: autoSynthesize !== false,
+                });
+                audit?.write({
+                    event: 'vault.search', query, durationMs: Date.now() - searchStart,
+                    extra: { results: response.results.length, synthesized: !!response.synthesized, topK: topK ?? 5 },
                 });
                 return { content: [{ type: 'text' as const, text: JSON.stringify(response) }] };
             } catch (err) {
@@ -441,8 +473,10 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
         async ({ path_or_title }: { path_or_title: string }) => {
             try {
                 const content = await findNote(ctx.vaultPath, path_or_title);
+                audit?.write({ event: 'note.read', path: path_or_title });
                 return { content: [{ type: 'text' as const, text: content }] };
             } catch (err) {
+                audit?.write({ event: 'note.read.failed', path: path_or_title, error: (err as Error).message });
                 return {
                     content: [{
                         type: 'text' as const,
@@ -572,6 +606,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`))
                     .finally(() => { curation.activeJobs--; curation.lastCompletedAt = new Date(); });
 
+                audit?.write({ event: 'vault.clone.done', path: expandedSource, status: 'done', extra: { copied, skipped, sourcePath: expandedSource } });
                 return {
                     content: [{
                         type: 'text' as const,
@@ -630,6 +665,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
             const status = alreadyCached ? 'already_cached' : downloaded ? 'downloaded' : 'loaded_from_cache';
 
             log(`✓ Embedder ready (${status}, ${durationMs}ms)`);
+            audit?.write({ event: 'embedder.init', status, durationMs, extra: { model: modelId } });
 
             return {
                 content: [{
@@ -661,7 +697,9 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
             try {
                 const result = await engine.reload();
                 curation.lastCompletedAt = new Date();
+                const durationMs = Date.now() - start;
                 log(`✓ Vault reindexed: ${result.indexed} notes`);
+                audit?.write({ event: 'vault.reindex', status: 'done', durationMs, extra: { indexed: result.indexed, updated: result.updated } });
                 return {
                     content: [{
                         type: 'text' as const,
@@ -669,7 +707,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             status: 'indexed',
                             indexed: result.indexed,
                             updated: result.updated,
-                            durationMs: Date.now() - start,
+                            durationMs,
                         }),
                     }]
                 };
@@ -731,6 +769,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                 curation.lastCompletedAt = undefined;
 
                 log(`✓ Vault reset: deleted ${noteCount} notes, ${manifestsDeleted} manifests`);
+                audit?.write({ event: 'vault.reset', status: 'reset', extra: { notesDeleted: noteCount, indexDeleted, manifestsDeleted } });
 
                 return {
                     content: [{
@@ -863,14 +902,14 @@ async function deleteManifests(dir: string): Promise<number> {
 
 // ── Transports ────────────────────────────────────────────────────────────────
 
-async function startStdio(ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState): Promise<void> {
-    const srv       = createMcpServer(ctx, engine, curation);
+async function startStdio(ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState, audit?: CodexAuditLogger): Promise<void> {
+    const srv       = createMcpServer(ctx, engine, curation, audit);
     const transport = new StdioServerTransport();
     await srv.connect(transport);
     log('✓ Stdio transport ready');
 }
 
-async function startHttp(port: number, ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState): Promise<void> {
+async function startHttp(port: number, ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState, audit?: CodexAuditLogger): Promise<void> {
     const server = http.createServer(async (req, res) => {
         if (req.method !== 'POST' || req.url !== '/mcp') {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -890,7 +929,7 @@ async function startHttp(port: number, ctx: ProjectContext, engine: KnowledgeEng
         }
 
         try {
-            const srv       = createMcpServer(ctx, engine, curation);
+            const srv       = createMcpServer(ctx, engine, curation, audit);
             const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
             await srv.connect(transport);
             await transport.handleRequest(req, res, body);
@@ -930,12 +969,19 @@ async function main(): Promise<void> {
 
     const curation: CurationState = { activeJobs: 0 };
 
+    // Audit logger — activo por defecto; deshabilitar con CODEX_AUDIT_ENABLED=false
+    const auditEnabled = process.env['CODEX_AUDIT_ENABLED'] !== 'false';
+    const audit = auditEnabled
+        ? new CodexAuditLogger(buildCodexAuditPath(ctx.projectName, process.env['CODEX_AUDIT_LOG']), ctx.projectName)
+        : undefined;
+    if (audit) log(`Audit → ${audit.path}`);
+
     // Stdio (always active)
-    await startStdio(ctx, engine, curation);
+    await startStdio(ctx, engine, curation, audit);
 
     // HTTP (optional)
     if (HTTP_PORT !== null) {
-        await startHttp(HTTP_PORT, ctx, engine, curation);
+        await startHttp(HTTP_PORT, ctx, engine, curation, audit);
     } else {
         log('(HTTP disabled — set CODEX_HTTP_PORT to enable)');
     }

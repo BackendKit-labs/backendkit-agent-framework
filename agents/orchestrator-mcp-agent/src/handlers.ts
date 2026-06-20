@@ -3,14 +3,16 @@ import type { RunStore }      from './run-store.js';
 import type { PoolRegistry }  from './registry.js';
 import type { OrchestratorMcpConfig } from './config.js';
 import { ConfigStore, type StoredAgent, type StoredFlow } from './config-store.js';
+import type { OrchestratorAuditLogger } from './audit.js';
 
 export interface HandlerCtx {
-    config:      OrchestratorMcpConfig;
-    configDir:   string;
-    executor:    FlowExecutor;
-    store:       RunStore;
-    registry:    PoolRegistry;
-    configStore: ConfigStore;
+    config:       OrchestratorMcpConfig;
+    configDir:    string;
+    executor:     FlowExecutor;
+    store:        RunStore;
+    registry:     PoolRegistry;
+    configStore:  ConfigStore;
+    auditLogger?: OrchestratorAuditLogger;
 }
 
 const ts = () => new Date().toISOString();
@@ -64,16 +66,25 @@ async function executeAndPersist(
     flowId: string,
     input:  Record<string, unknown>,
 ): Promise<string> {
-    const { executor, store, configStore } = ctx;
-    const flow = loadFlowFromStore(configStore, flowId);
-    const run  = store.newRun(flowId, input);
+    const { executor, store, configStore, auditLogger } = ctx;
+    const flow  = loadFlowFromStore(configStore, flowId);
+    const run   = store.newRun(flowId, input);
+    const start = Date.now();
     await store.save(run);
 
+    auditLogger?.write({ ts: ts(), event: 'flow.start', runId: run.id, flowId });
+
     const result = await executor.execute(flow, input);
+    const elapsed = Date.now() - start;
 
     if (isGate(result)) {
         Object.assign(run, { status: 'waiting_gate', results: result.completedSoFar, gateStepId: result.stepId, updatedAt: ts() });
         await store.save(run);
+        auditLogger?.write({
+            ts: ts(), event: 'gate.hit', runId: run.id, flowId,
+            stepId: result.stepId, agentId: result.agentId, durationMs: elapsed,
+            extra: { completedSteps: result.completedSoFar.length },
+        });
         return [
             `⏸ Gate reached at step "${result.stepId}" (agent: ${result.agentId})`,
             `Run ID: ${run.id}`,
@@ -87,6 +98,11 @@ async function executeAndPersist(
     if (isStepFailed(result)) {
         Object.assign(run, { status: 'waiting_retry', results: result.completedSoFar, failedStepId: result.stepId, error: result.error, updatedAt: ts() });
         await store.save(run);
+        auditLogger?.write({
+            ts: ts(), event: 'flow.failed', runId: run.id, flowId,
+            stepId: result.stepId, agentId: result.agentId, durationMs: elapsed,
+            error: result.error,
+        });
         return [
             `✗ Required step "${result.stepId}" (agent: ${result.agentId}) failed`,
             `Run ID: ${run.id}`,
@@ -95,8 +111,16 @@ async function executeAndPersist(
         ].join('\n');
     }
 
-    Object.assign(run, { status: result.complete ? 'done' : 'failed', results: result.steps, summary: result.summary, updatedAt: ts() });
+    const status = result.complete ? 'done' : 'failed';
+    Object.assign(run, { status, results: result.steps, summary: result.summary, updatedAt: ts() });
     await store.save(run);
+    auditLogger?.write({
+        ts: ts(), event: status === 'done' ? 'flow.done' : 'flow.failed',
+        runId: run.id, flowId, status, durationMs: elapsed,
+        extra: {
+            steps: result.steps.map(s => ({ stepId: s.stepId, agentId: s.agentId, success: s.success, durationMs: s.durationMs })),
+        },
+    });
     return result.summary;
 }
 
@@ -128,12 +152,15 @@ export async function hStartFlow(ctx: HandlerCtx, flowId: string, input: Record<
         return JSON.stringify({ error: `Flow '${flowId}' not found. Available: ${ids || '(none)'}` });
     }
 
-    const { executor, store, configStore } = ctx;
-    const flow = loadFlowFromStore(configStore, flowId);
-    const run  = store.newRun(flowId, input);
+    const { executor, store, configStore, auditLogger } = ctx;
+    const flow  = loadFlowFromStore(configStore, flowId);
+    const run   = store.newRun(flowId, input);
     await store.save(run);
 
+    auditLogger?.write({ ts: ts(), event: 'flow.start', runId: run.id, flowId });
+
     setImmediate(async () => {
+        const start = Date.now();
         await execSemaphore.acquire();
         try {
             const onStepStart = async (stepId: string) => {
@@ -141,15 +168,26 @@ export async function hStartFlow(ctx: HandlerCtx, flowId: string, input: Record<
                 await store.save(run);
             };
             const result = await executor.execute(flow, input, [], onStepStart);
+            const elapsed = Date.now() - start;
+
             if (isGate(result)) {
                 Object.assign(run, { status: 'waiting_gate', currentStepId: undefined, results: result.completedSoFar, gateStepId: result.stepId, gateCriteria: result.criteria, updatedAt: ts() });
+                auditLogger?.write({ ts: ts(), event: 'gate.hit', runId: run.id, flowId, stepId: result.stepId, agentId: result.agentId, durationMs: elapsed, extra: { completedSteps: result.completedSoFar.length } });
             } else if (isStepFailed(result)) {
                 Object.assign(run, { status: 'waiting_retry', currentStepId: undefined, results: result.completedSoFar, failedStepId: result.stepId, error: result.error, updatedAt: ts() });
+                auditLogger?.write({ ts: ts(), event: 'flow.failed', runId: run.id, flowId, stepId: result.stepId, agentId: result.agentId, durationMs: elapsed, error: result.error });
             } else {
-                Object.assign(run, { status: result.complete ? 'done' : 'failed', currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
+                const status = result.complete ? 'done' : 'failed';
+                Object.assign(run, { status, currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
+                auditLogger?.write({
+                    ts: ts(), event: status === 'done' ? 'flow.done' : 'flow.failed',
+                    runId: run.id, flowId, status, durationMs: elapsed,
+                    extra: { steps: result.steps.map(s => ({ stepId: s.stepId, agentId: s.agentId, success: s.success, durationMs: s.durationMs })) },
+                });
             }
         } catch (err) {
             Object.assign(run, { status: 'failed', currentStepId: undefined, error: (err as Error).message, updatedAt: ts() });
+            auditLogger?.write({ ts: ts(), event: 'flow.failed', runId: run.id, flowId, error: (err as Error).message });
         } finally {
             execSemaphore.release();
         }
@@ -163,12 +201,15 @@ export async function hApprove(ctx: HandlerCtx, runId: string, feedback?: string
     if (inFlight.has(runId)) return `Run '${runId}' is already being processed`;
     inFlight.add(runId);
     try {
-        const { executor, store, configStore } = ctx;
+        const { executor, store, configStore, auditLogger } = ctx;
         const run = await store.get(runId);
         if (!run) return `Run '${runId}' not found`;
         if (run.status !== 'waiting_gate') return `Run '${runId}' is not waiting for approval (status: ${run.status})`;
         if (!configStore.getFlow(run.flowId)) return `Flow '${run.flowId}' not found in config`;
 
+        auditLogger?.write({ ts: ts(), event: 'gate.approved', runId, flowId: run.flowId, extra: feedback ? { feedback } : undefined });
+
+        const start = Date.now();
         Object.assign(run, { status: 'running', gateStepId: undefined, updatedAt: ts() });
         await store.save(run);
 
@@ -182,20 +223,29 @@ export async function hApprove(ctx: HandlerCtx, runId: string, feedback?: string
                 await store.save(run);
             };
             const result = await executor.execute(flow, input, run.results, onStepStart);
+            const elapsed = Date.now() - start;
 
             if (isGate(result)) {
                 Object.assign(run, { status: 'waiting_gate', currentStepId: undefined, results: result.completedSoFar, gateStepId: result.stepId, gateCriteria: result.criteria, updatedAt: ts() });
                 await store.save(run);
+                auditLogger?.write({ ts: ts(), event: 'gate.hit', runId, flowId: run.flowId, stepId: result.stepId, agentId: result.agentId, durationMs: elapsed });
                 return [`⏸ Next gate at step "${result.stepId}"`, `\nOutput:\n${result.output}`, `\nApprove: orchestrator_approve(run_id="${runId}")`].join('\n');
             }
             if (isStepFailed(result)) {
                 Object.assign(run, { status: 'waiting_retry', currentStepId: undefined, results: result.completedSoFar, failedStepId: result.stepId, error: result.error, updatedAt: ts() });
                 await store.save(run);
+                auditLogger?.write({ ts: ts(), event: 'flow.failed', runId, flowId: run.flowId, stepId: result.stepId, durationMs: elapsed, error: result.error });
                 return [`✗ Required step "${result.stepId}" failed`, `\nError: ${result.error}`, `\nRetry: orchestrator_retry(run_id="${runId}")`].join('\n');
             }
 
-            Object.assign(run, { status: result.complete ? 'done' : 'failed', currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
+            const status = result.complete ? 'done' : 'failed';
+            Object.assign(run, { status, currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
             await store.save(run);
+            auditLogger?.write({
+                ts: ts(), event: status === 'done' ? 'flow.done' : 'flow.failed',
+                runId, flowId: run.flowId, status, durationMs: elapsed,
+                extra: { steps: result.steps.map(s => ({ stepId: s.stepId, agentId: s.agentId, success: s.success, durationMs: s.durationMs })) },
+            });
             return result.summary;
         } finally { execSemaphore.release(); }
     } finally { inFlight.delete(runId); }
@@ -207,6 +257,7 @@ export async function hReject(ctx: HandlerCtx, runId: string, reason?: string): 
     if (run.status !== 'waiting_gate') return `Run '${runId}' is not waiting for approval (status: ${run.status})`;
     Object.assign(run, { status: 'cancelled', error: reason ?? 'Rejected by operator', updatedAt: ts() });
     await ctx.store.save(run);
+    ctx.auditLogger?.write({ ts: ts(), event: 'gate.rejected', runId, flowId: run.flowId, error: reason, extra: reason ? { reason } : undefined });
     return `Flow '${run.flowId}' cancelled${reason ? `: ${reason}` : ''}`;
 }
 
@@ -214,12 +265,15 @@ export async function hRetry(ctx: HandlerCtx, runId: string, feedback?: string):
     if (inFlight.has(runId)) return `Run '${runId}' is already being processed`;
     inFlight.add(runId);
     try {
-        const { executor, store, configStore } = ctx;
+        const { executor, store, configStore, auditLogger } = ctx;
         const run = await store.get(runId);
         if (!run) return `Run '${runId}' not found`;
         if (run.status !== 'waiting_retry') return `Run '${runId}' is not waiting for retry (status: ${run.status})`;
         if (!configStore.getFlow(run.flowId)) return `Flow '${run.flowId}' not found in config`;
 
+        auditLogger?.write({ ts: ts(), event: 'step.retry', runId, flowId: run.flowId, stepId: run.failedStepId, extra: feedback ? { feedback } : undefined });
+
+        const start = Date.now();
         Object.assign(run, { status: 'running', failedStepId: undefined, updatedAt: ts() });
         await store.save(run);
 
@@ -233,20 +287,29 @@ export async function hRetry(ctx: HandlerCtx, runId: string, feedback?: string):
                 await store.save(run);
             };
             const result = await executor.execute(flow, input, run.results, onStepStart);
+            const elapsed = Date.now() - start;
 
             if (isStepFailed(result)) {
                 Object.assign(run, { status: 'waiting_retry', currentStepId: undefined, results: result.completedSoFar, failedStepId: result.stepId, error: result.error, updatedAt: ts() });
                 await store.save(run);
+                auditLogger?.write({ ts: ts(), event: 'flow.failed', runId, flowId: run.flowId, stepId: result.stepId, durationMs: elapsed, error: result.error });
                 return [`✗ Step "${result.stepId}" failed again`, `\nError: ${result.error}`, `\nRetry: orchestrator_retry(run_id="${runId}")`].join('\n');
             }
             if (isGate(result)) {
                 Object.assign(run, { status: 'waiting_gate', currentStepId: undefined, results: result.completedSoFar, gateStepId: result.stepId, gateCriteria: result.criteria, updatedAt: ts() });
                 await store.save(run);
+                auditLogger?.write({ ts: ts(), event: 'gate.hit', runId, flowId: run.flowId, stepId: result.stepId, agentId: result.agentId, durationMs: elapsed });
                 return [`⏸ Gate at step "${result.stepId}"`, `\nApprove: orchestrator_approve(run_id="${runId}")`].join('\n');
             }
 
-            Object.assign(run, { status: result.complete ? 'done' : 'failed', currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
+            const status = result.complete ? 'done' : 'failed';
+            Object.assign(run, { status, currentStepId: undefined, results: result.steps, summary: result.summary, updatedAt: ts() });
             await store.save(run);
+            auditLogger?.write({
+                ts: ts(), event: status === 'done' ? 'flow.done' : 'flow.failed',
+                runId, flowId: run.flowId, status, durationMs: elapsed,
+                extra: { steps: result.steps.map(s => ({ stepId: s.stepId, agentId: s.agentId, success: s.success, durationMs: s.durationMs })) },
+            });
             return result.summary;
         } finally { execSemaphore.release(); }
     } finally { inFlight.delete(runId); }
@@ -320,22 +383,26 @@ export async function hGetConfig(ctx: HandlerCtx): Promise<string> {
 export async function hSaveAgent(ctx: HandlerCtx, agent: StoredAgent): Promise<string> {
     ctx.configStore.saveAgent(agent);
     try { ctx.registry.upsertAgent(agent); } catch (e) { return JSON.stringify({ ok: false, error: (e as Error).message }); }
+    ctx.auditLogger?.write({ ts: ts(), event: 'agent.saved', extra: { agentId: agent.id, instances: agent.instances.length } });
     return JSON.stringify({ ok: true, id: agent.id });
 }
 
 export async function hDeleteAgent(ctx: HandlerCtx, id: string): Promise<string> {
     ctx.configStore.deleteAgent(id);
     ctx.registry.removeAgent(id);
+    ctx.auditLogger?.write({ ts: ts(), event: 'agent.deleted', extra: { agentId: id } });
     return JSON.stringify({ ok: true, id });
 }
 
 export async function hSaveFlow(ctx: HandlerCtx, flow: StoredFlow): Promise<string> {
     ctx.configStore.saveFlow(flow);
+    ctx.auditLogger?.write({ ts: ts(), event: 'flow.saved', extra: { flowId: flow.id, steps: flow.steps.length } });
     return JSON.stringify({ ok: true, id: flow.id });
 }
 
 export async function hDeleteFlow(ctx: HandlerCtx, id: string): Promise<string> {
     ctx.configStore.deleteFlow(id);
+    ctx.auditLogger?.write({ ts: ts(), event: 'flow.deleted', extra: { flowId: id } });
     return JSON.stringify({ ok: true, id });
 }
 

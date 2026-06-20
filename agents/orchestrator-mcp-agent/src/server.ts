@@ -39,6 +39,7 @@ import {
     hListAgents, hListAgentsJson, hListRuns, hGetConfig,
     hSaveAgent, hDeleteAgent, hSaveFlow, hDeleteFlow,
 } from './handlers.js';
+import { OrchestratorAuditLogger, buildOrchestratorAuditPath } from './audit.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,16 @@ if (configStore.isEmpty()) {
     configStore.seedFromYaml(config, yamlFlows);
 }
 
-const ctx: HandlerCtx = { config, configDir, executor, store, registry, configStore };
+// ── Audit logger (Capa 5) ─────────────────────────────────────────────────────
+// Activar: ORCHESTRATOR_AUDIT_LOG=/path/to/file.ndjson o dejar el path por defecto
+// Deshabilitar: ORCHESTRATOR_AUDIT_ENABLED=false
+
+const auditEnabled = process.env['ORCHESTRATOR_AUDIT_ENABLED'] !== 'false';
+const auditLogger  = auditEnabled
+    ? new OrchestratorAuditLogger(buildOrchestratorAuditPath(process.env['ORCHESTRATOR_AUDIT_LOG']))
+    : undefined;
+
+const ctx: HandlerCtx = { config, configDir, executor, store, registry, configStore, auditLogger };
 
 const log = (msg: string) => process.stderr.write(`[orchestrator-mcp-agent] ${msg}\n`);
 
@@ -261,6 +271,7 @@ if (HTTP_PORT) {
         log(`${config.orchestrator.name} HTTP on :${port}`);
         log(`agents: ${registry.agentIds().join(', ')}`);
         log(`flows: ${configStore.listFlows().map(f => f.id).join(', ') || '(none)'}`);
+        if (auditLogger) log(`audit → ${auditLogger.path}`);
     });
 
 // ── Stdio MCP mode ────────────────────────────────────────────────────────────
@@ -363,4 +374,5 @@ if (HTTP_PORT) {
     log(`${config.orchestrator.name} started (stdio)`);
     log(`agents: ${registry.agentIds().join(', ')}`);
     log(`flows: ${configStore.listFlows().map(f => f.id).join(', ') || '(none)'}`);
+    if (auditLogger) log(`audit → ${auditLogger.path}`);
 }

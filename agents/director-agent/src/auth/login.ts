@@ -2,18 +2,16 @@ import { SignJWT } from 'jose';
 import { findUser, verifyPassword } from './user-store.js';
 import type { Principal } from './types.js';
 
-const secret = process.env['JWT_SECRET']
-    ? new TextEncoder().encode(process.env['JWT_SECRET'])
-    : null;
-
 export type LoginResult =
     | { ok: true;  token: string; user: Principal }
     | { ok: false; error: string };
 
 export async function login(username: string, password: string): Promise<LoginResult> {
-    if (!secret) {
+    const key = process.env['JWT_SECRET'];
+    if (!key) {
         return { ok: false, error: 'JWT_SECRET no configurado — modo empresa no habilitado' };
     }
+    const secret = new TextEncoder().encode(key);
 
     const user = findUser(username);
     if (!user) {

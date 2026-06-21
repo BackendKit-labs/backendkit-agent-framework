@@ -1,15 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { ROLES } from '@/db/schema';
 import { cn } from '@/lib/utils';
 
+interface Dept { id: string; name: string; }
+
 export default function NewUserPage() {
     const router = useRouter();
-    const [form, setForm] = useState({ username: '', name: '', email: '', password: '', role: 'viewer', department: '' });
+    const [form,  setForm]  = useState({ username: '', name: '', email: '', password: '', role: 'viewer', department: '' });
+    const [depts, setDepts] = useState<Dept[]>([]);
+
+    useEffect(() => {
+        fetch('/api/departments').then(r => r.json()).then(setDepts).catch(() => {});
+    }, []);
     const [error, setError] = useState('');
     const [saving, setSave] = useState(false);
 
@@ -43,10 +50,9 @@ export default function NewUserPage() {
             <form onSubmit={submit} className="rounded-xl border border-border bg-secondary/20 p-5 space-y-4">
                 {[
                     { key: 'username',   label: 'Username *',     type: 'text',     ph: 'maria.garcia' },
-                    { key: 'name',       label: 'Nombre',         type: 'text',     ph: 'María García' },
-                    { key: 'email',      label: 'Email',          type: 'email',    ph: 'maria@empresa.com' },
-                    { key: 'password',   label: 'Contraseña *',   type: 'password', ph: '' },
-                    { key: 'department', label: 'Departamento',   type: 'text',     ph: 'people / engineering / ops' },
+                    { key: 'name',     label: 'Nombre',       type: 'text',     ph: 'María García' },
+                    { key: 'email',    label: 'Email',        type: 'email',    ph: 'maria@empresa.com' },
+                    { key: 'password', label: 'Contraseña *', type: 'password', ph: '' },
                 ].map(({ key, label, type, ph }) => (
                     <div key={key} className="space-y-1">
                         <label className="text-xs font-medium text-muted-foreground">{label}</label>
@@ -55,6 +61,15 @@ export default function NewUserPage() {
                             className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40" />
                     </div>
                 ))}
+
+                <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Departamento</label>
+                    <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40">
+                        <option value="">— Sin departamento —</option>
+                        {depts.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select>
+                </div>
 
                 <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">Rol *</label>

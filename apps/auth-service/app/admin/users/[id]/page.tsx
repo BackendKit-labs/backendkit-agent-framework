@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Save, ArrowLeft, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
@@ -19,6 +19,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
     const router = useRouter();
     const [user,    setUser]    = useState<User | null>(null);
     const [form,    setForm]    = useState({ name: '', email: '', role: '', department: '', password: '' });
+    const [depts,   setDepts]   = useState<{ id: string; name: string }[]>([]);
     const [tools,   setTools]   = useState<string[] | null>(null);  // null = usar defaults del rol
     const [vault,   setVault]   = useState<string[] | null>(null);
     const [canDir,  setCanDir]  = useState(true);
@@ -38,7 +39,10 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
         setCanVault(u.canUseVault);
     }
 
-    useEffect(() => { load(); }, [params.id]);
+    useEffect(() => {
+        load();
+        fetch('/api/departments').then(r => r.json()).then(setDepts).catch(() => {});
+    }, [params.id]); // eslint-disable-line
 
     function toggleTool(tool: string) {
         const base = tools ?? ROLE_DEFAULT_TOOLS[form.role] ?? [];
@@ -94,10 +98,9 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                 <section className="rounded-xl border border-border bg-secondary/20 p-4 space-y-4">
                     <h2 className="text-sm font-semibold">Perfil</h2>
                     {[
-                        { key: 'name',       label: 'Nombre',       type: 'text' },
-                        { key: 'email',      label: 'Email',        type: 'email' },
-                        { key: 'department', label: 'Departamento', type: 'text' },
-                        { key: 'password',   label: 'Nueva contraseña (opcional)', type: 'password' },
+                        { key: 'name',     label: 'Nombre',     type: 'text' },
+                        { key: 'email',    label: 'Email',      type: 'email' },
+                        { key: 'password', label: 'Nueva contraseña (opcional)', type: 'password' },
                     ].map(({ key, label, type }) => (
                         <div key={key} className="space-y-1">
                             <label className="text-xs font-medium text-muted-foreground">{label}</label>
@@ -106,6 +109,14 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                                 className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40" />
                         </div>
                     ))}
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Departamento</label>
+                        <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40">
+                            <option value="">— Sin departamento —</option>
+                            {depts.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                        </select>
+                    </div>
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-muted-foreground">Rol base</label>
                         <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}

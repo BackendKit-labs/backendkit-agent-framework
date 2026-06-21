@@ -1,5 +1,16 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
+export const departments = sqliteTable('departments', {
+    id:          text('id').primaryKey(),
+    name:        text('name').notNull().unique(),
+    description: text('description'),
+    active:      integer('active', { mode: 'boolean' }).notNull().default(true),
+    createdAt:   text('created_at').notNull(),
+});
+
+export type Department       = typeof departments.$inferSelect;
+export type InsertDepartment = typeof departments.$inferInsert;
+
 export const users = sqliteTable('users', {
     id:              text('id').primaryKey(),
     username:        text('username').notNull().unique(),

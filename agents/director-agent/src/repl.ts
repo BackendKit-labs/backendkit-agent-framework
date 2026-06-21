@@ -211,35 +211,9 @@ async function replLogin(rl: readline.Interface): Promise<Principal> {
     const ask = (q: string): Promise<string> =>
         new Promise(resolve => rl.question(q, resolve));
 
-    const askHidden = (q: string): Promise<string> => {
-        return new Promise(resolve => {
-            process.stdout.write(q);
-            // Ocultar input en la terminal
-            process.stdin.setRawMode?.(true);
-            let pwd = '';
-            const handler = (buf: Buffer) => {
-                const ch = buf.toString('utf8');
-                if (ch === '\r' || ch === '\n') {
-                    process.stdin.setRawMode?.(false);
-                    process.stdin.removeListener('data', handler);
-                    process.stdout.write('\n');
-                    resolve(pwd);
-                } else if (ch === '') { // Ctrl+C
-                    process.exit(0);
-                } else if (ch === '' || ch === '\b') { // backspace
-                    if (pwd.length > 0) { pwd = pwd.slice(0, -1); process.stdout.write('\b \b'); }
-                } else {
-                    pwd += ch;
-                    process.stdout.write('•');
-                }
-            };
-            process.stdin.on('data', handler);
-        });
-    };
-
     while (true) {
         const username = (await ask('  Usuario: ')).trim();
-        const password = await askHidden('  Contraseña: ');
+        const password = (await ask('  Contraseña: ')).trim();
 
         const result = await login(username, password);
         if (result.ok) {

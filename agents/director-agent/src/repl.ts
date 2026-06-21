@@ -169,13 +169,18 @@ async function main(): Promise<void> {
                     console.log('\n  Ningún agente conectado.\n');
                     prompt(); return;
                 }
+                console.log(`\n  Herramientas accesibles para rol "${principal.role}":\n`);
                 for (const s of info) {
-                    const tools = mcp.getServerTools(s.name).map(t => {
+                    const allowed = mcp.getServerTools(s.name).filter(t => {
+                        if (!runtime.policyEngine) return true;
+                        return runtime.policyEngine.authorize(principal, t.name).allowed;
+                    }).map(t => {
                         const parts = t.name.split('__');
                         return parts[parts.length - 1] ?? t.name;
                     });
-                    console.log(`\n  [${s.name}] — ${s.toolCount} tools (${s.transportUsed})`);
-                    console.log(`    ${tools.join(', ')}`);
+                    if (allowed.length === 0) continue;
+                    console.log(`  [${s.name}]`);
+                    console.log(`    ${allowed.join(', ')}`);
                 }
                 console.log('');
                 prompt(); return;

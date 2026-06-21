@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created": "2026-06-17T23:35:45.151Z",
-  "lastUpdated": "2026-06-20T23:49:59.024Z",
+  "lastUpdated": "2026-06-21T01:33:16.989Z",
   "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents/director-agent",
   "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
   "files": {
@@ -95,10 +95,10 @@
     },
     "src\\server.ts": {
       "relativePath": "src\\server.ts",
-      "hash": "f1cc1c56751028af39218823d9d940d69a7d8604ee3d18c234bbc7c39f91ac59",
-      "size": 6284,
-      "modified": "2026-06-20T22:36:15.797Z",
-      "analyzedAt": "2026-06-20T22:43:32.588Z",
+      "hash": "0f6255e2b08bc118ef242cfc2e6c759e492a621d1b9b527141a4827ceb3318a0",
+      "size": 7546,
+      "modified": "2026-06-21T01:28:15.827Z",
+      "analyzedAt": "2026-06-21T01:33:16.988Z",
       "status": "success"
     },
     "src\\engine.ts": {
@@ -195,6 +195,22 @@
       "size": 4324,
       "modified": "2026-06-20T22:23:45.500Z",
       "analyzedAt": "2026-06-20T22:42:54.315Z",
+      "status": "success"
+    },
+    "src\\auth\\login.ts": {
+      "relativePath": "src\\auth\\login.ts",
+      "hash": "61eab7a2fb0788c76abf079a821319119988feaaf1c3c5f5a4b31af857862bf8",
+      "size": 1338,
+      "modified": "2026-06-21T01:29:59.625Z",
+      "analyzedAt": "2026-06-21T01:33:10.271Z",
+      "status": "success"
+    },
+    "src\\auth\\user-store.ts": {
+      "relativePath": "src\\auth\\user-store.ts",
+      "hash": "105a6d5e0723ea4655227d227fe1ac7d2ba01877dc2d78f598b5170bee560c64",
+      "size": 1601,
+      "modified": "2026-06-21T01:27:42.838Z",
+      "analyzedAt": "2026-06-21T01:33:13.253Z",
       "status": "success"
     }
   }

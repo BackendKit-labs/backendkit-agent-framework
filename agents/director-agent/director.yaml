@@ -195,20 +195,50 @@ access_control:
     # ── Coder v2 (Orchestrator V2 — SDD flows) ────────────────────────────────
     # config_path es un argumento en cada llamada, no afecta la autorización aquí.
     orchestrator_run:             { allowed_roles: ["admin", "development"] }
-    orchestrator_status:          { allowed_roles: ["*"] }
+    orchestrator_status:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "Las herramientas del coder no están disponibles para RR.HH."
+          match: { user: role, eq: hr }
     orchestrator_approve:         { allowed_roles: ["admin", "development"] }
-    orchestrator_list_agents:     { allowed_roles: ["*"] }
+    orchestrator_list_agents:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "Las herramientas del coder no están disponibles para RR.HH."
+          match: { user: role, eq: hr }
     orchestrator_list_runs:       { allowed_roles: ["admin", "development"] }
     orchestrator_reflect:         { allowed_roles: ["admin", "development"] }
     orchestrator_reflect_promote: { allowed_roles: ["admin"] }
     orchestrator_reflect_demote:  { allowed_roles: ["admin"] }
 
     # ── Config (gestión centralizada de configuración) ─────────────────────────
-    get_config:        { allowed_roles: ["*"] }
-    list_configs:      { allowed_roles: ["*"] }
-    get_config_schema: { allowed_roles: ["*"] }
-    validate_config:   { allowed_roles: ["*"] }
-    diff_config:       { allowed_roles: ["admin", "dev", "devops"] }
+    get_config:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "La gestión de configuración no está disponible para RR.HH."
+          match: { user: role, eq: hr }
+    list_configs:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "La gestión de configuración no está disponible para RR.HH."
+          match: { user: role, eq: hr }
+    get_config_schema:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "La gestión de configuración no está disponible para RR.HH."
+          match: { user: role, eq: hr }
+    validate_config:
+      allowed_roles: ["*"]
+      conditions:
+        - effect: deny
+          reason: "La gestión de configuración no está disponible para RR.HH."
+          match: { user: role, eq: hr }
+    diff_config:       { allowed_roles: ["admin", "development", "devops"] }
     set_config:        { allowed_roles: ["admin", "devops"] }
     set_secret:        { allowed_roles: ["admin"] }
     import_config:     { allowed_roles: ["admin"] }

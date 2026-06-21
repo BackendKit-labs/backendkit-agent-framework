@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created": "2026-06-17T23:35:45.151Z",
-  "lastUpdated": "2026-06-21T01:33:16.989Z",
+  "lastUpdated": "2026-06-21T13:14:41.524Z",
   "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents/director-agent",
   "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
   "files": {
@@ -95,26 +95,26 @@
     },
     "src\\server.ts": {
       "relativePath": "src\\server.ts",
-      "hash": "0f6255e2b08bc118ef242cfc2e6c759e492a621d1b9b527141a4827ceb3318a0",
-      "size": 7546,
-      "modified": "2026-06-21T01:28:15.827Z",
-      "analyzedAt": "2026-06-21T01:33:16.988Z",
+      "hash": "44bdc383e5451316231f40880e35c5afa0713ed135aa137f2dff9e8e1af6f277",
+      "size": 7889,
+      "modified": "2026-06-21T01:45:41.102Z",
+      "analyzedAt": "2026-06-21T13:14:41.524Z",
       "status": "success"
     },
     "src\\engine.ts": {
       "relativePath": "src\\engine.ts",
-      "hash": "482c59b23811bcac7302499f5d8bf6b2da235be039700b282ce58a4f4cb63e40",
-      "size": 13924,
-      "modified": "2026-06-20T22:35:57.168Z",
-      "analyzedAt": "2026-06-20T22:43:00.798Z",
+      "hash": "4409a03afcaa02550489a9f57ea842007873a4cd0d002d176413f3dcef72cf9c",
+      "size": 14156,
+      "modified": "2026-06-21T01:44:40.431Z",
+      "analyzedAt": "2026-06-21T13:14:23.642Z",
       "status": "success"
     },
     "src\\repl.ts": {
       "relativePath": "src\\repl.ts",
-      "hash": "74ec5d325a88c51ead8b82d073efb35bed7beca5dc8856f63b1262d85dab843e",
-      "size": 8272,
-      "modified": "2026-06-18T00:17:33.289Z",
-      "analyzedAt": "2026-06-18T21:19:46.599Z",
+      "hash": "f08dc68723bc6bf662801d2467aeda6cc8cb300b96b0386101b7a32170f8ae63",
+      "size": 12930,
+      "modified": "2026-06-21T13:12:59.191Z",
+      "analyzedAt": "2026-06-21T13:14:16.614Z",
       "status": "success"
     },
     "proposals\\health-cheker.md": {
@@ -143,10 +143,10 @@
     },
     "src\\auth\\context.ts": {
       "relativePath": "src\\auth\\context.ts",
-      "hash": "676b537a67c94dbb089cc3f106bf92e14257a2a0963bc1dcbb6ce0507281c7a9",
-      "size": 401,
-      "modified": "2026-06-20T21:59:04.931Z",
-      "analyzedAt": "2026-06-20T22:42:19.064Z",
+      "hash": "fe32f6850297b712c6ce1debc82b06f0886e42fff57e69403422c756c4666cc8",
+      "size": 637,
+      "modified": "2026-06-21T01:44:08.727Z",
+      "analyzedAt": "2026-06-21T13:14:18.900Z",
       "status": "success"
     },
     "src\\auth\\audit.ts": {
@@ -211,6 +211,14 @@
       "size": 1601,
       "modified": "2026-06-21T01:27:42.838Z",
       "analyzedAt": "2026-06-21T01:33:13.253Z",
+      "status": "success"
+    },
+    "src\\ws-server.ts": {
+      "relativePath": "src\\ws-server.ts",
+      "hash": "830551f3026f861c8e72f580c88af2aba8f487ae3421ed0755fa4bd65b132fb9",
+      "size": 7584,
+      "modified": "2026-06-21T01:45:11.293Z",
+      "analyzedAt": "2026-06-21T13:14:15.553Z",
       "status": "success"
     }
   }

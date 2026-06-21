@@ -16,15 +16,22 @@ import * as readline from 'node:readline';
 import type { AgentEvent } from '@backendkit-labs/agent-core';
 import { loadConfig } from './config.js';
 import { buildDirectorEngine, resolveConfigPath } from './engine.js';
+import { login }            from './auth/login.js';
+import { isEnterpriseMode } from './auth/jwt.js';
+import { requestContext }   from './auth/context.js';
+import { ADMIN_PRINCIPAL }  from './auth/types.js';
+import type { Principal }   from './auth/types.js';
 
 // ── REPL commands ─────────────────────────────────────────────────────────────
 
 const COMMANDS: Record<string, string> = {
-    '/help':   'Mostrar comandos disponibles',
-    '/agents': 'Ver agentes MCP conectados y sus tools',
-    '/clear':  'Limpiar historial de conversación',
-    '/status': 'Estado del director (modelo, provider, conexiones)',
-    '/quit':   'Salir',
+    '/help':    'Mostrar comandos disponibles',
+    '/whoami':  'Ver usuario y rol de la sesión actual',
+    '/agents':  'Ver agentes MCP conectados y sus tools',
+    '/clear':   'Limpiar historial de conversación',
+    '/status':  'Estado del director (modelo, provider, conexiones)',
+    '/logout':  'Cerrar sesión y volver al login',
+    '/quit':    'Salir',
 };
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -58,17 +65,31 @@ async function main(): Promise<void> {
     const serverInfo = mcp.getServerInfo();
     const totalTools = mcp.getTools().length;
 
-    printBanner(config.director.name, runtime.provider, runtime.model, serverInfo, totalTools);
-
-    // ── readline REPL ─────────────────────────────────────────────────────────
+    // ── Login (si JWT_SECRET está seteado) ───────────────────────────────────
     const rl = readline.createInterface({
         input:    process.stdin,
         output:   process.stdout,
         terminal: true,
     });
 
+    let principal: Principal = ADMIN_PRINCIPAL;
+
+    if (isEnterpriseMode()) {
+        principal = await replLogin(rl);
+    }
+
+    printBanner(config.director.name, runtime.provider, runtime.model, serverInfo, totalTools, principal);
+
+    // ── readline REPL ─────────────────────────────────────────────────────────
+    const promptStr = () => {
+        const who = principal.id === 'system'
+            ? '◆ Director'
+            : `◆ ${principal.id} (${principal.role})`;
+        return `\n  [${who}] > `;
+    };
+
     const prompt = () => {
-        rl.question('\n  [◆ Director] > ', async (input) => {
+        rl.question(promptStr(), async (input) => {
             const line = input.trim();
             if (!line) { prompt(); return; }
 
@@ -78,6 +99,26 @@ async function main(): Promise<void> {
                 await mcp.disconnect();
                 rl.close();
                 return;
+            }
+            if (line === '/whoami') {
+                console.log(`\n  Usuario: ${principal.id}`);
+                console.log(`  Rol:     ${principal.role}`);
+                if (principal.department) console.log(`  Depto:   ${principal.department}`);
+                console.log(`  Modo:    ${isEnterpriseMode() ? 'empresa (JWT activo)' : 'dev (sin JWT_SECRET)'}`);
+                console.log('');
+                prompt(); return;
+            }
+            if (line === '/logout') {
+                if (!isEnterpriseMode()) {
+                    console.log('\n  Modo dev — no hay sesión activa que cerrar.\n');
+                    prompt(); return;
+                }
+                engine.clearHistory();
+                console.log('\n  Sesión cerrada. Iniciá sesión de nuevo.\n');
+                principal = await replLogin(rl);
+                printBanner(config.director.name, runtime.provider, runtime.model,
+                    mcp.getServerInfo(), mcp.getTools().length, principal);
+                prompt(); return;
             }
             if (line === '/help') {
                 console.log('\n  Comandos:');
@@ -130,7 +171,7 @@ async function main(): Promise<void> {
             // ── Run director ──────────────────────────────────────────────────
             console.log('');
             try {
-                await engine.run(line);
+                await requestContext.run({ principal }, () => engine.run(line));
             } catch (err) {
                 console.error(`\n  ✗ Error: ${(err as Error).message}`);
             }
@@ -140,6 +181,56 @@ async function main(): Promise<void> {
     };
 
     prompt();
+}
+
+// ── Login helper ──────────────────────────────────────────────────────────────
+
+async function replLogin(rl: readline.Interface): Promise<Principal> {
+    console.error('');
+    console.error('  ┌─────────────────────────────────────────────┐');
+    console.error('  │  Director Agent — Inicio de sesión          │');
+    console.error('  └─────────────────────────────────────────────┘');
+
+    const ask = (q: string): Promise<string> =>
+        new Promise(resolve => rl.question(q, resolve));
+
+    const askHidden = (q: string): Promise<string> => {
+        return new Promise(resolve => {
+            process.stdout.write(q);
+            // Ocultar input en la terminal
+            process.stdin.setRawMode?.(true);
+            let pwd = '';
+            const handler = (buf: Buffer) => {
+                const ch = buf.toString('utf8');
+                if (ch === '\r' || ch === '\n') {
+                    process.stdin.setRawMode?.(false);
+                    process.stdin.removeListener('data', handler);
+                    process.stdout.write('\n');
+                    resolve(pwd);
+                } else if (ch === '') { // Ctrl+C
+                    process.exit(0);
+                } else if (ch === '' || ch === '\b') { // backspace
+                    if (pwd.length > 0) { pwd = pwd.slice(0, -1); process.stdout.write('\b \b'); }
+                } else {
+                    pwd += ch;
+                    process.stdout.write('•');
+                }
+            };
+            process.stdin.on('data', handler);
+        });
+    };
+
+    while (true) {
+        const username = (await ask('  Usuario: ')).trim();
+        const password = await askHidden('  Contraseña: ');
+
+        const result = await login(username, password);
+        if (result.ok) {
+            console.error(`\n  ✅ Sesión iniciada como ${result.user.id} (${result.user.role})\n`);
+            return result.user;
+        }
+        console.error(`\n  ✗ ${result.error}. Intentá de nuevo.\n`);
+    }
 }
 
 // ── Event handler (streaming to terminal) ─────────────────────────────────────
@@ -177,15 +268,20 @@ function printBanner(
     model:      string,
     servers:    Array<{ name: string; toolCount: number }>,
     totalTools: number,
+    principal:  Principal,
 ): void {
     const agentList = servers.length > 0
         ? servers.map(s => `${s.name} (${s.toolCount}t)`).join(' · ')
         : 'ninguno conectado';
+    const userLine = principal.id === 'system'
+        ? 'modo dev (admin implícito)'
+        : `${principal.id}  ·  rol: ${principal.role}${principal.department ? `  ·  ${principal.department}` : ''}`;
     console.error('');
     console.error('  ╔═══════════════════════════════════════════╗');
     console.error(`  ║  ${name.padEnd(41)}║`);
     console.error('  ║  BackendKit Platform — Director           ║');
     console.error('  ╚═══════════════════════════════════════════╝');
+    console.error(`  Usuario:  ${userLine}`);
     console.error(`  Modelo:   ${provider} / ${model}`);
     console.error(`  Agentes:  ${agentList}`);
     console.error(`  Tools:    ${totalTools} disponibles`);

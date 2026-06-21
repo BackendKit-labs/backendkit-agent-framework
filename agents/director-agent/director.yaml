@@ -255,3 +255,10 @@ access_control:
     get_notification_history: { allowed_roles: ["admin", "hr"] }
     register_user_channels:   { allowed_roles: ["admin", "hr"] }
     list_devices:             { allowed_roles: ["admin", "devops"] }
+
+    # ── Fleet (deploy Docker/K8s) ───────────────────────────────────────────────
+    deploy_agent:       { allowed_roles: ["admin", "devops"] }
+    stop_agent:         { allowed_roles: ["admin", "devops"] }
+    list_deployments:   { allowed_roles: ["admin", "devops", "development"] }
+    deploy_settings:    { allowed_roles: ["admin", "devops"] }
+    fleet_health:       { allowed_roles: ["*"] }

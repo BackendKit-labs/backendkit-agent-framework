@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Save, ArrowLeft, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { cn, roleBg } from '@/lib/utils';
-import { ROLES, type EnterpriseRole } from '@/db/schema';
-import { DIRECTOR_TOOL_GROUPS, ROLE_DEFAULT_TOOLS, VAULT_NAMESPACES } from '@/lib/tools';
+import type { Role } from '@/db/schema';
+import { DIRECTOR_TOOL_GROUPS, VAULT_NAMESPACES } from '@/lib/tools';
 
 interface User {
     id: string; username: string; name?: string; email?: string;
@@ -20,6 +20,8 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
     const [user,    setUser]    = useState<User | null>(null);
     const [form,    setForm]    = useState({ name: '', email: '', role: '', department: '', password: '' });
     const [depts,   setDepts]   = useState<{ id: string; name: string }[]>([]);
+    const [roles,   setRoles]   = useState<Role[]>([]);
+    const [roleTools, setRoleTools] = useState<string[]>([]); // tools del rol seleccionado
     const [tools,   setTools]   = useState<string[] | null>(null);  // null = usar defaults del rol
     const [vault,   setVault]   = useState<string[] | null>(null);
     const [canDir,  setCanDir]  = useState(true);
@@ -42,7 +44,15 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
     useEffect(() => {
         load();
         fetch('/api/departments').then(r => r.json()).then(setDepts).catch(() => {});
+        fetch('/api/roles').then(r => r.json()).then(setRoles).catch(() => {});
     }, [params.id]); // eslint-disable-line
+
+    // Cuando cambia el rol, cargar sus tools como defaults
+    useEffect(() => {
+        if (!form.role) return;
+        const role = roles.find(r => r.name === form.role);
+        if (role) setRoleTools(JSON.parse(role.tools) as string[]);
+    }, [form.role, roles]);
 
     function toggleTool(tool: string) {
         const base = tools ?? ROLE_DEFAULT_TOOLS[form.role] ?? [];
@@ -78,7 +88,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
 
     if (!user) return <div className="text-muted-foreground p-6">Cargando...</div>;
 
-    const activeTool = (t: string) => (tools ?? ROLE_DEFAULT_TOOLS[form.role] ?? []).includes(t);
+    const activeTool = (t: string) => (tools ?? roleTools).includes(t);
     const isCustom = tools !== null;
 
     return (
@@ -121,7 +131,8 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                         <label className="text-xs font-medium text-muted-foreground">Rol base</label>
                         <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                             className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40">
-                            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                            <option value="">— Seleccionar rol —</option>
+                            {roles.map(r => <option key={r.id} value={r.name}>{r.label} ({r.name})</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
@@ -142,7 +153,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                         <h2 className="text-sm font-semibold">Vault — namespaces visibles</h2>
                         {vault !== null && <button onClick={() => setVault(null)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><RotateCcw className="w-3 h-3" />Reset</button>}
                     </div>
-                    {vault === null && <p className="text-xs text-muted-foreground">Usando defaults del rol <span className={cn('px-1.5 py-0.5 rounded text-[10px] border', roleBg(form.role))}>{form.role}</span></p>}
+                    {vault === null && <p className="text-xs text-muted-foreground">Usando defaults del rol <span className={cn('px-1.5 py-0.5 rounded text-[10px] border', roleBg(form.role || 'viewer'))}>{form.role || '—'}</span></p>}
                     <div className="space-y-2">
                         {VAULT_NAMESPACES.map(ns => {
                             const active = vault !== null ? vault.includes(ns) : false;

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, UserPlus } from 'lucide-react';
 import Link from 'next/link';
-import { ROLES } from '@/db/schema';
+import type { Role } from '@/db/schema';
 import { cn } from '@/lib/utils';
 
 interface Dept { id: string; name: string; }
@@ -13,9 +13,11 @@ export default function NewUserPage() {
     const router = useRouter();
     const [form,  setForm]  = useState({ username: '', name: '', email: '', password: '', role: 'viewer', department: '' });
     const [depts, setDepts] = useState<Dept[]>([]);
+    const [roles, setRoles] = useState<Role[]>([]);
 
     useEffect(() => {
         fetch('/api/departments').then(r => r.json()).then(setDepts).catch(() => {});
+        fetch('/api/roles').then(r => r.json()).then(setRoles).catch(() => {});
     }, []);
     const [error, setError] = useState('');
     const [saving, setSave] = useState(false);
@@ -75,7 +77,10 @@ export default function NewUserPage() {
                     <label className="text-xs font-medium text-muted-foreground">Rol *</label>
                     <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                         className="w-full px-3 py-2 rounded-lg text-sm bg-secondary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40">
-                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        <option value="">— Seleccionar rol —</option>
+                        {roles.map(r => (
+                            <option key={r.id} value={r.name}>{r.label} ({r.name})</option>
+                        ))}
                     </select>
                 </div>
 

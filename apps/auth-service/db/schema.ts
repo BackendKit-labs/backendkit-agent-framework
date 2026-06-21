@@ -1,5 +1,19 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
+export const roles = sqliteTable('roles', {
+    id:          text('id').primaryKey(),
+    name:        text('name').notNull().unique(),   // clave técnica: admin, hr, sales…
+    label:       text('label').notNull(),            // nombre legible: Administrador, RR.HH.
+    description: text('description'),
+    tools:       text('tools').notNull().default('[]'), // JSON: string[] de tool names
+    active:      integer('active', { mode: 'boolean' }).notNull().default(true),
+    createdAt:   text('created_at').notNull(),
+    updatedAt:   text('updated_at').notNull(),
+});
+
+export type Role       = typeof roles.$inferSelect;
+export type InsertRole = typeof roles.$inferInsert;
+
 export const departments = sqliteTable('departments', {
     id:          text('id').primaryKey(),
     name:        text('name').notNull().unique(),

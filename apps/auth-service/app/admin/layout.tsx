@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Shield, Users, LogOut, LayoutDashboard, Building2 } from 'lucide-react';
+import { Shield, Users, LogOut, LayoutDashboard, Building2, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
@@ -22,8 +22,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (!ready) return null;
 
     const nav = [
-        { href: '/admin',             label: 'Dashboard',    icon: LayoutDashboard },
-        { href: '/admin/users',       label: 'Usuarios',     icon: Users },
+        { href: '/admin',             label: 'Dashboard',     icon: LayoutDashboard },
+        { href: '/admin/users',       label: 'Usuarios',      icon: Users },
+        { href: '/admin/roles',       label: 'Roles',         icon: ShieldCheck },
         { href: '/admin/departments', label: 'Departamentos', icon: Building2 },
     ];
 

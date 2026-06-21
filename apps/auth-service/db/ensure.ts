@@ -1,10 +1,33 @@
 import { db } from './index';
 import { sql } from 'drizzle-orm';
-import { departments } from './schema';
+import { departments, roles } from './schema';
 import { randomUUID } from 'node:crypto';
+import { DIRECTOR_TOOL_GROUPS, ROLE_DEFAULT_TOOLS } from '../lib/tools';
 
-/** Crea las tablas si no existen (bootstrap sin drizzle-kit en runtime) */
 export async function ensureSchema(): Promise<void> {
+    await db.run(sql`
+        CREATE TABLE IF NOT EXISTS roles (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            label       TEXT NOT NULL,
+            description TEXT,
+            tools       TEXT NOT NULL DEFAULT '[]',
+            active      INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+    `);
+
+    await db.run(sql`
+        CREATE TABLE IF NOT EXISTS departments (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            active      INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL
+        )
+    `);
+
     await db.run(sql`
         CREATE TABLE IF NOT EXISTS users (
             id               TEXT PRIMARY KEY,
@@ -26,41 +49,63 @@ export async function ensureSchema(): Promise<void> {
         )
     `);
 
-    await db.run(sql`
-        CREATE TABLE IF NOT EXISTS departments (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL UNIQUE,
-            description TEXT,
-            active      INTEGER NOT NULL DEFAULT 1,
-            created_at  TEXT NOT NULL
-        )
-    `);
-
-    await seedDefaultDepartments();
+    await seedRoles();
+    await seedDepartments();
 }
 
-const DEFAULT_DEPARTMENTS = [
-    { name: 'Ingeniería',        description: 'Desarrollo de software y arquitectura' },
-    { name: 'Operaciones',       description: 'DevOps, infraestructura y plataforma' },
-    { name: 'Recursos Humanos',  description: 'Gestión de personas y onboarding' },
-    { name: 'Ventas',            description: 'Comercial y relaciones con clientes' },
-    { name: 'Finanzas',          description: 'Contabilidad, pagos y reportes financieros' },
-    { name: 'Producto',          description: 'Diseño y gestión de producto' },
-    { name: 'Soporte',           description: 'Atención al cliente y helpdesk' },
+// ── Roles por defecto ──────────────────────────────────────────────────────────
+
+const DEFAULT_ROLES: { name: string; label: string; description: string }[] = [
+    { name: 'admin',       label: 'Administrador',   description: 'Acceso total al ecosistema' },
+    { name: 'development', label: 'Desarrollador',   description: 'Diseño conversacional y flujos SDD (Coder v2)' },
+    { name: 'devops',      label: 'DevOps',          description: 'Infraestructura, deploy y monitoreo' },
+    { name: 'hr',          label: 'RR.HH.',          description: 'Flows de RR.HH. y onboarding' },
+    { name: 'sales',       label: 'Ventas',          description: 'Flows de ventas y CRM' },
+    { name: 'finance',     label: 'Finanzas',        description: 'Flows financieros y reportes' },
+    { name: 'viewer',      label: 'Solo lectura',    description: 'Búsqueda en vault únicamente' },
 ];
 
-async function seedDefaultDepartments(): Promise<void> {
+async function seedRoles(): Promise<void> {
+    const existing = await db.select({ id: roles.id }).from(roles).limit(1);
+    if (existing.length > 0) return;
+
+    const now = new Date().toISOString();
+    for (const r of DEFAULT_ROLES) {
+        const tools = ROLE_DEFAULT_TOOLS[r.name] ?? [];
+        await db.insert(roles).values({
+            id:          randomUUID(),
+            name:        r.name,
+            label:       r.label,
+            description: r.description,
+            tools:       JSON.stringify(tools),
+            active:      true,
+            createdAt:   now,
+            updatedAt:   now,
+        }).onConflictDoNothing();
+    }
+}
+
+// ── Departamentos por defecto ─────────────────────────────────────────────────
+
+const DEFAULT_DEPARTMENTS = [
+    { name: 'Ingeniería',       description: 'Desarrollo de software y arquitectura' },
+    { name: 'Operaciones',      description: 'DevOps, infraestructura y plataforma' },
+    { name: 'Recursos Humanos', description: 'Gestión de personas y onboarding' },
+    { name: 'Ventas',           description: 'Comercial y relaciones con clientes' },
+    { name: 'Finanzas',         description: 'Contabilidad, pagos y reportes financieros' },
+    { name: 'Producto',         description: 'Diseño y gestión de producto' },
+    { name: 'Soporte',          description: 'Atención al cliente y helpdesk' },
+];
+
+async function seedDepartments(): Promise<void> {
     const existing = await db.select({ id: departments.id }).from(departments).limit(1);
-    if (existing.length > 0) return;  // ya hay departamentos
+    if (existing.length > 0) return;
 
     const now = new Date().toISOString();
     for (const d of DEFAULT_DEPARTMENTS) {
         await db.insert(departments).values({
-            id:          randomUUID(),
-            name:        d.name,
-            description: d.description,
-            active:      true,
-            createdAt:   now,
+            id: randomUUID(), name: d.name, description: d.description,
+            active: true, createdAt: now,
         }).onConflictDoNothing();
     }
 }

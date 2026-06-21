@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cwdToProjectKey } from '@backendkit-labs/agent-core';
+import { auditLogger }    from './audit.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'bk-agent';
 
@@ -206,6 +207,25 @@ const srv = new McpServer({
     name: '@backendkit-labs/design-agent',
     version: '0.2.0',
 });
+
+// Intercept srv.tool so every registered handler is automatically audited
+{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orig = (srv as any).tool.bind(srv);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (srv as any).tool = (name: string, desc: string, schema: unknown, handler: (...a: any[]) => Promise<unknown>) =>
+        orig(name, desc, schema, async (...args: unknown[]) => {
+            const start = Date.now();
+            try {
+                const result = await handler(...args);
+                auditLogger.write({ tool: name, status: 'ok', durationMs: Date.now() - start });
+                return result;
+            } catch (err) {
+                auditLogger.write({ tool: name, status: 'error', durationMs: Date.now() - start, error: (err as Error).message });
+                throw err;
+            }
+        });
+}
 
 // ---------------------------------------------------------------------------
 // design_save_prompt — writes prompt.md to cwd (replaces /prompt)

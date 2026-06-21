@@ -2,6 +2,7 @@ import 'dotenv/config';
 import * as path    from 'node:path';
 import * as fs      from 'node:fs';
 import express, { Request, Response } from 'express';
+import { auditLogger, SKIP_ROUTES } from './audit';
 import { OrchestratorMcpClient }  from './mcp-client';
 import { OrchestratorHttpClient } from './http-client';
 import { parseFlowResult }        from './parser';
@@ -52,6 +53,21 @@ function startRunsPoller() {
 
 const app = express();
 app.use(express.json());
+
+// Audit middleware — solo POST/DELETE y rutas no-ruidosas
+app.use((req, res, next) => {
+    if (SKIP_ROUTES.has(req.path) || req.method === 'GET') return next();
+    const start = Date.now();
+    res.on('finish', () => {
+        auditLogger.write({
+            method: req.method, route: req.path,
+            statusCode: res.statusCode,
+            status: res.statusCode < 400 ? 'ok' : 'error',
+            durationMs: Date.now() - start,
+        });
+    });
+    next();
+});
 
 // POST /api/run — start a flow (async: returns run_id immediately, kanban polls for progress)
 app.post('/api/run', async (req: Request, res: Response) => {

@@ -135,6 +135,12 @@ function handleConnection(ws: WebSocket, engine: AgentEngine): void {
                                 send(ws, { type: 'done' });
                             } else if (evt.type === 'error') {
                                 send(ws, { type: 'error', message: evt.message });
+                            } else if (evt.type === 'tool_call') {
+                                const parts = evt.name.split('__');
+                                send(ws, { type: 'tool_call', name: parts[parts.length - 1] ?? evt.name, server: parts[1] ?? '', preview: evt.args_preview });
+                            } else if (evt.type === 'tool_result') {
+                                const parts = evt.name.split('__');
+                                send(ws, { type: 'tool_result', name: parts[parts.length - 1] ?? evt.name, success: evt.success, preview: evt.preview });
                             }
                         },
                     },

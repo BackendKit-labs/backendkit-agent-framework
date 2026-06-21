@@ -11,7 +11,24 @@
  *   DIRECTOR_CONFIG    ruta al director.yaml (alternativa al argumento)
  */
 
-import 'dotenv/config';
+// Carga .env desde cwd O desde el directorio raíz del paquete (2 niveles arriba del .js)
+// — igual que server.ts, para que funcione sin importar desde qué directorio se corra.
+import * as fsSync   from 'node:fs';
+import * as pathSync from 'node:path';
+import { fileURLToPath } from 'node:url';
+(function loadDotEnv() {
+    const pkgRoot    = pathSync.resolve(fileURLToPath(import.meta.url), '..', '..');
+    const candidates = [pathSync.join(process.cwd(), '.env'), pathSync.join(pkgRoot, '.env')];
+    for (const f of candidates) {
+        if (!fsSync.existsSync(f)) continue;
+        for (const line of fsSync.readFileSync(f, 'utf-8').split('\n')) {
+            const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+            if (m && m[2] && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+        }
+        break;
+    }
+})();
+
 import * as readline from 'node:readline';
 import type { AgentEvent } from '@backendkit-labs/agent-core';
 import { loadConfig } from './config.js';

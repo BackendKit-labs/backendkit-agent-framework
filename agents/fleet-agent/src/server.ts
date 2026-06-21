@@ -17,6 +17,7 @@ import "dotenv/config";
 import { McpServer }            from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z }                    from "zod";
+import { auditLogger }          from "./audit.js";
 
 const GATEWAY_URL = (process.env.GATEWAY_URL ?? "http://localhost:3400").replace(/\/$/, "");
 const API_KEY     = process.env.GATEWAY_API_KEY;
@@ -61,20 +62,34 @@ t("deploy_agent",
         cpu:         z.number().optional().describe("CPU cores limit e.g. 0.5"),
     },
     async ({ id, image, description, capability, instances, env, mounts, api_key, memory, cpu }) => {
+        const start = Date.now();
+        auditLogger.write({ event: 'deploy.start', agentId: id, image, instances });
         try {
-            return ok(await gw("POST", "/api/deploy", {
+            const result = await gw("POST", "/api/deploy", {
                 id, image, description, capability, instances,
                 env, mounts, apiKey: api_key, memory, cpu,
-            }, 180_000));
-        } catch (e) { return err(e); }
+            }, 180_000);
+            auditLogger.write({ event: 'deploy.done', agentId: id, image, instances, durationMs: Date.now() - start });
+            return ok(result);
+        } catch (e) {
+            auditLogger.write({ event: 'deploy.failed', agentId: id, image, durationMs: Date.now() - start, error: (e as Error)?.message });
+            return err(e);
+        }
     });
 
 t("stop_agent",
     "Stop all containers for an agent and remove it from the pool.",
     { agent_id: z.string() },
     async ({ agent_id }) => {
-        try { return ok(await gw("DELETE", `/api/deploy/${encodeURIComponent(agent_id)}`)); }
-        catch (e) { return err(e); }
+        const start = Date.now();
+        try {
+            const result = await gw("DELETE", `/api/deploy/${encodeURIComponent(agent_id)}`);
+            auditLogger.write({ event: 'agent.stop', agentId: agent_id, durationMs: Date.now() - start });
+            return ok(result);
+        } catch (e) {
+            auditLogger.write({ event: 'agent.stop', agentId: agent_id, durationMs: Date.now() - start, error: (e as Error)?.message });
+            return err(e);
+        }
     });
 
 t("deploy_settings",

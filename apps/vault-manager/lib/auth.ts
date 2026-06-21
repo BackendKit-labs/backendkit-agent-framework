@@ -3,6 +3,8 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { authConfig } from './auth.config';
 
+// hashPassword y verifyPassword eliminados — auth delegada al auth-service.
+
 const AUTH_SERVICE_URL = process.env['AUTH_SERVICE_URL'] ?? 'http://localhost:4000';
 
 interface AuthServiceUser {

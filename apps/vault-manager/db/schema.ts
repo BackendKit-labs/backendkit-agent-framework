@@ -1,18 +1,8 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
-// ── Users ─────────────────────────────────────────────────────────────────────
-
-export const users = sqliteTable('users', {
-    id:           text('id').primaryKey(),
-    email:        text('email').notNull().unique(),
-    name:         text('name').notNull(),
-    passwordHash: text('password_hash').notNull(),
-    role:         text('role', { enum: ['admin', 'technical', 'business', 'viewer'] }).notNull().default('viewer'),
-    avatar:       text('avatar'),
-    active:       integer('active', { mode: 'boolean' }).notNull().default(true),
-    lastActiveAt: integer('last_active_at', { mode: 'timestamp' }),
-    createdAt:    integer('created_at',     { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-});
+// NOTE: La tabla `users` fue eliminada en la migración 0001.
+// Los usuarios se gestionan en auth-service (enterprise.db).
+// Las columnas de auditoría (reviewedBy, changedBy, etc.) almacenan el username como texto.
 
 // ── Vault definitions ─────────────────────────────────────────────────────────
 
@@ -39,13 +29,13 @@ export const auditItems = sqliteTable('audit_items', {
     generatedContent: text('generated_content').notNull(),
     generatedTitle:   text('generated_title').notNull(),
     area:             text('area'),
-    tags:             text('tags'),           // JSON array serialized
-    curatorScore:     real('curator_score'),  // 0-1 confidence
+    tags:             text('tags'),
+    curatorScore:     real('curator_score'),
     status:           text('status', {
         enum: ['pending', 'approved', 'rejected', 'improved', 'processing'],
     }).notNull().default('pending'),
     feedback:         text('feedback'),
-    reviewedBy:       text('reviewed_by').references(() => users.id),
+    reviewedBy:       text('reviewed_by'),   // username del revisor (auth-service)
     reviewedAt:       integer('reviewed_at', { mode: 'timestamp' }),
     createdAt:        integer('created_at',  { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
@@ -58,7 +48,7 @@ export const vaultHistory = sqliteTable('vault_history', {
     notePath:        text('note_path').notNull(),
     previousContent: text('previous_content'),
     newContent:      text('new_content').notNull(),
-    changedBy:       text('changed_by').references(() => users.id),
+    changedBy:       text('changed_by'),     // username del editor (auth-service)
     changeType:      text('change_type', {
         enum: ['ingest', 'edit', 'ai_improve', 'approve', 'reject'],
     }).notNull(),
@@ -78,7 +68,7 @@ export const ingestJobs = sqliteTable('ingest_jobs', {
     }).notNull().default('queued'),
     error:       text('error'),
     auditItemId: text('audit_item_id').references(() => auditItems.id),
-    createdBy:   text('created_by').references(() => users.id),
+    createdBy:   text('created_by'),         // username del uploader (auth-service)
     createdAt:   integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
     finishedAt:  integer('finished_at', { mode: 'timestamp' }),
 });
@@ -88,8 +78,8 @@ export const ingestJobs = sqliteTable('ingest_jobs', {
 export const improveSessions = sqliteTable('improve_sessions', {
     id:             text('id').primaryKey(),
     auditItemId:    text('audit_item_id').notNull().references(() => auditItems.id),
-    userId:         text('user_id').notNull().references(() => users.id),
-    messages:       text('messages').notNull().default('[]'), // JSON
+    userId:         text('user_id').notNull(),  // username del usuario (auth-service)
+    messages:       text('messages').notNull().default('[]'),
     appliedContent: text('applied_content'),
     status:         text('status', { enum: ['open', 'applied', 'discarded'] }).notNull().default('open'),
     createdAt:      integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
@@ -98,13 +88,14 @@ export const improveSessions = sqliteTable('improve_sessions', {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type User            = typeof users.$inferSelect;
 export type VaultDefinition = typeof vaultDefinitions.$inferSelect;
 export type AuditItem       = typeof auditItems.$inferSelect;
 export type VaultHistory    = typeof vaultHistory.$inferSelect;
 export type IngestJob       = typeof ingestJobs.$inferSelect;
 export type ImproveSession  = typeof improveSessions.$inferSelect;
 
-export type UserRole = 'admin' | 'technical' | 'business' | 'viewer';
-export type AuditStatus = 'pending' | 'approved' | 'rejected' | 'improved' | 'processing';
+export type AuditStatus  = 'pending' | 'approved' | 'rejected' | 'improved' | 'processing';
 export type IngestStatus = 'queued' | 'processing' | 'done' | 'failed';
+
+// Roles del vault-manager (para compatibilidad con vaultDefinitions.ownerRole)
+export type VaultRole = 'admin' | 'technical' | 'business';

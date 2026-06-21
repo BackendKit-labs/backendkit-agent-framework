@@ -1,0 +1,120 @@
+<h1>👥 Gestión de usuarios</h1>
+<p class="subtitle">Usuarios del ecosistema BackendKit · acceso al Director Agent</p>
+
+<% if (error) { %>
+<div class="validation-summary">
+  <span class="badge badge-error">Error</span>
+  <span class="text-error"><%= error %></span>
+</div>
+<% } %>
+
+<% if (success) { %>
+<div class="validation-summary">
+  <span class="badge badge-ok">OK</span>
+  <span><%= success %></span>
+</div>
+<% } %>
+
+<!-- ── Lista de usuarios ──────────────────────────────────────────── -->
+<h2>Usuarios actuales (<%= users.length %>)</h2>
+
+<% if (users.length === 0) { %>
+  <div class="empty-state">
+    <p>No hay usuarios. Creá el primer usuario administrador.</p>
+  </div>
+<% } else { %>
+  <table class="config-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Nombre</th>
+        <th>Rol</th>
+        <th>Departamento</th>
+        <th>Estado</th>
+        <th>Creado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% for (const user of users) { %>
+      <tr>
+        <td><strong><%= user.username %></strong></td>
+        <td><%= user.name || '—' %></td>
+        <td><span class="badge badge-<%= user.role === 'admin' ? 'error' : user.role === 'development' ? 'ok' : 'warning' %>"><%= user.role %></span></td>
+        <td><%= user.department || '—' %></td>
+        <td>
+          <% if (user.active) { %>
+            <span class="badge badge-ok">activo</span>
+          <% } else { %>
+            <span class="badge badge-error">inactivo</span>
+          <% } %>
+        </td>
+        <td><%= new Date(user.createdAt).toLocaleDateString('es') %></td>
+        <td>
+          <form method="POST" action="/users/toggle/<%= user.username %>" style="display:inline">
+            <input type="hidden" name="active" value="<%= user.active ? 'false' : 'true' %>">
+            <button type="submit" class="btn btn-sm"><%= user.active ? '⏸ Desactivar' : '▶ Activar' %></button>
+          </form>
+          <% if (user.username !== 'admin') { %>
+          <form method="POST" action="/users/delete/<%= user.username %>" style="display:inline"
+                onsubmit="return confirm('¿Eliminar usuario <%= user.username %>?')">
+            <button type="submit" class="btn btn-sm btn-danger">🗑 Eliminar</button>
+          </form>
+          <% } %>
+        </td>
+      </tr>
+      <% } %>
+    </tbody>
+  </table>
+<% } %>
+
+<!-- ── Crear usuario ──────────────────────────────────────────────── -->
+<h2 style="margin-top: 2rem">Crear usuario</h2>
+
+<form method="POST" action="/users">
+  <div class="field-grid">
+    <div class="field">
+      <label for="username">Username *</label>
+      <input type="text" id="username" name="username" required placeholder="maria.garcia">
+    </div>
+    <div class="field">
+      <label for="name">Nombre completo</label>
+      <input type="text" id="name" name="name" placeholder="María García">
+    </div>
+    <div class="field">
+      <label for="role">Rol *</label>
+      <select id="role" name="role" required>
+        <option value="">— elegir rol —</option>
+        <% for (const r of roles) { %>
+          <option value="<%= r %>"><%= r %></option>
+        <% } %>
+      </select>
+    </div>
+    <div class="field">
+      <label for="department">Departamento</label>
+      <input type="text" id="department" name="department" placeholder="engineering / hr / sales">
+    </div>
+    <div class="field">
+      <label for="password">Contraseña *</label>
+      <input type="password" id="password" name="password" required minlength="8">
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">➕ Crear usuario</button>
+  </div>
+</form>
+
+<!-- ── Roles y permisos ───────────────────────────────────────────── -->
+<h2 style="margin-top: 2rem">Roles disponibles</h2>
+<table class="config-table">
+  <thead><tr><th>Rol</th><th>Puede hacer</th></tr></thead>
+  <tbody>
+    <tr><td><span class="badge badge-error">admin</span></td><td>Control total — curar vault, deploy, config de agentes, gestión de usuarios, aprobar gates</td></tr>
+    <tr><td><span class="badge badge-ok">development</span></td><td>Diseño conversacional + SDD (coder v2), curar vault, buscar, health del sistema</td></tr>
+    <tr><td><span class="badge badge-warning">hr</span></td><td>Buscar en vault (namespace rh/), iniciar flows de RR.HH., recibir notificaciones</td></tr>
+    <tr><td><span class="badge badge-warning">sales</span></td><td>Buscar en vault (namespace ventas/), iniciar flows de ventas</td></tr>
+    <tr><td><span class="badge badge-warning">finance</span></td><td>Buscar en vault (namespace finanzas/), iniciar flows financieros</td></tr>
+    <tr><td><span class="badge badge-ok">devops</span></td><td>Deploy, curación, reindexar vault, health del sistema</td></tr>
+  </tbody>
+</table>

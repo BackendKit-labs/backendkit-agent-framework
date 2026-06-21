@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="<%= locals.theme || 'light' %>">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> | Config-Agent</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="/" class="logo">🔧 Config-Agent</a>
+      <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/users">👥 Usuarios</a>
+        <button id="theme-toggle" class="btn-icon" title="Cambiar tema">🌓</button>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <%- body %>
+  </main>
+  <footer>
+    <p>Config-Agent v1.0.0 · BackendKit Ecosystem</p>
+  </footer>
+  <script src="/script.js"></script>
+</body>
+</html>

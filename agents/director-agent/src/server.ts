@@ -20,6 +20,7 @@ import { buildDirectorEngine, resolveConfigPath } from './engine.js';
 import { verifyToken, isEnterpriseMode } from './auth/jwt.js';
 import { requestContext }        from './auth/context.js';
 import { ADMIN_PRINCIPAL }       from './auth/types.js';
+import { login }                 from './auth/login.js';
 
 const log = (msg: string) => process.stderr.write(`[director-agent] ${msg}\n`);
 
@@ -117,6 +118,34 @@ async function main(): Promise<void> {
                 `Tools totales: ${mcp.getTools().length}`,
             ];
             return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        },
+    );
+
+    // @ts-ignore
+    mcp_srv.tool(
+        'director_login',
+        'Autenticar con el Director. Devuelve un JWT (user_token) para usar en director_chat. ' +
+        'Requiere que JWT_SECRET esté configurado. Los usuarios se crean desde config-agent (http://localhost:3456/users).',
+        {
+            username: z.string().describe('Nombre de usuario'),
+            password: z.string().describe('Contraseña'),
+        },
+        async ({ username, password }: { username: string; password: string }) => {
+            const result = await login(username, password);
+            if (!result.ok) {
+                return { content: [{ type: 'text' as const, text: JSON.stringify({ error: result.error }) }] };
+            }
+            return {
+                content: [{
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                        token: result.token,
+                        user:  result.user,
+                        expires_in: '8h',
+                        usage: 'Usá este token en director_chat({ message, user_token: "<token>" })',
+                    }),
+                }],
+            };
         },
     );
 

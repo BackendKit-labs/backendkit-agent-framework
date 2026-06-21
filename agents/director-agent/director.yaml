@@ -143,9 +143,8 @@ access_control:
     read_note:    { allowed_roles: ["*"] }
 
     curate_path:
-      allowed_roles: ["admin", "dev", "tech-lead"]
+      allowed_roles: ["admin", "development", "devops"]
       conditions:
-        # Dev y tech-lead no pueden curar en fin de semana (weekday 0=Dom, 6=Sáb)
         - effect: deny
           reason: "Curación de paths deshabilitada en fin de semana para roles no-admin"
           match:
@@ -154,7 +153,7 @@ access_control:
               - { time: weekday, in: [0, 6] }
 
     curate_link:
-      allowed_roles: ["admin", "dev", "tech-lead"]
+      allowed_roles: ["admin", "development", "devops"]
       conditions:
         - effect: deny
           reason: "Curación de links deshabilitada en fin de semana para roles no-admin"
@@ -195,12 +194,12 @@ access_control:
 
     # ── Coder v2 (Orchestrator V2 — SDD flows) ────────────────────────────────
     # config_path es un argumento en cada llamada, no afecta la autorización aquí.
-    orchestrator_run:             { allowed_roles: ["admin", "dev", "tech-lead"] }
+    orchestrator_run:             { allowed_roles: ["admin", "development"] }
     orchestrator_status:          { allowed_roles: ["*"] }
-    orchestrator_approve:         { allowed_roles: ["admin", "tech-lead"] }
+    orchestrator_approve:         { allowed_roles: ["admin", "development"] }
     orchestrator_list_agents:     { allowed_roles: ["*"] }
-    orchestrator_list_runs:       { allowed_roles: ["admin", "dev", "tech-lead"] }
-    orchestrator_reflect:         { allowed_roles: ["admin", "tech-lead"] }
+    orchestrator_list_runs:       { allowed_roles: ["admin", "development"] }
+    orchestrator_reflect:         { allowed_roles: ["admin", "development"] }
     orchestrator_reflect_promote: { allowed_roles: ["admin"] }
     orchestrator_reflect_demote:  { allowed_roles: ["admin"] }
 
@@ -219,9 +218,19 @@ access_control:
     detect_env:        { allowed_roles: ["admin", "devops"] }
     serve_config_ui:   { allowed_roles: ["admin"] }
 
+    # ── Runs — flows de negocio (área-specific) ────────────────────────────────
+    # run_flow y run_task son abiertos; el control fino se hace en el orquestador
+    # donde cada flow tiene su propio trigger y los gates exigen capability.
+    run_flow:             { allowed_roles: ["*"] }
+    start_flow:           { allowed_roles: ["*"] }
+    run_task:             { allowed_roles: ["*"] }
+    run_status:           { allowed_roles: ["*"] }
+    list_runs:            { allowed_roles: ["admin", "development", "devops"] }
+    orchestrator_approve: { allowed_roles: ["admin", "development"] }
+    orchestrator_reject:  { allowed_roles: ["admin", "development"] }
+    orchestrator_retry:   { allowed_roles: ["admin", "development"] }
+
     # ── Scheduler (programación de tareas) ─────────────────────────────────────
-    # El scheduler tiene su propio RBAC interno (userRole param): aquí solo se controla
-    # el acceso a nivel de tool desde el director.
     schedule_task:     { allowed_roles: ["*"] }
     list_scheduled:    { allowed_roles: ["*"] }
     task_status:       { allowed_roles: ["*"] }

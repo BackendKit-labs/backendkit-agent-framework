@@ -288,8 +288,11 @@ export async function buildDirectorEngine(
     }));
 
     // ── Transport ─────────────────────────────────────────────────────────────
+    // Si hay un onEvent en el requestContext (WS per-request), tiene prioridad
+    // sobre el callback global (MCP server / REPL).
     const transport = new CallbackTransport((evt: AgentEvent) => {
-        onEvent?.(evt);
+        const ctx = requestContext.getStore();
+        if (ctx?.onEvent) { ctx.onEvent(evt); } else { onEvent?.(evt); }
     });
 
     // ── Engine ────────────────────────────────────────────────────────────────

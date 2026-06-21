@@ -21,6 +21,7 @@ import { verifyToken, isEnterpriseMode } from './auth/jwt.js';
 import { requestContext }        from './auth/context.js';
 import { ADMIN_PRINCIPAL }       from './auth/types.js';
 import { login }                 from './auth/login.js';
+import { startWsServer }         from './ws-server.js';
 
 const log = (msg: string) => process.stderr.write(`[director-agent] ${msg}\n`);
 
@@ -149,11 +150,15 @@ async function main(): Promise<void> {
         },
     );
 
+    // ── WebSocket front-door ──────────────────────────────────────────────────
+    const wsPort = config.director.ws_port;
+    startWsServer(wsPort, engine);
+
     // ── Start stdio transport ─────────────────────────────────────────────────
     const transport = new StdioServerTransport();
     await mcp_srv.connect(transport);
     log('MCP stdio listo');
-    log('Tools: director_chat, director_clear, director_status');
+    log('Tools: director_chat, director_clear, director_status, director_login');
 }
 
 main().catch(err => {

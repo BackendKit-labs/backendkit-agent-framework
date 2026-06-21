@@ -1,4 +1,4 @@
-import { db } from './index.js';
+﻿import { db } from './index';
 import { sql } from 'drizzle-orm';
 
 /** Crea la tabla si no existe (bootstrap sin drizzle-kit en runtime) */

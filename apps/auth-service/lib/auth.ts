@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
+﻿import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import type { User } from '../db/schema.js';
 
 function getSecret(): Uint8Array {

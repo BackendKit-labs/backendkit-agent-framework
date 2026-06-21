@@ -7,8 +7,8 @@ import * as fs   from 'node:fs';
 import * as path from 'node:path';
 import * as os   from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { db } from '../db/index';
+import { users } from '../db/schema';
 
 interface LegacyUser {
     id:           string;
@@ -61,4 +61,4 @@ export async function migrateFromJson(): Promise<number> {
     return migrated;
 }
 
-// ADMIN_PASSWORD eliminado — el setup inicial se hace via /setup (endpoint de un solo uso)
+// El setup inicial del primer admin se hace via /setup (endpoint de un solo uso)

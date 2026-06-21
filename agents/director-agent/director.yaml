@@ -218,17 +218,12 @@ access_control:
     detect_env:        { allowed_roles: ["admin", "devops"] }
     serve_config_ui:   { allowed_roles: ["admin"] }
 
-    # ── Runs — flows de negocio (área-specific) ────────────────────────────────
-    # run_flow y run_task son abiertos; el control fino se hace en el orquestador
-    # donde cada flow tiene su propio trigger y los gates exigen capability.
-    run_flow:             { allowed_roles: ["*"] }
-    start_flow:           { allowed_roles: ["*"] }
-    run_task:             { allowed_roles: ["*"] }
-    run_status:           { allowed_roles: ["*"] }
-    list_runs:            { allowed_roles: ["admin", "development", "devops"] }
-    orchestrator_approve: { allowed_roles: ["admin", "development"] }
-    orchestrator_reject:  { allowed_roles: ["admin", "development"] }
-    orchestrator_retry:   { allowed_roles: ["admin", "development"] }
+    # ── Runs — flows de negocio ────────────────────────────────────────────────
+    # run_flow/run_task abiertos a todos; control fino en el orquestador por flow.
+    run_flow:   { allowed_roles: ["*"] }
+    start_flow: { allowed_roles: ["*"] }
+    run_task:   { allowed_roles: ["*"] }
+    run_status: { allowed_roles: ["*"] }
 
     # ── Scheduler (programación de tareas) ─────────────────────────────────────
     schedule_task:     { allowed_roles: ["*"] }

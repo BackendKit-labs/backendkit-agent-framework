@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Shield, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,13 @@ import { cn } from '@/lib/utils';
 export default function LoginPage() {
     const router = useRouter();
     const [form,  setForm]  = useState({ username: '', password: '' });
+
+    // Si la DB está vacía → redirigir al setup
+    useEffect(() => {
+        fetch('/api/setup').then(r => r.json())
+            .then((d: { setupRequired: boolean }) => { if (d.setupRequired) router.push('/setup'); })
+            .catch(() => {});
+    }, [router]);
     const [error, setError] = useState('');
     const [loading, setLoad] = useState(false);
 

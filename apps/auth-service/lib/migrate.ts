@@ -61,30 +61,4 @@ export async function migrateFromJson(): Promise<number> {
     return migrated;
 }
 
-/** Crea el usuario admin desde ADMIN_PASSWORD si no existe ningún admin. */
-export async function bootstrapAdmin(): Promise<void> {
-    const password = process.env['ADMIN_PASSWORD'];
-    if (!password) return;
-
-    const { hashPassword } = await import('./password.js');
-    const { randomUUID }   = await import('node:crypto');
-
-    const existing = await db.select({ role: users.role }).from(users);
-    if (existing.some(u => u.role === 'admin')) return;
-
-    const now = new Date().toISOString();
-    await db.insert(users).values({
-        id:           randomUUID(),
-        username:     'admin',
-        name:         'Administrador',
-        role:         'admin',
-        passwordHash: await hashPassword(password),
-        active:       true,
-        failedAttempts: 0,
-        canUseDirector: true,
-        canUseVault:    true,
-        createdAt:    now,
-        updatedAt:    now,
-    }).onConflictDoNothing();
-    process.stderr.write('[auth-service] Admin user bootstrapped from ADMIN_PASSWORD\n');
-}
+// ADMIN_PASSWORD eliminado — el setup inicial se hace via /setup (endpoint de un solo uso)

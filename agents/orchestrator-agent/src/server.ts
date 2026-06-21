@@ -37,6 +37,7 @@ import { buildRAG }                               from './rag.js';
 import { matchFlow, flowToTaskPlan }              from './static-flow.js';
 import { consolidateRun }                         from './consolidate.js';
 import type { ReflectionAdapter }                 from './executor.js';
+import { getAuditLogger }                         from './audit.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -317,6 +318,9 @@ async function executeInBackground(
         },
     });
 
+    const audit     = getAuditLogger(configPath);
+    const startedMs = new Date(state.startedAt).getTime();
+
     try {
         const result = await executor.execute(plan as Parameters<typeof executor.execute>[0], priorResults);
 
@@ -336,6 +340,7 @@ async function executeInBackground(
                     appliedRuleIds:  result.appliedRuleIds.length ? result.appliedRuleIds : undefined,
                 },
             });
+            audit.write({ event: 'gate.hit', runId, task: state.task, stepId: result.stepId, agentId: result.agentId, durationMs: Date.now() - startedMs, extra: { completedSteps: result.completedSoFar.length } });
         } else {
             let vaultNotePath: string | undefined;
             if (config.orchestrator.vault) {
@@ -363,6 +368,7 @@ async function executeInBackground(
                 vaultNotePath,
                 waitingGate:    undefined,
             });
+            audit.write({ event: 'run.done', runId, task: state.task, status: 'complete', durationMs: Date.now() - startedMs, extra: { steps: result.results.length } });
         }
     } catch (err) {
         await store.save({
@@ -371,6 +377,7 @@ async function executeInBackground(
             currentStep: undefined,
             error:       err instanceof Error ? err.message : String(err),
         });
+        audit.write({ event: 'run.failed', runId, task: state.task, status: 'failed', durationMs: Date.now() - startedMs, error: err instanceof Error ? err.message : String(err) });
     }
 }
 
@@ -482,6 +489,7 @@ srv.tool(
         if ('error' in result) return ok(result.error);
 
         const { runId, planSource, plan, config } = result;
+        getAuditLogger(config_path).write({ event: 'run.start', runId, task, planSource, extra: { steps: plan.subtasks.length, flowId: flow_id } });
         const planLines = plan.subtasks.map(st => {
             const agentCfg  = config.agents.find(a => a.id === st.agent_id);
             const gateLabel = (st.gate ?? agentCfg?.gate) ? ' [GATE]' : '';
@@ -552,6 +560,7 @@ srv.tool(
                 error:       `Gate rejected by approver. Step: ${gate.stepId}. Notes: ${notes ?? '(none)'}`,
                 waitingGate: undefined,
             });
+            getAuditLogger(config_path).write({ event: 'gate.rejected', runId: run_id, task: state.task, stepId: gate.stepId, agentId: gate.agentId, error: notes ?? 'no notes' });
             return ok([
                 `Gate rejected — run \`${run_id}\` stopped.`,
                 `Step: ${gate.stepId} (${gate.agentId})`,
@@ -559,6 +568,7 @@ srv.tool(
             ].filter(Boolean).join('\n'));
         }
 
+        getAuditLogger(config_path).write({ event: 'gate.approved', runId: run_id, task: state.task, stepId: gate.stepId, agentId: gate.agentId, extra: notes ? { notes } : undefined });
         const rag = await buildRAG(config, resolveDataDir(config_path, config)).catch(() => null);
 
         // Mark gate as cleared, resume in background

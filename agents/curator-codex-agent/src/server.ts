@@ -44,6 +44,7 @@ import { KnowledgeEngine }               from './knowledge/engine.js';
 import { createProvider }                from './providers/index.js';
 import { findAllFiles }                  from './checksum.js';
 import { ConfigManager }                 from './api/config.js';
+import { auditLogger }                   from './audit.js';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -76,7 +77,19 @@ function makeAnalyzer(): CodeAnalyzer {
 function createMcpServer(knowledgeEngine: KnowledgeEngine, configManager: ConfigManager): McpServer {
     const srv = new McpServer({ name: 'curator-codex-agent', version: '0.2.0' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const t = srv.tool.bind(srv) as any;
+    const _t = srv.tool.bind(srv) as any;
+    const t = (name: string, desc: string, schema: unknown, handler: (...args: any[]) => Promise<unknown>) =>
+        _t(name, desc, schema, async (...args: any[]) => {
+            const start = Date.now();
+            try {
+                const result = await handler(...args);
+                auditLogger.write({ tool: name, status: 'ok', durationMs: Date.now() - start });
+                return result;
+            } catch (err) {
+                auditLogger.write({ tool: name, status: 'error', durationMs: Date.now() - start, error: (err as Error).message });
+                throw err;
+            }
+        });
 
     // curator_process_file
     t(

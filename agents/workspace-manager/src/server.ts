@@ -37,6 +37,7 @@ import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { auditLogger } from './audit.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -166,7 +167,20 @@ async function main(): Promise<void> {
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const t = srv.tool.bind(srv) as any;
+  const _t = srv.tool.bind(srv) as any;
+  // Wrap every tool handler with audit logging
+  const t = (name: string, desc: string, schema: unknown, handler: (...args: any[]) => Promise<unknown>) =>
+    _t(name, desc, schema, async (...args: any[]) => {
+        const start = Date.now();
+        try {
+            const result = await handler(...args);
+            auditLogger.write({ tool: name, status: 'ok', durationMs: Date.now() - start, extra: args[0] && typeof args[0] === 'object' ? { args: args[0] } : undefined });
+            return result;
+        } catch (err) {
+            auditLogger.write({ tool: name, status: 'error', durationMs: Date.now() - start, error: (err as Error).message });
+            throw err;
+        }
+    });
 
   // workspace_list
   t(

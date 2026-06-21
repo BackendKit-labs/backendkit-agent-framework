@@ -7,6 +7,25 @@ import { RECOVERY_AGENT }      from './agents/recovery-agent';
 import { getWaitingRunsTool }  from './tools/get-waiting-runs';
 import { checkAgentHealthTool } from './tools/check-agent-health';
 import { retryFlowRunTool }    from './tools/retry-flow-run';
+import { auditLogger }         from './audit';
+import type { ToolDefinition } from '@backendkit-labs/agent-core';
+
+function withAudit(tool: ToolDefinition): ToolDefinition {
+    return {
+        ...tool,
+        execute: async (args, ctx) => {
+            const start = Date.now();
+            try {
+                const result = await tool.execute(args, ctx);
+                auditLogger.write({ tool: tool.name, status: 'ok', durationMs: Date.now() - start });
+                return result;
+            } catch (err) {
+                auditLogger.write({ tool: tool.name, status: 'error', durationMs: Date.now() - start, error: (err as Error).message });
+                throw err;
+            }
+        },
+    };
+}
 
 // ── Validate config ────────────────────────────────────────────────────────────
 
@@ -41,7 +60,7 @@ const daemon = createAutonomousAgent({
     defaultProvider: 'llm',
     agents:          [RECOVERY_AGENT],
     defaultAgent:    'recovery',
-    tools:           [getWaitingRunsTool, checkAgentHealthTool, retryFlowRunTool],
+    tools:           [withAudit(getWaitingRunsTool), withAudit(checkAgentHealthTool), withAudit(retryFlowRunTool)],
     memorySystem:    memory,
     maxIterations:   15,
     transport:       new StdoutTransport(),

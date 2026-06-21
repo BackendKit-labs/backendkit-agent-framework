@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { AgentServer } from '@backendkit-labs/agent-protocol';
 import type { CapabilityDefinition } from '@backendkit-labs/agent-protocol';
 import { synthesize } from './engine';
+import { auditLogger } from './audit';
 
 const PORT = parseInt(process.env.SYNTHESIZER_PORT ?? '3303', 10);
 
@@ -59,8 +60,15 @@ const server = new AgentServer({
 server.register({
     definition: executeDefinition,
     execute:    async (input) => {
-        const result = await synthesize(buildPrompt(input));
-        return result || 'No se pudo sintetizar una respuesta.';
+        const start = Date.now();
+        try {
+            const result = await synthesize(buildPrompt(input));
+            auditLogger.write({ tool: 'execute', status: 'ok', durationMs: Date.now() - start });
+            return result || 'No se pudo sintetizar una respuesta.';
+        } catch (err) {
+            auditLogger.write({ tool: 'execute', status: 'error', durationMs: Date.now() - start, error: (err as Error).message });
+            throw err;
+        }
     },
 });
 

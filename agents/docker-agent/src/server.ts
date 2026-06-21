@@ -1,5 +1,6 @@
 import http from 'http';
 import { loadConfig } from './config';
+import { auditLogger } from './audit';
 import { getClient } from './docker/client';
 import { containerCreate, containerExec, containerStop, containerRemove, containerLogs, containerInspect } from './tools/container';
 import { systemInfo, systemPrune } from './tools/system';
@@ -94,8 +95,15 @@ async function main(): Promise<void> {
           return;
         }
 
-        const result = await executor(params);
-        sendJSON(res, 200, { status: 'ok', data: JSON.parse(result) });
+        const start = Date.now();
+        try {
+          const result = await executor(params);
+          auditLogger.write({ tool, status: 'ok', durationMs: Date.now() - start });
+          sendJSON(res, 200, { status: 'ok', data: JSON.parse(result) });
+        } catch (execErr) {
+          auditLogger.write({ tool, status: 'error', durationMs: Date.now() - start, error: (execErr as Error).message });
+          throw execErr;
+        }
       } catch (err) {
         const error = err as Error;
         sendJSON(res, 500, {

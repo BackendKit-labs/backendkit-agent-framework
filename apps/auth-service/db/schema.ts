@@ -1,0 +1,30 @@
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+
+export const users = sqliteTable('users', {
+    id:              text('id').primaryKey(),
+    username:        text('username').notNull().unique(),
+    name:            text('name'),
+    email:           text('email'),
+    role:            text('role').notNull().default('viewer'),
+    department:      text('department'),
+    passwordHash:    text('password_hash').notNull(),
+    active:          integer('active',          { mode: 'boolean' }).notNull().default(true),
+    failedAttempts:  integer('failed_attempts').notNull().default(0),
+    lockedUntil:     text('locked_until'),
+    // Workspace del Director — JSON array o null (null = usar defaults del rol)
+    directorTools:   text('director_tools'),
+    // Namespaces del vault — JSON array o null (null = usar defaults del rol)
+    vaultNamespaces: text('vault_namespaces'),
+    // Acceso a apps
+    canUseDirector:  integer('can_use_director', { mode: 'boolean' }).notNull().default(true),
+    canUseVault:     integer('can_use_vault',    { mode: 'boolean' }).notNull().default(false),
+    createdAt:       text('created_at').notNull(),
+    updatedAt:       text('updated_at').notNull(),
+});
+
+export type User        = typeof users.$inferSelect;
+export type InsertUser  = typeof users.$inferInsert;
+
+export type EnterpriseRole = 'admin' | 'development' | 'devops' | 'hr' | 'sales' | 'finance' | 'viewer';
+
+export const ROLES: EnterpriseRole[] = ['admin', 'development', 'devops', 'hr', 'sales', 'finance', 'viewer'];

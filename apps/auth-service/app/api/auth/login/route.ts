@@ -4,7 +4,7 @@ import { users }          from '@/db/schema';
 import { eq }             from 'drizzle-orm';
 import { verifyPassword } from '@/lib/password';
 import { signToken }      from '@/lib/auth';
-import { migrateFromJson } from '@/lib/migrate';
+import { migrateFromJson, bootstrapAdmin } from '@/lib/migrate';
 import { ensureSchema }   from '@/db/ensure';
 
 let initialized = false;
@@ -15,6 +15,7 @@ async function init() {
     await ensureSchema();
     const count = await db.select().from(users).limit(1);
     if (count.length === 0) await migrateFromJson();
+    await bootstrapAdmin();
 }
 
 export async function POST(req: NextRequest) {

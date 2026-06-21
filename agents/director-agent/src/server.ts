@@ -22,6 +22,7 @@ import { requestContext }        from './auth/context.js';
 import { ADMIN_PRINCIPAL }       from './auth/types.js';
 import { login }                 from './auth/login.js';
 import { startWsServer }         from './ws-server.js';
+import { writeRegistryFile }     from './registry.js';
 
 const log = (msg: string) => process.stderr.write(`[director-agent] ${msg}\n`);
 
@@ -49,6 +50,11 @@ async function main(): Promise<void> {
     if (enforcing)       log('RBAC activo — políticas de access_control cargadas');
     if (enterpriseMode)  log('Modo empresa activo — JWT_SECRET configurado');
     if (auditLogger)     log(`Auditoría activa → ${auditLogger.path}`);
+
+    // Publicar registry de tools para auth-service
+    writeRegistryFile(mcp).catch(err =>
+        log(`⚠ No se pudo escribir el registry: ${(err as Error).message}`),
+    );
 
     // ── MCP tools ─────────────────────────────────────────────────────────────
 

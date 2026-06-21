@@ -38,7 +38,19 @@ export class PolicyEngine {
         if (!this.enforce) return { allowed: true };
 
         const shortName = toolName.includes('__') ? toolName.split('__').at(-1)! : toolName;
-        const policy    = this.tools[toolName] ?? this.tools[shortName ?? ''];
+
+        // Workspace custom del JWT (auth-service) — tiene prioridad total sobre RBAC
+        if (principal.tools !== undefined) {
+            const allowed = principal.tools.includes(toolName) || principal.tools.includes(shortName ?? '');
+            if (!allowed) return {
+                allowed: false,
+                reason: `Tu workspace no incluye "${shortName}". Contactá al administrador para ampliar permisos.`,
+            };
+            return { allowed: true };
+        }
+
+        // Sin workspace custom → RBAC normal de director.yaml
+        const policy = this.tools[toolName] ?? this.tools[shortName ?? ''];
 
         if (!policy) return { allowed: !this.defaultDeny };
 

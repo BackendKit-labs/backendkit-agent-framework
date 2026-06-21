@@ -35,12 +35,24 @@ export class VaultFilter {
     /** true si el principal puede leer la nota en `notePath` */
     isPathAllowed(principal: Principal, notePath: string): boolean {
         const normalized = notePath.replace(/^\/+/, '');
+
+        // Workspace custom del JWT (auth-service) — tiene prioridad sobre director.yaml
+        if (principal.vault !== undefined) {
+            // El usuario solo ve los namespaces que tiene asignados explícitamente
+            for (const prefix of principal.vault) {
+                if (normalized.startsWith(prefix)) return true;
+            }
+            // Si no matchea ningún namespace custom → solo permite notas sin namespace restringido
+            const matchesConfigured = this.sortedPrefixes.some(([prefix]) => normalized.startsWith(prefix));
+            return !matchesConfigured;  // notas públicas (sin namespace) pasan
+        }
+
+        // Sin workspace custom → usar vault_visibility del rol en director.yaml
         for (const [prefix, roles] of this.sortedPrefixes) {
             if (normalized.startsWith(prefix)) {
                 return roles.includes('*') || roles.includes(principal.role);
             }
         }
-        // Sin prefijo coincidente → regla por defecto
         return this.cfg.default_roles.includes('*')
             || this.cfg.default_roles.includes(principal.role);
     }

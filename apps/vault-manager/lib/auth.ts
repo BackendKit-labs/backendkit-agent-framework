@@ -1,37 +1,64 @@
 import 'server-only';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { db, schema } from '@/db';
-import { eq } from 'drizzle-orm';
-import crypto from 'crypto';
 import { authConfig } from './auth.config';
 
-function hashPassword(password: string): string {
-    return crypto.createHash('sha256').update(password + (process.env.AUTH_SALT ?? 'bk-vault-salt')).digest('hex');
-}
+const AUTH_SERVICE_URL = process.env['AUTH_SERVICE_URL'] ?? 'http://localhost:4000';
 
-export function verifyPassword(password: string, hash: string): boolean {
-    return hashPassword(password) === hash;
+interface AuthServiceUser {
+    id:             string;
+    username:       string;
+    name?:          string;
+    email?:         string;
+    role:           string;
+    department?:    string;
+    active:         boolean;
+    canUseVault:    boolean;
+    canUseDirector: boolean;
 }
-
-export { hashPassword };
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
     ...authConfig,
     providers: [
         Credentials({
             credentials: {
-                email:    { label: 'Email',    type: 'email' },
-                password: { label: 'Password', type: 'password' },
+                email:    { label: 'Usuario', type: 'text' },
+                password: { label: 'Contraseña', type: 'password' },
             },
             async authorize(credentials) {
                 if (!credentials?.email || !credentials?.password) return null;
-                const user = await db.query.users.findFirst({
-                    where: eq(schema.users.email, credentials.email as string),
-                });
-                if (!user || !user.active) return null;
-                if (!verifyPassword(credentials.password as string, user.passwordHash)) return null;
-                return { id: user.id, email: user.email, name: user.name, role: user.role };
+
+                try {
+                    const res = await fetch(`${AUTH_SERVICE_URL}/api/auth/login`, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({
+                            username: credentials.email,   // el form usa 'email' como campo
+                            password: credentials.password,
+                        }),
+                        signal: AbortSignal.timeout(5_000),
+                    });
+
+                    if (!res.ok) return null;
+
+                    const data = await res.json() as { token?: string; user?: AuthServiceUser; error?: string };
+                    if (!data.token || !data.user) return null;
+
+                    // Solo permitir acceso si el usuario tiene habilitado Vault Manager
+                    if (!data.user.canUseVault) return null;
+                    if (!data.user.active) return null;
+
+                    return {
+                        id:         data.user.username,
+                        email:      data.user.email ?? data.user.username,
+                        name:       data.user.name  ?? data.user.username,
+                        role:       data.user.role,
+                        department: data.user.department,
+                        authToken:  data.token,   // JWT del auth-service para llamadas API
+                    };
+                } catch {
+                    return null;
+                }
             },
         }),
     ],
@@ -39,6 +66,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
 declare module 'next-auth' {
     interface Session {
-        user: { id: string; email: string; name: string; role: string };
+        user: {
+            id:          string;
+            email:       string;
+            name:        string;
+            role:        string;
+            department?: string;
+            authToken?:  string;
+        };
     }
 }

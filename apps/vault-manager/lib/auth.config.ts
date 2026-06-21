@@ -5,15 +5,25 @@ export const authConfig = {
     providers: [Credentials({})],
     callbacks: {
         jwt({ token, user }) {
-            if (user) token.role = (user as { role?: string }).role;
+            if (user) {
+                const u = user as { role?: string; department?: string; authToken?: string };
+                token.role       = u.role;
+                token.department = u.department;
+                token.authToken  = u.authToken;
+            }
             return token;
         },
         session({ session, token }) {
-            if (session.user) (session.user as { role?: unknown }).role = token.role;
+            if (session.user) {
+                const s = session.user as { role?: unknown; department?: unknown; authToken?: unknown };
+                s.role       = token.role;
+                s.department = token.department;
+                s.authToken  = token.authToken;
+            }
             return session;
         },
-        authorized({ auth }) {
-            return !!auth?.user;
+        authorized({ auth: session }) {
+            return !!session?.user;
         },
     },
     pages: { signIn: '/login' },

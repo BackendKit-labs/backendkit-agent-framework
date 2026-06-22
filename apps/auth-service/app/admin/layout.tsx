@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-    Shield, Users, LogOut, LayoutDashboard, Building2, ShieldCheck,
+    Shield, Users, LayoutDashboard, Building2, ShieldCheck,
     ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -40,8 +40,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         if (!token) { router.push('/login'); return; }
         setReady(true);
     }, [router]);
-
-    function logout() { sessionStorage.clear(); router.push('/login'); }
 
     const isActive = (href: string) =>
         href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
@@ -93,19 +91,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     ))}
                 </nav>
 
-                {/* Footer: logout + toggle */}
-                <div className="border-t border-border p-2 flex flex-col gap-2">
-                    <button
-                        onClick={logout}
-                        title={collapsed ? 'Cerrar sesión' : undefined}
-                        className={cn(
-                            'flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors w-full',
-                            collapsed && 'justify-center',
-                        )}
-                    >
-                        <LogOut className="h-4 w-4 shrink-0" />
-                        {!collapsed && <span className="whitespace-nowrap">Cerrar sesión</span>}
-                    </button>
+                {/* Footer: toggle */}
+                <div className="border-t border-border p-2">
                     <button
                         onClick={() => setCollapsed(!collapsed)}
                         className="flex w-full items-center justify-center rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"

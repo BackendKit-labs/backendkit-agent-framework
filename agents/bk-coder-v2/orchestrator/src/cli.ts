@@ -233,6 +233,7 @@ async function cmdRun(configPath: string, args: string[]): Promise<void> {
     const runId = store.newRunId();
     await store.save({
         runId, task, configPath,
+        projectRoot,
         status:         'running',
         startedAt:      ts(),
         updatedAt:      ts(),
@@ -354,10 +355,21 @@ async function cmdApprove(configPath: string, args: string[]): Promise<void> {
 async function cmdList(configPath: string, args: string[]): Promise<void> {
     const statusIdx  = args.indexOf('--status');
     const statusFilt = statusIdx !== -1 ? args[statusIdx + 1] : 'all';
+    const showAll    = args.includes('--all');
 
     const store = openStore(configPath);
     const all   = await store.list();
-    const runs  = statusFilt === 'all' ? all : all.filter(r => r.status === statusFilt);
+
+    // By default filter by active project; --all shows every run
+    let projectRoot: string | undefined;
+    if (!showAll) {
+        try { projectRoot = new WorkspaceManager().current().root; } catch { /* no active project */ }
+    }
+
+    const byProject = projectRoot ? all.filter(r => r.projectRoot === projectRoot) : all;
+    const runs = statusFilt === 'all' ? byProject : byProject.filter(r => r.status === statusFilt);
+
+    if (projectRoot) console.log(`Proyecto activo: ${projectRoot}\n`);
 
     if (runs.length === 0) {
         console.log(statusFilt === 'all' ? 'No hay runs.' : `No hay runs con status "${statusFilt}".`);
@@ -654,7 +666,7 @@ Uso:
   orchestrator-cli run     <config.yaml> "<tarea>" [--flow <id>] — ejecuta implementación
   orchestrator-cli status  <config.yaml> <run_id>
   orchestrator-cli approve <config.yaml> <run_id> [--reject] [--notes "<texto>"]
-  orchestrator-cli list    <config.yaml> [--status running|waiting_gate|complete|failed]
+  orchestrator-cli list    <config.yaml> [--status running|waiting_gate|complete|failed] [--all]
 `);
 }
 

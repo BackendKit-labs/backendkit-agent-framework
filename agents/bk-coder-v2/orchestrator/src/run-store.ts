@@ -28,6 +28,7 @@ export interface RunState {
     runId:           string;
     task:            string;
     configPath:      string;
+    projectRoot?:    string;   // active project root at the time the run was created
     status:          RunStatus;
     startedAt:       string;
     updatedAt:       string;

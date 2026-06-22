@@ -471,7 +471,7 @@ async function startRun(
     if ('error' in plan) return { error: (plan as { error: string }).error };
 
     const runId = store.newRunId();
-    await store.save({ runId, task, configPath, status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
+    await store.save({ runId, task, configPath, projectRoot: resolveProjectRoot(), status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
 
     setImmediate(() => {
         executeInBackground(runId, configPath, config, plan, rag).catch(async err => {

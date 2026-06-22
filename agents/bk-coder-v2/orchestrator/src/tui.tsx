@@ -411,8 +411,14 @@ function App({ configPath, config, store, rag }: AppProps) {
     // ── Poll runs every 2s ────────────────────────────────────────────────────
     const pollRuns = useCallback(async () => {
         const all = await store.list();
-        setRuns(all);
-        setSelectedIdx(i => (all.length > 0 ? Math.min(i, all.length - 1) : 0));
+        // Filter by active project root so each project shows only its own runs
+        let proj: { name: string; root: string } | null = null;
+        try { proj = new WorkspaceManager().current(); } catch { /* no active project */ }
+        const filtered = proj
+            ? all.filter(r => r.projectRoot === proj!.root || (!r.projectRoot && false))
+            : all;
+        setRuns(filtered);
+        setSelectedIdx(i => (filtered.length > 0 ? Math.min(i, filtered.length - 1) : 0));
     }, [store]);
 
     useEffect(() => {
@@ -498,7 +504,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         }
 
         const runId = store.newRunId();
-        await store.save({ runId, task, configPath, status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
+        await store.save({ runId, task, configPath, projectRoot: activeProject?.root, status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
         await pollRuns();
 
         // Select the new run

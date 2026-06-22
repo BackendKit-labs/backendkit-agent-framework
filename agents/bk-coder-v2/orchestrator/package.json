@@ -1,0 +1,32 @@
+{
+  "name": "@backendkit-labs/orchestrator-coder-v2",
+  "version": "1.0.0",
+  "description": "Orchestrator for Coder v2 — coordinates Backend-MCP, QA-MCP, Security-MCP, Infra-MCP",
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "orchestrator-coder-v2": "./dist/server.js",
+    "orchestrator-worker": "./dist/worker-process.js",
+    "orchestrator-cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-enterprise": "*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@lancedb/lancedb": "^0.13.0",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "openai": "^4.0.0",
+    "yaml": "^2.4.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

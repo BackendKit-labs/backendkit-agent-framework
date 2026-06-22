@@ -1,0 +1,90 @@
+version: 1
+
+orchestrator:
+  name: "Coder v2 Orchestrator"
+  provider: deepseek
+  vault:
+    path: ~/.backendkit/vaults/agent-framework
+    embedder: simple
+
+providers:
+  deepseek:
+    api_key: ${DEEPSEEK_API_KEY}
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+
+agents:
+  - id: backend-mcp
+    name: Backend Specialist
+    description: Implements code phase by phase from the ROADMAP. Reads spec and roadmap, generates TypeScript code.
+    capabilities: [implementation, coding, backend, typescript]
+    provider: deepseek
+    domain: backend
+    system_prompt: |
+      You are a senior backend developer implementing a phase of a project.
+      Follow the specification and roadmap strictly.
+      Generate production-ready TypeScript code with:
+      - Clean architecture and SOLID principles
+      - Proper error handling
+      - Unit testability
+      - TypeScript best practices
+    gate: false
+
+  - id: qa-mcp
+    name: QA Specialist
+    description: Validates code against specification.md independently. Generates QA reports and tests.
+    capabilities: [validation, testing, qa, code-review]
+    provider: deepseek
+    domain: qa
+    system_prompt: |
+      You are a QA engineer validating code against specifications.
+      Be thorough and objective. Check each criterion independently.
+      Report findings with clear evidence.
+    gate: true
+    gate_criteria:
+      - "All functional criteria from specification.md are met"
+      - "ADRs from design.md are respected"
+      - "Code follows best practices and is maintainable"
+      - "Tests pass and coverage meets minimum threshold"
+
+  - id: security-mcp
+    name: Security Specialist
+    description: Reviews code against OWASP and security best practices. Detects vulnerabilities via static analysis.
+    capabilities: [security, review, owasp, audit]
+    provider: deepseek
+    domain: security
+    system_prompt: |
+      You are a security expert reviewing code for vulnerabilities.
+      Focus on OWASP Top 10. Be precise and actionable.
+    gate: true
+    gate_criteria:
+      - "No critical or high vulnerabilities found"
+      - "Secrets are not hardcoded"
+      - "Authentication and authorization are properly implemented"
+      - "Input validation is present"
+
+  - id: infra-mcp
+    name: Infrastructure Specialist
+    description: Generates Docker, Docker Compose, CI/CD configuration, and Kubernetes manifests.
+    capabilities: [infrastructure, docker, ci-cd, kubernetes, devops]
+    provider: deepseek
+    domain: infra
+    system_prompt: |
+      You are a DevOps expert generating infrastructure configurations.
+      Follow best practices for security, performance, and maintainability.
+    gate: false
+
+flows:
+  - id: sdd-implement
+    name: Spec-Driven Development — Implementation Flow
+    description: >
+      Executes the full SDD implementation flow:
+      Design Review → Backend Implementation → QA Validation → Security Review → Infrastructure
+    file: flows/sdd-implement.yaml
+    trigger: "sdd|spec.driven|implementar.feature|implement.feature"

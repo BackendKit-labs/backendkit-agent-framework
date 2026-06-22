@@ -48,7 +48,7 @@ async function main(): Promise<void> {
     const enforcing      = policyEngine?.isEnforcing() ?? false;
     const enterpriseMode = isEnterpriseMode();
     if (enforcing)       log('RBAC activo — políticas de access_control cargadas');
-    if (enterpriseMode)  log('Modo empresa activo — JWT_SECRET configurado');
+    if (enterpriseMode)  log('Modo empresa activo — AUTH_SECRET configurado');
     if (auditLogger)     log(`Auditoría activa → ${auditLogger.path}`);
 
     // Publicar registry de tools para auth-service
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
                     return { content: [{ type: 'text' as const, text: `Error de autenticación: ${(err as Error).message}` }] };
                 }
             } else if (enterpriseMode) {
-                return { content: [{ type: 'text' as const, text: 'Autenticación requerida: JWT_SECRET está configurado. Incluí user_token en el request.' }] };
+                return { content: [{ type: 'text' as const, text: 'Autenticación requerida: AUTH_SECRET está configurado. Incluí user_token en el request.' }] };
             }
             // Si no hay JWT_SECRET → dev/REPL mode, usamos ADMIN_PRINCIPAL sin restricción.
 
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
     mcp_srv.tool(
         'director_login',
         'Autenticar con el Director. Devuelve un JWT (user_token) para usar en director_chat. ' +
-        'Requiere que JWT_SECRET esté configurado. Los usuarios se crean desde config-agent (http://localhost:3456/users).',
+        'Requiere que AUTH_SECRET esté configurado. Los usuarios se gestionan en auth-service (http://localhost:4000/admin/users).',
         {
             username: z.string().describe('Nombre de usuario'),
             password: z.string().describe('Contraseña'),

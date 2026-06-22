@@ -117,6 +117,10 @@ export class VaultFilter {
 
     /** Lista de prefijos de path accesibles para el principal */
     allowedPrefixes(principal: Principal): string[] {
+        // Workspace custom del JWT → los namespaces son los que tiene asignados
+        // explícitamente (mismo criterio que isPathAllowed).
+        if (principal.vault !== undefined) return principal.vault;
+
         return this.sortedPrefixes
             .filter(([, roles]) => roles.includes('*') || roles.includes(principal.role))
             .map(([prefix]) => prefix);

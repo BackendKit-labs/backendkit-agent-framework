@@ -5,7 +5,7 @@ import { Topbar } from '@/components/layout/topbar';
 import { AuditTable } from '@/components/audit/audit-table';
 import { canAudit, canAccessVault } from '@/lib/permissions';
 import { redirect } from 'next/navigation';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 
 export const metadata = { title: 'Auditoría' };
 

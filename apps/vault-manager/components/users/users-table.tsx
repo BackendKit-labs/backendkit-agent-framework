@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { UserPlus, MoreHorizontal, Shield, User, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Badge, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, cn } from '@/components/ui';
 import { ROLE_COLORS, ROLE_LABELS } from '@/lib/permissions';
-import type { User as UserType, UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 type UserRow = Pick<UserType, 'id' | 'email' | 'name' | 'role' | 'active' | 'lastActiveAt' | 'createdAt'>;

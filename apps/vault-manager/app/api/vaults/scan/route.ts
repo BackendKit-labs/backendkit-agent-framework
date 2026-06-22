@@ -1,12 +1,12 @@
-import 'server-only';
+﻿import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import fs   from 'node:fs';
 import path from 'node:path';
 
 // GET /api/vaults/scan?path=...
-// Counts .md files in a directory — used to preview before import
+// Counts .md files in a directory â€” used to preview before import
 export async function GET(req: NextRequest) {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

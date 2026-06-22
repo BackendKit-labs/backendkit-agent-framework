@@ -4,7 +4,7 @@ import { db, schema } from '@/db';
 import { Topbar } from '@/components/layout/topbar';
 import { UsersTable } from '@/components/users/users-table';
 import { canManageUsers } from '@/lib/permissions';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 
 export const metadata = { title: 'Usuarios' };
 

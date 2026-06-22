@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db, schema } from '@/db';
 import { eq } from 'drizzle-orm';
 import { canImprove, canAccessVault } from '@/lib/permissions';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import { searchVault } from '@/lib/curator-codex-client';
 
 export async function POST(req: NextRequest) {
@@ -43,23 +43,23 @@ export async function POST(req: NextRequest) {
                 }
             }
         } catch (err) {
-            // RAG failure is non-fatal — continue without context
+            // RAG failure is non-fatal â€” continue without context
             console.warn('[improve] RAG search failed:', err);
         }
     }
 
     const systemPrompt = [
-        'Sos un experto en gestión de conocimiento y mejora de contenido técnico.',
+        'Sos un experto en gestiÃ³n de conocimiento y mejora de contenido tÃ©cnico.',
         'Tu rol es ayudar a mejorar notas del vault de la empresa.',
-        'Cuando sugerís cambios concretos, estructurálos al final como JSON en este formato:',
+        'Cuando sugerÃ­s cambios concretos, estructurÃ¡los al final como JSON en este formato:',
         '<suggestions>',
         '[{ "type": "replace|append|retag", "preview": "texto del cambio sugerido" }]',
         '</suggestions>',
-        'Sé directo y específico.',
+        'SÃ© directo y especÃ­fico.',
         ...(ragContext ? [
             '',
             '## Contexto relevante del vault',
-            'Usá el siguiente contenido como base para tus respuestas y sugerencias:',
+            'UsÃ¡ el siguiente contenido como base para tus respuestas y sugerencias:',
             '',
             ragContext,
         ] : []),

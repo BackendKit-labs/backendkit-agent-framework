@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { db, schema } from '@/db';
 import { eq } from 'drizzle-orm';
 import { canAudit, canAccessVault } from '@/lib/permissions';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
     const session = await auth();

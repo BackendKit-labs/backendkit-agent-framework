@@ -4,7 +4,7 @@ import { db, schema } from '@/db';
 import { eq } from 'drizzle-orm';
 import { Topbar } from '@/components/layout/topbar';
 import { VaultBrowser } from '@/components/vault/vault-browser';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import { canAccessVault } from '@/lib/permissions';
 
 export const metadata = { title: 'Vaults' };

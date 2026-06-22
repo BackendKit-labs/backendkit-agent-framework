@@ -1,11 +1,11 @@
-import 'server-only';
+﻿import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth }              from '@/lib/auth';
 import { isServiceRequest }  from '@/lib/service-auth';
 import { db, schema }        from '@/db';
 import { eq }                from 'drizzle-orm';
 import { canAccessVault }    from '@/lib/permissions';
-import type { UserRole }     from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import { searchVault }       from '@/lib/curator-codex-client';
 
 // GET /api/search?q=...&vaultId=...&topK=8

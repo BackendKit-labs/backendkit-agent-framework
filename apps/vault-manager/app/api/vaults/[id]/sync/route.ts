@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { db, schema } from '@/db';
 import { eq, and } from 'drizzle-orm';
 import { canAccessVault } from '@/lib/permissions';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import fs from 'fs';
 import path from 'path';
 import { reindexVault } from '@/lib/curator-codex-client';

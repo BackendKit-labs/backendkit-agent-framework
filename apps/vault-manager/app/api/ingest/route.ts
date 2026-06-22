@@ -1,13 +1,13 @@
-import 'server-only';
+﻿import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth }                      from '@/lib/auth';
 import { db, schema }                from '@/db';
 import { eq }                        from 'drizzle-orm';
 import { canIngest, canAccessVault } from '@/lib/permissions';
-import type { UserRole }             from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 import { curateFile }                from '@/lib/curator-codex-client';
 
-// ── POST /api/ingest ───────────────────────────────────────────────────────────
+// â”€â”€ POST /api/ingest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(req: NextRequest) {
     const session = await auth();
@@ -39,13 +39,13 @@ export async function POST(req: NextRequest) {
         createdBy: session.user.id,
     });
 
-    // Fire-and-forget — client polls GET /api/ingest?jobId=...
+    // Fire-and-forget â€” client polls GET /api/ingest?jobId=...
     processIngestJob(jobId, file, vault.path, vaultId, areaHint, session.user.id).catch(console.error);
 
     return NextResponse.json({ jobId });
 }
 
-// ── GET /api/ingest?jobId=... ─────────────────────────────────────────────────
+// â”€â”€ GET /api/ingest?jobId=... â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(req: NextRequest) {
     const session = await auth();
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: job.status, error: job.error, auditItemId: job.auditItemId });
 }
 
-// ── Background processing ─────────────────────────────────────────────────────
+// â”€â”€ Background processing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function processIngestJob(
     jobId:     string,
@@ -87,7 +87,7 @@ async function processIngestJob(
         // Use content from the written file; fall back to error / duplicate message
         const generatedContent = result.generatedContent
             ?? result.errors[0]
-            ?? 'Skipped — duplicate detected';
+            ?? 'Skipped â€” duplicate detected';
 
         const generatedTitle = result.generatedTitle
             ?? file.name.replace(/\.[^.]+$/, '');
@@ -108,7 +108,7 @@ async function processIngestJob(
             curatorScore:     hasDuplicate || hasError ? 0.0 : 1.0,
             status:           auditStatus,
             feedback:         hasDuplicate
-                ? 'Duplicate detected — similar note already exists in vault.'
+                ? 'Duplicate detected â€” similar note already exists in vault.'
                 : hasError
                 ? `Curation error: ${result.errors[0]}`
                 : undefined,

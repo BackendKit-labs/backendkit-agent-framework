@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { Topbar } from '@/components/layout/topbar';
 import { UploadZone } from '@/components/ingest/upload-zone';
 import { canIngest } from '@/lib/permissions';
-import type { UserRole } from '@/db/schema';
+import type { UserRole } from '@/lib/permissions';
 
 export const metadata = { title: 'Ingesta' };
 

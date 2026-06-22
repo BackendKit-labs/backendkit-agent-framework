@@ -20,6 +20,7 @@ import { VaultFilter }                  from './auth/vault-filter.js';
 import { AuditLogger, buildAuditPath }  from './auth/audit.js';
 import { requestContext, type RequestContext } from './auth/context.js';
 import { ADMIN_PRINCIPAL } from './auth/types.js';
+import type { Principal } from './auth/types.js';
 
 // ── Director AgentProfile ─────────────────────────────────────────────────────
 
@@ -183,11 +184,29 @@ function applyVaultFilter(
     };
 }
 
-export async function buildDirectorEngine(
+// ── Infra compartida (cara de levantar, sin estado por-usuario) ───────────────
+//
+// MCP (procesos hijos), providers, policy/vault/audit y el system prompt se
+// construyen UNA vez y se comparten entre todas las sesiones. Lo que es por
+// usuario (historial, memoria, ToolRegistry) se crea en createSessionEngine.
+
+export interface SharedInfra {
+    mcp:           MCPClientManager;
+    rawMcpTools:   ToolDefinition[];
+    policyEngine:  PolicyEngine | null;
+    vaultFilter:   VaultFilter | null;
+    auditLogger:   AuditLogger | null;
+    systemPrompt:  string;
+    providers:     ProviderRegistry;
+    providerName:  string;
+    providerModel: string;
+    maxIterations: number;
+}
+
+export async function buildSharedInfra(
     config:    DirectorConfig,
     configDir: string,
-    onEvent?:  (evt: AgentEvent) => void,
-): Promise<DirectorRuntime> {
+): Promise<SharedInfra> {
 
     // Initialize ~/.backendkit/ on first run (idempotent)
     await initBkHome();
@@ -241,12 +260,6 @@ export async function buildDirectorEngine(
         ? new AuditLogger(buildAuditPath(auditCfg.path))
         : null;
 
-    const mcpTools = rawMcpTools
-        .map(t => policyEngine ? guardTool(t, policyEngine, auditLogger) : t)
-        .map(t => vaultFilter  ? applyVaultFilter(t, vaultFilter, auditLogger) : t);
-
-    const mcpToolNames = mcpTools.map(t => t.name);
-
     // ── Build system prompt from SOUL + live topology ─────────────────────────
     const soul     = loadSoul(configDir);
     const topology = connectedServers.map(s => ({
@@ -260,26 +273,6 @@ export async function buildDirectorEngine(
     }));
     const systemPrompt = buildSystemPrompt(soul, topology);
 
-    // ── MemorySystem 3-tier ───────────────────────────────────────────────────
-    const memory = createMemorySystem({
-        episodic:   { provider: 'json', path: bkPaths.memoryEpisodic() },
-        semantic:   { provider: 'json', path: bkPaths.memorySemantic() },
-        procedural: { provider: 'json', path: bkPaths.memoryProcedural() },
-        retention:  { maxEpisodes: 500 },
-    });
-    const memoryTools = memory.getTools();
-
-    // ── Registries ────────────────────────────────────────────────────────────
-    const tools = new ToolRegistry();
-    for (const t of mcpTools) tools.register(t);
-    for (const t of memoryTools) tools.register(t);
-
-    // allowedTools: MCP tools + memory tools (excludes ask_agent)
-    const allToolNames = [...mcpToolNames, ...memoryTools.map(t => t.name)];
-
-    const agents = new AgentRegistry();
-    agents.register(buildDirectorProfile(systemPrompt, allToolNames));
-
     const providers = new ProviderRegistry();
     providers.register(providerName, new DirectorProvider({
         apiKey:   providerCfg.api_key,
@@ -287,29 +280,152 @@ export async function buildDirectorEngine(
         baseUrl:  providerCfg.base_url,
     }));
 
-    // ── Transport ─────────────────────────────────────────────────────────────
-    // Si hay un onEvent en el requestContext (WS per-request), tiene prioridad
-    // sobre el callback global (MCP server / REPL).
+    return {
+        mcp, rawMcpTools, policyEngine, vaultFilter, auditLogger, systemPrompt,
+        providers, providerName, providerModel: providerCfg.model,
+        maxIterations: config.director.max_iterations,
+    };
+}
+
+// ── MemorySystem por usuario ──────────────────────────────────────────────────
+//
+// Dev/REPL (admin implícito, id 'system') usa las rutas legacy compartidas.
+// Los usuarios reales tienen memoria aislada en memory/users/<id>/.
+
+function buildSessionMemory(principal: Principal): ReturnType<typeof createMemorySystem> {
+    if (principal.id === 'system') {
+        return createMemorySystem({
+            episodic:   { provider: 'json', path: bkPaths.memoryEpisodic() },
+            semantic:   { provider: 'json', path: bkPaths.memorySemantic() },
+            procedural: { provider: 'json', path: bkPaths.memoryProcedural() },
+            retention:  { maxEpisodes: 500 },
+        });
+    }
+    const safeId = principal.id.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const base   = path.join(bkPaths.memoryDir(), 'users', safeId);
+    return createMemorySystem({
+        episodic:   { provider: 'json', path: path.join(base, 'episodic.json') },
+        semantic:   { provider: 'json', path: path.join(base, 'semantic.json') },
+        procedural: { provider: 'json', path: path.join(base, 'procedural.json') },
+        retention:  { maxEpisodes: 500 },
+    });
+}
+
+// ── Engine por sesión ─────────────────────────────────────────────────────────
+//
+// Una instancia de engine por usuario: historial, memoria y ToolRegistry propios
+// (un ToolRegistry compartido se corrompería — cada engine re-registra las tools
+// MCP). El mcpManager/providers se comparten vía SharedInfra. Los guards leen el
+// principal del requestContext, así que funcionan sin recablearse por sesión.
+
+export function createSessionEngine(
+    shared:    SharedInfra,
+    principal: Principal,
+    onEvent?:  (evt: AgentEvent) => void,
+): AgentEngine {
+    const memory      = buildSessionMemory(principal);
+    const memoryTools = memory.getTools();
+
+    const mcpTools = shared.rawMcpTools
+        .map(t => shared.policyEngine ? guardTool(t, shared.policyEngine, shared.auditLogger) : t)
+        .map(t => shared.vaultFilter  ? applyVaultFilter(t, shared.vaultFilter, shared.auditLogger) : t);
+
+    const tools = new ToolRegistry();
+    for (const t of mcpTools)    tools.register(t);
+    for (const t of memoryTools) tools.register(t);
+
+    const allToolNames = [...mcpTools.map(t => t.name), ...memoryTools.map(t => t.name)];
+
+    const agents = new AgentRegistry();
+    agents.register(buildDirectorProfile(shared.systemPrompt, allToolNames));
+
+    // Si hay un onEvent en el requestContext (WS/MCP per-request), tiene prioridad
+    // sobre el callback global (REPL).
     const transport = new CallbackTransport((evt: AgentEvent) => {
         const ctx = requestContext.getStore();
         if (ctx?.onEvent) { ctx.onEvent(evt); } else { onEvent?.(evt); }
     });
 
-    // ── Engine ────────────────────────────────────────────────────────────────
-    const engine = new AgentEngine({
-        model:           { provider: providerName, id: providerCfg.model },
+    return new AgentEngine({
+        model:           { provider: shared.providerName, id: shared.providerModel },
         agents,
         tools,
-        providers,
-        defaultProvider: providerName,
+        providers:       shared.providers,
+        defaultProvider: shared.providerName,
         defaultAgentId:  'director',
         transport,
-        maxIterations:   config.director.max_iterations,
+        maxIterations:   shared.maxIterations,
         iterationMode:   'auto',
         memorySystem:    memory,
     });
+}
 
-    return { engine, mcp, provider: providerName, model: providerCfg.model, policyEngine, vaultFilter, auditLogger };
+// ── Manager de engines por usuario (caché con eviction LRU) ───────────────────
+//
+// Mantiene un engine por user.id para que el historial/memoria no se crucen entre
+// usuarios. Las distintas conexiones del MISMO usuario comparten su engine.
+
+export class SessionEngineManager {
+    private readonly engines = new Map<string, { engine: AgentEngine; lastUsed: number }>();
+
+    constructor(
+        private readonly shared:      SharedInfra,
+        private readonly maxSessions: number = 50,
+    ) {}
+
+    /** Engine del principal (lo crea perezosamente la primera vez). */
+    get(principal: Principal): AgentEngine {
+        const key = principal.id || 'anon';
+        let entry = this.engines.get(key);
+        if (!entry) {
+            entry = { engine: createSessionEngine(this.shared, principal), lastUsed: Date.now() };
+            this.engines.set(key, entry);
+            this.evict();
+        }
+        entry.lastUsed = Date.now();
+        return entry.engine;
+    }
+
+    clearHistory(principal: Principal): void {
+        this.engines.get(principal.id || 'anon')?.engine.clearHistory();
+    }
+
+    get mcp(): MCPClientManager { return this.shared.mcp; }
+    get policyEngine(): PolicyEngine | null { return this.shared.policyEngine; }
+
+    /** Desaloja el engine menos usado recientemente cuando se supera el cap. */
+    private evict(): void {
+        if (this.engines.size <= this.maxSessions) return;
+        let oldestKey: string | undefined;
+        let oldest = Infinity;
+        for (const [k, v] of this.engines) {
+            if (v.lastUsed < oldest) { oldest = v.lastUsed; oldestKey = k; }
+        }
+        if (oldestKey) {
+            this.engines.get(oldestKey)?.engine.abort();
+            this.engines.delete(oldestKey);
+        }
+    }
+}
+
+// ── Backward-compat: engine único (REPL / dev) ────────────────────────────────
+
+export async function buildDirectorEngine(
+    config:    DirectorConfig,
+    configDir: string,
+    onEvent?:  (evt: AgentEvent) => void,
+): Promise<DirectorRuntime> {
+    const shared = await buildSharedInfra(config, configDir);
+    const engine = createSessionEngine(shared, ADMIN_PRINCIPAL, onEvent);
+    return {
+        engine,
+        mcp:          shared.mcp,
+        provider:     shared.providerName,
+        model:        shared.providerModel,
+        policyEngine: shared.policyEngine,
+        vaultFilter:  shared.vaultFilter,
+        auditLogger:  shared.auditLogger,
+    };
 }
 
 /** Resolves the director.yaml path: explicit arg > env var > default location. */

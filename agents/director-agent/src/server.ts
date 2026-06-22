@@ -16,10 +16,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z }                    from 'zod';
 import type { AgentEvent }      from '@backendkit-labs/agent-core';
 import { loadConfig }           from './config.js';
-import { buildDirectorEngine, resolveConfigPath } from './engine.js';
+import { buildSharedInfra, SessionEngineManager, resolveConfigPath } from './engine.js';
 import { verifyToken, isEnterpriseMode } from './auth/jwt.js';
 import { requestContext }        from './auth/context.js';
 import { ADMIN_PRINCIPAL }       from './auth/types.js';
+import type { Principal }        from './auth/types.js';
 import { login }                 from './auth/login.js';
 import { startWsServer }         from './ws-server.js';
 import { writeRegistryFile }     from './registry.js';
@@ -33,7 +34,24 @@ async function main(): Promise<void> {
 
     log('Iniciando director...');
 
-    const { engine, mcp, policyEngine, auditLogger } = await buildDirectorEngine(config, configDir);
+    const shared       = await buildSharedInfra(config, configDir);
+    const manager      = new SessionEngineManager(shared);
+    const mcp          = shared.mcp;
+    const policyEngine = shared.policyEngine;
+    const auditLogger  = shared.auditLogger;
+
+    // Resuelve el Principal de un request MCP a partir de su user_token.
+    const resolvePrincipal = async (user_token?: string): Promise<{ principal: Principal } | { error: string }> => {
+        if (user_token) {
+            try { return { principal: await verifyToken(user_token) }; }
+            catch (err) { return { error: `Error de autenticación: ${(err as Error).message}` }; }
+        }
+        if (isEnterpriseMode()) {
+            return { error: 'Autenticación requerida: AUTH_SECRET está configurado. Incluí user_token en el request.' };
+        }
+        // dev/REPL mode → ADMIN_PRINCIPAL sin restricción.
+        return { principal: ADMIN_PRINCIPAL };
+    };
 
     const info = mcp.getServerInfo();
     log(`Agentes conectados: ${info.map(s => `${s.name}(${s.toolCount}t)`).join(', ') || 'ninguno'}`);
@@ -67,18 +85,12 @@ async function main(): Promise<void> {
         },
         async ({ message, user_token }: { message: string; user_token?: string }) => {
             // ── Capa 1: identidad del usuario ─────────────────────────────────
-            let principal = ADMIN_PRINCIPAL;
-
-            if (user_token) {
-                try {
-                    principal = await verifyToken(user_token);
-                } catch (err) {
-                    return { content: [{ type: 'text' as const, text: `Error de autenticación: ${(err as Error).message}` }] };
-                }
-            } else if (enterpriseMode) {
-                return { content: [{ type: 'text' as const, text: 'Autenticación requerida: AUTH_SECRET está configurado. Incluí user_token en el request.' }] };
+            const resolved = await resolvePrincipal(user_token);
+            if ('error' in resolved) {
+                return { content: [{ type: 'text' as const, text: resolved.error }] };
             }
-            // Si no hay JWT_SECRET → dev/REPL mode, usamos ADMIN_PRINCIPAL sin restricción.
+            const principal = resolved.principal;
+            const engine    = manager.get(principal);   // engine aislado por usuario
 
             // ── Run con contexto de Principal ─────────────────────────────────
             // Buffer local por-request: evita corrupción entre llamadas concurrentes.
@@ -101,9 +113,15 @@ async function main(): Promise<void> {
     mcp_srv.tool(
         'director_clear',
         'Limpia el historial de conversación del Director. Útil para empezar una tarea nueva sin contexto previo.',
-        {},
-        async () => {
-            engine.clearHistory();
+        {
+            user_token: z.string().optional().describe('JWT del usuario (requerido cuando AUTH_SECRET está configurado)'),
+        },
+        async ({ user_token }: { user_token?: string }) => {
+            const resolved = await resolvePrincipal(user_token);
+            if ('error' in resolved) {
+                return { content: [{ type: 'text' as const, text: resolved.error }] };
+            }
+            manager.clearHistory(resolved.principal);
             return { content: [{ type: 'text' as const, text: 'Historial limpiado.' }] };
         },
     );
@@ -156,7 +174,7 @@ async function main(): Promise<void> {
 
     // ── WebSocket front-door ──────────────────────────────────────────────────
     const wsPort = config.director.ws_port;
-    startWsServer(wsPort, engine);
+    startWsServer(wsPort, manager);
 
     // ── Start stdio transport ─────────────────────────────────────────────────
     const transport = new StdioServerTransport();

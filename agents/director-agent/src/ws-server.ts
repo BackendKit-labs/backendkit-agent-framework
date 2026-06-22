@@ -19,12 +19,12 @@
 import { createServer }  from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AgentEvent } from '@backendkit-labs/agent-core';
-import type { AgentEngine } from '@backendkit-labs/agent-core';
 import { login }              from './auth/login.js';
 import { verifyToken, isEnterpriseMode } from './auth/jwt.js';
 import { requestContext }     from './auth/context.js';
 import { ADMIN_PRINCIPAL }    from './auth/types.js';
 import type { Principal }     from './auth/types.js';
+import type { SessionEngineManager } from './engine.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,23 +44,13 @@ function send(ws: WebSocket, payload: Record<string, unknown>): void {
     }
 }
 
-// Simple global mutex — un mensaje a la vez (el engine es compartido)
-let engineBusy = false;
-const queue: Array<() => void> = [];
-
-async function acquireEngine(): Promise<void> {
-    if (!engineBusy) { engineBusy = true; return; }
-    return new Promise<void>(resolve => queue.push(resolve));
-}
-
-function releaseEngine(): void {
-    const next = queue.shift();
-    if (next) next(); else engineBusy = false;
-}
-
 // ── Session handler ───────────────────────────────────────────────────────────
+//
+// Cada usuario tiene su propio engine (historial/memoria aislados) vía el
+// manager. El engine serializa sus propios run() internamente, así que no hace
+// falta un mutex global — usuarios distintos corren en paralelo.
 
-function handleConnection(ws: WebSocket, engine: AgentEngine): void {
+function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
     let principal: Principal | null = null;
 
     const enterpriseMode = isEnterpriseMode();
@@ -110,7 +100,7 @@ function handleConnection(ws: WebSocket, engine: AgentEngine): void {
         // ── Clear ──────────────────────────────────────────────────────────────
 
         if (msg.type === 'clear') {
-            engine.clearHistory();
+            manager.clearHistory(activePrincipal);
             send(ws, { type: 'done' });
             return;
         }
@@ -123,7 +113,7 @@ function handleConnection(ws: WebSocket, engine: AgentEngine): void {
                 return;
             }
 
-            await acquireEngine();
+            const engine = manager.get(activePrincipal);
             try {
                 await requestContext.run(
                     {
@@ -149,8 +139,6 @@ function handleConnection(ws: WebSocket, engine: AgentEngine): void {
             } catch (err) {
                 send(ws, { type: 'error', message: (err as Error).message });
                 send(ws, { type: 'done' });
-            } finally {
-                releaseEngine();
             }
         }
     });
@@ -162,7 +150,7 @@ function handleConnection(ws: WebSocket, engine: AgentEngine): void {
 
 // ── Server factory ────────────────────────────────────────────────────────────
 
-export function startWsServer(port: number, engine: AgentEngine): void {
+export function startWsServer(port: number, manager: SessionEngineManager): void {
     const http = createServer((_req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -173,7 +161,7 @@ export function startWsServer(port: number, engine: AgentEngine): void {
 
     const wss = new WebSocketServer({ server: http });
 
-    wss.on('connection', (ws) => handleConnection(ws, engine));
+    wss.on('connection', (ws) => handleConnection(ws, manager));
 
     http.listen(port, () => {
         process.stderr.write(`[director-agent] WebSocket listo en ws://localhost:${port}\n`);

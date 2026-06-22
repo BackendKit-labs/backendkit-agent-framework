@@ -1,0 +1,21 @@
+<h1>Historial: <%= agent_id %></h1>
+<p class="subtitle">Versión actual: <strong><%= currentVersion %></strong></p>
+
+<div class="version-timeline">
+  <% for (const version of versions) { %>
+    <div class="version-item <%= version.isCurrent ? 'current' : '' %>">
+      <div class="version-header">
+        <span class="version-badge"><%= version.version %></span>
+        <% if (version.isCurrent) { %><span class="badge badge-ok">Actual</span><% } %>
+        <span class="version-date"><%= new Date(version.createdAt).toLocaleString() %></span>
+      </div>
+      <div class="version-message"><%= version.message %></div>
+      <div class="version-changes">
+        <span><%= version.changesCount %> cambios</span>
+      </div>
+      <div class="version-actions">
+        <a href="/diff/<%= agent_id %>?v1=<%= version.version %>&v2=<%= currentVersion %>" class="btn btn-sm">📊 Diff vs actual</a>
+      </div>
+    </div>
+  <% } %>
+</div>

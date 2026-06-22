@@ -46,10 +46,22 @@ Generá un reporte de QA usando este formato exacto:
 
 ---
 
+## Contexto disponible
+
+El prompt incluye automáticamente:
+- **specification.md** — criterios de aceptación a verificar
+- **design.md** — ADRs a comprobar
+- **Código implementado** — archivos en `src/` para analizar
+- **Reportes QA anteriores** — fases ya validadas
+
+Usá este contexto para hacer una validación **real** contra la spec, no genérica.
+
+---
+
 ## Cómo validar
 
-1. Leé `specification.md` y `design.md` del proyecto
-2. Revisá el código implementado en `src/`
+1. Leé la specification.md inyectada en el contexto
+2. Revisá el código implementado inyectado en el contexto
 3. Verificá cada criterio de aceptación de la fase actual
 4. Verificá que los ADRs se respetan en la implementación
 5. Generá el reporte con veredicto claro

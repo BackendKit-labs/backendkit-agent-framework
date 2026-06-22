@@ -12,6 +12,7 @@ import type { OrchestratorConfig, AgentConfig } from './config.js';
 import type { TaskPlan, SubTask } from './planner.js';
 import { OpenAICompatibleProvider, callLLM } from './provider.js';
 import { extractAndWrite, buildProjectContext } from './file-writer.js';
+import { buildAgentContext }                    from './context-reader.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -330,13 +331,24 @@ export async function executeSubtask(
           priorResults.map(r => `[${r.agent_id}] ${r.task}\n→ ${r.result.slice(0, 300)}`).join('\n\n')
         : '';
 
-    // Inject domain-specific context: file format for backend/infra, report format for qa/security
+    // Inject domain-specific file format instructions
     const projectCtx = projectRoot ? buildProjectContext(agentCfg.domain, projectRoot) : '';
+
+    // Inject relevant project files so the agent can read spec, code, etc.
+    const agentCtx = (projectRoot && agentCfg.domain)
+        ? buildAgentContext(projectRoot, agentCfg.domain)
+        : '';
+
+    if (agentCtx && onProgress) {
+        const lines = agentCtx.split('\n').filter(l => l.startsWith('###')).map(l => l.replace('### ', ''));
+        if (lines.length > 0) onProgress(`  📂 contexto: ${lines.join(', ')}`);
+    }
 
     const systemPrompt = agentCfg.system_prompt ?? buildSpecialistPrompt(agentCfg);
     const userPrompt   = [
         subtask.task,
         projectCtx,
+        agentCtx,
         vaultContext    ? `\nRelevant knowledge:\n${vaultContext}` : '',
         episodicContext,
         priorContext,

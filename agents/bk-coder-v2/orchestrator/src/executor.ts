@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { OrchestratorConfig, AgentConfig } from './config.js';
 import type { TaskPlan, SubTask } from './planner.js';
 import { OpenAICompatibleProvider, callLLM } from './provider.js';
+import { extractAndWrite, buildProjectContext } from './file-writer.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,11 @@ export interface ExecutorOptions {
      * Only available in inline mode — BullMQ workers skip this.
      */
     episodicFn?:   (agentId: string, task: string) => Promise<string>;
+    /**
+     * Root directory of the user's project. When set, file blocks extracted from
+     * agent LLM output are written to disk automatically.
+     */
+    projectRoot?:  string;
 }
 
 // ── Executor ──────────────────────────────────────────────────────────────────
@@ -95,6 +101,7 @@ export class PlanExecutor {
     private readonly reflection:  ReflectionAdapter | undefined;
     private readonly dispatchFn:  ((subtask: SubTask, priorResults: ExecutionResult[]) => Promise<ExecutionResult>) | undefined;
     private readonly episodicFn:  ((agentId: string, task: string) => Promise<string>) | undefined;
+    private readonly projectRoot: string | undefined;
 
     constructor(opts: ExecutorOptions) {
         this.config      = opts.config;
@@ -103,6 +110,7 @@ export class PlanExecutor {
         this.reflection  = opts.reflection;
         this.dispatchFn  = opts.dispatchFn;
         this.episodicFn  = opts.episodicFn;
+        this.projectRoot = opts.projectRoot;
     }
 
     /**
@@ -213,7 +221,7 @@ export class PlanExecutor {
         const start = Date.now();
         try {
             const result = agentCfg
-                ? await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn)
+                ? await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn, this.projectRoot, this.onProgress)
                 : `No agent configured for id: ${subtask.agent_id}`;
 
             return {
@@ -297,6 +305,8 @@ export async function executeSubtask(
     priorResults: ExecutionResult[],
     ragSearchFn?: (q: string) => Promise<string>,
     episodicFn?:  (agentId: string, task: string) => Promise<string>,
+    projectRoot?: string,
+    onProgress?:  (msg: string) => void,
 ): Promise<string> {
     const providerCfg = config.providers[agentCfg.provider];
     if (!providerCfg) {
@@ -320,15 +330,33 @@ export async function executeSubtask(
           priorResults.map(r => `[${r.agent_id}] ${r.task}\n→ ${r.result.slice(0, 300)}`).join('\n\n')
         : '';
 
+    // Inject domain-specific context: file format for backend/infra, report format for qa/security
+    const projectCtx = projectRoot ? buildProjectContext(agentCfg.domain, projectRoot) : '';
+
     const systemPrompt = agentCfg.system_prompt ?? buildSpecialistPrompt(agentCfg);
     const userPrompt   = [
         subtask.task,
+        projectCtx,
         vaultContext    ? `\nRelevant knowledge:\n${vaultContext}` : '',
         episodicContext,
         priorContext,
     ].filter(Boolean).join('\n');
 
-    return callLLM(provider, systemPrompt, userPrompt);
+    const result = await callLLM(provider, systemPrompt, userPrompt);
+
+    // Write files extracted from LLM output to the project directory
+    if (projectRoot && agentCfg.domain) {
+        try {
+            const written = extractAndWrite(result, projectRoot, agentCfg.domain, absPath => {
+                onProgress?.(`    📄 ${absPath.replace(projectRoot, '').replace(/^[\\/]/, '')}`);
+            });
+            if (written > 0) {
+                onProgress?.(`  ✓ [${agentCfg.id}] ${written} archivo(s) escrito(s) en ${projectRoot}`);
+            }
+        } catch { /* file writing is best-effort */ }
+    }
+
+    return result;
 }
 
 // ── Rule matching helpers (Cable 2) ───────────────────────────────────────────

@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 })();
 
 import { createInterface }                                             from 'node:readline';
+import * as fs                                                         from 'node:fs';
 import { stdin, stdout }                                               from 'node:process';
 import * as path                                                       from 'node:path';
 import { loadConfig, resolveDataDir, type OrchestratorConfig }        from './config.js';
@@ -28,6 +29,8 @@ import { OpenAICompatibleProvider, callLLM }                          from './pr
 import { RunStore, type RunState, type StepResult }                   from './run-store.js';
 import { buildRAG }                                                    from './rag.js';
 import { matchFlow, flowToTaskPlan, loadFlow }                        from './static-flow.js';
+import { WorkspaceManager }                                            from '../../workspace-manager-project/dist/WorkspaceManager.js';
+import { generateDesign }                                              from './design.js';
 
 // ── PromptReader ──────────────────────────────────────────────────────────────
 // Buffers stdin lines upfront so readline closing after EOF doesn't break
@@ -107,10 +110,15 @@ async function executeWithGates(
     priorResults: ExecutionResult[],
     rl:           PromptReader,
 ): Promise<void> {
+    // Resolve project root from workspace-manager (best-effort)
+    let projectRoot: string | undefined;
+    try { projectRoot = new WorkspaceManager().current().root; } catch { /* no active project */ }
+
     while (true) {
         const executor = new PlanExecutor({
             config,
             ragSearchFn: rag?.search,
+            projectRoot,
             onProgress:  (msg) => process.stdout.write(`${msg}\n`),
         });
 
@@ -375,26 +383,300 @@ async function cmdList(configPath: string, args: string[]): Promise<void> {
     }
 }
 
+// ── project command ───────────────────────────────────────────────────────────
+
+function parseFlags(args: string[]): { positional: string[]; flags: Record<string, string> } {
+    const positional: string[] = [];
+    const flags: Record<string, string> = {};
+    let i = 0;
+    while (i < args.length) {
+        if (args[i].startsWith('--')) {
+            const key = args[i].slice(2);
+            flags[key] = args[i + 1] ?? '';
+            i += 2;
+        } else {
+            positional.push(args[i]);
+            i++;
+        }
+    }
+    return { positional, flags };
+}
+
+async function cmdProject(args: string[]): Promise<void> {
+    const [sub, ...rest] = args;
+    if (!sub) { printProjectUsage(); process.exit(1); }
+
+    const wm = new WorkspaceManager();
+    const { positional, flags } = parseFlags(rest);
+
+    switch (sub) {
+
+        case 'list': {
+            const { current, projects } = wm.list();
+            if (projects.length === 0) {
+                console.log('Sin proyectos. Usá: orchestrator-cli project create <nombre> --root <path>');
+                return;
+            }
+            console.log(`\nProyectos (${projects.length}):\n`);
+            for (const p of projects) {
+                const marker = p.id === current ? '▶' : ' ';
+                const tag    = p.id === current ? ' [activo]' : '';
+                console.log(`${marker} ${p.name}${tag}`);
+                console.log(`    id  : ${p.id}`);
+                console.log(`    root: ${p.root}`);
+                console.log('');
+            }
+            break;
+        }
+
+        case 'current': {
+            let project: ReturnType<WorkspaceManager['current']>;
+            try { project = wm.current(); }
+            catch (err) { console.error(err instanceof Error ? err.message : String(err)); process.exit(1); }
+
+            console.log(`\nProyecto activo: ${project.name}`);
+            console.log(`root: ${project.root}`);
+            if (project.description) console.log(`desc: ${project.description}`);
+
+            console.log(`\nAgentes:`);
+            for (const [id, cfg] of Object.entries(project.agents)) {
+                console.log(`  ${id.padEnd(10)} modelo: ${cfg.model}  temp: ${cfg.temperature}`);
+            }
+
+            console.log(`\nGates:`);
+            console.log(`  designReview  : ${project.gates.designReview}`);
+            console.log(`  qaApproval    : ${project.gates.qaApproval}`);
+            console.log(`  securityReview: ${project.gates.securityReview}`);
+
+            console.log(`\nPolicies: ${project.policies.enabled.join(', ') || '(ninguna)'}`);
+            console.log(`Memoria  : namespace "${project.memory.namespace}" — ${project.memory.enabled ? 'activa' : 'inactiva'}`);
+            break;
+        }
+
+        case 'switch': {
+            const name = positional[0];
+            if (!name) { console.error('Error: se requiere el nombre del proyecto'); process.exit(1); }
+            try {
+                const result = wm.switch(name);
+                console.log(`✓ Proyecto activo: ${result.previous ?? '(ninguno)'} → ${result.current}`);
+            } catch (err) {
+                console.error(err instanceof Error ? err.message : String(err));
+                process.exit(1);
+            }
+            break;
+        }
+
+        case 'create': {
+            const name = positional[0];
+            const root = flags['root'];
+            const desc = flags['description'] || flags['desc'];
+
+            if (!name) { console.error('Error: se requiere el nombre del proyecto'); process.exit(1); }
+            if (!root) { console.error('Error: se requiere --root <path>'); process.exit(1); }
+
+            const absRoot = path.resolve(root);
+
+            // Crear estructura de directorios en disco
+            const dirs = [
+                absRoot,
+                path.join(absRoot, 'src'),
+                path.join(absRoot, '.specs'),
+                path.join(absRoot, '.qa'),
+                path.join(absRoot, '.security'),
+            ];
+            for (const dir of dirs) fs.mkdirSync(dir, { recursive: true });
+
+            // Registrar en workspace-manager
+            let project: ReturnType<WorkspaceManager['current']>;
+            try {
+                ({ project } = wm.create(name, absRoot, desc));
+            } catch (err) {
+                console.error(err instanceof Error ? err.message : String(err));
+                process.exit(1);
+            }
+
+            // Activar automáticamente
+            wm.switch(name);
+
+            console.log(`\n✓ Proyecto "${project.name}" creado y activado`);
+            console.log(`  root: ${project.root}`);
+            console.log(`\n  Directorios:`);
+            dirs.forEach(d => console.log(`    ${d}`));
+            console.log(`\n  Próximo paso:`);
+            console.log(`    orchestrator-cli design <config.yaml> "<feature>"`);
+            break;
+        }
+
+        case 'delete': {
+            const name = positional[0];
+            if (!name) { console.error('Error: se requiere el nombre del proyecto'); process.exit(1); }
+
+            const rl = new PromptReader();
+            const answer = await rl.question(`¿Eliminar proyecto "${name}"? [y/n]: `);
+            rl.close();
+
+            if (!answer.trim().toLowerCase().startsWith('y')) {
+                console.log('Cancelado.');
+                return;
+            }
+
+            try {
+                wm.delete(name);
+                console.log(`✓ Proyecto "${name}" eliminado del registro.`);
+                console.log(`  (El directorio en disco no fue borrado.)`);
+            } catch (err) {
+                console.error(err instanceof Error ? err.message : String(err));
+                process.exit(1);
+            }
+            break;
+        }
+
+        case 'update': {
+            // orchestrator-cli project update <nombre> --gate.designReview auto --agents.backend.model gpt-4o
+            const name = positional[0];
+            if (!name) { console.error('Error: se requiere el nombre del proyecto'); process.exit(1); }
+
+            if (Object.keys(flags).length === 0) {
+                console.error('Error: se requiere al menos un flag --<campo> <valor>');
+                process.exit(1);
+            }
+
+            try {
+                const { changes } = wm.update(name, flags);
+                console.log(`✓ Proyecto "${name}" actualizado:`);
+                changes.forEach(c => console.log(`  ${c}`));
+            } catch (err) {
+                console.error(err instanceof Error ? err.message : String(err));
+                process.exit(1);
+            }
+            break;
+        }
+
+        default:
+            console.error(`Subcomando desconocido: "${sub}"`);
+            printProjectUsage();
+            process.exit(1);
+    }
+}
+
+// ── design command ────────────────────────────────────────────────────────────
+
+async function cmdDesign(configPath: string, args: string[]): Promise<void> {
+    // Flags: --project <name>  --root <path>
+    const projectFlagIdx = args.indexOf('--project');
+    const rootFlagIdx    = args.indexOf('--root');
+
+    const projectName = projectFlagIdx !== -1 ? args[projectFlagIdx + 1] : undefined;
+    const rootOverride = rootFlagIdx !== -1 ? args[rootFlagIdx + 1] : undefined;
+
+    // Feature = remaining tokens after removing flags
+    const featureTokens = args.filter((_, i) => {
+        if (projectFlagIdx !== -1 && (i === projectFlagIdx || i === projectFlagIdx + 1)) return false;
+        if (rootFlagIdx    !== -1 && (i === rootFlagIdx    || i === rootFlagIdx    + 1)) return false;
+        return true;
+    });
+    const feature = featureTokens.join(' ').trim();
+
+    if (!feature) {
+        console.error('Error: se requiere la descripción de la feature');
+        console.error('Uso: orchestrator-cli design <config.yaml> "<feature>" [--project <nombre>] [--root <path>]');
+        process.exit(1);
+    }
+
+    // Load orchestrator config (for LLM provider)
+    let config: OrchestratorConfig;
+    try { config = loadConfig(configPath); }
+    catch (err) { console.error(`Config: ${err instanceof Error ? err.message : String(err)}`); process.exit(1); }
+
+    // Resolve project root
+    let projectRoot: string;
+    if (rootOverride) {
+        projectRoot = path.resolve(rootOverride);
+    } else {
+        const wm = new WorkspaceManager();
+        try {
+            const target = projectName ? wm.getRoot(projectName) : wm.getRoot();
+            projectRoot = target.root;
+            const name  = target.name;
+            console.log(`\nProyecto: ${name}`);
+        } catch (err) {
+            console.error(err instanceof Error ? err.message : String(err));
+            console.error('Hint: usá --root <path> para especificar el directorio manualmente');
+            process.exit(1);
+        }
+    }
+
+    console.log(`Root   : ${projectRoot}`);
+    console.log(`Feature: ${feature}`);
+    console.log(`\nGenerando artefactos de diseño...\n`);
+
+    let artifacts;
+    try {
+        artifacts = await generateDesign(config, projectRoot, feature, msg => process.stdout.write(`${msg}\n`));
+    } catch (err) {
+        console.error(`\nError: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+    }
+
+    console.log(`\n✓ Artefactos generados en ${path.join(projectRoot, '.specs')}/\n`);
+    console.log(`  specification.md  — ${artifacts.spec.split('\n').length} líneas`);
+    console.log(`  design.md         — ${artifacts.design.split('\n').length} líneas`);
+    console.log(`  ROADMAP.md        — ${artifacts.roadmap.split('\n').length} líneas`);
+
+    // Extract phases count from roadmap
+    const phases = (artifacts.roadmap.match(/^## Phase/gm) ?? []).length;
+    if (phases > 0) console.log(`\n  ${phases} fases de implementación definidas`);
+
+    console.log(`\nPróximo paso:`);
+    console.log(`  orchestrator-cli run ${configPath} "<feature>" --flow sdd-implement`);
+}
+
 // ── Usage ─────────────────────────────────────────────────────────────────────
+
+function printProjectUsage(): void {
+    console.log(`
+Uso:
+  orchestrator-cli project list
+  orchestrator-cli project current
+  orchestrator-cli project create <nombre> --root <path> [--description "<texto>"]
+  orchestrator-cli project switch <nombre>
+  orchestrator-cli project delete <nombre>
+  orchestrator-cli project update <nombre> --<campo> <valor>
+`);
+}
 
 function printUsage(): void {
     console.log(`
 Uso:
-  orchestrator-cli run    <config.yaml> "<tarea>" [--flow <id>]
-  orchestrator-cli status <config.yaml> <run_id>
+  orchestrator-cli project <subcomando>                           — gestión de proyectos
+  orchestrator-cli design  <config.yaml> "<feature>"             — genera spec/design/roadmap
+                           [--project <nombre>] [--root <path>]
+  orchestrator-cli run     <config.yaml> "<tarea>" [--flow <id>] — ejecuta implementación
+  orchestrator-cli status  <config.yaml> <run_id>
   orchestrator-cli approve <config.yaml> <run_id> [--reject] [--notes "<texto>"]
-  orchestrator-cli list   <config.yaml> [--status running|waiting_gate|complete|failed]
+  orchestrator-cli list    <config.yaml> [--status running|waiting_gate|complete|failed]
 `);
 }
 
 // ── Entrypoint ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-    const [,, command, configPath, ...rest] = process.argv;
+    const [,, command, ...argv] = process.argv;
 
-    if (!command || !configPath) { printUsage(); process.exit(1); }
+    if (!command) { printUsage(); process.exit(1); }
+
+    // project no necesita config_path
+    if (command === 'project') {
+        await cmdProject(argv);
+        return;
+    }
+
+    // El resto de comandos requieren config_path como segundo arg
+    const [configPath, ...rest] = argv;
+    if (!configPath) { printUsage(); process.exit(1); }
 
     switch (command) {
+        case 'design':  await cmdDesign(configPath, rest);  break;
         case 'run':     await cmdRun(configPath, rest);     break;
         case 'status':  await cmdStatus(configPath, rest);  break;
         case 'approve': await cmdApprove(configPath, rest); break;

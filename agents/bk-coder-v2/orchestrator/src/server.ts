@@ -37,12 +37,17 @@ import { buildRAG }                               from './rag.js';
 import { matchFlow, flowToTaskPlan }              from './static-flow.js';
 import { consolidateRun }                         from './consolidate.js';
 import type { ReflectionAdapter }                 from './executor.js';
+import { WorkspaceManager }                       from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { getAuditLogger }                         from './audit.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const ok  = (text: string) => ({ content: [{ type: 'text' as const, text }] });
 const ts  = () => new Date().toISOString();
+
+function resolveProjectRoot(): string | undefined {
+    try { return new WorkspaceManager().current().root; } catch { return undefined; }
+}
 
 // ── Data directory + RunStore ─────────────────────────────────────────────────
 // Data lives adjacent to the config file (resolveDataDir from config.ts).
@@ -301,6 +306,7 @@ async function executeInBackground(
         ragSearchFn:  rag?.search,
         reflection,
         episodicFn:   queue ? undefined : buildEpisodicFn(store),
+        projectRoot:  resolveProjectRoot(),
         // BullMQ: dispatch via Redis queue so external worker processes execute the step
         dispatchFn: queue
             ? (subtask, pr) => queue.dispatch(subtask, pr, configPath)

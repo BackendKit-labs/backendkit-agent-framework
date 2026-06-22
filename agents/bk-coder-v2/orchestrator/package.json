@@ -7,7 +7,8 @@
   "bin": {
     "orchestrator-coder-v2": "./dist/server.js",
     "orchestrator-worker": "./dist/worker-process.js",
-    "orchestrator-cli": "./dist/cli.js"
+    "orchestrator-cli": "./dist/cli.js",
+    "orchestrator-tui": "./dist/tui.js"
   },
   "scripts": {
     "build": "tsc --noCheck",
@@ -17,16 +18,20 @@
   "dependencies": {
     "@backendkit-labs/agent-core": "*",
     "@backendkit-labs/agent-enterprise": "*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
     "@lancedb/lancedb": "^0.13.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "bullmq": "^5.0.0",
+    "ink": "^4.4.1",
+    "ink-text-input": "^5.0.1",
     "ioredis": "^5.0.0",
     "openai": "^4.0.0",
+    "react": "^18.3.1",
     "yaml": "^2.4.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/react": "^18.3.31",
     "typescript": "^5.4.0"
   }
 }

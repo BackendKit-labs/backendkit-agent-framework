@@ -1,6 +1,5 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { db, schema } from '@/db';
 import { Topbar } from '@/components/layout/topbar';
 import { UsersTable } from '@/components/users/users-table';
 import { canManageUsers } from '@/lib/permissions';
@@ -8,20 +7,30 @@ import type { UserRole } from '@/lib/permissions';
 
 export const metadata = { title: 'Usuarios' };
 
+const AUTH_SERVICE_URL = process.env['AUTH_SERVICE_URL'] ?? 'http://localhost:4000';
+
+type AuthUser = {
+    id: string; username: string; name: string | null; email: string | null;
+    role: string; active: boolean; createdAt: string;
+};
+
 export default async function UsersPage() {
     const session = await auth();
     if (!session?.user) redirect('/login');
     if (!canManageUsers(session.user.role as UserRole)) redirect('/');
 
-    const users = await db.select({
-        id:           schema.users.id,
-        email:        schema.users.email,
-        name:         schema.users.name,
-        role:         schema.users.role,
-        active:       schema.users.active,
-        lastActiveAt: schema.users.lastActiveAt,
-        createdAt:    schema.users.createdAt,
-    }).from(schema.users).orderBy(schema.users.createdAt);
+    let users: (AuthUser & { lastActiveAt: null })[] = [];
+    try {
+        const res = await fetch(`${AUTH_SERVICE_URL}/api/users`, {
+            headers: { Authorization: `Bearer ${session.user.authToken}` },
+            signal: AbortSignal.timeout(5_000),
+            cache: 'no-store',
+        });
+        if (res.ok) {
+            const data = await res.json() as AuthUser[];
+            users = data.map(u => ({ ...u, lastActiveAt: null }));
+        }
+    } catch { /* auth-service unreachable — show empty list */ }
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">

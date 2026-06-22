@@ -20,7 +20,7 @@ export default function LoginPage() {
         const result = await signIn('credentials', { email, password, redirect: false });
         setLoading(false);
         if (result?.error) {
-            setError('Credenciales inválidas. Verificá email y contraseña.');
+            setError('Credenciales inválidas. Verificá usuario y contraseña.');
         } else {
             router.push('/');
             router.refresh();
@@ -52,10 +52,10 @@ export default function LoginPage() {
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-muted-foreground">Email</label>
+                            <label className="text-xs font-medium text-muted-foreground">Usuario</label>
                             <Input
-                                type="email"
-                                placeholder="admin@empresa.com"
+                                type="text"
+                                placeholder="admin o admin@empresa.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required

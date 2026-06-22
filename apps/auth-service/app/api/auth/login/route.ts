@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db }             from '@/db/index';
 import { users }          from '@/db/schema';
-import { eq }             from 'drizzle-orm';
+import { eq, or }         from 'drizzle-orm';
 import { verifyPassword } from '@/lib/password';
 import { signToken }      from '@/lib/auth';
 import { migrateFromJson } from '@/lib/migrate';
@@ -25,7 +25,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'username y password requeridos' }, { status: 400 });
     }
 
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+    const [user] = await db.select().from(users).where(
+        or(eq(users.username, username), eq(users.email, username)),
+    );
 
     if (!user) {
         return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 401 });

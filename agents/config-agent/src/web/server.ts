@@ -1,4 +1,5 @@
 import express from 'express';
+import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readAgentConfig } from '../storage/configStore.js';
@@ -9,6 +10,19 @@ import { diffRouter }      from './routes/diff.js';
 import { apiRouter }       from './routes/api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** Abre la URL en el navegador por defecto del SO. Falla en silencio. */
+function openBrowser(url: string): void {
+  const [cmd, args]: [string, string[]] =
+    process.platform === 'win32'  ? ['cmd',      ['/c', 'start', '', url]]
+    : process.platform === 'darwin' ? ['open',     [url]]
+    :                                 ['xdg-open', [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => { /* navegador no disponible — ignorar */ });
+    child.unref();
+  } catch { /* ignore */ }
+}
 
 export interface ServeConfigUiInput {
   agent_id?: string
@@ -29,6 +43,7 @@ export function serveConfigUi(input: ServeConfigUiInput): Promise<ServeConfigUiO
   const config = readAgentConfig();
   const port = input.port || config.settings.uiPort || parseInt(process.env.CONFIG_UI_PORT || '3456', 10);
   const theme = input.theme || config.settings.uiTheme || 'light';
+  const autoOpen = input.autoOpen ?? config.settings.uiAutoOpen;
 
   app.set('view engine', 'ejs');
   app.set('views', resolve(__dirname, 'views'));
@@ -51,8 +66,10 @@ export function serveConfigUi(input: ServeConfigUiInput): Promise<ServeConfigUiO
 
   return new Promise((resolvePromise) => {
     app.listen(port, () => {
+      const url = `http://localhost:${port}`;
+      if (autoOpen) openBrowser(url);
       resolvePromise({
-        url: `http://localhost:${port}`,
+        url,
         port,
         status: 'running',
         agentsAvailable: [],

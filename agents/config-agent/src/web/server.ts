@@ -24,7 +24,7 @@ export interface ServeConfigUiOutput {
   agentsAvailable: string[]
 }
 
-export async function serveConfigUi(input: ServeConfigUiInput): Promise<ServeConfigUiOutput> {
+export function serveConfigUi(input: ServeConfigUiInput): Promise<ServeConfigUiOutput> {
   const app = express();
   const config = readAgentConfig();
   const port = input.port || config.settings.uiPort || parseInt(process.env.CONFIG_UI_PORT || '3456', 10);

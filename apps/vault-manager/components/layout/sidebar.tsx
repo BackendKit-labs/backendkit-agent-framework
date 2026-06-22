@@ -4,17 +4,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard, Upload, ClipboardCheck, Database,
-    Sparkles, Users, Settings, ChevronRight,
+    Sparkles, ChevronRight,
     BookOpen, Shield, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { cn } from '@/components/ui';
 
 interface NavItem {
-    href:    string;
-    label:   string;
-    icon:    React.ElementType;
-    badge?:  number;
-    roles?:  string[];
+    href:   string;
+    label:  string;
+    icon:   React.ElementType;
+    badge?: number;
 }
 
 const NAV_MAIN: NavItem[] = [
@@ -23,11 +22,6 @@ const NAV_MAIN: NavItem[] = [
     { href: '/audit',   label: 'Auditoría',    icon: ClipboardCheck, badge: 0 },
     { href: '/vault',   label: 'Vaults',       icon: Database },
     { href: '/improve', label: 'Mejora AI',    icon: Sparkles },
-];
-
-const NAV_ADMIN: NavItem[] = [
-    { href: '/users',    label: 'Usuarios',      icon: Users,    roles: ['admin'] },
-    { href: '/settings', label: 'Configuración', icon: Settings, roles: ['admin'] },
 ];
 
 interface SidebarProps {
@@ -77,20 +71,6 @@ export function Sidebar({ userRole = 'viewer', pendingCount = 0 }: SidebarProps)
                         collapsed={collapsed}
                     />
                 ))}
-
-                {userRole === 'admin' && (
-                    <>
-                        {!collapsed && (
-                            <p className="mb-1 mt-4 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                Administración
-                            </p>
-                        )}
-                        {collapsed && <div className="my-2 border-t border-border" />}
-                        {NAV_ADMIN.map((item) => (
-                            <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={collapsed} />
-                        ))}
-                    </>
-                )}
             </nav>
 
             {/* Role badge + toggle */}

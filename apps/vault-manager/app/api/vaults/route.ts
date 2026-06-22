@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { isServiceRequest } from '@/lib/service-auth';
 import { db, schema } from '@/db';
 import { eq } from 'drizzle-orm';
-import { canAccessVault, canManageUsers } from '@/lib/permissions';
+import { canAccessVault, canManageVaults } from '@/lib/permissions';
 import type { UserRole } from '@/lib/permissions';
 
 export async function GET(req: NextRequest) {
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     const session = await auth();
-    if (!session?.user || !canManageUsers(session.user.role as UserRole)) {
+    if (!session?.user || !canManageVaults(session.user.role as UserRole)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const body = await req.json();

@@ -65,9 +65,3 @@ export const AUDIT_STATUS_LABELS: Record<string, string> = {
     processing: 'Procesando',
 };
 
-export const INGEST_STATUS_COLORS: Record<string, string> = {
-    queued:     'text-zinc-400 bg-zinc-800/50 border-zinc-700',
-    processing: 'text-blue-400 bg-blue-950/50 border-blue-800',
-    done:       'text-emerald-400 bg-emerald-950/50 border-emerald-800',
-    failed:     'text-red-400 bg-red-950/50 border-red-800',
-};

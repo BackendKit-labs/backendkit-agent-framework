@@ -7,8 +7,6 @@ import { configRouter }    from './routes/config.js';
 import { historyRouter }   from './routes/history.js';
 import { diffRouter }      from './routes/diff.js';
 import { apiRouter }       from './routes/api.js';
-import { usersRouter }     from './routes/users.js';
-import { bootstrapAdmin }  from '../storage/userStore.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,10 +48,6 @@ export async function serveConfigUi(input: ServeConfigUiInput): Promise<ServeCon
   app.use('/history', historyRouter);
   app.use('/diff', diffRouter);
   app.use('/api', apiRouter);
-  app.use('/users', usersRouter);
-
-  // Bootstrap admin user from ADMIN_PASSWORD if no users exist yet
-  await bootstrapAdmin();
 
   return new Promise((resolvePromise) => {
     app.listen(port, () => {

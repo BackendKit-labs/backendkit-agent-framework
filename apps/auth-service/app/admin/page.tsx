@@ -5,7 +5,7 @@ import { Users, UserCheck, UserX, ShieldAlert } from 'lucide-react';
 import { cn, roleBg } from '@/lib/utils';
 import { ROLES } from '@/db/schema';
 
-interface UserRow { id: string; username: string; role: string; active: boolean; createdAt: string; }
+interface UserRow { id: string; username: string; role: string; active: boolean; lockedUntil: string | null; directorTools: string | null; createdAt: string; }
 
 export default function DashboardPage() {
     const [users, setUsers] = useState<UserRow[]>([]);
@@ -18,14 +18,14 @@ export default function DashboardPage() {
 
     const active   = users.filter(u => u.active).length;
     const inactive = users.filter(u => !u.active).length;
-    const locked   = users.filter(u => !u.active).length; // simplified
+    const custom   = users.filter(u => u.directorTools !== null).length;
     const byRole   = ROLES.map(r => ({ role: r, count: users.filter(u => u.role === r).length })).filter(r => r.count > 0);
 
     const stats = [
         { label: 'Usuarios totales',  value: users.length, icon: Users,       color: 'text-primary' },
         { label: 'Activos',           value: active,        icon: UserCheck,   color: 'text-emerald-400' },
         { label: 'Inactivos',         value: inactive,      icon: UserX,       color: 'text-red-400' },
-        { label: 'Con workspace custom', value: users.filter(u => u.active).length, icon: ShieldAlert, color: 'text-amber-400' },
+        { label: 'Con workspace custom', value: custom, icon: ShieldAlert, color: 'text-amber-400' },
     ];
 
     return (

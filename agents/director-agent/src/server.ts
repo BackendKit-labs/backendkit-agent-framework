@@ -33,13 +33,7 @@ async function main(): Promise<void> {
 
     log('Iniciando director...');
 
-    // Collect output from engine runs (streaming buffered per run)
-    let outputBuffer = '';
-    const onEvent = (evt: AgentEvent) => {
-        if (evt.type === 'token') outputBuffer += evt.content;
-    };
-
-    const { engine, mcp, policyEngine, auditLogger } = await buildDirectorEngine(config, configDir, onEvent);
+    const { engine, mcp, policyEngine, auditLogger } = await buildDirectorEngine(config, configDir);
 
     const info = mcp.getServerInfo();
     log(`Agentes conectados: ${info.map(s => `${s.name}(${s.toolCount}t)`).join(', ') || 'ninguno'}`);
@@ -87,11 +81,15 @@ async function main(): Promise<void> {
             // Si no hay JWT_SECRET → dev/REPL mode, usamos ADMIN_PRINCIPAL sin restricción.
 
             // ── Run con contexto de Principal ─────────────────────────────────
-            outputBuffer = '';
-            return requestContext.run({ principal }, async () => {
+            // Buffer local por-request: evita corrupción entre llamadas concurrentes.
+            let buffer = '';
+            const onEvent = (evt: AgentEvent) => {
+                if (evt.type === 'token') buffer += evt.content;
+            };
+            return requestContext.run({ principal, onEvent }, async () => {
                 try {
                     await engine.run(message);
-                    return { content: [{ type: 'text' as const, text: outputBuffer || '(sin respuesta)' }] };
+                    return { content: [{ type: 'text' as const, text: buffer || '(sin respuesta)' }] };
                 } catch (err) {
                     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }] };
                 }

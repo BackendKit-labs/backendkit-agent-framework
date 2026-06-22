@@ -38,32 +38,31 @@ export class PolicyEngine {
         if (!this.enforce) return { allowed: true };
 
         const shortName = toolName.includes('__') ? toolName.split('__').at(-1)! : toolName;
+        const policy    = this.tools[toolName] ?? this.tools[shortName ?? ''];
 
-        // Workspace custom del JWT (auth-service) — tiene prioridad total sobre RBAC
+        // ── Capa 2: control de acceso (workspace custom o RBAC) ───────────────
         if (principal.tools !== undefined) {
+            // Workspace custom del JWT (auth-service) — reemplaza el role-check de
+            // RBAC, pero las condiciones ABAC del tool siguen aplicando (abajo).
             const allowed = principal.tools.includes(toolName) || principal.tools.includes(shortName ?? '');
             if (!allowed) return {
                 allowed: false,
                 reason: `Tu workspace no incluye "${shortName}". Contactá al administrador para ampliar permisos.`,
             };
-            return { allowed: true };
+        } else {
+            // Sin workspace custom → RBAC normal de director.yaml
+            if (!policy) return { allowed: !this.defaultDeny };
+
+            const rolesOk = policy.allowed_roles.includes('*')
+                || policy.allowed_roles.includes(principal.role);
+
+            if (!rolesOk) {
+                return { allowed: false, reason: this.denyMessage(principal, toolName), layer: 'rbac' };
+            }
         }
 
-        // Sin workspace custom → RBAC normal de director.yaml
-        const policy = this.tools[toolName] ?? this.tools[shortName ?? ''];
-
-        if (!policy) return { allowed: !this.defaultDeny };
-
-        // ── Capa 2: RBAC ──────────────────────────────────────────────────────
-        const rolesOk = policy.allowed_roles.includes('*')
-            || policy.allowed_roles.includes(principal.role);
-
-        if (!rolesOk) {
-            return { allowed: false, reason: this.denyMessage(principal, toolName), layer: 'rbac' };
-        }
-
-        // ── Capa 3: ABAC ──────────────────────────────────────────────────────
-        const conditions = (policy.conditions ?? []) as AbacCondition[];
+        // ── Capa 3: ABAC ── (aplica a ambos paths) ────────────────────────────
+        const conditions = (policy?.conditions ?? []) as AbacCondition[];
         if (conditions.length > 0) {
             const result = applyConditions(conditions, {
                 principal,

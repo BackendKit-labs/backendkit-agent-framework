@@ -230,6 +230,9 @@ async function cmdRun(configPath: string, args: string[]): Promise<void> {
         planSource = 'dynamic';
     }
 
+    let projectRoot: string | undefined;
+    try { projectRoot = new WorkspaceManager().current().root; } catch { /* no active project */ }
+
     const runId = store.newRunId();
     await store.save({
         runId, task, configPath,

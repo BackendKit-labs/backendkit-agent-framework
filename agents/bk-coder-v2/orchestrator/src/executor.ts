@@ -346,14 +346,21 @@ export async function executeSubtask(
 
     // Write files extracted from LLM output to the project directory
     if (projectRoot && agentCfg.domain) {
+        const writingDomains = new Set(['backend', 'infra', 'qa', 'security']);
         try {
             const written = extractAndWrite(result, projectRoot, agentCfg.domain, absPath => {
                 onProgress?.(`    📄 ${absPath.replace(projectRoot, '').replace(/^[\\/]/, '')}`);
             });
             if (written > 0) {
-                onProgress?.(`  ✓ [${agentCfg.id}] ${written} archivo(s) escrito(s) en ${projectRoot}`);
+                onProgress?.(`  ✓ [${agentCfg.id}] ${written} archivo(s) escrito(s)`);
+            } else if (writingDomains.has(agentCfg.domain)) {
+                onProgress?.(`  ⚠ [${agentCfg.id}] 0 archivos extraídos — el LLM no usó el formato ### FILE:`);
             }
-        } catch { /* file writing is best-effort */ }
+        } catch (err) {
+            onProgress?.(`  ✗ [${agentCfg.id}] error escribiendo archivos: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    } else if (!projectRoot) {
+        onProgress?.(`  ⚠ [${agentCfg.id}] sin proyecto activo — los archivos no se guardan en disco`);
     }
 
     return result;

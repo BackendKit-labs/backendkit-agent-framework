@@ -39,11 +39,12 @@ export const DOMAIN_BASE: Record<string, string> = {
 //     content
 //     ```
 
-const FILE_HEADER_A = /^#{1,4}\s+FILE:\s+(.+?)\s*$/i;
-const FILE_HEADER_B = /^#{1,4}\s+`?([a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+)`?\s*$/;
-const CODE_BLOCK    = /^```[a-zA-Z0-9]*\s*$/;
-const CODE_CLOSE    = /^```\s*$/;
-const FIRST_COMMENT = /^\s*(?:\/\/|#|<!--)\s*([a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+)\s*(?:-->)?\s*$/;
+const FILE_HEADER_A    = /^#{1,4}\s+FILE:\s+(.+?)\s*$/i;
+const FILE_HEADER_B    = /^#{1,4}\s+`?([a-zA-Z0-9_.\-/\\]+\.[a-zA-Z0-9]+)`?\s*$/;
+const FILE_HEADER_BOLD = /^\*\*`?(?:FILE:\s*)?([a-zA-Z0-9_.\-/\\]+\.[a-zA-Z0-9]+)`?\*\*[:\s]*$/i;
+const CODE_BLOCK       = /^```[a-zA-Z0-9]*\s*$/;
+const CODE_CLOSE       = /^```\s*$/;
+const FIRST_COMMENT    = /^\s*(?:\/\/|#|<!--)\s*([a-zA-Z0-9_.\-/\\]+\.[a-zA-Z0-9]+)\s*(?:-->)?\s*$/;
 
 export function extractFiles(llmOutput: string): ExtractedFile[] {
     const lines   = llmOutput.split('\n');
@@ -72,7 +73,21 @@ export function extractFiles(llmOutput: string): ExtractedFile[] {
         if (matchB && looksLikePath(matchB[1])) {
             const filePath = matchB[1].trim();
             i++;
-            // skip blank lines between header and code block
+            while (i < lines.length && lines[i].trim() === '') i++;
+            if (i < lines.length && CODE_BLOCK.test(lines[i])) {
+                i++;
+                const content = readUntilClose(lines, i);
+                i += content.lines + 1;
+                results.push({ relativePath: filePath, content: content.text });
+                continue;
+            }
+        }
+
+        // ── Format D: **`src/file.ts`** o **FILE: src/file.ts** (bold) ────────
+        const matchD = FILE_HEADER_BOLD.exec(line);
+        if (matchD && looksLikePath(matchD[1])) {
+            const filePath = matchD[1].trim();
+            i++;
             while (i < lines.length && lines[i].trim() === '') i++;
             if (i < lines.length && CODE_BLOCK.test(lines[i])) {
                 i++;
@@ -120,8 +135,8 @@ function readUntilClose(lines: string[], start: number): { text: string; lines: 
 }
 
 function looksLikePath(s: string): boolean {
-    // Must contain at least one slash OR look like a filename with extension
-    return /[/\\]/.test(s) || /^[a-zA-Z0-9_.\-]+\.[a-zA-Z]{1,6}$/.test(s);
+    // Needs an extension AND either a slash/backslash or a simple filename
+    return /\.[a-zA-Z]{1,6}$/.test(s) && !/\s/.test(s) && s.length < 120;
 }
 
 function deduplicate(files: ExtractedFile[]): ExtractedFile[] {

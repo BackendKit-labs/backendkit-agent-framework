@@ -395,28 +395,31 @@ function App({ configPath, config, store, rag }: AppProps) {
             setProjects(list.map(p => ({ id: p.id, name: p.name, root: p.root, active: p.active })));
             try {
                 const cur = wm.current();
+                activeRootRef.current = cur.root;   // actualiza la ref inmediatamente
                 setActiveProject({ name: cur.name, root: cur.root });
             } catch {
+                activeRootRef.current = undefined;
                 setActiveProject(null);
             }
         } catch {
+            activeRootRef.current = undefined;
             setActiveProject(null);
         }
     }, [wm]);
 
     useEffect(() => { loadProject(); }, [loadProject]);
 
+    // Ref para el root activo — evita closure estale en pollRuns
+    const activeRootRef = useRef<string | undefined>(undefined);
+    useEffect(() => { activeRootRef.current = activeProject?.root; }, [activeProject]);
+
     const progressBuf = useRef<string[]>([]);
 
     // ── Poll runs every 2s ────────────────────────────────────────────────────
     const pollRuns = useCallback(async () => {
         const all = await store.list();
-        // Filter by active project root so each project shows only its own runs
-        let proj: { name: string; root: string } | null = null;
-        try { proj = new WorkspaceManager().current(); } catch { /* no active project */ }
-        const filtered = proj
-            ? all.filter(r => r.projectRoot === proj!.root || (!r.projectRoot && false))
-            : all;
+        const root = activeRootRef.current;
+        const filtered = root ? all.filter(r => r.projectRoot === root) : all;
         setRuns(filtered);
         setSelectedIdx(i => (filtered.length > 0 ? Math.min(i, filtered.length - 1) : 0));
     }, [store]);
@@ -448,7 +451,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         const executor = new PlanExecutor({
             config,
             ragSearchFn:  rag?.search,
-            projectRoot:  activeProject?.root,
+            projectRoot:  activeRootRef.current,   // ref: siempre el valor actual, sin closure estale
             onProgress: (msg) => { progressBuf.current.push(msg); },
         });
 
@@ -504,13 +507,13 @@ function App({ configPath, config, store, rag }: AppProps) {
         }
 
         const runId = store.newRunId();
-        await store.save({ runId, task, configPath, projectRoot: activeProject?.root, status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
+        // Usar la ref (siempre actualizada) en vez de activeProject React state
+        const projectRoot = activeRootRef.current;
+        await store.save({ runId, task, configPath, projectRoot, status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
         await pollRuns();
 
-        // Select the new run
-        const all = await store.list();
-        const idx = all.findIndex(r => r.runId === runId);
-        if (idx !== -1) setSelectedIdx(idx);
+        // El run nuevo es el más reciente → siempre en índice 0 de la lista filtrada
+        setSelectedIdx(0);
 
         runExecutor(runId, plan, []);
     }, [config, configPath, rag, store, pollRuns, runExecutor]);
@@ -583,8 +586,13 @@ function App({ configPath, config, store, rag }: AppProps) {
                 } else {
                     const proj = projects[projSelIdx];
                     if (proj) {
-                        try { wm.switch(proj.id); loadProject(); }
-                        catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+                        try {
+                            wm.switch(proj.id);
+                            loadProject();   // actualiza activeProject + activeRootRef
+                            pollRuns();      // refresca la lista inmediatamente
+                        } catch (err) {
+                            setError(err instanceof Error ? err.message : String(err));
+                        }
                     }
                     setView('list');
                 }
@@ -617,6 +625,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                     wm.create(name, absRoot, projDescInput.trim() || undefined);
                     wm.switch(name);
                     loadProject();
+                    pollRuns();
                     setView('list');
                     setProjNameInput(''); setProjRootInput(''); setProjDescInput('');
                 } catch (err) {
@@ -705,7 +714,10 @@ function App({ configPath, config, store, rag }: AppProps) {
                     <Text dimColor>↑↓ navegar</Text>
                     <Box flexDirection="column" marginTop={1}>
                         {runs.length === 0 ? (
-                            <Text dimColor>Sin runs — [N] para crear</Text>
+                            <Box flexDirection="column">
+                                <Text dimColor>Sin runs para este proyecto.</Text>
+                                <Text dimColor>[N] para iniciar una tarea.</Text>
+                            </Box>
                         ) : (
                             // Show a window of items around selectedIdx
                             (() => {
@@ -743,7 +755,15 @@ function App({ configPath, config, store, rag }: AppProps) {
                     borderLeft={false}
                     paddingX={1}
                 >
-                    {!selected ? (
+                    {!selected && executingId ? (
+                        // Ejecutando pero el run todavía no aparece en la lista (polling delay)
+                        <Box flexDirection="column">
+                            <Text color="yellow" bold>⏳ Ejecutando...</Text>
+                            {progressLines.slice(-10).map((line, i) => (
+                                <Text key={i} dimColor>{line}</Text>
+                            ))}
+                        </Box>
+                    ) : !selected ? (
                         <Text dimColor>Seleccioná un run con ↑↓</Text>
                     ) : (
                         <RunDetail

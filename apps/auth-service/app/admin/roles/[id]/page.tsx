@@ -48,10 +48,10 @@ export default function EditRolePage({ params }: { params: { id: string } }) {
                     <ArrowLeft className="w-4 h-4" />
                 </Link>
                 <div>
-                    <h1 className="text-xl font-semibold">
-                        {role.label} <code className="text-sm text-muted-foreground font-mono bg-accent px-1.5 py-0.5 rounded">{role.name}</code>
-                    </h1>
-                    <p className="text-sm text-muted-foreground">Editá las herramientas asignadas a este rol</p>
+                    <p className="text-sm font-semibold">
+                        {role.label} <code className="text-xs text-muted-foreground font-mono bg-accent px-1.5 py-0.5 rounded">{role.name}</code>
+                    </p>
+                    <p className="text-xs text-muted-foreground">Editá las herramientas asignadas a este rol</p>
                 </div>
             </div>
 

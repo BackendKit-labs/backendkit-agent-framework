@@ -8,6 +8,19 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Topbar } from '@/components/topbar';
+
+function pageTitle(pathname: string): string {
+    if (pathname === '/admin')                          return 'Dashboard';
+    if (pathname === '/admin/users/new')                return 'Nuevo usuario';
+    if (pathname.startsWith('/admin/users/'))           return 'Editar usuario';
+    if (pathname === '/admin/users')                    return 'Usuarios';
+    if (pathname === '/admin/roles/new')                return 'Nuevo rol';
+    if (pathname.startsWith('/admin/roles/'))           return 'Editar rol';
+    if (pathname === '/admin/roles')                    return 'Roles';
+    if (pathname === '/admin/departments')              return 'Departamentos';
+    return 'Auth Service';
+}
 
 const NAV = [
     { href: '/admin',             label: 'Dashboard',     icon: LayoutDashboard },
@@ -106,7 +119,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </div>
             </aside>
 
-            <main className="flex-1 overflow-y-auto p-6">{children}</main>
+            <main className="flex flex-1 flex-col overflow-hidden">
+                <Topbar title={pageTitle(pathname)} />
+                <div className="flex-1 overflow-y-auto p-6">{children}</div>
+            </main>
         </div>
     );
 }

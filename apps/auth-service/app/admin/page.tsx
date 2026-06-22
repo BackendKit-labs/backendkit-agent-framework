@@ -30,11 +30,6 @@ export default function DashboardPage() {
 
     return (
         <div className="space-y-6 animate-fade-in">
-            <div>
-                <h1 className="text-xl font-semibold">Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Gestión de usuarios del ecosistema BackendKit</p>
-            </div>
-
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {stats.map(s => (
                     <div key={s.label} className="rounded-xl border border-border bg-secondary/30 p-4">

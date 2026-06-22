@@ -98,8 +98,8 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                     <ArrowLeft className="w-4 h-4" />
                 </Link>
                 <div>
-                    <h1 className="text-xl font-semibold">{user.username}</h1>
-                    <p className="text-sm text-muted-foreground">Editar perfil y workspace</p>
+                    <p className="text-sm font-semibold">{user.username}</p>
+                    <p className="text-xs text-muted-foreground">Editar perfil y workspace</p>
                 </div>
             </div>
 

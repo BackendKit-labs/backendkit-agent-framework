@@ -35,10 +35,7 @@ export default function NewRolePage() {
                 <Link href="/admin/roles" className="p-2 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
                     <ArrowLeft className="w-4 h-4" />
                 </Link>
-                <div>
-                    <h1 className="text-xl font-semibold">Nuevo rol</h1>
-                    <p className="text-sm text-muted-foreground">Definí el nombre y las herramientas que tendrá este rol</p>
-                </div>
+                <p className="text-sm text-muted-foreground">Definí el nombre y las herramientas que tendrá este rol</p>
             </div>
 
             <div className="rounded-xl border border-border bg-secondary/20 p-4 grid grid-cols-1 md:grid-cols-3 gap-4">

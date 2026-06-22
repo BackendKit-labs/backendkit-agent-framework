@@ -44,10 +44,7 @@ export default function NewUserPage() {
                 <Link href="/admin/users" className="p-2 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
                     <ArrowLeft className="w-4 h-4" />
                 </Link>
-                <div>
-                    <h1 className="text-xl font-semibold">Nuevo usuario</h1>
-                    <p className="text-sm text-muted-foreground">El workspace se configura después de crear el usuario</p>
-                </div>
+                <p className="text-sm text-muted-foreground">El workspace se configura después de crear el usuario</p>
             </div>
 
             <form onSubmit={submit} className="rounded-xl border border-border bg-secondary/20 p-5 space-y-4">

@@ -39,10 +39,7 @@ export default function UsersPage() {
     return (
         <div className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-xl font-semibold">Usuarios</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{users.length} usuarios registrados</p>
-                </div>
+                <p className="text-sm text-muted-foreground">{users.length} usuarios registrados</p>
                 <Link href="/admin/users/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
                     <Plus className="w-4 h-4" /> Nuevo usuario
                 </Link>

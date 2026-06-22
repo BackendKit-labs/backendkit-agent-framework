@@ -59,13 +59,6 @@ export default function DepartmentsPage() {
 
     return (
         <div className="space-y-6 animate-fade-in max-w-2xl">
-            <div>
-                <h1 className="text-xl font-semibold">Departamentos</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                    Definí los departamentos de la empresa. Los usuarios los seleccionan al crear su perfil.
-                </p>
-            </div>
-
             {/* Crear nuevo */}
             <form onSubmit={create} className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
                 <h2 className="text-sm font-semibold">Nuevo departamento</h2>

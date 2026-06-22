@@ -29,9 +29,6 @@ export function canAudit(userRole: UserRole):        boolean { return userRole !
 export function canImprove(userRole: UserRole):      boolean { return userRole !== 'viewer'; }
 export function canManageVaults(userRole: UserRole): boolean { return userRole === 'admin'; }
 
-/** Backward compat alias — las rutas API lo usan para verificar acceso admin */
-export const canManageUsers = canManageVaults;
-
 export const ROLE_LABELS: Record<UserRole, string> = {
     admin:       'Administrador',
     development: 'Desarrollo',

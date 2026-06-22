@@ -24,7 +24,8 @@ const AgentConfigSchema = z.object({
     description:    z.string(),
     capabilities:   z.array(z.string()),
     provider:       z.string().default('default'),
-    system_prompt:  z.string().optional(),
+    soul_file:      z.string().optional(),            // path to .md file with system prompt (relative to config)
+    system_prompt:  z.string().optional(),            // inline fallback if soul_file not set
     transport:      TransportSchema.optional(),
     gate:           z.boolean().optional(),           // pause for human approval after this agent
     gate_criteria:  z.array(z.string()).optional(),   // criteria shown to the approver
@@ -86,6 +87,20 @@ export function loadConfig(configPath: string): OrchestratorConfig {
         const issues = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
         throw new Error(`Invalid orchestrator config:\n${issues}`);
     }
+
+    // Load soul files — read .md and set as system_prompt (soul_file takes precedence)
+    const configDir = path.dirname(resolved);
+    for (const agent of result.data.agents) {
+        if (agent.soul_file) {
+            const soulPath = path.resolve(configDir, agent.soul_file);
+            try {
+                agent.system_prompt = readFileSync(soulPath, 'utf-8');
+            } catch {
+                // soul file not found — falls back to inline system_prompt or buildSpecialistPrompt
+            }
+        }
+    }
+
     return result.data;
 }
 

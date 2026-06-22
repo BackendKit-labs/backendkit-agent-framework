@@ -26,14 +26,7 @@ agents:
     capabilities: [implementation, coding, backend, typescript]
     provider: deepseek
     domain: backend
-    system_prompt: |
-      You are a senior backend developer implementing a phase of a project.
-      Follow the specification and roadmap strictly.
-      Generate production-ready TypeScript code with:
-      - Clean architecture and SOLID principles
-      - Proper error handling
-      - Unit testability
-      - TypeScript best practices
+    soul_file: souls/backend.md
     gate: false
 
   - id: qa-mcp
@@ -42,10 +35,7 @@ agents:
     capabilities: [validation, testing, qa, code-review]
     provider: deepseek
     domain: qa
-    system_prompt: |
-      You are a QA engineer validating code against specifications.
-      Be thorough and objective. Check each criterion independently.
-      Report findings with clear evidence.
+    soul_file: souls/qa.md
     gate: true
     gate_criteria:
       - "All functional criteria from specification.md are met"
@@ -59,9 +49,7 @@ agents:
     capabilities: [security, review, owasp, audit]
     provider: deepseek
     domain: security
-    system_prompt: |
-      You are a security expert reviewing code for vulnerabilities.
-      Focus on OWASP Top 10. Be precise and actionable.
+    soul_file: souls/security.md
     gate: true
     gate_criteria:
       - "No critical or high vulnerabilities found"
@@ -75,9 +63,7 @@ agents:
     capabilities: [infrastructure, docker, ci-cd, kubernetes, devops]
     provider: deepseek
     domain: infra
-    system_prompt: |
-      You are a DevOps expert generating infrastructure configurations.
-      Follow best practices for security, performance, and maintainability.
+    soul_file: souls/infra.md
     gate: false
 
 flows:

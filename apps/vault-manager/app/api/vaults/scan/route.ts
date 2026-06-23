@@ -1,6 +1,7 @@
 ﻿import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { toVaultCategory } from '@/lib/permissions';
 import type { UserRole } from '@/lib/permissions';
 import fs   from 'node:fs';
 import path from 'node:path';
@@ -11,8 +12,11 @@ export async function GET(req: NextRequest) {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const role = session.user.role as UserRole;
-    if (role !== 'admin' && role !== 'technical') {
+    // No vault context here (scans an arbitrary directory before import), so we
+    // gate by vault category: admin or technical users only — preserving the
+    // original intent ('technical' is a vault category, not a UserRole).
+    const category = toVaultCategory(session.user.role as UserRole);
+    if (category !== 'admin' && category !== 'technical') {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

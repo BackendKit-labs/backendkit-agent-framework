@@ -2,12 +2,12 @@ import 'server-only';
 import * as fsp      from 'node:fs/promises';
 import * as os       from 'node:os';
 import * as nodePath from 'node:path';
-import {
-    CodeAnalyzer,
-    KnowledgeEngine,
-    createProvider,
-} from '@backendkit-labs/curator-codex-agent';
-import type { CuratorLLMProvider } from '@backendkit-labs/curator-codex-agent';
+// Deep imports into the agent's built `dist/` keep `codex-context-agent-v2`
+// untouched (it has no `exports` map and is consumed elsewhere as an MCP server).
+import { CodeAnalyzer }    from '@backendkit-labs/codex-context-agent-v2/dist/analyzer.js';
+import { KnowledgeEngine } from '@backendkit-labs/codex-context-agent-v2/dist/knowledge/engine.js';
+import { createProvider }  from '@backendkit-labs/codex-context-agent-v2/dist/providers/index.js';
+import type { CuratorLLMProvider } from '@backendkit-labs/codex-context-agent-v2/dist/providers/index.js';
 
 // ── Transport detection ───────────────────────────────────────────────────────
 // If CURATOR_CODEX_URL is set, all calls go to the standalone HTTP service.

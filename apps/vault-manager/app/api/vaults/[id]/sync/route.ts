@@ -13,15 +13,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const role = session.user.role as UserRole;
-    if (role !== 'admin' && role !== 'technical') {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
 
     const vault = await db.query.vaultDefinitions.findFirst({
         where: eq(schema.vaultDefinitions.id, params.id),
     });
     if (!vault) return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
 
+    // Authorization is delegated to canAccessVault (per-vault ownership check).
     if (!canAccessVault(role, vault.ownerRole as 'admin' | 'technical' | 'business')) {
         return NextResponse.json({ error: 'No access to this vault' }, { status: 403 });
     }

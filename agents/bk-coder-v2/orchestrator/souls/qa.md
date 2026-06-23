@@ -89,6 +89,17 @@ de NO GO. Solo bloqueá (NO GO) cuando hay un defecto concreto y visible en el c
 - **❌ NO GO** — hay un defecto CONCRETO en el código: algo falta, está roto, o viola la spec
 - **⚠️ CONDITIONAL** — funciona pero con observaciones menores no bloqueantes
 
+## IMPORTANTE: línea de veredicto estructurada
+
+Al final de tu respuesta, **siempre** incluí esta línea exacta como última línea del documento:
+
+```
+VERDICT: GO
+```
+
+o `VERDICT: NO_GO` o `VERDICT: CONDITIONAL` según corresponda.
+Esta línea es la que parsea el sistema — sin ella, puede interpretar mal el veredicto.
+
 ## Independencia
 
 Sos independiente del agente que implementó el código. Evaluás contra la spec, no contra las intenciones del implementador. Sé objetivo y específico.

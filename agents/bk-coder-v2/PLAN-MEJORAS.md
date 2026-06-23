@@ -28,12 +28,12 @@ alimenta el veredicto del QA. El "GO" pasa de opinión a hecho.
 
 | # | Tarea | Archivo(s) | Estado |
 |---|-------|-----------|--------|
-| 1.1 | Crear `command-runner.ts`: ejecuta comandos en `projectRoot` con timeout, captura stdout/stderr/exitCode | `src/command-runner.ts` (nuevo) | 🔴 |
-| 1.2 | Detectar stack del proyecto (package.json → node, go.mod → go, etc.) y mapear a comandos build/test | `src/command-runner.ts` | 🔴 |
-| 1.3 | En el phase-runner, tras IMPLEMENT correr build+test antes del QA; pasar el resultado real al QA | `src/phase-runner.ts` | 🔴 |
-| 1.4 | El QA recibe la salida de compilación/tests como evidencia objetiva (no solo el código) | `src/phase-runner.ts`, `souls/qa.md` | 🔴 |
-| 1.5 | Si el build falla, el veredicto es NO_GO automático (sin pasar por el LLM) y los errores se inyectan al rework | `src/phase-runner.ts` | 🔴 |
-| 1.6 | Mostrar resultado build/test en el gate (CLI/TUI/status) | `cli.ts`, `tui.tsx`, `server.ts` | 🔴 |
+| 1.1 | Crear `command-runner.ts`: ejecuta comandos en `projectRoot` con timeout, captura stdout/stderr/exitCode | `src/command-runner.ts` (nuevo) | 🟢 |
+| 1.2 | Detectar stack del proyecto (package.json → node, go.mod → go, etc.) y mapear a comandos build/test | `src/command-runner.ts` | 🟢 |
+| 1.3 | En el phase-runner, tras IMPLEMENT correr build+test antes del QA; pasar el resultado real al QA | `src/phase-runner.ts` | 🟢 |
+| 1.4 | El QA recibe la salida de compilación/tests como evidencia objetiva (no solo el código) | `src/phase-runner.ts`, `souls/qa.md` | 🟢 |
+| 1.5 | Si el build falla, el veredicto es NO_GO automático (sin pasar por el LLM) y los errores se inyectan al rework | `src/phase-runner.ts` | 🟢 |
+| 1.6 | Mostrar resultado build/test en el gate (CLI/TUI/status) | `cli.ts`, `tui.tsx`, `server.ts` | 🟢 |
 
 **Criterio de aceptación:** un proyecto con un error de compilación introducido a propósito
 da NO_GO determinista, y el rework lo corrige con los errores reales del compilador inyectados.
@@ -49,9 +49,9 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 
 | # | Tarea | Archivo(s) | Estado |
 |---|-------|-----------|--------|
-| 2.1 | Veredicto QA estructurado: pedir al QA una última línea `VERDICT: GO\|NO_GO\|CONDITIONAL` y parsear esa, con el regex actual como fallback | `souls/qa.md`, `src/phase-runner.ts` | 🔴 |
+| 2.1 | Veredicto QA estructurado: pedir al QA una última línea `VERDICT: GO\|NO_GO\|CONDITIONAL` y parsear esa, con el regex actual como fallback | `souls/qa.md`, `src/phase-runner.ts` | 🟢 |
 | 2.2 | Validar archivos extraídos antes de escribir: rechazar paths sospechosos, vacíos, o fuera de `root` (ya hay chequeo parcial) | `src/file-writer.ts` | 🔴 |
-| 2.3 | Si el backend devuelve 0 archivos en una fase de implementación, reintentar 1 vez con instrucción reforzada antes de fallar | `src/phase-runner.ts` | 🔴 |
+| 2.3 | Si el backend devuelve 0 archivos en una fase de implementación, reintentar 1 vez con instrucción reforzada antes de fallar | `src/phase-runner.ts` | 🟢 |
 | 2.4 | Tests unitarios del `file-writer` (4 formatos) y `parseVerdict` (casos borde) | `tests/` (nuevo) | 🔴 |
 | 2.5 | Tests del `roadmap-parser` (variaciones de formato de fase) | `tests/` (nuevo) | 🔴 |
 
@@ -110,3 +110,4 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 | Fecha | Fase/Tarea | Nota |
 |-------|-----------|------|
 | 2026-06-23 | — | Plan creado. Base SDD funcional commiteada (hasta `0fa6203`). |
+| 2026-06-23 | 1.1–1.6 + 2.1 + 2.3 | Gate de ejecución completo. Stack detection (TS/Go/Python/Rust/Deno). Build falla → NO_GO automático + errores al rework. QA recibe evidencia real. VERDICT: línea estructurada. Retry si 0 archivos. Verificado: error TS → NO_GO determinista, proyecto limpio → PASS. |

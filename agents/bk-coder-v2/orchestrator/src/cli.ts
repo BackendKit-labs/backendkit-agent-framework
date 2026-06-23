@@ -770,6 +770,13 @@ async function cmdSdd(configPath: string, args: string[]): Promise<void> {
         const icon = step.verdict === 'GO' ? '✅' : step.verdict === 'NO_GO' ? '❌' : '⚠️';
         console.log(`\n${icon} Gate — Fase ${step.phase}: ${step.phaseTitle}`);
         console.log(`   Veredicto QA: ${step.verdict}`);
+        if (step.executionReport) {
+            const er = step.executionReport;
+            const execIcon = er.passed ? '✅' : '❌';
+            console.log(`   Ejecución   : ${execIcon} ${er.stack}` +
+                (er.build  ? ` | build ${er.build.success  ? '✓' : `✗ (exit ${er.build.exitCode})`}`  : '') +
+                (er.test   ? ` | tests ${er.test.success   ? '✓' : `✗ (exit ${er.test.exitCode})`}`   : ''));
+        }
         if (step.criteria.length) {
             console.log('\n   Criterios de la fase:');
             step.criteria.forEach(c => console.log(`     • ${c}`));

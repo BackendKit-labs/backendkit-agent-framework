@@ -44,6 +44,11 @@ function createEngine(transport: CallbackTransport) {
     });
 }
 
+// Change to project root so agent-coding's path-sandbox allows reading project files
+if (process.env.PROJECT_ROOT) {
+    try { process.chdir(process.env.PROJECT_ROOT); } catch { /* ignore */ }
+}
+
 const server = new AgentMCPServer({
     name:          'backend-mcp',
     version:       '1.0.0',

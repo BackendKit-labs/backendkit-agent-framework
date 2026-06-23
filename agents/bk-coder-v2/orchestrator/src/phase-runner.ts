@@ -190,20 +190,24 @@ export class PhaseRunner {
             phaseCtx,
         );
 
-        // Tarea 2.3: si no se escribió ningún archivo, reintentar una vez con instrucción reforzada
-        const { extractFiles } = await import('./file-writer.js');
-        if (extractFiles(implOutput).length === 0) {
-            this.onProgress(`  ⚠ 0 archivos extraídos — reintentando con instrucción reforzada...`);
-            const retryTask = implTask +
-                `\n\nATENCIÓN: Tu respuesta anterior no incluyó ningún bloque ### FILE:. ` +
-                `Debés responder ÚNICAMENTE con los archivos en el formato:\n` +
-                `### FILE: src/ruta/archivo.ext\n\`\`\`lang\ncontenido completo\n\`\`\`\n` +
-                `Sin explicaciones. Solo los archivos.`;
-            implOutput = await executeSubtask(
-                this.config, backend,
-                { id: `impl-p${phase.number}-retry`, agent_id: backend.id, task: retryTask, depends_on: [] },
-                [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
-            );
+        // Tarea 2.3: retry solo en modo inline — en modo MCP el agente escribe archivos
+        // directamente con write_file(), el output es un resumen de texto sin bloques FILE:
+        const isMcpMode = !!backend.transport && backend.transport.type === 'stdio';
+        if (!isMcpMode) {
+            const { extractFiles } = await import('./file-writer.js');
+            if (extractFiles(implOutput).length === 0) {
+                this.onProgress(`  ⚠ 0 archivos extraídos — reintentando con instrucción reforzada...`);
+                const retryTask = implTask +
+                    `\n\nATENCIÓN: Tu respuesta anterior no incluyó ningún bloque ### FILE:. ` +
+                    `Debés responder ÚNICAMENTE con los archivos en el formato:\n` +
+                    `### FILE: src/ruta/archivo.ext\n\`\`\`lang\ncontenido completo\n\`\`\`\n` +
+                    `Sin explicaciones. Solo los archivos.`;
+                implOutput = await executeSubtask(
+                    this.config, backend,
+                    { id: `impl-p${phase.number}-retry`, agent_id: backend.id, task: retryTask, depends_on: [] },
+                    [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
+                );
+            }
         }
 
         collectStep({

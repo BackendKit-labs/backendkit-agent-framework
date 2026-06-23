@@ -31,6 +31,10 @@ function createEngine(transport: CallbackTransport) {
     });
 }
 
+if (process.env.PROJECT_ROOT) {
+    try { process.chdir(process.env.PROJECT_ROOT); } catch { /* ignore */ }
+}
+
 const server = new AgentMCPServer({
   name: 'security-mcp',
   version: '1.0.0',

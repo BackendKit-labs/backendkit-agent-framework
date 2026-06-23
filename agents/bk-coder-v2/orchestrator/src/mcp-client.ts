@@ -57,6 +57,12 @@ export async function callMcpTool(
         ...expandEnv(t.env ?? {}),
     };
 
+    // Pass projectRoot so the MCP server can chdir() to it.
+    // This allows agent-coding's path-sandbox to read/write the project files.
+    if (typeof toolArgs['projectRoot'] === 'string') {
+        env['PROJECT_ROOT'] = toolArgs['projectRoot'];
+    }
+
     onProgress(`  🔌 [${agentCfg.id}] iniciando proceso MCP (${path.basename(resolvedArgs[0] ?? t.command)})...`);
 
     const transport = new StdioClientTransport({
@@ -81,7 +87,11 @@ export async function callMcpTool(
         onProgress(`  → [${agentCfg.id}] llamando ${toolName}...`);
 
         const raw = await Promise.race([
-            client.callTool({ name: toolName, arguments: toolArgs }),
+            client.callTool(
+                { name: toolName, arguments: toolArgs },
+                undefined,
+                { timeout: timeoutMs },   // pass timeout to the SDK request
+            ),
             timeout,
         ]) as { content?: Array<{ type: string; text?: string }> };
 

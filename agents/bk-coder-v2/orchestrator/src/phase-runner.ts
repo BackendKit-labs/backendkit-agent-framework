@@ -102,9 +102,15 @@ export class PhaseRunner {
         state:       PhaseState,
         collectStep: (step: StepResult) => void,
     ): Promise<PhaseStep> {
+        // Once all phases are approved, advance() sets stage to security/infra/done.
+        // Go straight to finalizers — do NOT re-run the last phase.
+        if (state.stage === 'security' || state.stage === 'infra' || state.stage === 'done') {
+            return this.runFinalizers(state, collectStep);
+        }
+
         const phase = this.phases[state.currentPhase - 1];
         if (!phase) {
-            // No more phases — run security + infra finalizers
+            // Defensive: pointer past the end → finalizers
             return this.runFinalizers(state, collectStep);
         }
 

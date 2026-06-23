@@ -145,6 +145,19 @@ function deduplicate(files: ExtractedFile[]): ExtractedFile[] {
     return Array.from(seen.values());
 }
 
+// ── Tarea 2.2: validation ─────────────────────────────────────────────────────
+
+// Extensions that should never be written — LLM-generated scripts could be harmful.
+const BLOCKED_EXTENSIONS = new Set(['.sh', '.bash', '.bat', '.cmd', '.ps1', '.exe', '.dll', '.so', '.bin']);
+
+export function isPathSafe(relativePath: string, projectRoot: string, base: string): boolean {
+    if (!relativePath || relativePath.trim().length === 0) return false;
+    const ext = path.extname(relativePath).toLowerCase();
+    if (BLOCKED_EXTENSIONS.has(ext)) return false;
+    const absPath = path.resolve(base, relativePath);
+    return absPath.startsWith(path.resolve(projectRoot));
+}
+
 // ── Writer ────────────────────────────────────────────────────────────────────
 
 export function writeFiles(
@@ -159,13 +172,11 @@ export function writeFiles(
         : projectRoot;
 
     for (const f of files) {
+        // Tarea 2.2: validate path and content before writing
+        if (!isPathSafe(f.relativePath, projectRoot, base)) continue;
+        if (f.content.trim().length === 0) continue;
+
         const absPath = path.resolve(base, f.relativePath);
-
-        // Safety: must stay inside projectRoot
-        if (!absPath.startsWith(path.resolve(projectRoot))) {
-            continue;
-        }
-
         fs.mkdirSync(path.dirname(absPath), { recursive: true });
         fs.writeFileSync(absPath, f.content, 'utf-8');
         onFile?.(absPath);

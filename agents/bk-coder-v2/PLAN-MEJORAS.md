@@ -50,10 +50,10 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 | # | Tarea | Archivo(s) | Estado |
 |---|-------|-----------|--------|
 | 2.1 | Veredicto QA estructurado: pedir al QA una última línea `VERDICT: GO\|NO_GO\|CONDITIONAL` y parsear esa, con el regex actual como fallback | `souls/qa.md`, `src/phase-runner.ts` | 🟢 |
-| 2.2 | Validar archivos extraídos antes de escribir: rechazar paths sospechosos, vacíos, o fuera de `root` (ya hay chequeo parcial) | `src/file-writer.ts` | 🔴 |
+| 2.2 | Validar archivos extraídos antes de escribir: rechazar paths sospechosos, vacíos, o fuera de `root` (ya hay chequeo parcial) | `src/file-writer.ts` | 🟢 |
 | 2.3 | Si el backend devuelve 0 archivos en una fase de implementación, reintentar 1 vez con instrucción reforzada antes de fallar | `src/phase-runner.ts` | 🟢 |
-| 2.4 | Tests unitarios del `file-writer` (4 formatos) y `parseVerdict` (casos borde) | `tests/` (nuevo) | 🔴 |
-| 2.5 | Tests del `roadmap-parser` (variaciones de formato de fase) | `tests/` (nuevo) | 🔴 |
+| 2.4 | Tests unitarios del `file-writer` (4 formatos) y `parseVerdict` (casos borde) | `tests/` (nuevo) | 🟢 |
+| 2.5 | Tests del `roadmap-parser` (variaciones de formato de fase) | `tests/` (nuevo) | 🟢 |
 
 **Criterio de aceptación:** suite de tests verde cubriendo parsing de archivos, veredicto y roadmap.
 
@@ -110,4 +110,5 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 | Fecha | Fase/Tarea | Nota |
 |-------|-----------|------|
 | 2026-06-23 | — | Plan creado. Base SDD funcional commiteada (hasta `0fa6203`). |
+| 2026-06-23 | 2.2 + 2.4 + 2.5 | isPathSafe(): rechaza path traversal, extensiones peligrosas (.sh/.exe/.ps1/etc), vacíos. 62 tests (0 fallos): 28 file-writer, 17 parseVerdict, 17 roadmap-parser. npm test verde.  |
 | 2026-06-23 | 1.1–1.6 + 2.1 + 2.3 | Gate de ejecución completo. Stack detection (TS/Go/Python/Rust/Deno). Build falla → NO_GO automático + errores al rework. QA recibe evidencia real. VERDICT: línea estructurada. Retry si 0 archivos. Verificado: error TS → NO_GO determinista, proyecto limpio → PASS. |

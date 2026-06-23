@@ -667,6 +667,9 @@ async function cmdSdd(configPath: string, args: string[]): Promise<void> {
     try { config = loadConfig(configPath); }
     catch (err) { console.error(`Config: ${err instanceof Error ? err.message : String(err)}`); process.exit(1); }
 
+    const resumeIdx = args.indexOf('--resume');
+    const resumeId  = resumeIdx !== -1 ? args[resumeIdx + 1] : undefined;
+
     // Resolve project root from workspace-manager
     let projectRoot: string | undefined;
     let projectName = '';
@@ -694,19 +697,50 @@ async function cmdSdd(configPath: string, args: string[]): Promise<void> {
     }
 
     const store = openStore(configPath, config);
-    const runId = store.newRunId();
-    const state = runner.initialState();
 
-    console.log(`\n🚀 SDD iniciado — ${projectName}`);
-    console.log(`   ${state.totalPhases} fases en el ROADMAP:`);
-    state.phaseTitles.forEach((t, i) => console.log(`     ${i + 1}. ${t}`));
-    console.log('');
+    // ── Resolve run: explicit --resume, auto-detect, or fresh start ───────────
+    let runId:          string;
+    let state:          PhaseState;
+    let collectedSteps: StepResult[];
 
-    const collectedSteps: StepResult[] = [];
+    let resumeRun: RunState | null = null;
+    if (resumeId) {
+        resumeRun = await store.load(resumeId);
+        if (!resumeRun)            { console.error(`Run no encontrado: ${resumeId}`); process.exit(1); }
+        if (!resumeRun.phaseState) { console.error(`El run ${resumeId} no es un run SDD.`); process.exit(1); }
+    } else {
+        // Auto-detect the most recent incomplete SDD run for this project
+        const all = await store.list();
+        resumeRun = all.find(r =>
+            r.projectRoot === projectRoot && r.phaseState && r.status !== 'complete',
+        ) ?? null;
+    }
+
+    if (resumeRun && resumeRun.phaseState) {
+        runId          = resumeRun.runId;
+        state          = resumeRun.phaseState;
+        collectedSteps = [...resumeRun.completedSteps];
+        // A resume re-runs the current phase fresh — clear rework markers
+        state.qaFindings  = undefined;
+        state.reworkCount = 0;
+        state.verdict     = undefined;
+        console.log(`\n🔄 Retomando SDD — ${projectName}  (run ${runId})`);
+        console.log(`   Reanudando desde la fase ${state.currentPhase}/${state.totalPhases}: ${state.phaseTitle}\n`);
+    } else {
+        runId          = store.newRunId();
+        state          = runner.initialState();
+        collectedSteps = [];
+        console.log(`\n🚀 SDD iniciado — ${projectName}`);
+        console.log(`   ${state.totalPhases} fases en el ROADMAP:`);
+        state.phaseTitles.forEach((t, i) => console.log(`     ${i + 1}. ${t}`));
+        console.log('');
+    }
+
+    const startedAt = resumeRun?.startedAt ?? ts();
     const saveRun = async (extra: Partial<RunState> = {}) => {
         await store.save({
             runId, task: `SDD: ${projectName}`, configPath, projectRoot,
-            status: 'running', startedAt: ts(), updatedAt: ts(),
+            status: 'running', startedAt, updatedAt: ts(),
             completedSteps: collectedSteps, phaseState: state, ...extra,
         });
     };
@@ -761,6 +795,9 @@ async function cmdSdd(configPath: string, args: string[]): Promise<void> {
         if (answer.startsWith('x')) {
             await saveRun({ status: 'failed', completedAt: ts(), error: `Rechazado en fase ${step.phase}`, waitingGate: undefined });
             console.log(`\n❌ SDD detenido en fase ${step.phase}.`);
+            console.log(`   Para retomar desde esta fase:`);
+            console.log(`     orchestrator-cli sdd ${configPath} --resume ${runId}`);
+            console.log(`   (o simplemente "orchestrator-cli sdd ${configPath}" — auto-detecta el run incompleto)`);
             rl.close();
             return;
         }
@@ -799,7 +836,7 @@ Uso:
   orchestrator-cli project <subcomando>                           — gestión de proyectos
   orchestrator-cli design  <config.yaml> "<feature>"             — genera spec/design/roadmap
                            [--project <nombre>] [--root <path>]
-  orchestrator-cli sdd     <config.yaml>                          — SDD por fases del ROADMAP (gates con rework)
+  orchestrator-cli sdd     <config.yaml> [--resume <run_id>]     — SDD por fases del ROADMAP (gates con rework)
   orchestrator-cli run     <config.yaml> "<tarea>" [--flow <id>] — ejecuta implementación
   orchestrator-cli status  <config.yaml> <run_id>
   orchestrator-cli approve <config.yaml> <run_id> [--reject] [--notes "<texto>"]

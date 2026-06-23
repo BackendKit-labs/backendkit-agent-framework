@@ -588,7 +588,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         }
     }, [config, rag, store, pollRuns]);
 
-    // ── Start a new SDD run ────────────────────────────────────────────────────
+    // ── Start a new SDD run (or resume the selected incomplete one) ────────────
     const startSdd = useCallback(async () => {
         setError('');
         const root = activeRootRef.current;
@@ -597,6 +597,20 @@ function App({ configPath, config, store, rag }: AppProps) {
         const runner = new PhaseRunner({ config, projectRoot: root, ragSearchFn: rag?.search });
         if (!runner.hasPhases()) {
             setError('No hay ROADMAP.md con fases. Generá el diseño primero (CLI: design).');
+            return;
+        }
+
+        // Resume the selected run if it's an incomplete SDD run for this project
+        const sel = runs[selectedIdx];
+        if (sel?.phaseState && sel.status !== 'complete' && sel.projectRoot === root) {
+            const state = sel.phaseState;
+            // resume → re-run the current phase fresh
+            state.qaFindings  = undefined;
+            state.reworkCount = 0;
+            state.verdict     = undefined;
+            await store.save({ ...sel, status: 'running', waitingGate: undefined, phaseState: state });
+            await pollRuns();
+            runSddSegment(sel.runId);
             return;
         }
 
@@ -610,7 +624,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         await pollRuns();
         setSelectedIdx(0);
         runSddSegment(runId);
-    }, [config, configPath, rag, store, pollRuns, runSddSegment, activeProject]);
+    }, [config, configPath, rag, store, pollRuns, runSddSegment, activeProject, runs, selectedIdx]);
 
     // ── Approve gate ──────────────────────────────────────────────────────────
     const approveGate = useCallback(async (run: RunState) => {

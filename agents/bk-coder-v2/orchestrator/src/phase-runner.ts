@@ -216,10 +216,9 @@ export class PhaseRunner {
             output: implOutput, success: true, durationMs: 0,
         });
 
-        // ── 2. BUILD + TEST (execution gate) ─────────────────────────────────
-        // Run the real compiler/test runner before QA. If the build fails, emit
-        // an automatic NO_GO without calling the QA LLM — the compiler error is
-        // injected as rework findings so the next implement call fixes it.
+        // ── 2. BUILD + TEST (execution gate — deterministic) ─────────────────
+        // The execution result IS the verdict. If build/tests fail → NO_GO.
+        // The QA LLM is optional and triggered on demand via queryQA().
         state.stage = 'qa';
         this.onProgress(`  → [exec] compilando y testeando...`);
 
@@ -231,14 +230,15 @@ export class PhaseRunner {
         }
 
         if (execReport && !execReport.passed) {
-            // Build or tests failed: automatic NO_GO, skip QA LLM call
+            // Build or tests failed: automatic NO_GO — the QA LLM is not called here.
+            // The human can optionally trigger it via [Q] in the gate prompt.
             const verdict: QaVerdict = 'NO_GO';
-            state.verdict   = verdict;
-            state.qaFindings = execReport.summary;  // real errors become rework input
+            state.verdict    = verdict;
+            state.qaFindings = execReport.summary;
 
             const autoReport = [
                 `# QA Report — Fase ${phase.number} (automático)`,
-                `**Veredicto:** ❌ NO GO (build/tests fallaron — sin revisión LLM)`,
+                `**Veredicto:** ❌ NO GO (build/tests fallaron)`,
                 '',
                 '## Resultado de ejecución',
                 execReport.summary,
@@ -247,12 +247,12 @@ export class PhaseRunner {
             ].join('\n');
 
             collectStep({
-                stepId: `qa-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
+                stepId:  `qa-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
                 agentId: 'exec', task: `Ejecución Fase ${phase.number}: ${phase.title}`,
-                output: autoReport, success: false, durationMs: 0,
+                output:  autoReport, success: false, durationMs: 0,
             });
 
-            this.onProgress(`  ❌ NO GO automático — build/tests fallaron`);
+            this.onProgress(`  ❌ NO GO — build/tests fallaron (usá [Q] para consultar al QA)`);
 
             return {
                 type: 'phase-gate', phase: phase.number, phaseTitle: phase.title,
@@ -369,5 +369,48 @@ export class PhaseRunner {
             type:    'complete',
             summary: `SDD completado: ${this.phases.length} fases implementadas y validadas, security review + infra generados.`,
         };
+    }
+
+    // ── On-demand QA analysis ──────────────────────────────────────────────────
+
+    /**
+     * Optional QA analysis triggered manually from the gate.
+     * @param phaseNumber  Phase to analyze (uses phases[n-1]).
+     * @param question     Specific question. Empty string = general review.
+     * @param execReport   Execution context (build/test results) if available.
+     */
+    async queryQA(
+        phaseNumber: number,
+        question:    string,
+        execReport?: ExecutionReport,
+        onProgress?: (msg: string) => void,
+    ): Promise<string> {
+        const qa = findAgent(this.config, 'qa');
+        if (!qa) throw new Error('No hay agente QA configurado');
+
+        const phase = this.phases[phaseNumber - 1];
+        if (!phase) throw new Error(`Fase ${phaseNumber} no encontrada en el ROADMAP`);
+
+        const log       = onProgress ?? this.onProgress;
+        const phaseCtx  = { number: phase.number, title: phase.title, criteria: phase.criteria };
+        const execCtx   = execReport ? `\n## Resultado de ejecución\n${execReport.summary}\n` : '';
+        const isGeneral = !question.trim();
+
+        const prompt = isGeneral
+            ? `Hacé una revisión general de la Fase ${phase.number}: "${phase.title}" contra la specification.md.\n\n` +
+              `Criterios:\n${phase.criteria.map(c => `- ${c}`).join('\n')}${execCtx}\n` +
+              `Respondé de forma clara y concisa. Indicá qué está bien y qué hay que corregir.`
+            : `Analizá la Fase ${phase.number}: "${phase.title}".\n\n` +
+              `Pregunta: **${question}**\n${execCtx}\n` +
+              `Respondé de forma concisa y específica, citando el archivo y la línea relevante cuando sea posible.`;
+
+        log(`  → [qa] analizando${isGeneral ? ' (revisión general)' : `: "${question.slice(0, 60)}"`}...`);
+
+        // Uses inline mode for on-demand queries — fast, no MCP process overhead
+        return executeSubtask(
+            this.config, qa,
+            { id: `qa-query-p${phase.number}`, agent_id: qa.id, task: prompt, depends_on: [] },
+            [], this.ragSearchFn, undefined, this.projectRoot, log, phaseCtx,
+        );
     }
 }

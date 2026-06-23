@@ -794,31 +794,52 @@ async function cmdSdd(configPath: string, args: string[]): Promise<void> {
             },
         });
 
-        const hint = step.verdict === 'GO'
-            ? '[a] Aprobar y avanzar  [w] Rework  [x] Rechazar'
-            : '[w] Rework (recomendado)  [a] Aprobar igual  [x] Rechazar';
-        const answer = (await rl.question(`\n${hint}: `)).trim().toLowerCase();
+        // Gate loop — repeat while user asks QA questions
+        while (true) {
+            const hint = step.verdict === 'GO'
+                ? '[a] Aprobar y avanzar  [w] Rework  [q] Consultar al QA  [x] Rechazar'
+                : '[w] Rework (recomendado)  [a] Aprobar igual  [q] Consultar al QA  [x] Rechazar';
+            const answer = (await rl.question(`\n${hint}: `)).trim().toLowerCase();
 
-        if (answer.startsWith('x')) {
-            await saveRun({ status: 'failed', completedAt: ts(), error: `Rechazado en fase ${step.phase}`, waitingGate: undefined });
-            console.log(`\n❌ SDD detenido en fase ${step.phase}.`);
-            console.log(`   Para retomar desde esta fase:`);
-            console.log(`     orchestrator-cli sdd ${configPath} --resume ${runId}`);
-            console.log(`   (o simplemente "orchestrator-cli sdd ${configPath}" — auto-detecta el run incompleto)`);
-            rl.close();
-            return;
-        }
+            if (answer.startsWith('x')) {
+                await saveRun({ status: 'failed', completedAt: ts(), error: `Rechazado en fase ${step.phase}`, waitingGate: undefined });
+                console.log(`\n❌ SDD detenido en fase ${step.phase}.`);
+                console.log(`   Para retomar: orchestrator-cli sdd ${configPath}`);
+                rl.close();
+                return;
+            }
 
-        const decision = answer.startsWith('w') ? 'rework' : 'approve';
-        runner.advance(state, decision, step.qaOutput);
-        await saveRun({ waitingGate: undefined });
+            if (answer.startsWith('q')) {
+                const question = (await rl.question('Pregunta al QA (Enter para revisión general): ')).trim();
+                console.log('');
+                try {
+                    const analysis = await runner.queryQA(
+                        step.phase,
+                        question,
+                        step.executionReport,
+                        (msg) => process.stdout.write(`${msg}\n`),
+                    );
+                    console.log('\n── Análisis del QA ────────────────────────────────────────────');
+                    console.log(analysis.slice(0, 2000));
+                    console.log('───────────────────────────────────────────────────────────────');
+                } catch (err) {
+                    console.error(`Error en QA: ${err instanceof Error ? err.message : String(err)}`);
+                }
+                continue; // volvemos al gate prompt
+            }
 
-        if (decision === 'approve') {
-            console.log(state.stage === 'security'
-                ? `\n✅ Fase ${step.phase} aprobada — todas las fases completas, finalizando...\n`
-                : `\n✅ Fase ${step.phase} aprobada — avanzando a fase ${state.currentPhase}...\n`);
-        } else {
-            console.log(`\n🔁 Rework de fase ${step.phase} — reimplementando con los hallazgos del QA...\n`);
+            const decision = answer.startsWith('w') ? 'rework' : 'approve';
+            runner.advance(state, decision, step.qaOutput);
+            await saveRun({ waitingGate: undefined });
+
+            if (decision === 'approve') {
+                console.log(state.stage === 'security'
+                    ? `\n✅ Fase ${step.phase} aprobada — todas las fases completas, finalizando...\n`
+                    : `\n✅ Fase ${step.phase} aprobada — avanzando a fase ${state.currentPhase}...\n`);
+            } else {
+                console.log(`\n🔁 Rework de fase ${step.phase} — reimplementando con los hallazgos del QA...\n`);
+            }
+            break;
         }
     }
 }

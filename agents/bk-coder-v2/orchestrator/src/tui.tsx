@@ -99,9 +99,11 @@ interface RunDetailProps {
     isExecuting:   boolean;
     progressLines: string[];
     maxLines?:     number;
+    qaAnalysis?:   string;
+    qaAnalyzing?:  boolean;
 }
 
-function RunDetail({ run, isExecuting, progressLines }: RunDetailProps) {
+function RunDetail({ run, isExecuting, progressLines, qaAnalysis, qaAnalyzing }: RunDetailProps) {
     const gate = run.waitingGate;
 
     return (
@@ -185,6 +187,7 @@ function RunDetail({ run, isExecuting, progressLines }: RunDetailProps) {
                     <Box marginTop={1} gap={3}>
                         <Text color="green" bold>[A] Aprobar{isPhaseGate ? ' y avanzar' : ''}</Text>
                         {isPhaseGate && gate.allowRework && <Text color="yellow" bold>[W] Rework</Text>}
+                        {isPhaseGate && <Text color="magenta" bold>[Q] Consultar QA</Text>}
                         <Text color="red" bold>[X] Rechazar</Text>
                     </Box>
                 </Box>
@@ -198,6 +201,23 @@ function RunDetail({ run, isExecuting, progressLines }: RunDetailProps) {
                     {run.finalReport.split('\n').slice(0, 12).map((line, i) => (
                         <Text key={i} dimColor>{line}</Text>
                     ))}
+                </Box>
+            )}
+
+            {/* On-demand QA analysis */}
+            {qaAnalyzing && (
+                <Box flexDirection="column" marginTop={1}>
+                    <Text color="magenta" bold>🤔 QA analizando...</Text>
+                    {progressLines.slice(-4).map((l, i) => <Text key={i} dimColor>{l}</Text>)}
+                </Box>
+            )}
+            {qaAnalysis && !qaAnalyzing && (
+                <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="magenta" paddingX={1}>
+                    <Text color="magenta" bold>💬 Análisis del QA</Text>
+                    {qaAnalysis.split('\n').slice(0, 14).map((l, i) => (
+                        <Text key={i} dimColor>{l}</Text>
+                    ))}
+                    {qaAnalysis.split('\n').length > 14 && <Text dimColor>  ... (truncado)</Text>}
                 </Box>
             )}
 
@@ -406,7 +426,7 @@ function ProjectCreateDialog({
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type View = 'list' | 'new-run' | 'reject-notes' | 'project-select' | 'project-create' | 'design';
+type View = 'list' | 'new-run' | 'reject-notes' | 'project-select' | 'project-create' | 'design' | 'qa-question';
 
 interface AppProps {
     configPath: string;
@@ -425,7 +445,10 @@ function App({ configPath, config, store, rag }: AppProps) {
     const [flowInput,     setFlowInput]     = useState('');
     const [activeField,   setActiveField]   = useState<'task' | 'flow'>('task');
     const [rejectNotes,   setRejectNotes]   = useState('');
-    const [designInput,   setDesignInput]   = useState('');
+    const [designInput,    setDesignInput]    = useState('');
+    const [qaQuestion,     setQaQuestion]     = useState('');
+    const [qaAnalysis,     setQaAnalysis]     = useState('');
+    const [qaAnalyzing,    setQaAnalyzing]    = useState(false);
     const [progressLines, setProgressLines] = useState<string[]>([]);
     const [executingId,   setExecutingId]   = useState<string | null>(null);
     const [designing,     setDesigning]     = useState(false);
@@ -630,7 +653,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         const root = activeRootRef.current;
         if (!root) { setError('Sin proyecto activo — usá [P] para seleccionar'); return; }
 
-        const runner = new PhaseRunner({ config, projectRoot: root, ragSearchFn: rag?.search });
+        const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot: root, ragSearchFn: rag?.search });
         if (!runner.hasPhases()) {
             setError('No hay ROADMAP.md con fases. Generá el diseño primero (CLI: design).');
             return;
@@ -683,6 +706,33 @@ function App({ configPath, config, store, rag }: AppProps) {
         }
     }, [config]);
 
+    // ── On-demand QA query ────────────────────────────────────────────────────
+    const runQaQuery = useCallback(async (run: RunState, question: string) => {
+        if (!run.phaseState) return;
+        setQaAnalysis('');
+        setQaAnalyzing(true);
+        progressBuf.current = [];
+        try {
+            const root = run.projectRoot ?? activeRootRef.current;
+            if (!root) { setError('Sin projectRoot para QA'); return; }
+            const runner = new PhaseRunner({
+                config, configDir: path.dirname(path.resolve(configPath)),
+                projectRoot: root, ragSearchFn: rag?.search,
+            });
+            const analysis = await runner.queryQA(
+                run.phaseState.currentPhase,
+                question,
+                run.waitingGate?.executionReport,
+                (msg) => { progressBuf.current.push(msg); },
+            );
+            setQaAnalysis(analysis);
+        } catch (err) {
+            setQaAnalysis(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setQaAnalyzing(false);
+        }
+    }, [config, configPath, rag]);
+
     // ── Approve gate ──────────────────────────────────────────────────────────
     const approveGate = useCallback(async (run: RunState) => {
         if (!run.waitingGate) return;
@@ -690,7 +740,7 @@ function App({ configPath, config, store, rag }: AppProps) {
         // SDD phase gate → advance the phase pointer
         if (run.phaseState) {
             const root   = run.projectRoot ?? activeRootRef.current;
-            const runner = new PhaseRunner({ config, projectRoot: root!, ragSearchFn: rag?.search });
+            const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot: root!, ragSearchFn: rag?.search });
             runner.advance(run.phaseState, 'approve', run.waitingGate.output);
             await store.save({ ...run, status: 'running', waitingGate: undefined, phaseState: run.phaseState });
             await pollRuns();
@@ -713,7 +763,7 @@ function App({ configPath, config, store, rag }: AppProps) {
     const reworkGate = useCallback(async (run: RunState) => {
         if (!run.phaseState || !run.waitingGate) return;
         const root   = run.projectRoot ?? activeRootRef.current;
-        const runner = new PhaseRunner({ config, projectRoot: root!, ragSearchFn: rag?.search });
+        const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot: root!, ragSearchFn: rag?.search });
         runner.advance(run.phaseState, 'rework', run.waitingGate.output);
         await store.save({ ...run, status: 'running', waitingGate: undefined, phaseState: run.phaseState });
         await pollRuns();
@@ -769,6 +819,19 @@ function App({ configPath, config, store, rag }: AppProps) {
                 const feature = designInput.trim();
                 setView('list'); setDesignInput('');
                 runDesign(feature);
+            }
+            return;
+        }
+
+        if (view === 'qa-question') {
+            if (key.escape) {
+                setView('list'); setQaQuestion(''); setQaAnalysis('');
+            } else if (key.return) {
+                const question = qaQuestion.trim();
+                const run      = runs[selectedIdx];
+                setView('list');
+                setQaQuestion('');
+                if (run?.phaseState) runQaQuery(run, question);
             }
             return;
         }
@@ -862,6 +925,12 @@ function App({ configPath, config, store, rag }: AppProps) {
             const run = runs[selectedIdx];
             if (run?.status === 'waiting_gate' && run.phaseState) reworkGate(run);
         }
+        if ((input === 'q' || input === 'Q') && !executingId && !qaAnalyzing) {
+            const run = runs[selectedIdx];
+            if (run?.status === 'waiting_gate' && run.phaseState) {
+                setQaQuestion(''); setQaAnalysis(''); setView('qa-question');
+            }
+        }
         if (input === 'x' || input === 'X') {
             const run = runs[selectedIdx];
             if (run?.status === 'waiting_gate') { setView('reject-notes'); setRejectNotes(''); }
@@ -883,6 +952,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                   : view === 'project-select'  ? Math.min(projects.length + 6, 13)
                   : view === 'project-create'  ? 9
                   : view === 'design'          ? 7
+                  : view === 'qa-question'     ? 6
                   : 0;
     const bodyH = termRows - HEADER_H - dialogH;
 
@@ -992,6 +1062,8 @@ function App({ configPath, config, store, rag }: AppProps) {
                             isExecuting={executingId === selected.runId}
                             progressLines={progressLines}
                             maxLines={bodyH - 2}
+                            qaAnalysis={selected.runId === runs[selectedIdx]?.runId ? qaAnalysis : ''}
+                            qaAnalyzing={qaAnalyzing && selected.runId === runs[selectedIdx]?.runId}
                         />
                     )}
                 </Box>
@@ -1024,6 +1096,19 @@ function App({ configPath, config, store, rag }: AppProps) {
             )}
             {view === 'design' && (
                 <DesignDialog value={designInput} onChange={setDesignInput} project={activeProject} />
+            )}
+            {view === 'qa-question' && (
+                <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={2} paddingY={1}>
+                    <Text bold color="magenta">Consultar al QA</Text>
+                    <Box marginTop={1} gap={1}>
+                        <Text>Pregunta:</Text>
+                        <TextInput value={qaQuestion} onChange={setQaQuestion} focus
+                            placeholder="¿por qué fallan los tests? (Enter = revisión general)" />
+                    </Box>
+                    <Box marginTop={1}>
+                        <Text dimColor>[Enter] Consultar  [Esc] Cancelar</Text>
+                    </Box>
+                </Box>
             )}
         </Box>
     );

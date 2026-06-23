@@ -547,11 +547,34 @@ Activar en producción: `enforce: true` en `director.yaml` + `JWT_SECRET` en `.e
   autenticado (web/WS con login). El REPL cae a `ADMIN_PRINCIPAL` porque no
   pasa por `server.ts`.
 
+### Mapa de secretos JWT entre servicios
+
+`apps/auth-service` es el emisor central: **firma** el JWT del usuario (HS256) con
+`AUTH_SECRET` (claims: `sub`, `role`, `dept`, `tools`, `vault`, `apps`). Quién
+necesita ese secreto depende de si **verifica la firma** o solo reenvía el token:
+
+| Servicio | Qué hace con el token | Secreto que usa | ¿Debe coincidir con auth-service? |
+|---|---|---|---|
+| **apps/auth-service** | **Firma** el JWT | `AUTH_SECRET` | — (fuente de verdad) |
+| **director-agent** | **Verifica** la firma (`src/auth/jwt.ts`, HS256) | `AUTH_SECRET` (fallback legacy: `JWT_SECRET`) | **Sí — idéntico.** Si no, todo login falla con "Token inválido" |
+| **apps/vault-manager** | **Delega el login a auth-service** (NextAuth Credentials → `POST /api/auth/login`; no tiene users ni valida passwords). **No verifica** la firma del JWT: guarda el token recibido como `authToken`. Usa `NEXTAUTH_SECRET` solo para firmar su **cookie de sesión** local | `NEXTAUTH_SECRET` (cookie de sesión, ≠ AUTH_SECRET) | No (protege la cookie, no el JWT de auth-service) |
+| **agents/orchestrator-gateway** | No usa este JWT — auth por **API key** (`CURATOR_HTTP_API_KEY`) | — | No |
+| **packages/web `JwtAuth`**, **packages/enterprise** | Librería SDK para construir auth de terceros | configurable por el consumidor | No (ningún servicio vivo la instancia) |
+
+> ⚠️ **Footgun (causó un bug real):** el director resuelve la clave como
+> `AUTH_SECRET ?? JWT_SECRET`. Si `AUTH_SECRET` falta pero hay un `JWT_SECRET`
+> legacy con otro valor, el director verifica con la clave equivocada y **rechaza
+> todo login con "Token inválido"** — incluido admin con password correcto.
+> Regla: si usás auth-service, `AUTH_SECRET` es obligatorio y debe ser idéntico en
+> `apps/auth-service/.env.local` y `agents/director-agent/.env`. Cualquier servicio
+> futuro que **verifique** este token cae en la misma regla.
+
 ### Pendiente (arquitectura completa)
 
 - `packages/identity`: extraer `src/auth/` a paquete compartido por todos los agentes.
-- `apps/auth-service`: emisor central de JWTs (AuthN). Hoy `JWT_SECRET` es compartido; en
-  producción un servicio firma y el director solo verifica con la clave pública.
+- `apps/auth-service`: emisor central de JWTs (AuthN). Hoy `AUTH_SECRET` es compartido
+  (HS256 simétrico); en producción un servicio firma y el director solo verifica con la
+  clave pública (RS/ES asimétrico).
 - Enforcement role-aware en el orquestador: gates que exigen capability específica
   (quien inicia ≠ quien aprueba — separación de funciones).
 - ABAC avanzado: condiciones cruzadas entre campos (`arg.solicitante != user.id`).

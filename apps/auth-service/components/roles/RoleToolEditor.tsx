@@ -40,14 +40,14 @@ export function RoleToolEditor({ tools, onChange }: Props) {
     function toggle(tool: string) {
         const next = new Set(set);
         if (next.has(tool)) next.delete(tool); else next.add(tool);
-        onChange([...next]);
+        onChange(Array.from(next));
     }
 
     function toggleGroup(groupTools: string[]) {
         const allOn = groupTools.every(t => set.has(t));
         const next  = new Set(set);
         groupTools.forEach(t => allOn ? next.delete(t) : next.add(t));
-        onChange([...next]);
+        onChange(Array.from(next));
     }
 
     function selectAll() { onChange([...registry.allTools]); }

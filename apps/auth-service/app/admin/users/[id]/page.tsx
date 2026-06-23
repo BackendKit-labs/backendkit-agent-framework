@@ -55,7 +55,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
     }, [form.role, roles]);
 
     function toggleTool(tool: string) {
-        const base = tools ?? ROLE_DEFAULT_TOOLS[form.role] ?? [];
+        const base = tools ?? roleTools ?? [];
         setTools(base.includes(tool) ? base.filter(t => t !== tool) : [...base, tool]);
     }
 
@@ -192,7 +192,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                     </div>
                     <div className="flex items-center gap-2">
                         {isCustom && <button onClick={resetWorkspace} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><RotateCcw className="w-3 h-3" />Usar defaults del rol</button>}
-                        {!isCustom && <button onClick={() => setTools([...(ROLE_DEFAULT_TOOLS[form.role] ?? [])])} className="text-xs text-primary hover:underline">Personalizar</button>}
+                        {!isCustom && <button onClick={() => setTools([...roleTools])} className="text-xs text-primary hover:underline">Personalizar</button>}
                     </div>
                 </div>
 

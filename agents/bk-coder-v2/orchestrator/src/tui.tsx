@@ -30,6 +30,7 @@ import { buildRAG }                                        from './rag.js';
 import { matchFlow, flowToTaskPlan, loadFlow }             from './static-flow.js';
 import { WorkspaceManager }                                from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { PhaseRunner }                                     from './phase-runner.js';
+import { generateDesign }                                  from './design.js';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -276,6 +277,39 @@ function RejectDialog({ value, onChange }: RejectDialogProps) {
     );
 }
 
+// ── DesignDialog component ────────────────────────────────────────────────────
+
+interface DesignDialogProps {
+    value:    string;
+    onChange: (v: string) => void;
+    project?: { name: string; root: string } | null;
+}
+
+function DesignDialog({ value, onChange, project }: DesignDialogProps) {
+    return (
+        <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={2} paddingY={1}>
+            <Box gap={2}>
+                <Text bold color="magenta">Generar diseño</Text>
+                {project
+                    ? <Text dimColor>proyecto: <Text color="cyan">{project.name}</Text> → .specs/</Text>
+                    : <Text color="red">⚠ sin proyecto activo — usá [P]</Text>
+                }
+            </Box>
+            <Box marginTop={1} gap={1}>
+                <Text>Feature:</Text>
+                <TextInput value={value} onChange={onChange} focus
+                    placeholder="autenticación JWT con refresh tokens..." />
+            </Box>
+            <Box marginTop={1}>
+                <Text dimColor>Genera specification.md, design.md y ROADMAP.md</Text>
+            </Box>
+            <Box>
+                <Text dimColor>[Enter] Generar  [Esc] Cancelar</Text>
+            </Box>
+        </Box>
+    );
+}
+
 // ── ProjectSelector component ─────────────────────────────────────────────────
 
 interface ProjectItem { id: string; name: string; root: string; active: boolean }
@@ -372,7 +406,7 @@ function ProjectCreateDialog({
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type View = 'list' | 'new-run' | 'reject-notes' | 'project-select' | 'project-create';
+type View = 'list' | 'new-run' | 'reject-notes' | 'project-select' | 'project-create' | 'design';
 
 interface AppProps {
     configPath: string;
@@ -391,8 +425,10 @@ function App({ configPath, config, store, rag }: AppProps) {
     const [flowInput,     setFlowInput]     = useState('');
     const [activeField,   setActiveField]   = useState<'task' | 'flow'>('task');
     const [rejectNotes,   setRejectNotes]   = useState('');
+    const [designInput,   setDesignInput]   = useState('');
     const [progressLines, setProgressLines] = useState<string[]>([]);
     const [executingId,   setExecutingId]   = useState<string | null>(null);
+    const [designing,     setDesigning]     = useState(false);
     const [error,         setError]         = useState('');
 
     // ── Workspace-manager project state ───────────────────────────────────────
@@ -626,6 +662,27 @@ function App({ configPath, config, store, rag }: AppProps) {
         runSddSegment(runId);
     }, [config, configPath, rag, store, pollRuns, runSddSegment, activeProject, runs, selectedIdx]);
 
+    // ── Generate design (specification.md, design.md, ROADMAP.md) ──────────────
+    const runDesign = useCallback(async (feature: string) => {
+        setError('');
+        const root = activeRootRef.current;
+        if (!root) { setError('Sin proyecto activo — usá [P] para seleccionar'); return; }
+
+        setDesigning(true);
+        setProgressLines([]);
+        progressBuf.current = [];
+        try {
+            await generateDesign(config, root, feature, (msg) => { progressBuf.current.push(msg); });
+            // flush remaining progress
+            setProgressLines(prev => [...prev, ...progressBuf.current, '✓ Diseño generado en .specs/ — usá [S] para implementar']);
+            progressBuf.current = [];
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setDesigning(false);
+        }
+    }, [config]);
+
     // ── Approve gate ──────────────────────────────────────────────────────────
     const approveGate = useCallback(async (run: RunState) => {
         if (!run.waitingGate) return;
@@ -705,6 +762,17 @@ function App({ configPath, config, store, rag }: AppProps) {
             return;
         }
 
+        if (view === 'design') {
+            if (key.escape) {
+                setView('list'); setDesignInput('');
+            } else if (key.return && designInput.trim()) {
+                const feature = designInput.trim();
+                setView('list'); setDesignInput('');
+                runDesign(feature);
+            }
+            return;
+        }
+
         // ── project-select view ───────────────────────────────────────────────
         if (view === 'project-select') {
             if (key.escape) { setView('list'); return; }
@@ -775,6 +843,9 @@ function App({ configPath, config, store, rag }: AppProps) {
         if ((input === 'n' || input === 'N') && !executingId) {
             setView('new-run'); setActiveField('task');
         }
+        if ((input === 'd' || input === 'D') && !executingId && !designing) {
+            setView('design'); setDesignInput('');
+        }
         if ((input === 's' || input === 'S') && !executingId) {
             startSdd();
         }
@@ -811,6 +882,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                   : view === 'reject-notes'    ? 6
                   : view === 'project-select'  ? Math.min(projects.length + 6, 13)
                   : view === 'project-create'  ? 9
+                  : view === 'design'          ? 7
                   : 0;
     const bodyH = termRows - HEADER_H - dialogH;
 
@@ -829,9 +901,11 @@ function App({ configPath, config, store, rag }: AppProps) {
                     : <Text dimColor>(sin proyecto)</Text>
                 }
                 <Text dimColor>│</Text>
-                {!executingId
-                    ? <Text color="yellow">[N] Tarea  [S] SDD</Text>
-                    : <Text color="yellow">⏳ ejecutando...</Text>
+                {designing
+                    ? <Text color="magenta">✍ generando diseño...</Text>
+                    : !executingId
+                        ? <Text color="yellow">[D] Diseño  [S] SDD  [N] Tarea</Text>
+                        : <Text color="yellow">⏳ ejecutando...</Text>
                 }
                 <Text color="yellow">[P] Proyecto  [R] Refresh  [Q] Salir</Text>
                 {error && <Text color="red"> ⚠ {error.slice(0, 30)}</Text>}
@@ -895,7 +969,14 @@ function App({ configPath, config, store, rag }: AppProps) {
                     borderLeft={false}
                     paddingX={1}
                 >
-                    {!selected && executingId ? (
+    {designing || (progressLines.length > 0 && !selected) ? (
+                        <Box flexDirection="column">
+                            <Text color="magenta" bold>{designing ? '✍ Generando diseño...' : '✓ Diseño'}</Text>
+                            {progressLines.slice(-12).map((line, i) => (
+                                <Text key={i} dimColor>{line}</Text>
+                            ))}
+                        </Box>
+                    ) : !selected && executingId ? (
                         // Ejecutando pero el run todavía no aparece en la lista (polling delay)
                         <Box flexDirection="column">
                             <Text color="yellow" bold>⏳ Ejecutando...</Text>
@@ -940,6 +1021,9 @@ function App({ configPath, config, store, rag }: AppProps) {
                     descValue={projDescInput}   onDescChange={setProjDescInput}
                     activeField={projCreateFld} error={projCreateErr}
                 />
+            )}
+            {view === 'design' && (
+                <DesignDialog value={designInput} onChange={setDesignInput} project={activeProject} />
             )}
         </Box>
     );

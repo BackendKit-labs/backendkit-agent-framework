@@ -6,11 +6,13 @@ import { loadRoadmapPhases } from './roadmap-parser.js';
 import type { PhaseState, QaVerdict, StepResult } from './run-store.js';
 import { runProjectChecks, type ExecutionReport } from './command-runner.js';
 import { updateProgressSummary }                   from './context-reader.js';
+import { callMcpTool }                             from './mcp-client.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface PhaseRunnerOptions {
     config:       OrchestratorConfig;
+    configDir?:   string;   // directory of orchestrator.yaml — needed to resolve MCP server paths
     projectRoot:  string;
     ragSearchFn?: (q: string) => Promise<string>;
     onProgress?:  (msg: string) => void;
@@ -76,6 +78,7 @@ export function parseVerdict(qaOutput: string): QaVerdict {
 
 export class PhaseRunner {
     private readonly config:      OrchestratorConfig;
+    private readonly configDir:   string;
     private readonly projectRoot: string;
     private readonly ragSearchFn: ((q: string) => Promise<string>) | undefined;
     private readonly onProgress:  (msg: string) => void;
@@ -83,10 +86,36 @@ export class PhaseRunner {
 
     constructor(opts: PhaseRunnerOptions) {
         this.config      = opts.config;
+        this.configDir   = opts.configDir ?? process.cwd();
         this.projectRoot = opts.projectRoot;
         this.ragSearchFn = opts.ragSearchFn;
         this.onProgress  = opts.onProgress ?? (() => {});
         this.phases      = loadRoadmapPhases(opts.projectRoot);
+    }
+
+    // ── MCP dispatch or inline fallback ────────────────────────────────────────
+
+    private async callAgent(
+        agentId:  string,
+        toolName: string,
+        args:     Record<string, unknown>,
+        // Inline fallback params
+        inlineTask: string,
+        phaseCtx?: PhaseContext,
+    ): Promise<string> {
+        const agentCfg = findAgent(this.config, agentId.replace('-mcp', ''))
+                      ?? this.config.agents.find(a => a.id === agentId);
+        if (!agentCfg) throw new Error(`Agente "${agentId}" no encontrado en la config`);
+
+        // MCP mode: spawn the specialist process and call the tool
+        if (agentCfg.transport?.type === 'stdio') {
+            return callMcpTool(agentCfg, toolName, args, this.configDir, this.onProgress);
+        }
+
+        // Inline fallback: LLM call with soul file prompt
+        this.onProgress(`  ⚠ [${agentId}] sin transport stdio — usando modo inline`);
+        const subtask = { id: toolName, agent_id: agentCfg.id, task: inlineTask, depends_on: [] };
+        return executeSubtask(this.config, agentCfg, subtask, [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress, phaseCtx);
     }
 
     hasPhases(): boolean { return this.phases.length > 0; }
@@ -153,10 +182,12 @@ export class PhaseRunner {
 
         const phaseCtx = { number: phase.number, title: phase.title, criteria: phase.criteria };
 
-        let implOutput = await executeSubtask(
-            this.config, backend,
-            { id: `impl-p${phase.number}`, agent_id: backend.id, task: implTask, depends_on: [] },
-            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress, phaseCtx,
+        let implOutput = await this.callAgent(
+            backend.id,
+            'implement_phase',
+            { projectRoot: this.projectRoot, phaseNumber: phase.number, phaseTitle: phase.title, criteria: phase.criteria, reworkFindings: state.qaFindings },
+            implTask,
+            phaseCtx,
         );
 
         // Tarea 2.3: si no se escribió ningún archivo, reintentar una vez con instrucción reforzada
@@ -243,10 +274,12 @@ export class PhaseRunner {
 
         this.onProgress(`  → [qa] validando fase ${phase.number}...`);
 
-        const qaOutput = await executeSubtask(
-            this.config, qa,
-            { id: `qa-p${phase.number}`, agent_id: qa.id, task: qaTask, depends_on: [] },
-            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress, phaseCtx,
+        const qaOutput = await this.callAgent(
+            qa.id,
+            'validate_phase',
+            { projectRoot: this.projectRoot, phaseNumber: phase.number, phaseTitle: phase.title, criteria: phase.criteria, execReport: execReport?.summary },
+            qaTask,
+            phaseCtx,
         );
         collectStep({
             stepId: `qa-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
@@ -313,13 +346,8 @@ export class PhaseRunner {
         if (security && state.stage !== 'infra' && state.stage !== 'done') {
             state.stage = 'security';
             this.onProgress(`\n🔒 Security review final...`);
-            const out = await executeSubtask(
-                this.config, security,
-                { id: 'security-final', agent_id: security.id,
-                  task: 'Revisá todo el código implementado en src/ buscando vulnerabilidades OWASP. Generá security-review.md.',
-                  depends_on: [] },
-                [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
-            );
+            const secTask = 'Revisá todo el código implementado en src/ buscando vulnerabilidades OWASP. Generá security-review.md.';
+            const out = await this.callAgent(security.id, 'security_review_project', { projectRoot: this.projectRoot }, secTask);
             collectStep({ stepId: 'security-final', agentId: security.id, task: 'Security review final', output: out, success: true, durationMs: 0 });
         }
 
@@ -327,13 +355,8 @@ export class PhaseRunner {
         if (infra) {
             state.stage = 'infra';
             this.onProgress(`\n🐳 Generando infraestructura...`);
-            const out = await executeSubtask(
-                this.config, infra,
-                { id: 'infra-final', agent_id: infra.id,
-                  task: 'Generá la configuración de infraestructura: Dockerfile, docker-compose.yml, CI/CD y manifiestos K8s según el stack del proyecto.',
-                  depends_on: [] },
-                [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
-            );
+            const infraTask = 'Generá la configuración de infraestructura: Dockerfile, docker-compose.yml, CI/CD y manifiestos K8s.';
+            const out = await this.callAgent(infra.id, 'generate_infra', { projectRoot: this.projectRoot }, infraTask);
             collectStep({ stepId: 'infra-final', agentId: infra.id, task: 'Infraestructura', output: out, success: true, durationMs: 0 });
         }
 

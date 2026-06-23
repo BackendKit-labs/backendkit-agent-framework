@@ -80,9 +80,22 @@ function useTerminalSize(): [number, number] {
     return size;
 }
 
+// ── Spinner hook ──────────────────────────────────────────────────────────────
+
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function useSpinner(): string {
+    const [frame, setFrame] = useState(0);
+    useEffect(() => {
+        const t = setInterval(() => setFrame(f => (f + 1) % SPINNER_FRAMES.length), 80);
+        return () => clearInterval(t);
+    }, []);
+    return SPINNER_FRAMES[frame]!;
+}
+
 // ── Display helpers ───────────────────────────────────────────────────────────
 
-const STATUS_ICON:  Record<string, string> = { running: '⏳', waiting_gate: '⏸', complete: '✓', failed: '✗' };
+const STATUS_ICON:  Record<string, string> = { running: '·', waiting_gate: '⏸', complete: '✓', failed: '✗' };
 const STATUS_COLOR: Record<string, string> = { running: 'yellow', waiting_gate: 'cyan', complete: 'green', failed: 'red' };
 
 function timeAgo(iso: string): string {
@@ -101,9 +114,10 @@ interface RunDetailProps {
     maxLines?:     number;
     qaAnalysis?:   string;
     qaAnalyzing?:  boolean;
+    spinner?:      string;
 }
 
-function RunDetail({ run, isExecuting, progressLines, qaAnalysis, qaAnalyzing }: RunDetailProps) {
+function RunDetail({ run, isExecuting, progressLines, qaAnalysis, qaAnalyzing, spinner = '⠋' }: RunDetailProps) {
     const gate = run.waitingGate;
 
     return (
@@ -147,7 +161,7 @@ function RunDetail({ run, isExecuting, progressLines, qaAnalysis, qaAnalyzing }:
             {/* Live progress */}
             {isExecuting && (
                 <Box flexDirection="column">
-                    <Text color="yellow" bold>⏳ Ejecutando...</Text>
+                    <Text color="cyan" bold>{spinner} ejecutando</Text>
                     {progressLines.slice(-6).map((line, i) => (
                         <Text key={i} dimColor>{line}</Text>
                     ))}
@@ -939,6 +953,7 @@ function App({ configPath, config, store, rag }: AppProps) {
     });
 
     const selected = runs[selectedIdx];
+    const spinner  = useSpinner();   // animación de actividad
 
     // ── Stable terminal dimensions ─────────────────────────────────────────────
     const [termCols, termRows] = useTerminalSize();
@@ -971,13 +986,9 @@ function App({ configPath, config, store, rag }: AppProps) {
                     : <Text dimColor>(sin proyecto)</Text>
                 }
                 <Text dimColor>│</Text>
-                {designing
-                    ? <Text color="magenta">✍ generando diseño...</Text>
-                    : !executingId
-                        ? <Text color="yellow">[D] Diseño  [S] SDD  [N] Tarea</Text>
-                        : <Text color="yellow">⏳ ejecutando...</Text>
-                }
+                <Text color="yellow">[D] Diseño  [S] SDD  [N] Tarea</Text>
                 <Text color="yellow">[P] Proyecto  [R] Refresh  [Q] Salir</Text>
+                {(executingId || designing) && <Text color="cyan">{spinner}</Text>}
                 {error && <Text color="red"> ⚠ {error.slice(0, 30)}</Text>}
             </Box>
 
@@ -1017,7 +1028,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                                             backgroundColor={active ? 'blue' : undefined}
                                         >
                                             {active ? '▶' : ' '}
-                                            {' '}{STATUS_ICON[r.status] ?? '?'}{' '}
+                                            {' '}{executingId === r.runId ? spinner : (STATUS_ICON[r.status] ?? '?')}{' '}
                                             {r.task.slice(0, 18).padEnd(18)}
                                             {'  '}{timeAgo(r.startedAt)}
                                         </Text>
@@ -1041,7 +1052,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                 >
     {designing || (progressLines.length > 0 && !selected) ? (
                         <Box flexDirection="column">
-                            <Text color="magenta" bold>{designing ? '✍ Generando diseño...' : '✓ Diseño'}</Text>
+                            <Text color="magenta" bold>{designing ? `${spinner} generando diseño` : '✓ Diseño'}</Text>
                             {progressLines.slice(-12).map((line, i) => (
                                 <Text key={i} dimColor>{line}</Text>
                             ))}
@@ -1049,7 +1060,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                     ) : !selected && executingId ? (
                         // Ejecutando pero el run todavía no aparece en la lista (polling delay)
                         <Box flexDirection="column">
-                            <Text color="yellow" bold>⏳ Ejecutando...</Text>
+                            <Text color="cyan" bold>{spinner} ejecutando</Text>
                             {progressLines.slice(-10).map((line, i) => (
                                 <Text key={i} dimColor>{line}</Text>
                             ))}
@@ -1064,6 +1075,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                             maxLines={bodyH - 2}
                             qaAnalysis={selected.runId === runs[selectedIdx]?.runId ? qaAnalysis : ''}
                             qaAnalyzing={qaAnalyzing && selected.runId === runs[selectedIdx]?.runId}
+                            spinner={spinner}
                         />
                     )}
                 </Box>

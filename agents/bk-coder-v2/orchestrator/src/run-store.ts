@@ -5,6 +5,24 @@ import * as path from 'node:path';
 
 export type RunStatus = 'running' | 'waiting_gate' | 'complete' | 'failed';
 
+export type QaVerdict = 'GO' | 'NO_GO' | 'CONDITIONAL';
+
+/**
+ * Phase-runner state for SDD execution. Tracks the phase pointer over the
+ * project's ROADMAP.md so a run can implement → QA → gate → advance/rework,
+ * surviving restarts and gate pauses.
+ */
+export interface PhaseState {
+    currentPhase:  number;        // 1-indexed pointer into the roadmap phases
+    totalPhases:   number;
+    phaseTitle:    string;        // title of the current phase
+    stage:         'implement' | 'qa' | 'security' | 'infra' | 'done';
+    reworkCount:   number;        // times the current phase was reworked
+    verdict?:      QaVerdict;     // last QA verdict for the current phase
+    qaFindings?:   string;        // QA findings injected into the next rework
+    phaseTitles:   string[];      // all phase titles for display
+}
+
 export interface StepResult {
     stepId:     string;
     agentId:    string;
@@ -22,6 +40,11 @@ export interface GatePending {
     criteria:        string[];
     requestedAt:     string;
     appliedRuleIds?: string[];
+    // Phase-runner gates carry the QA verdict so the approver sees GO/NO_GO
+    // and can choose approve (advance) / rework (re-implement) / reject (stop).
+    verdict?:        QaVerdict;
+    phase?:          number;
+    allowRework?:    boolean;
 }
 
 export interface RunState {
@@ -40,6 +63,8 @@ export interface RunState {
     vaultNotePath?:  string;
     finalReport?:    string;
     error?:          string;
+    // Present when the run uses the phase-runner (SDD mode) instead of a static plan.
+    phaseState?:     PhaseState;
 }
 
 // ── Interface (implemented by both DiskRunStore and RedisRunStore) ─────────────

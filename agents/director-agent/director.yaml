@@ -64,6 +64,11 @@ agents:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # config_path se pasa como argumento en cada tool call (soporta múltiples proyectos)
 
+  - name: project               # Workspace Manager PROJECT — proyectos, root, config de agentes
+    command: node
+    args: ["../bk-coder-v2/workspace-manager-project/dist/server.js"]
+    # Persiste en ~/.backendkit/projects.json — el coder resuelve el proyecto activo desde acá
+
   - name: config                # Gestión centralizada de config + secretos de todos los agentes
     command: node
     args: ["../config-agent/dist/config-agent.js"]
@@ -194,6 +199,8 @@ access_control:
 
     # ── Coder v2 (Orchestrator V2 — SDD flows) ────────────────────────────────
     # config_path es un argumento en cada llamada, no afecta la autorización aquí.
+    orchestrator_design:          { allowed_roles: ["admin", "development"] }
+    orchestrator_sdd:             { allowed_roles: ["admin", "development"] }
     orchestrator_run:             { allowed_roles: ["admin", "development"] }
     orchestrator_status:
       allowed_roles: ["*"]
@@ -212,6 +219,18 @@ access_control:
     orchestrator_reflect:         { allowed_roles: ["admin", "development"] }
     orchestrator_reflect_promote: { allowed_roles: ["admin"] }
     orchestrator_reflect_demote:  { allowed_roles: ["admin"] }
+
+    # ── Workspace Manager PROJECT (proyectos y root) ──────────────────────────
+    project_list:             { allowed_roles: ["*"] }
+    project_current:          { allowed_roles: ["*"] }
+    project_get_root:         { allowed_roles: ["*"] }
+    project_get_agent_config: { allowed_roles: ["*"] }
+    project_agent_exists:     { allowed_roles: ["*"] }
+    project_switch:           { allowed_roles: ["admin", "development"] }
+    project_create:           { allowed_roles: ["admin", "development"] }
+    project_update:           { allowed_roles: ["admin", "development"] }
+    project_duplicate:        { allowed_roles: ["admin", "development"] }
+    project_delete:           { allowed_roles: ["admin"] }
 
     # ── Config (gestión centralizada de configuración) ─────────────────────────
     get_config:

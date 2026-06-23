@@ -40,6 +40,7 @@ import type { ReflectionAdapter }                 from './executor.js';
 import { WorkspaceManager }                       from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { PhaseRunner }                            from './phase-runner.js';
 import type { PhaseState, StepResult }            from './run-store.js';
+import { generateDesign }                         from './design.js';
 import { getAuditLogger }                         from './audit.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -630,6 +631,53 @@ srv.tool(
             `Poll con \`orchestrator_status\` para ver el progreso.`,
             `Si aparece un gate, usá \`orchestrator_approve\` para continuar o rechazar.`,
         ].join('\n'));
+    },
+);
+
+// ---------------------------------------------------------------------------
+// orchestrator_design — generate spec/design/roadmap for the active project
+// ---------------------------------------------------------------------------
+// Writes specification.md, design.md and ROADMAP.md into {projectRoot}/.specs/
+// using the active project's root (from the workspace-manager). This is the
+// prerequisite for orchestrator_sdd. Synchronous — returns when the 3 docs are written.
+// @ts-ignore
+srv.tool(
+    'orchestrator_design',
+    'Generate the SDD design artifacts (specification.md, design.md, ROADMAP.md) for the ACTIVE project, written into its .specs/ directory. This is the prerequisite for orchestrator_sdd. The project root is resolved from the workspace-manager active project — switch/create the project first. Takes a feature description in natural language.',
+    {
+        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        feature:     z.string().describe('Feature description in natural language — what to specify and design'),
+    },
+    async ({ config_path, feature }) => {
+        let config: OrchestratorConfig;
+        try { config = loadConfig(config_path); }
+        catch (err) { return ok(`Config error: ${err instanceof Error ? err.message : String(err)}`); }
+
+        const projectRoot = resolveProjectRoot();
+        if (!projectRoot) return ok('No hay proyecto activo. Creá/activá un proyecto con el workspace-manager (project_create / project_switch) antes de diseñar.');
+
+        let projectName = 'proyecto';
+        try { projectName = new WorkspaceManager().current().name; } catch { /* keep default */ }
+
+        try {
+            const art = await generateDesign(config, projectRoot, feature);
+            const phases = (art.roadmap.match(/^#{2,3}\s+(?:Phase|Fase)\s+\d+/gim) ?? []).length;
+            getAuditLogger(config_path).write({ event: 'run.start', task: `design: ${feature.slice(0, 60)}`, extra: { mode: 'design', projectRoot, phases } });
+            return ok([
+                `## Diseño generado — ${projectName}`,
+                `root: ${projectRoot}`,
+                '',
+                `Artefactos escritos en \`.specs/\`:`,
+                `  • specification.md  (${art.spec.split('\n').length} líneas)`,
+                `  • design.md         (${art.design.split('\n').length} líneas)`,
+                `  • ROADMAP.md        (${art.roadmap.split('\n').length} líneas)`,
+                '',
+                phases > 0 ? `${phases} fases de implementación definidas.` : '',
+                `Próximo paso: \`orchestrator_sdd\` para implementar fase por fase.`,
+            ].filter(Boolean).join('\n'));
+        } catch (err) {
+            return ok(`Error generando el diseño: ${err instanceof Error ? err.message : String(err)}`);
+        }
     },
 );
 

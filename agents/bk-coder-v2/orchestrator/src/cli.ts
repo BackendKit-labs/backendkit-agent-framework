@@ -31,6 +31,8 @@ import { buildRAG }                                                    from './r
 import { matchFlow, flowToTaskPlan, loadFlow }                        from './static-flow.js';
 import { WorkspaceManager }                                            from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { generateDesign }                                              from './design.js';
+import { PhaseRunner }                                                 from './phase-runner.js';
+import type { PhaseState }                                             from './run-store.js';
 
 // ── PromptReader ──────────────────────────────────────────────────────────────
 // Buffers stdin lines upfront so readline closing after EOF doesn't break
@@ -53,7 +55,7 @@ class PromptReader {
         rl.on('close', () => {
             this.closed = true;
             for (const w of this.waiters) w('');
-            this.waiters = [];
+            this.waiters.length = 0;
         });
     }
 
@@ -273,6 +275,18 @@ async function cmdStatus(configPath: string, args: string[]): Promise<void> {
     console.log(`   task    : ${state.task}`);
     console.log(`   started : ${state.startedAt}`);
     if (state.completedAt) console.log(`   ended   : ${state.completedAt}`);
+
+    if (state.phaseState) {
+        const ps = state.phaseState;
+        console.log(`\n   SDD: fase ${ps.currentPhase}/${ps.totalPhases} — ${ps.phaseTitle}` +
+            (ps.reworkCount > 0 ? `  (rework #${ps.reworkCount})` : '') +
+            (ps.verdict ? `  · QA: ${ps.verdict}` : ''));
+        ps.phaseTitles.forEach((t, i) => {
+            const n = i + 1;
+            const mark = n < ps.currentPhase ? '✓' : n === ps.currentPhase ? '▶' : ' ';
+            console.log(`     ${mark} Fase ${n}: ${t}`);
+        });
+    }
 
     if (state.completedSteps.length) {
         console.log(`\n   Pasos completados (${state.completedSteps.length}):`);
@@ -646,6 +660,125 @@ async function cmdDesign(configPath: string, args: string[]): Promise<void> {
     console.log(`  orchestrator-cli run ${configPath} "<feature>" --flow sdd-implement`);
 }
 
+// ── sdd command — phase-by-phase SDD with rework gates ───────────────────────
+
+async function cmdSdd(configPath: string, args: string[]): Promise<void> {
+    let config: OrchestratorConfig;
+    try { config = loadConfig(configPath); }
+    catch (err) { console.error(`Config: ${err instanceof Error ? err.message : String(err)}`); process.exit(1); }
+
+    // Resolve project root from workspace-manager
+    let projectRoot: string | undefined;
+    let projectName = '';
+    try {
+        const cur   = new WorkspaceManager().current();
+        projectRoot = cur.root;
+        projectName = cur.name;
+    } catch {
+        console.error('No hay proyecto activo. Usá: orchestrator-cli project switch <nombre>');
+        process.exit(1);
+    }
+
+    const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
+    const runner = new PhaseRunner({
+        config,
+        projectRoot: projectRoot!,
+        ragSearchFn: rag?.search,
+        onProgress: (msg) => process.stdout.write(`${msg}\n`),
+    });
+
+    if (!runner.hasPhases()) {
+        console.error(`No se encontraron fases en el ROADMAP.md de ${projectRoot}`);
+        console.error('Generá el diseño primero: orchestrator-cli design <config.yaml> "<feature>"');
+        process.exit(1);
+    }
+
+    const store = openStore(configPath, config);
+    const runId = store.newRunId();
+    const state = runner.initialState();
+
+    console.log(`\n🚀 SDD iniciado — ${projectName}`);
+    console.log(`   ${state.totalPhases} fases en el ROADMAP:`);
+    state.phaseTitles.forEach((t, i) => console.log(`     ${i + 1}. ${t}`));
+    console.log('');
+
+    const collectedSteps: StepResult[] = [];
+    const saveRun = async (extra: Partial<RunState> = {}) => {
+        await store.save({
+            runId, task: `SDD: ${projectName}`, configPath, projectRoot,
+            status: 'running', startedAt: ts(), updatedAt: ts(),
+            completedSteps: collectedSteps, phaseState: state, ...extra,
+        });
+    };
+    await saveRun();
+
+    const rl = new PromptReader();
+
+    while (true) {
+        let step;
+        try {
+            step = await runner.runCurrentPhase(state, s => collectedSteps.push(s));
+        } catch (err) {
+            console.error(`\n❌ Error: ${err instanceof Error ? err.message : String(err)}`);
+            await saveRun({ status: 'failed', error: err instanceof Error ? err.message : String(err) });
+            rl.close();
+            process.exit(1);
+        }
+
+        if (step.type === 'complete') {
+            await saveRun({ status: 'complete', completedAt: ts(), finalReport: step.summary });
+            console.log(`\n✅ ${step.summary}\n`);
+            rl.close();
+            return;
+        }
+
+        // ── Phase gate ────────────────────────────────────────────────────────
+        const icon = step.verdict === 'GO' ? '✅' : step.verdict === 'NO_GO' ? '❌' : '⚠️';
+        console.log(`\n${icon} Gate — Fase ${step.phase}: ${step.phaseTitle}`);
+        console.log(`   Veredicto QA: ${step.verdict}`);
+        if (step.criteria.length) {
+            console.log('\n   Criterios de la fase:');
+            step.criteria.forEach(c => console.log(`     • ${c}`));
+        }
+        console.log('\n── Reporte QA ─────────────────────────────────────────────────');
+        console.log(step.qaOutput.slice(0, 1500));
+        console.log('───────────────────────────────────────────────────────────────');
+
+        await saveRun({
+            status: 'waiting_gate',
+            waitingGate: {
+                gateId: `phase-${step.phase}`, stepId: `qa-p${step.phase}`,
+                agentId: 'qa', output: step.qaOutput, criteria: step.criteria,
+                requestedAt: ts(), verdict: step.verdict, phase: step.phase, allowRework: step.allowRework,
+            },
+        });
+
+        const hint = step.verdict === 'GO'
+            ? '[a] Aprobar y avanzar  [w] Rework  [x] Rechazar'
+            : '[w] Rework (recomendado)  [a] Aprobar igual  [x] Rechazar';
+        const answer = (await rl.question(`\n${hint}: `)).trim().toLowerCase();
+
+        if (answer.startsWith('x')) {
+            await saveRun({ status: 'failed', completedAt: ts(), error: `Rechazado en fase ${step.phase}`, waitingGate: undefined });
+            console.log(`\n❌ SDD detenido en fase ${step.phase}.`);
+            rl.close();
+            return;
+        }
+
+        const decision = answer.startsWith('w') ? 'rework' : 'approve';
+        runner.advance(state, decision, step.qaOutput);
+        await saveRun({ waitingGate: undefined });
+
+        if (decision === 'approve') {
+            console.log(state.stage === 'security'
+                ? `\n✅ Fase ${step.phase} aprobada — todas las fases completas, finalizando...\n`
+                : `\n✅ Fase ${step.phase} aprobada — avanzando a fase ${state.currentPhase}...\n`);
+        } else {
+            console.log(`\n🔁 Rework de fase ${step.phase} — reimplementando con los hallazgos del QA...\n`);
+        }
+    }
+}
+
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
 function printProjectUsage(): void {
@@ -666,6 +799,7 @@ Uso:
   orchestrator-cli project <subcomando>                           — gestión de proyectos
   orchestrator-cli design  <config.yaml> "<feature>"             — genera spec/design/roadmap
                            [--project <nombre>] [--root <path>]
+  orchestrator-cli sdd     <config.yaml>                          — SDD por fases del ROADMAP (gates con rework)
   orchestrator-cli run     <config.yaml> "<tarea>" [--flow <id>] — ejecuta implementación
   orchestrator-cli status  <config.yaml> <run_id>
   orchestrator-cli approve <config.yaml> <run_id> [--reject] [--notes "<texto>"]
@@ -692,6 +826,7 @@ async function main(): Promise<void> {
 
     switch (command) {
         case 'design':  await cmdDesign(configPath, rest);  break;
+        case 'sdd':     await cmdSdd(configPath, rest);     break;
         case 'run':     await cmdRun(configPath, rest);     break;
         case 'status':  await cmdStatus(configPath, rest);  break;
         case 'approve': await cmdApprove(configPath, rest); break;

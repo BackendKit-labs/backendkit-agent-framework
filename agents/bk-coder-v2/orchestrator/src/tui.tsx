@@ -29,6 +29,7 @@ import { OpenAICompatibleProvider, callLLM }               from './provider.js';
 import { buildRAG }                                        from './rag.js';
 import { matchFlow, flowToTaskPlan, loadFlow }             from './static-flow.js';
 import { WorkspaceManager }                                from '../../workspace-manager-project/dist/WorkspaceManager.js';
+import { PhaseRunner }                                     from './phase-runner.js';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -117,6 +118,12 @@ function RunDetail({ run, isExecuting, progressLines }: RunDetailProps) {
                     Iniciado: {timeAgo(run.startedAt)} atrás
                     {run.completedAt ? `  ·  Finalizado: ${timeAgo(run.completedAt)} atrás` : ''}
                 </Text>
+                {run.phaseState && (
+                    <Text color="magenta">
+                        SDD · Fase {run.phaseState.currentPhase}/{run.phaseState.totalPhases}: {run.phaseState.phaseTitle}
+                        {run.phaseState.reworkCount > 0 ? `  (rework #${run.phaseState.reworkCount})` : ''}
+                    </Text>
+                )}
             </Box>
 
             {/* Completed steps */}
@@ -145,31 +152,43 @@ function RunDetail({ run, isExecuting, progressLines }: RunDetailProps) {
             )}
 
             {/* Gate */}
-            {run.status === 'waiting_gate' && gate && (
+            {run.status === 'waiting_gate' && gate && (() => {
+                const verdictColor = gate.verdict === 'GO' ? 'green' : gate.verdict === 'NO_GO' ? 'red' : 'yellow';
+                const verdictIcon  = gate.verdict === 'GO' ? '✅' : gate.verdict === 'NO_GO' ? '❌' : '⚠️';
+                const isPhaseGate  = !!gate.phase;
+                return (
                 <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
-                    <Text color="cyan" bold>⏸  Gate: {gate.stepId}  [{gate.agentId}]</Text>
+                    {isPhaseGate
+                        ? <Box gap={2}>
+                            <Text color="cyan" bold>⏸  Gate Fase {gate.phase}</Text>
+                            <Text color={verdictColor} bold>{verdictIcon} QA: {gate.verdict}</Text>
+                          </Box>
+                        : <Text color="cyan" bold>⏸  Gate: {gate.stepId}  [{gate.agentId}]</Text>
+                    }
 
                     {gate.criteria.length > 0 && (
                         <Box flexDirection="column" marginTop={1}>
                             <Text bold>Criterios:</Text>
-                            {gate.criteria.map((c, i) => <Text key={i}> • {c}</Text>)}
+                            {gate.criteria.slice(0, 5).map((c, i) => <Text key={i}> • {c.slice(0, 70)}</Text>)}
                         </Box>
                     )}
 
                     <Box flexDirection="column" marginTop={1}>
-                        <Text bold>Salida del agente:</Text>
-                        {gate.output.slice(0, 600).split('\n').slice(0, 12).map((line, i) => (
+                        <Text bold>{isPhaseGate ? 'Reporte QA:' : 'Salida del agente:'}</Text>
+                        {gate.output.slice(0, 600).split('\n').slice(0, 10).map((line, i) => (
                             <Text key={i} dimColor>{line}</Text>
                         ))}
                         {gate.output.length > 600 && <Text dimColor>  ... (truncado)</Text>}
                     </Box>
 
                     <Box marginTop={1} gap={3}>
-                        <Text color="green" bold>[A] Aprobar</Text>
-                        <Text color="red"   bold>[X] Rechazar</Text>
+                        <Text color="green" bold>[A] Aprobar{isPhaseGate ? ' y avanzar' : ''}</Text>
+                        {isPhaseGate && gate.allowRework && <Text color="yellow" bold>[W] Rework</Text>}
+                        <Text color="red" bold>[X] Rechazar</Text>
                     </Box>
                 </Box>
-            )}
+                );
+            })()}
 
             {/* Final report */}
             {run.status === 'complete' && run.finalReport && (
@@ -518,9 +537,98 @@ function App({ configPath, config, store, rag }: AppProps) {
         runExecutor(runId, plan, []);
     }, [config, configPath, rag, store, pollRuns, runExecutor]);
 
+    // ── SDD phase-runner: one segment (implement + QA) ─────────────────────────
+    const runSddSegment = useCallback(async (runId: string) => {
+        setExecutingId(runId);
+        setProgressLines([]);
+        progressBuf.current = [];
+        setError('');
+        try {
+            const run = await store.load(runId);
+            if (!run || !run.phaseState) return;
+            const root = run.projectRoot ?? activeRootRef.current;
+            if (!root) { setError('Run sin projectRoot'); return; }
+
+            const runner = new PhaseRunner({
+                config, projectRoot: root, ragSearchFn: rag?.search,
+                onProgress: (msg) => { progressBuf.current.push(msg); },
+            });
+            const state     = run.phaseState;
+            const collected = [...run.completedSteps];
+
+            const step = await runner.runCurrentPhase(state, s => collected.push(s));
+            const cur  = await store.load(runId);
+            if (!cur) return;
+
+            if (step.type === 'complete') {
+                await store.save({
+                    ...cur, status: 'complete', completedAt: ts(),
+                    completedSteps: collected, phaseState: state,
+                    finalReport: step.summary, waitingGate: undefined,
+                });
+            } else {
+                await store.save({
+                    ...cur, status: 'waiting_gate',
+                    completedSteps: collected, phaseState: state,
+                    waitingGate: {
+                        gateId: `phase-${step.phase}`, stepId: `qa-p${step.phase}`,
+                        agentId: 'qa', output: step.qaOutput, criteria: step.criteria,
+                        requestedAt: ts(), verdict: step.verdict, phase: step.phase,
+                        allowRework: step.allowRework,
+                    },
+                });
+            }
+        } catch (err) {
+            const cur = await store.load(runId);
+            if (cur) await store.save({ ...cur, status: 'failed', error: err instanceof Error ? err.message : String(err) });
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setExecutingId(null);
+            pollRuns();
+        }
+    }, [config, rag, store, pollRuns]);
+
+    // ── Start a new SDD run ────────────────────────────────────────────────────
+    const startSdd = useCallback(async () => {
+        setError('');
+        const root = activeRootRef.current;
+        if (!root) { setError('Sin proyecto activo — usá [P] para seleccionar'); return; }
+
+        const runner = new PhaseRunner({ config, projectRoot: root, ragSearchFn: rag?.search });
+        if (!runner.hasPhases()) {
+            setError('No hay ROADMAP.md con fases. Generá el diseño primero (CLI: design).');
+            return;
+        }
+
+        const runId = store.newRunId();
+        const state = runner.initialState();
+        await store.save({
+            runId, task: `SDD: ${activeProject?.name ?? 'proyecto'}`,
+            configPath, projectRoot: root, status: 'running',
+            startedAt: ts(), updatedAt: ts(), completedSteps: [], phaseState: state,
+        });
+        await pollRuns();
+        setSelectedIdx(0);
+        runSddSegment(runId);
+    }, [config, configPath, rag, store, pollRuns, runSddSegment, activeProject]);
+
     // ── Approve gate ──────────────────────────────────────────────────────────
     const approveGate = useCallback(async (run: RunState) => {
-        if (!run.waitingGate || !run.plan) return;
+        if (!run.waitingGate) return;
+
+        // SDD phase gate → advance the phase pointer
+        if (run.phaseState) {
+            const root   = run.projectRoot ?? activeRootRef.current;
+            const runner = new PhaseRunner({ config, projectRoot: root!, ragSearchFn: rag?.search });
+            runner.advance(run.phaseState, 'approve', run.waitingGate.output);
+            await store.save({ ...run, status: 'running', waitingGate: undefined, phaseState: run.phaseState });
+            await pollRuns();
+            runSddSegment(run.runId);
+            return;
+        }
+
+        // Static plan gate → resume the executor
+        if (!run.plan) return;
         const priorResults: ExecutionResult[] = run.completedSteps.map(s => ({
             subtask_id: s.stepId, agent_id: s.agentId, task: s.task,
             result: s.output, success: s.success, duration_ms: s.durationMs,
@@ -528,7 +636,18 @@ function App({ configPath, config, store, rag }: AppProps) {
         await store.save({ ...run, status: 'running', waitingGate: undefined });
         await pollRuns();
         runExecutor(run.runId, run.plan as TaskPlan, priorResults);
-    }, [store, pollRuns, runExecutor]);
+    }, [config, rag, store, pollRuns, runExecutor, runSddSegment]);
+
+    // ── Rework gate (SDD only) ─────────────────────────────────────────────────
+    const reworkGate = useCallback(async (run: RunState) => {
+        if (!run.phaseState || !run.waitingGate) return;
+        const root   = run.projectRoot ?? activeRootRef.current;
+        const runner = new PhaseRunner({ config, projectRoot: root!, ragSearchFn: rag?.search });
+        runner.advance(run.phaseState, 'rework', run.waitingGate.output);
+        await store.save({ ...run, status: 'running', waitingGate: undefined, phaseState: run.phaseState });
+        await pollRuns();
+        runSddSegment(run.runId);
+    }, [config, rag, store, pollRuns, runSddSegment]);
 
     // ── Reject gate ───────────────────────────────────────────────────────────
     const rejectGate = useCallback(async (run: RunState, notes: string) => {
@@ -642,6 +761,9 @@ function App({ configPath, config, store, rag }: AppProps) {
         if ((input === 'n' || input === 'N') && !executingId) {
             setView('new-run'); setActiveField('task');
         }
+        if ((input === 's' || input === 'S') && !executingId) {
+            startSdd();
+        }
         if (input === 'p' || input === 'P') {
             const activeIdx = projects.findIndex(p => p.active);
             setProjSelIdx(activeIdx >= 0 ? activeIdx : 0);
@@ -650,6 +772,10 @@ function App({ configPath, config, store, rag }: AppProps) {
         if ((input === 'a' || input === 'A') && !executingId) {
             const run = runs[selectedIdx];
             if (run?.status === 'waiting_gate') approveGate(run);
+        }
+        if ((input === 'w' || input === 'W') && !executingId) {
+            const run = runs[selectedIdx];
+            if (run?.status === 'waiting_gate' && run.phaseState) reworkGate(run);
         }
         if (input === 'x' || input === 'X') {
             const run = runs[selectedIdx];
@@ -690,7 +816,7 @@ function App({ configPath, config, store, rag }: AppProps) {
                 }
                 <Text dimColor>│</Text>
                 {!executingId
-                    ? <Text color="yellow">[N] Nueva</Text>
+                    ? <Text color="yellow">[N] Tarea  [S] SDD</Text>
                     : <Text color="yellow">⏳ ejecutando...</Text>
                 }
                 <Text color="yellow">[P] Proyecto  [R] Refresh  [Q] Salir</Text>

@@ -11,8 +11,8 @@ import { z } from 'zod';
 import type { OrchestratorConfig, AgentConfig } from './config.js';
 import type { TaskPlan, SubTask } from './planner.js';
 import { OpenAICompatibleProvider, callLLM } from './provider.js';
-import { extractAndWrite, buildProjectContext } from './file-writer.js';
-import { buildAgentContext }                    from './context-reader.js';
+import { extractAndWrite, buildProjectContext }       from './file-writer.js';
+import { buildAgentContext, type PhaseContext }        from './context-reader.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -308,6 +308,7 @@ export async function executeSubtask(
     episodicFn?:  (agentId: string, task: string) => Promise<string>,
     projectRoot?: string,
     onProgress?:  (msg: string) => void,
+    phaseCtx?:    PhaseContext,
 ): Promise<string> {
     const providerCfg = config.providers[agentCfg.provider];
     if (!providerCfg) {
@@ -334,9 +335,9 @@ export async function executeSubtask(
     // Inject domain-specific file format instructions
     const projectCtx = projectRoot ? buildProjectContext(agentCfg.domain, projectRoot) : '';
 
-    // Inject relevant project files so the agent can read spec, code, etc.
+    // 3.1+3.2+3.3: phase-aware, budget-capped context injection
     const agentCtx = (projectRoot && agentCfg.domain)
-        ? buildAgentContext(projectRoot, agentCfg.domain)
+        ? buildAgentContext(projectRoot, agentCfg.domain, phaseCtx)
         : '';
 
     if (agentCtx && onProgress) {

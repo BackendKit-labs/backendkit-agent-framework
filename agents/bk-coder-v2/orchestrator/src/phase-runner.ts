@@ -5,6 +5,7 @@ import type { RoadmapPhase } from './roadmap-parser.js';
 import { loadRoadmapPhases } from './roadmap-parser.js';
 import type { PhaseState, QaVerdict, StepResult } from './run-store.js';
 import { runProjectChecks, type ExecutionReport } from './command-runner.js';
+import { updateProgressSummary }                   from './context-reader.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,10 +151,12 @@ export class PhaseRunner {
             (state.reworkCount > 0 ? `  (rework #${state.reworkCount})` : ''));
         this.onProgress(`  → [backend] implementando...`);
 
+        const phaseCtx = { number: phase.number, title: phase.title, criteria: phase.criteria };
+
         let implOutput = await executeSubtask(
             this.config, backend,
             { id: `impl-p${phase.number}`, agent_id: backend.id, task: implTask, depends_on: [] },
-            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
+            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress, phaseCtx,
         );
 
         // Tarea 2.3: si no se escribió ningún archivo, reintentar una vez con instrucción reforzada
@@ -243,7 +246,7 @@ export class PhaseRunner {
         const qaOutput = await executeSubtask(
             this.config, qa,
             { id: `qa-p${phase.number}`, agent_id: qa.id, task: qaTask, depends_on: [] },
-            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
+            [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress, phaseCtx,
         );
         collectStep({
             stepId: `qa-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
@@ -275,7 +278,17 @@ export class PhaseRunner {
             state.stage        = 'implement';
             return;
         }
-        // approve
+        // approve — write progress summary (3.3) before advancing
+        const completedPhase = this.phases[state.currentPhase - 1];
+        if (completedPhase) {
+            updateProgressSummary(
+                this.projectRoot,
+                completedPhase.number,
+                completedPhase.title,
+                `✅ ${qaOutput.slice(0, 80).replace(/\n/g, ' ')}`,
+            );
+        }
+
         state.qaFindings  = undefined;
         state.reworkCount = 0;
         state.verdict     = undefined;

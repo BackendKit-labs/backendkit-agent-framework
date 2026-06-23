@@ -65,9 +65,9 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 
 | # | Tarea | Archivo(s) | Estado |
 |---|-------|-----------|--------|
-| 3.1 | En vez de inyectar archivos enteros, usar el vault RAG (codex) para traer solo los fragmentos relevantes a la fase | `src/context-reader.ts`, `src/rag.ts` | 🔴 |
-| 3.2 | Límite configurable de tokens de contexto por agente; priorizar spec + archivos tocados en la fase actual | `src/context-reader.ts` | 🔴 |
-| 3.3 | Resumen incremental: tras cada fase, curar un resumen del estado del proyecto en vez de releer todo | `src/context-reader.ts` | 🔴 |
+| 3.1 | En vez de inyectar archivos enteros, usar el vault RAG (codex) para traer solo los fragmentos relevantes a la fase | `src/context-reader.ts`, `src/rag.ts` | 🟢 |
+| 3.2 | Límite configurable de tokens de contexto por agente; priorizar spec + archivos tocados en la fase actual | `src/context-reader.ts` | 🟢 |
+| 3.3 | Resumen incremental: tras cada fase, curar un resumen del estado del proyecto en vez de releer todo | `src/context-reader.ts` | 🟢 |
 
 **Criterio de aceptación:** un proyecto de 40+ archivos completa una fase sin exceder el límite de contexto.
 
@@ -110,5 +110,6 @@ Definir allowlist de comandos (build/test/lint) y/o sandbox antes de 1.1.
 | Fecha | Fase/Tarea | Nota |
 |-------|-----------|------|
 | 2026-06-23 | — | Plan creado. Base SDD funcional commiteada (hasta `0fa6203`). |
+| 2026-06-23 | 3.1 + 3.2 + 3.3 | Scoring de archivos por keywords de fase (sin indexing). Presupuesto 28k chars por agente (spec 6k + fase actual del roadmap 2k + progreso 2.5k + archivos 15k). progress.md incremental tras cada GO. phaseCtx fluye por executeSubtask. Verificado: fase 2 "PUT Handler" trae put.go primero, contexto 3.7k < 28k. |
 | 2026-06-23 | 2.2 + 2.4 + 2.5 | isPathSafe(): rechaza path traversal, extensiones peligrosas (.sh/.exe/.ps1/etc), vacíos. 62 tests (0 fallos): 28 file-writer, 17 parseVerdict, 17 roadmap-parser. npm test verde.  |
 | 2026-06-23 | 1.1–1.6 + 2.1 + 2.3 | Gate de ejecución completo. Stack detection (TS/Go/Python/Rust/Deno). Build falla → NO_GO automático + errores al rework. QA recibe evidencia real. VERDICT: línea estructurada. Retry si 0 archivos. Verificado: error TS → NO_GO determinista, proyecto limpio → PASS. |

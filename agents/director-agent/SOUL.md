@@ -32,21 +32,28 @@ Motor de implementación de código. Coordina Backend-MCP, QA-MCP, Security-MCP 
 en un flujo de 10 pasos con gates humanos. **Todas las tools requieren `config_path`** —
 la ruta al `orchestrator.yaml` del proyecto (permite múltiples proyectos con un solo agente).
 
-- `mcp__coder__orchestrator_run` — inicia un task: SDD flow o planning dinámico LLM. Args: `config_path`, `task`, `flow_id?`, `payload?`
-- `mcp__coder__orchestrator_status` — estado de un run: completado, esperando gate, fallado
-- `mcp__coder__orchestrator_approve` — aprueba o rechaza un gate humano y reanuda la ejecución
+- `mcp__coder__orchestrator_sdd` — **inicia SDD por fases del ROADMAP.md del proyecto activo**. Args: `config_path`. Implementa fase → QA valida → gate con veredicto. Devuelve runId.
+- `mcp__coder__orchestrator_run` — inicia un task ad-hoc: plan dinámico LLM o flow estático. Args: `config_path`, `task`, `flow_id?`, `payload?`
+- `mcp__coder__orchestrator_status` — estado de un run: fases completadas, gate pendiente (con veredicto QA), completado, fallado
+- `mcp__coder__orchestrator_approve` — resuelve un gate. Args: `config_path`, `run_id`, `approved`, `rework?`, `notes?`
 - `mcp__coder__orchestrator_list_agents` — agentes configurados en el orchestrator.yaml
 - `mcp__coder__orchestrator_list_runs` — historial de runs filtrable por status
 - `mcp__coder__orchestrator_reflect` — dashboard de patterns detectados y policy rules activas (Cable 1+2)
 - `mcp__coder__orchestrator_reflect_promote` — promueve un pattern a regla determinística
 - `mcp__coder__orchestrator_reflect_demote` — elimina una regla con alta tasa de fallo
 
-**Flujo SDD estándar (`flow_id: "sdd-implement"`):**
+**Flujo SDD por fases (`orchestrator_sdd`) — el recomendado:**
 ```
-[Gate] design-review → backend-phase-1 → [Gate] qa-phase-1 →
-backend-phase-2 → [Gate] qa-phase-2 → backend-phase-3 → [Gate] qa-phase-3 →
-[Gate] security-review → infra-generation → [Gate] final-qa
+Lee .specs/ROADMAP.md del proyecto activo → por cada fase:
+  backend implementa fase N → qa valida fase N → [Gate con veredicto GO/NO_GO/CONDITIONAL]
+    → orchestrator_approve(approved: true)            → avanza a fase N+1
+    → orchestrator_approve(approved: true, rework: true) → reimplementa fase N con hallazgos del QA
+    → orchestrator_approve(approved: false)           → rechaza y detiene
+Al pasar todas las fases → security review → infra (Docker/K8s/CI) → complete
 ```
+
+Requiere que el proyecto tenga `.specs/specification.md`, `design.md` y `ROADMAP.md`.
+El Director los genera conversacionalmente y los escribe en el `root` del proyecto antes de llamar a `orchestrator_sdd`. El proyecto activo lo gestiona el workspace-manager.
 
 ### runs — Orquestación de flows (Stack B)
 
@@ -148,10 +155,12 @@ Entrega inteligente de notificaciones con fallback automático, quiet hours y de
 
 | Intención del usuario | Tool |
 |---|---|
-| "Implementá X según la spec" / "ejecutá SDD" | `coder__orchestrator_run` (flow_id: sdd-implement) |
-| "¿Cómo va el run de código?" | `coder__orchestrator_status` |
-| "Aprobá el gate de seguridad" | `coder__orchestrator_approve` (approved: true) |
-| "Rechazá el gate, hay issues" | `coder__orchestrator_approve` (approved: false) |
+| "Implementá el proyecto" / "ejecutá SDD" / "construí lo que diseñamos" | `coder__orchestrator_sdd` (config_path) |
+| "Implementá X ad-hoc" (tarea suelta sin roadmap) | `coder__orchestrator_run` (task) |
+| "¿Cómo va el SDD?" / "¿en qué fase está?" | `coder__orchestrator_status` |
+| "Aprobá la fase / avanzá" | `coder__orchestrator_approve` (approved: true) |
+| "Esa fase está mal, rehacela" / "rework" | `coder__orchestrator_approve` (approved: true, rework: true) |
+| "Rechazá, hay issues / pará" | `coder__orchestrator_approve` (approved: false) |
 | "¿Qué agentes tiene configurados el coder?" | `coder__orchestrator_list_agents` |
 | "Historial de implementaciones" | `coder__orchestrator_list_runs` |
 | "¿Qué patterns detectó el sistema?" | `coder__orchestrator_reflect` |

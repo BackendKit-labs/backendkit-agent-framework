@@ -38,6 +38,8 @@ import { matchFlow, flowToTaskPlan }              from './static-flow.js';
 import { consolidateRun }                         from './consolidate.js';
 import type { ReflectionAdapter }                 from './executor.js';
 import { WorkspaceManager }                       from '../../workspace-manager-project/dist/WorkspaceManager.js';
+import { PhaseRunner }                            from './phase-runner.js';
+import type { PhaseState, StepResult }            from './run-store.js';
 import { getAuditLogger }                         from './audit.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -483,6 +485,102 @@ async function startRun(
     return { runId, planSource, plan, config };
 }
 
+// ── SDD phase-runner (MCP) ────────────────────────────────────────────────────
+//
+// Runs ONE phase segment (implement + QA) in the background, then persists a
+// phase-gate (waiting_gate with verdict) or completes via finalizers.
+// orchestrator_approve resumes: advance (approve), rework, or reject.
+
+async function executeSddInBackground(
+    runId:      string,
+    configPath: string,
+    config:     OrchestratorConfig,
+): Promise<void> {
+    const store = await getStore(configPath, config);
+    const run   = await store.load(runId);
+    if (!run || !run.phaseState || !run.projectRoot) return;
+
+    const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
+    const runner = new PhaseRunner({
+        config,
+        projectRoot: run.projectRoot,
+        ragSearchFn: rag?.search,
+        onProgress: (msg) => {
+            const m = msg.match(/\[([^\]]+)\]/);
+            if (m) store.load(runId).then(c => {
+                if (c && c.status === 'running') return store.save({ ...c, currentStep: { stepId: m[1], agentId: m[1], startedAt: ts() } });
+            }).catch(() => {});
+        },
+    });
+
+    const state     = run.phaseState;
+    const collected = [...run.completedSteps];
+    const audit     = getAuditLogger(configPath);
+
+    try {
+        const step = await runner.runCurrentPhase(state, (s: StepResult) => collected.push(s));
+        const cur  = await store.load(runId);
+        if (!cur) return;
+
+        if (step.type === 'complete') {
+            await store.save({
+                ...cur, status: 'complete', completedAt: ts(), currentStep: undefined,
+                completedSteps: collected, phaseState: state, finalReport: step.summary, waitingGate: undefined,
+            });
+            audit.write({ event: 'run.done', runId, task: cur.task, status: 'complete', extra: { phases: state.totalPhases } });
+        } else {
+            await store.save({
+                ...cur, status: 'waiting_gate', currentStep: undefined,
+                completedSteps: collected, phaseState: state,
+                waitingGate: {
+                    gateId: `phase-${step.phase}`, stepId: `qa-p${step.phase}`, agentId: 'qa',
+                    output: step.qaOutput, criteria: step.criteria, requestedAt: ts(),
+                    verdict: step.verdict, phase: step.phase, allowRework: step.allowRework,
+                },
+            });
+            audit.write({ event: 'gate.hit', runId, task: cur.task, stepId: `qa-p${step.phase}`, agentId: 'qa', extra: { phase: step.phase, verdict: step.verdict } });
+        }
+    } catch (err) {
+        const cur = await store.load(runId);
+        if (cur) await store.save({ ...cur, status: 'failed', currentStep: undefined, error: err instanceof Error ? err.message : String(err) });
+    }
+}
+
+async function startSdd(configPath: string): Promise<{ runId: string; phaseTitles: string[] } | { error: string }> {
+    let config: OrchestratorConfig;
+    try { config = loadConfig(configPath); }
+    catch (err) { return { error: `Config error: ${err instanceof Error ? err.message : String(err)}` }; }
+
+    const projectRoot = resolveProjectRoot();
+    if (!projectRoot) return { error: 'No hay proyecto activo. Usá el workspace-manager para crear/activar un proyecto.' };
+
+    const rag    = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
+    const runner = new PhaseRunner({ config, projectRoot, ragSearchFn: rag?.search });
+    if (!runner.hasPhases()) {
+        return { error: `No se encontraron fases en el ROADMAP.md de ${projectRoot}. Generá el diseño primero.` };
+    }
+
+    const store = await getStore(configPath, config);
+    const wm    = (() => { try { return new WorkspaceManager().current().name; } catch { return 'proyecto'; } })();
+    const runId = store.newRunId();
+    const state = runner.initialState();
+
+    await store.save({
+        runId, task: `SDD: ${wm}`, configPath, projectRoot,
+        status: 'running', startedAt: ts(), updatedAt: ts(),
+        completedSteps: [], phaseState: state,
+    });
+
+    setImmediate(() => {
+        executeSddInBackground(runId, configPath, config).catch(async err => {
+            const s = await store.load(runId);
+            if (s) await store.save({ ...s, status: 'failed', error: String(err) });
+        });
+    });
+
+    return { runId, phaseTitles: state.phaseTitles };
+}
+
 // ── MCP Server ────────────────────────────────────────────────────────────────
 
 const srv = new McpServer({
@@ -536,19 +634,60 @@ srv.tool(
 );
 
 // ---------------------------------------------------------------------------
+// orchestrator_sdd — phase-by-phase Spec-Driven Development
+// ---------------------------------------------------------------------------
+// Drives the ROADMAP.md of the ACTIVE project (workspace-manager) phase by phase:
+// each phase is implemented → validated by QA → pauses at a gate with the QA
+// verdict. Resume with orchestrator_approve (approve/rework/reject). After all
+// phases pass, runs security review + infra generation, then completes.
+// @ts-ignore
+srv.tool(
+    'orchestrator_sdd',
+    'Start a Spec-Driven Development run over the active project\'s ROADMAP.md. Implements each phase, runs QA, and pauses at a gate with the QA verdict (GO/NO_GO/CONDITIONAL). Returns a runId immediately — poll with orchestrator_status. At each gate use orchestrator_approve: approved=true advances to the next phase, rework=true re-implements the phase with the QA findings, approved=false rejects. Requires the project to have .specs/ROADMAP.md (generate design first).',
+    {
+        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+    },
+    async ({ config_path }) => {
+        const result = await startSdd(config_path);
+        if ('error' in result) return ok(result.error);
+
+        getAuditLogger(config_path).write({
+            event: 'run.start', runId: result.runId, task: 'SDD',
+            extra: { mode: 'sdd', phases: result.phaseTitles.length },
+        });
+
+        return ok([
+            `## SDD iniciado`,
+            `runId: \`${result.runId}\``,
+            `status: running`,
+            '',
+            `### ${result.phaseTitles.length} fases del ROADMAP:`,
+            ...result.phaseTitles.map((t, i) => `  ${i + 1}. ${t}`),
+            '',
+            `Poll con \`orchestrator_status\` para ver el progreso y el veredicto de QA en cada gate.`,
+            `En cada gate usá \`orchestrator_approve\`:`,
+            `  • approved=true  → aprueba la fase y avanza a la siguiente`,
+            `  • rework=true    → reimplementa la fase corrigiendo los hallazgos del QA`,
+            `  • approved=false → rechaza y detiene`,
+        ].join('\n'));
+    },
+);
+
+// ---------------------------------------------------------------------------
 // orchestrator_approve — approve or reject a waiting gate
 // ---------------------------------------------------------------------------
 // @ts-ignore
 srv.tool(
     'orchestrator_approve',
-    'Approve or reject a gate that paused a running orchestration. If approved, execution resumes automatically.',
+    'Approve or reject a gate that paused a running orchestration. If approved, execution resumes automatically. For SDD phase gates, set rework=true to re-implement the phase with the QA findings instead of advancing.',
     {
         config_path: z.string().describe('Absolute path to orchestrator.yaml — same value used in orchestrator_run'),
-        run_id:      z.string().describe('Run ID returned by orchestrator_run'),
+        run_id:      z.string().describe('Run ID returned by orchestrator_run / orchestrator_sdd'),
         approved:    z.boolean().describe('true to approve and continue, false to reject and stop'),
+        rework:      z.boolean().optional().describe('SDD only: true to re-implement the current phase with the QA findings (instead of advancing). Ignored for static gates.'),
         notes:       z.string().optional().describe('Optional notes from the approver (required when rejecting)'),
     },
-    async ({ config_path, run_id, approved, notes }) => {
+    async ({ config_path, run_id, approved, rework, notes }) => {
         let config: OrchestratorConfig;
         try {
             config = loadConfig(config_path);
@@ -564,6 +703,46 @@ srv.tool(
         }
 
         const gate = state.waitingGate!;
+
+        // ── SDD phase gate: advance / rework / reject ─────────────────────────
+        if (state.phaseState) {
+            const ps = state.phaseState;
+            if (!approved) {
+                await store.save({
+                    ...state, status: 'failed', completedAt: ts(),
+                    error: `Rechazado en fase ${ps.currentPhase}. ${notes ?? ''}`.trim(), waitingGate: undefined,
+                });
+                getAuditLogger(config_path).write({ event: 'gate.rejected', runId: run_id, task: state.task, stepId: gate.stepId, agentId: 'qa', error: notes ?? `phase ${ps.currentPhase}` });
+                return ok([
+                    `SDD detenido en fase ${ps.currentPhase}: ${ps.phaseTitle}.`,
+                    `Para retomar más tarde: orchestrator_sdd reanuda automáticamente el run incompleto del proyecto.`,
+                ].join('\n'));
+            }
+
+            const projectRoot = state.projectRoot ?? resolveProjectRoot();
+            if (!projectRoot) return ok('Run sin projectRoot — no se puede reanudar el SDD.');
+            const rag    = await buildRAG(config, resolveDataDir(config_path, config)).catch(() => null);
+            const runner = new PhaseRunner({ config, projectRoot, ragSearchFn: rag?.search });
+
+            const decision: 'approve' | 'rework' = rework ? 'rework' : 'approve';
+            runner.advance(ps, decision, gate.output);
+            await store.save({ ...state, status: 'running', waitingGate: undefined, phaseState: ps });
+
+            getAuditLogger(config_path).write({ event: 'gate.approved', runId: run_id, task: state.task, stepId: gate.stepId, agentId: 'qa', extra: { decision, phase: gate.phase } });
+
+            setImmediate(() => {
+                executeSddInBackground(run_id, config_path, config).catch(async (err) => {
+                    const s = await store.load(run_id);
+                    if (s) await store.save({ ...s, status: 'failed', error: String(err) });
+                });
+            });
+
+            return ok(decision === 'rework'
+                ? `🔁 Rework de la fase ${gate.phase} — reimplementando con los hallazgos del QA. Poll con orchestrator_status.`
+                : (ps.stage === 'security'
+                    ? `✅ Fase ${gate.phase} aprobada — todas las fases completas, finalizando (security + infra). Poll con orchestrator_status.`
+                    : `✅ Fase ${gate.phase} aprobada — avanzando a fase ${ps.currentPhase}. Poll con orchestrator_status.`));
+        }
 
         // Cable 2: record rule outcomes so the reflection engine tracks effectiveness
         const reflection = config.orchestrator.vault

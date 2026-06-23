@@ -114,7 +114,13 @@ export class PhaseRunner {
         if (!backend) throw new Error('No hay agente con domain "backend" configurado');
 
         const reworkNote = state.qaFindings
-            ? `\n\nESTA ES UNA RE-IMPLEMENTACIÓN. El QA rechazó la versión anterior. Corregí estos hallazgos:\n${state.qaFindings}`
+            ? `\n\n⚠️ ESTA ES UNA RE-IMPLEMENTACIÓN (rework). El QA RECHAZÓ la versión anterior.\n` +
+              `Corregí EXACTAMENTE estos hallazgos del QA:\n${state.qaFindings}\n\n` +
+              `REGLAS DEL REWORK (obligatorias):\n` +
+              `1. RE-EMITÍ los archivos COMPLETOS con el formato "### FILE: path" — NO describas cambios, NO uses diffs, NO digas "agregá esto". Escribí el archivo entero de nuevo.\n` +
+              `2. Si falta un archivo (ej: tests), CREALO completo con "### FILE: path".\n` +
+              `3. Cada hallazgo ❌ del QA debe quedar resuelto por un archivo que emitas ahora.\n` +
+              `4. Mantené el código que ya estaba bien — re-emitilo igual para no perderlo.`
             : '';
 
         const implTask =

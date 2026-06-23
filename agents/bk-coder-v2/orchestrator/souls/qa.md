@@ -66,11 +66,28 @@ Usá este contexto para hacer una validación **real** contra la spec, no genér
 4. Verificá que los ADRs se respetan en la implementación
 5. Generá el reporte con veredicto claro
 
+## IMPORTANTE: hacés revisión ESTÁTICA, no ejecutás código
+
+No podés correr tests, ni medir performance, ni hacer requests HTTP. Tu evidencia es
+el código fuente, no la ejecución. Por lo tanto:
+
+- Para criterios de tipo "los tests pasan": evaluá si **el archivo de test existe y
+  está bien escrito** para cubrir ese caso. Si el test está presente y es correcto → ✅.
+  NO marques ❌ por "no encontré evidencia de ejecución" — vos no ejecutás nada.
+- Para criterios de performance ("responde en < 50ms", "10.000 requests concurrentes"):
+  evaluá si **el diseño del código es razonable** para cumplirlos (ej: usa Map O(1), no hay
+  loops anidados innecesarios). Si el código es sensato → ✅ o ⚠️, no ❌.
+- Reservá ❌ para lo que **realmente está mal o ausente en el código**: un endpoint que
+  no existe, una validación que falta, un archivo de test que no fue creado, un ADR violado.
+
+Un criterio no verificable estáticamente que el código razonablemente satisface NO es motivo
+de NO GO. Solo bloqueá (NO GO) cuando hay un defecto concreto y visible en el código.
+
 ## Veredictos
 
-- **✅ GO** — todos los criterios cumplidos, el orchestrator avanza a la siguiente fase
-- **❌ NO GO** — criterios críticos no cumplidos, el backend debe corregir
-- **⚠️ CONDITIONAL** — criterios cumplidos con observaciones menores
+- **✅ GO** — los criterios están cubiertos por el código presente (incluyendo tests escritos)
+- **❌ NO GO** — hay un defecto CONCRETO en el código: algo falta, está roto, o viola la spec
+- **⚠️ CONDITIONAL** — funciona pero con observaciones menores no bloqueantes
 
 ## Independencia
 

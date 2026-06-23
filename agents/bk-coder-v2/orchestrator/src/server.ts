@@ -556,7 +556,7 @@ async function startSdd(configPath: string): Promise<{ runId: string; phaseTitle
     if (!projectRoot) return { error: 'No hay proyecto activo. Usá el workspace-manager para crear/activar un proyecto.' };
 
     const rag    = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
-    const runner = new PhaseRunner({ config, projectRoot, ragSearchFn: rag?.search });
+    const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot, ragSearchFn: rag?.search });
     if (!runner.hasPhases()) {
         return { error: `No se encontraron fases en el ROADMAP.md de ${projectRoot}. Generá el diseño primero.` };
     }
@@ -770,7 +770,7 @@ srv.tool(
             const projectRoot = state.projectRoot ?? resolveProjectRoot();
             if (!projectRoot) return ok('Run sin projectRoot — no se puede reanudar el SDD.');
             const rag    = await buildRAG(config, resolveDataDir(config_path, config)).catch(() => null);
-            const runner = new PhaseRunner({ config, projectRoot, ragSearchFn: rag?.search });
+            const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot, ragSearchFn: rag?.search });
 
             const decision: 'approve' | 'rework' = rework ? 'rework' : 'approve';
             runner.advance(ps, decision, gate.output);

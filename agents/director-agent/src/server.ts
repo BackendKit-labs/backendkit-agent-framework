@@ -146,6 +146,51 @@ async function main(): Promise<void> {
 
     // @ts-ignore
     mcp_srv.tool(
+        'director_restart_agents',
+        'Reinicia uno o todos los agentes MCP conectados al Director. ' +
+        'Útil cuando un agente se cayó o fue re-desplegado. ' +
+        'Si se omite agent_name, reconecta todos los agentes caídos.',
+        {
+            agent_name: z.string().optional().describe(
+                'Nombre del agente a reiniciar (codex, runs, coder, etc.). ' +
+                'Omitir para reconectar todos los caídos.',
+            ),
+            user_token: z.string().optional().describe('JWT del usuario (requerido cuando AUTH_SECRET está configurado)'),
+        },
+        async ({ agent_name, user_token }: { agent_name?: string; user_token?: string }) => {
+            const resolved = await resolvePrincipal(user_token);
+            if ('error' in resolved) {
+                return { content: [{ type: 'text' as const, text: resolved.error }] };
+            }
+            const { principal } = resolved;
+            // Solo admin puede reiniciar agentes
+            if (policyEngine?.isEnforcing() && principal.role !== 'admin') {
+                return { content: [{ type: 'text' as const, text: 'Permiso denegado: solo admin puede reiniciar agentes.' }] };
+            }
+            try {
+                const connected = await mcp.restartAgent(agent_name);
+                manager.refreshTools();
+
+                const info = mcp.getServerInfo();
+                const failed = mcp.getConfiguredNames().filter(n => !mcp.isConnected(n));
+                const lines = [
+                    agent_name
+                        ? `Agente "${agent_name}" reiniciado.`
+                        : 'Agentes caídos reconectados.',
+                    '',
+                    ...info.map(s => `  ✓ ${s.name} — ${s.toolCount} tools (${s.transportUsed})`),
+                    ...(failed.length > 0 ? [`  ✗ Siguen caídos: ${failed.join(', ')}`] : []),
+                    `Tools totales: ${mcp.getTools().length}`,
+                ];
+                return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+            } catch (err) {
+                return { content: [{ type: 'text' as const, text: `Error al reiniciar: ${(err as Error).message}` }] };
+            }
+        },
+    );
+
+    // @ts-ignore
+    mcp_srv.tool(
         'director_login',
         'Autenticar con el Director. Devuelve un JWT (user_token) para usar en director_chat. ' +
         'Requiere que AUTH_SECRET esté configurado. Los usuarios se gestionan en auth-service (http://localhost:4000/admin/users).',
@@ -180,7 +225,7 @@ async function main(): Promise<void> {
     const transport = new StdioServerTransport();
     await mcp_srv.connect(transport);
     log('MCP stdio listo');
-    log('Tools: director_chat, director_clear, director_status, director_login');
+    log('Tools: director_chat, director_clear, director_status, director_login, director_restart_agents');
 }
 
 main().catch(err => {

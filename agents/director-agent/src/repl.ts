@@ -42,13 +42,14 @@ import type { Principal }   from './auth/types.js';
 // ── REPL commands ─────────────────────────────────────────────────────────────
 
 const COMMANDS: Record<string, string> = {
-    '/help':    'Mostrar comandos disponibles',
-    '/whoami':  'Ver usuario y rol de la sesión actual',
-    '/agents':  'Ver agentes MCP conectados y sus tools',
-    '/clear':   'Limpiar historial de conversación',
-    '/status':  'Estado del director (modelo, provider, conexiones)',
-    '/logout':  'Cerrar sesión y volver al login',
-    '/quit':    'Salir',
+    '/help':             'Mostrar comandos disponibles',
+    '/whoami':           'Ver usuario y rol de la sesión actual',
+    '/agents':           'Ver agentes MCP conectados y sus tools',
+    '/clear':            'Limpiar historial de conversación',
+    '/status':           'Estado del director (modelo, provider, conexiones)',
+    '/restart [nombre]': 'Reiniciar un agente MCP (o todos los caídos si se omite el nombre)',
+    '/logout':           'Cerrar sesión y volver al login',
+    '/quit':             'Salir',
 };
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
         process.exit(1);
     }
 
-    const { engine, mcp } = runtime;
+    const { mcp } = runtime;
     const serverInfo = mcp.getServerInfo();
     const totalTools = mcp.getTools().length;
 
@@ -98,6 +99,9 @@ async function main(): Promise<void> {
     printBanner(config.director.name, runtime.provider, runtime.model, serverInfo, totalTools, principal);
 
     // ── readline REPL ─────────────────────────────────────────────────────────
+    // engine es mutable: /restart lo reemplaza con uno nuevo post-reconexión.
+    let engine = runtime.engine;
+
     const promptStr = () => {
         const who = principal.id === 'system'
             ? '◆ Director'
@@ -121,7 +125,7 @@ async function main(): Promise<void> {
                 console.log(`\n  Usuario: ${principal.id}`);
                 console.log(`  Rol:     ${principal.role}`);
                 if (principal.department) console.log(`  Depto:   ${principal.department}`);
-                console.log(`  Modo:    ${isEnterpriseMode() ? 'empresa (JWT activo)' : 'dev (sin JWT_SECRET)'}`);
+                console.log(`  Modo:    ${isEnterpriseMode() ? 'empresa (JWT activo)' : 'dev (sin AUTH_SECRET)'}`);
                 console.log('');
                 prompt(); return;
             }
@@ -140,7 +144,7 @@ async function main(): Promise<void> {
             if (line === '/help') {
                 console.log('\n  Comandos:');
                 for (const [cmd, desc] of Object.entries(COMMANDS)) {
-                    console.log(`    ${cmd.padEnd(12)} ${desc}`);
+                    console.log(`    ${cmd.padEnd(24)} ${desc}`);
                 }
                 console.log('');
                 prompt(); return;
@@ -153,12 +157,16 @@ async function main(): Promise<void> {
             if (line === '/status') {
                 console.log(`\n  Provider: ${runtime.provider}  Modelo: ${runtime.model}`);
                 const info = mcp.getServerInfo();
+                const failed = mcp.getConfiguredNames().filter(n => !mcp.isConnected(n));
                 if (info.length === 0) {
-                    console.log('  Agentes: ninguno conectado');
+                    console.log('  Agentes conectados: ninguno');
                 } else {
                     for (const s of info) {
                         console.log(`  ✓ ${s.name} (${s.toolCount} tools via ${s.transportUsed})`);
                     }
+                }
+                if (failed.length > 0) {
+                    console.log(`  ✗ Caídos: ${failed.join(', ')}`);
                 }
                 console.log('');
                 prompt(); return;
@@ -183,6 +191,25 @@ async function main(): Promise<void> {
                     console.log(`    ${allowed.join(', ')}`);
                 }
                 console.log('');
+                prompt(); return;
+            }
+            if (line.startsWith('/restart')) {
+                const agentName = line.slice('/restart'.length).trim() || undefined;
+                const label = agentName ? `"${agentName}"` : 'agentes caídos';
+                console.log(`\n  Reiniciando ${label}...`);
+                try {
+                    const { connected, engine: newEngine } = await runtime.restartAgent(agentName);
+                    engine = newEngine;
+                    const info = mcp.getServerInfo();
+                    for (const s of info) {
+                        console.log(`  ✓ ${s.name} (${s.toolCount} tools)`);
+                    }
+                    const failed = mcp.getConfiguredNames().filter(n => !mcp.isConnected(n));
+                    if (failed.length > 0) console.log(`  ✗ Siguen caídos: ${failed.join(', ')}`);
+                    console.log(`  Tools disponibles: ${connected.length > 0 ? mcp.getTools().length : 0}\n`);
+                } catch (err) {
+                    console.error(`\n  ✗ Error al reiniciar: ${(err as Error).message}\n`);
+                }
                 prompt(); return;
             }
             if (line.startsWith('/')) {

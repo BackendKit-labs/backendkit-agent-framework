@@ -79,6 +79,35 @@ export class MCPClientManager {
         }
     }
 
+    /**
+     * Restarts one or all agents.
+     * If name is given: force-disconnects that agent (even if connected) then reconnects it.
+     * If name is omitted: reconnects all currently-failed agents.
+     * Returns the list of agent names now connected.
+     */
+    async restartAgent(name?: string): Promise<string[]> {
+        if (name) {
+            const cfg = this.configs.find(c => c.name === name);
+            if (!cfg) throw new Error(`Agent "${name}" is not configured`);
+
+            // Force-close if currently connected — suppress the auto disconnect handler
+            const server = this.servers.find(s => s.config.name === name);
+            if (server) {
+                server.client.onclose = undefined;
+                await server.client.close().catch(() => undefined);
+                this.servers = this.servers.filter(s => s.config.name !== name);
+            }
+            this.serverStates.set(name, 'failed');
+            await this.connectAll([cfg]);
+        } else {
+            await this.reconnectFailed();
+        }
+
+        return this.configs
+            .filter(c => this.serverStates.get(c.name) === 'connected')
+            .map(c => c.name);
+    }
+
     /** All tools from all connected servers. */
     getTools(): ToolDefinition[] {
         return this.servers.flatMap(s => s.tools);

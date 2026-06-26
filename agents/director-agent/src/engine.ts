@@ -36,19 +36,6 @@ function buildDirectorProfile(systemPrompt: string, mcpToolNames: string[]): Age
     };
 }
 
-// ── Engine factory ────────────────────────────────────────────────────────────
-
-export interface DirectorRuntime {
-    engine:       AgentEngine;
-    mcp:          MCPClientManager;
-    /** Registered provider name (e.g. 'deepseek') */
-    provider:     string;
-    model:        string;
-    policyEngine: PolicyEngine | null;
-    vaultFilter:  VaultFilter | null;
-    auditLogger:  AuditLogger | null;
-}
-
 // ── Helpers compartidos ───────────────────────────────────────────────────────
 
 const VAULT_FILTER_TOOLS = new Set(['read_note', 'search_vault']);
@@ -201,6 +188,9 @@ export interface SharedInfra {
     providerName:  string;
     providerModel: string;
     maxIterations: number;
+    /** Soul + connected-server topology used to rebuild systemPrompt after restart. */
+    soul:          string;
+    configDir:     string;
 }
 
 export async function buildSharedInfra(
@@ -284,6 +274,7 @@ export async function buildSharedInfra(
         mcp, rawMcpTools, policyEngine, vaultFilter, auditLogger, systemPrompt,
         providers, providerName, providerModel: providerCfg.model,
         maxIterations: config.director.max_iterations,
+        soul, configDir,
     };
 }
 
@@ -366,7 +357,7 @@ export function createSessionEngine(
 // usuarios. Las distintas conexiones del MISMO usuario comparten su engine.
 
 export class SessionEngineManager {
-    private readonly engines = new Map<string, { engine: AgentEngine; lastUsed: number }>();
+    private readonly engines = new Map<string, { engine: AgentEngine; principal: Principal; lastUsed: number }>();
 
     constructor(
         private readonly shared:      SharedInfra,
@@ -378,7 +369,7 @@ export class SessionEngineManager {
         const key = principal.id || 'anon';
         let entry = this.engines.get(key);
         if (!entry) {
-            entry = { engine: createSessionEngine(this.shared, principal), lastUsed: Date.now() };
+            entry = { engine: createSessionEngine(this.shared, principal), principal, lastUsed: Date.now() };
             this.engines.set(key, entry);
             this.evict();
         }
@@ -388,6 +379,32 @@ export class SessionEngineManager {
 
     clearHistory(principal: Principal): void {
         this.engines.get(principal.id || 'anon')?.engine.clearHistory();
+    }
+
+    /**
+     * Recarga rawMcpTools desde el MCPClientManager y reconstruye todos los engines
+     * activos. Llamar después de un restartAgent() para que las tools nuevas sean visibles.
+     * Los historiales de conversación se preservan (se crea un nuevo engine por sesión).
+     */
+    refreshTools(): void {
+        this.shared.rawMcpTools = this.shared.mcp.getTools();
+
+        // Rebuild system prompt with the current connected topology
+        const topology = this.shared.mcp.getServerInfo().map(s => ({
+            name:      s.name,
+            toolCount: s.toolCount,
+            tools:     this.shared.mcp.getServerTools(s.name).map(t => {
+                const parts = t.name.split('__');
+                return parts[parts.length - 1] ?? t.name;
+            }),
+        }));
+        this.shared.systemPrompt = buildSystemPrompt(this.shared.soul, topology);
+
+        // Rebuild all active session engines (history is not preserved — intentional on restart)
+        for (const [key, entry] of this.engines) {
+            const newEngine = createSessionEngine(this.shared, entry.principal);
+            this.engines.set(key, { engine: newEngine, principal: entry.principal, lastUsed: entry.lastUsed });
+        }
     }
 
     get mcp(): MCPClientManager { return this.shared.mcp; }
@@ -410,13 +427,51 @@ export class SessionEngineManager {
 
 // ── Backward-compat: engine único (REPL / dev) ────────────────────────────────
 
+export interface DirectorRuntime {
+    engine:       AgentEngine;
+    mcp:          MCPClientManager;
+    /** Registered provider name (e.g. 'deepseek') */
+    provider:     string;
+    model:        string;
+    policyEngine: PolicyEngine | null;
+    vaultFilter:  VaultFilter | null;
+    auditLogger:  AuditLogger | null;
+    /**
+     * Restart one agent (or all failed ones if name omitted).
+     * Updates rawMcpTools + rebuilds the REPL engine with fresh tools.
+     * Returns the names of agents now connected.
+     */
+    restartAgent: (name?: string) => Promise<{ connected: string[]; engine: AgentEngine }>;
+}
+
 export async function buildDirectorEngine(
     config:    DirectorConfig,
     configDir: string,
     onEvent?:  (evt: AgentEvent) => void,
 ): Promise<DirectorRuntime> {
-    const shared = await buildSharedInfra(config, configDir);
-    const engine = createSessionEngine(shared, ADMIN_PRINCIPAL, onEvent);
+    const shared  = await buildSharedInfra(config, configDir);
+
+    // Mutable ref so restartAgent() can swap the engine in the closure.
+    let engine = createSessionEngine(shared, ADMIN_PRINCIPAL, onEvent);
+
+    const restartAgent = async (name?: string): Promise<{ connected: string[]; engine: AgentEngine }> => {
+        const connected = await shared.mcp.restartAgent(name);
+        shared.rawMcpTools = shared.mcp.getTools();
+
+        const topology = shared.mcp.getServerInfo().map(s => ({
+            name:      s.name,
+            toolCount: s.toolCount,
+            tools:     shared.mcp.getServerTools(s.name).map(t => {
+                const parts = t.name.split('__');
+                return parts[parts.length - 1] ?? t.name;
+            }),
+        }));
+        shared.systemPrompt = buildSystemPrompt(shared.soul, topology);
+
+        engine = createSessionEngine(shared, ADMIN_PRINCIPAL, onEvent);
+        return { connected, engine };
+    };
+
     return {
         engine,
         mcp:          shared.mcp,
@@ -425,6 +480,7 @@ export async function buildDirectorEngine(
         policyEngine: shared.policyEngine,
         vaultFilter:  shared.vaultFilter,
         auditLogger:  shared.auditLogger,
+        restartAgent,
     };
 }
 

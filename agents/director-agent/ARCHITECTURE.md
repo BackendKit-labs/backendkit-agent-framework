@@ -41,8 +41,6 @@ agent     agent   (bk-    context  agent   agent      especialistas
 | `k8s-agent` | ✅ | Kubernetes API | apply manifests, inspect resources, logs, exec |
 | `bk-agent` (coder) | ⬜ `--mcp` pendiente | `apps/bk-agent` | spec-driven dev, 10 especialistas coding, QA, git |
 | `codex-context-agent-v2` | ✅ | vault RAG local | curate_path, curate_link, search_vault, read_note |
-| `curator-agent` | ✅ | vault Obsidian | ingesta masiva de documentos enterprise con LLM |
-| `curator-codex-agent` | ✅ | vault + HTTP API | análisis código + RAG + seguridad, HTTP Protocol v1 |
 | `workspace-manager` | ✅ | workspaces multi-proyecto | gestión de vaults y proyectos |
 | `fleet-agent` | ✅ | orchestrator-gateway HTTP :3400 | deploy_agent, stop_agent, list_deployments, deploy_settings, fleet_health (solo deploy — orquestación va directo a orchestrator-mcp-agent) |
 | `vault-manager-agent` | ✅ | `vault-manager` HTTP :3000 | list_vaults, search_knowledge, list_notes, ingest_text (cola de auditoría humana), sync_vault |
@@ -50,16 +48,16 @@ agent     agent   (bk-    context  agent   agent      especialistas
 | `run-recovery-daemon` | ✅ | orchestrator runs | recupera runs colgados, health de agentes |
 | `synthesizer-agent` | ✅ | planner + writer | síntesis de skills desde runs exitosos |
 
-## agent-cloud — Capa de infraestructura
+## cloud-platform — Capa de infraestructura
 
-El director es el **cerebro pensante** de la plataforma. La **capa de infraestructura** que ejecuta sus decisiones es `agent-cloud` — una plataforma NestJS + Docker que gestiona departamentos empresariales, deployables (agentes y apps) y workflows.
+El director es el **cerebro pensante** de la plataforma. La **capa de infraestructura** que ejecuta sus decisiones es `cloud-platform` — una plataforma NestJS + Docker que gestiona departamentos empresariales, deployables (agentes y apps) y workflows.
 
 ```
 director-agent  (inteligencia — este proceso)
-      │
+      │  cloud-mcp (MCP stdio)
       │  REST API + X-Api-Key
       ▼
-agent-cloud  (infraestructura — NestJS + TypeORM)
+cloud-platform  (infraestructura — NestJS + TypeORM, :3100)
       │
       │  Docker API / k8s API
       ▼
@@ -67,39 +65,34 @@ Contenedores corriendo
 (knowledge-vault, hr-onboarding, support-bot, ...)
 ```
 
-### Modelo de dominio de agent-cloud
+### Modelo de dominio de cloud-platform
 
 | Entidad | Rol |
 |---------|-----|
-| `Department` | Área de negocio (HR, Legal, IT, Ops...). Reemplaza `project`. |
+| `Department` | Área de negocio (HR, Legal, IT, Ops...). |
 | `Deployable` | Unidad de despliegue: `kind='agent'` (MCP) o `kind='app'` (web/API). |
 | `Secret` | Variable sensible scoped a un `Department`. Inyectada automáticamente al deploy. |
 | `Workflow` | Flujo de negocio: secuencia de deployables con un trigger. |
 | `CatalogEntry` | Blueprint de deploy: image, env defaults, requiredSecrets, categoría. |
-| `ApiKey` | Credencial machine-to-machine para que el director llame a agent-cloud. |
+| `ApiKey` | Credencial machine-to-machine para que el director llame a cloud-platform. |
 
-### Tools que el director necesita en agent-cloud (PR 6 pendiente)
+### Tools del director vía cloud-mcp (✅ implementado)
 
-Cuando se implemente el connector (PR 6), el director tendrá un nuevo servidor MCP `cloud`:
+El director accede a cloud-platform a través de `cloud-mcp` (MCP stdio), con 17 tools:
 
 ```
-mcp__cloud__deploy_deployable(catalogKey, departmentId, name, config?)
-mcp__cloud__list_deployables(departmentId?, kind?, status?)
-mcp__cloud__stop_deployable(id)
-mcp__cloud__get_logs(id)
-mcp__cloud__get_health(id)
-mcp__cloud__list_departments()
-mcp__cloud__list_catalog()
-mcp__cloud__create_workflow(departmentId, name, steps[])
-mcp__cloud__run_workflow(workflowId, input?)
-mcp__cloud__get_metrics()
+list_departments / get_department
+list_deployables / get_deployable
+cloud_deploy / cloud_stop / cloud_metrics / cloud_deployed_agents
+list_catalog / get_catalog_entry / create_catalog_entry / update_catalog_entry
+list_workflows / get_workflow / run_workflow / list_workflow_runs / get_workflow_run
 ```
 
-### Relación con fleet-agent (hoy)
+### Relación con fleet-agent
 
-Hoy el director usa `fleet-agent` → `orchestrator-gateway :3400` para deploys. Eso maneja el **Stack B** de flujos declarativos locales. `agent-cloud` es la capa para deploys **persistentes y enterprise** — contenedores gestionados, por departamento, con secrets y catalog. Son complementarios:
+El director usa `fleet-agent` → `orchestrator-gateway :3400` para flows declarativos locales (Stack B). `cloud-platform` es la capa para deploys **persistentes y enterprise** — contenedores gestionados, por departamento, con secrets y catalog. Son complementarios:
 
-| | fleet-agent (hoy) | agent-cloud (nuevo) |
+| | fleet-agent | cloud-platform |
 |---|---|---|
 | Foco | Flows y deploys temporales Stack B | Deployables persistentes enterprise |
 | Organización | Por flow/run | Por departamento |
@@ -109,7 +102,7 @@ Hoy el director usa `fleet-agent` → `orchestrator-gateway :3400` para deploys.
 
 ### Arquitectura de referencia
 
-Ver `agent-cloud/ARCHITECTURE.md` en el repo `agent-cloud` para el diseño completo del backend, el RuntimeSPI, el roadmap de implementación y el contrato de imagen de agente.
+Ver `apps/cloud-platform/README.md` en el monorepo para el diseño completo del backend, el RuntimeSPI y la API reference.
 
 ---
 
@@ -287,7 +280,6 @@ Director
   │
   ├── runs           (stdio MCP)       ← Stack B: flows conocidos, config, gates
   │     └── orchestrator-mcp-agent
-  │           ├── curator-codex-agent  (HTTP :3200, Agent Protocol v1)
   │           ├── synthesizer-agent    (HTTP)
   │           ├── triage-agent         (HTTP)
   │           └── formatter-agent      (HTTP)
@@ -297,8 +289,7 @@ Director
               ├── docker-agent         (stdio MCP)
               ├── k8s-agent            (stdio MCP)
               ├── bk-agent             (stdio MCP — también especialista aquí)
-              ├── codex-v2             (stdio MCP)
-              └── curator-codex-agent  (HTTP)
+              └── codex-v2             (stdio MCP)
 
 [⬜] = pendiente de conectar
 ```
@@ -331,7 +322,7 @@ Director
 ## Tools que el director NO necesita directamente
 
 El orquestador llama a los especialistas — el director no:
-- `docker-agent`, `k8s-agent`, `bk-agent`, `curator-agent` → los usa el orquestador
+- `docker-agent`, `k8s-agent`, `bk-agent` → los usa el orquestador
 - `studio-agent`, `vault-manager-agent` → también los usa el orquestador (dentro de flows)
 
 ## Flujo operacional típico

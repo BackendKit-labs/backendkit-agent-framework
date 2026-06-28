@@ -146,6 +146,76 @@ t("cloud_deployed_agents",
         try { return ok(await cloud("GET", "/director/agents")); } catch (e) { return err(e); }
     });
 
+// ── Catalog ────────────────────────────────────────────────────────────────────
+
+t("list_catalog",
+    "Lista todas las entradas del catálogo enterprise de agent-cloud. " +
+    "Cada entrada es un template reutilizable (image, env, requiredSecrets, category) " +
+    "que los deployables referencian via catalogKey. " +
+    "Filtra por category para ver solo entradas de una categoría (dev, knowledge, hr, finance, ops, infra, custom).",
+    {
+        category: z.string().optional()
+            .describe("Filtrar por categoría: dev, knowledge, hr, finance, ops, infra, custom"),
+    },
+    async ({ category }: { category?: string }) => {
+        try {
+            const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+            return ok(await cloud("GET", `/catalog${qs}`));
+        } catch (e) { return err(e); }
+    });
+
+t("get_catalog_entry",
+    "Obtiene una entrada del catálogo por su UUID. " +
+    "Incluye requiredSecrets — las claves que el departamento DEBE tener configuradas antes de desplegar.",
+    { id: z.string().uuid().describe("UUID de la CatalogEntry") },
+    async ({ id }: { id: string }) => {
+        try { return ok(await cloud("GET", `/catalog/${id}`)); } catch (e) { return err(e); }
+    });
+
+t("create_catalog_entry",
+    "Crea una nueva entrada en el catálogo enterprise. " +
+    "Úsala para registrar templates propios de la empresa: imagen Docker, vars de entorno por defecto, " +
+    "y la lista de secrets que el departamento DEBE tener antes de poder desplegar.",
+    {
+        key:             z.string().describe("Slug único kebab-case (e.g. 'hr-assistant', 'finance-bot')"),
+        displayName:     z.string().describe("Nombre legible"),
+        description:     z.string().optional(),
+        category:        z.string().optional().describe("Categoría: dev, knowledge, hr, finance, ops, infra, custom"),
+        kind:            z.enum(["agent", "app"]).optional().describe("Tipo de deployable"),
+        image:           z.string().describe("Imagen Docker (e.g. 'my-registry/hr-agent:latest')"),
+        env:             z.record(z.string()).optional().describe("Variables de entorno por defecto"),
+        defaultModel:    z.string().optional().describe("Modelo LLM por defecto (e.g. 'claude-sonnet-4-6')"),
+        runtime:         z.enum(["docker", "k8s", "process"]).optional(),
+        requiredSecrets: z.array(z.string()).optional()
+            .describe("UPPER_SNAKE_CASE keys que deben existir en dept secrets antes de desplegar"),
+        isPublic:        z.boolean().optional(),
+    },
+    async (dto: {
+        key: string; displayName: string; description?: string; category?: string;
+        kind?: string; image: string; env?: Record<string, string>; defaultModel?: string;
+        runtime?: string; requiredSecrets?: string[]; isPublic?: boolean;
+    }) => {
+        try { return ok(await cloud("POST", "/catalog", dto)); } catch (e) { return err(e); }
+    });
+
+t("update_catalog_entry",
+    "Actualiza una entrada del catálogo. Úsala para agregar o modificar requiredSecrets " +
+    "cuando el template de un agente necesite nuevas variables.",
+    {
+        id:              z.string().uuid().describe("UUID de la CatalogEntry"),
+        displayName:     z.string().optional(),
+        description:     z.string().optional(),
+        category:        z.string().optional(),
+        image:           z.string().optional(),
+        env:             z.record(z.string()).optional(),
+        defaultModel:    z.string().optional(),
+        requiredSecrets: z.array(z.string()).optional(),
+        isPublic:        z.boolean().optional(),
+    },
+    async ({ id, ...body }: { id: string; [k: string]: unknown }) => {
+        try { return ok(await cloud("PATCH", `/catalog/${id}`, body)); } catch (e) { return err(e); }
+    });
+
 // ── Workflows ──────────────────────────────────────────────────────────────────
 
 t("list_workflows",
@@ -212,6 +282,7 @@ async function main() {
 
     log("MCP ready — tools: list_departments, get_department, list_deployables, get_deployable, " +
         "cloud_deploy, cloud_stop, cloud_metrics, cloud_deployed_agents, " +
+        "list_catalog, get_catalog_entry, create_catalog_entry, update_catalog_entry, " +
         "list_workflows, get_workflow, run_workflow, list_workflow_runs, get_workflow_run");
 }
 

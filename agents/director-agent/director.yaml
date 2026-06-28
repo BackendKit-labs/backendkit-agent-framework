@@ -334,3 +334,7 @@ access_control:
     run_workflow:        { allowed_roles: ["admin", "devops", "development"] }
     list_workflow_runs:  { allowed_roles: ["admin", "devops", "development"] }
     get_workflow_run:    { allowed_roles: ["admin", "devops", "development"] }
+    list_catalog:          { allowed_roles: ["*"] }
+    get_catalog_entry:     { allowed_roles: ["*"] }
+    create_catalog_entry:  { allowed_roles: ["admin", "devops"] }
+    update_catalog_entry:  { allowed_roles: ["admin", "devops"] }

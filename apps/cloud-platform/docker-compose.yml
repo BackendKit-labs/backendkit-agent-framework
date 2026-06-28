@@ -6,15 +6,15 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: agent-cloud-backend
+    container_name: cloud-platform-backend
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3100}:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-in-production}
       - JWT_EXPIRATION=${JWT_EXPIRATION:-1h}
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/agent_cloud}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/cloud_platform}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       # Runtime (Fase 1: RuntimeSPI) — el backend habla con el daemon Docker del host.
       - DOCKER_HOST=${DOCKER_HOST:-unix:///var/run/docker.sock}
@@ -33,7 +33,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - agent-cloud-network
+      - cloud-platform-network
     volumes:
       - app-logs:/app/logs
       # Docker-out-of-Docker: permite que el backend cree contenedores en el host.
@@ -42,11 +42,11 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: agent-cloud-db
+    container_name: cloud-platform-db
     environment:
       - POSTGRES_USER=${DB_USER:-postgres}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
-      - POSTGRES_DB=${DB_NAME:-agent_cloud}
+      - POSTGRES_DB=${DB_NAME:-cloud_platform}
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
@@ -60,11 +60,11 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - agent-cloud-network
+      - cloud-platform-network
 
   redis:
     image: redis:7-alpine
-    container_name: agent-cloud-redis
+    container_name: cloud-platform-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -77,10 +77,10 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - agent-cloud-network
+      - cloud-platform-network
 
 networks:
-  agent-cloud-network:
+  cloud-platform-network:
     driver: bridge
 
 volumes:

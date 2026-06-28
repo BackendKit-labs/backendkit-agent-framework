@@ -20,7 +20,7 @@ clean: ## Clean build artifacts
 	rm -rf coverage/
 
 docker-build: ## Build Docker image
-	docker build -t agent-cloud-backend:latest .
+	docker build -t cloud-platform-backend:latest .
 
 agent-image: ## Build the reference agent image (agent-runtime:latest)
 	docker build -t agent-runtime:latest docker/agent-runtime
@@ -41,4 +41,4 @@ k8s-delete: ## Delete Kubernetes resources
 	kubectl delete -k k8s/
 
 k8s-status: ## Check Kubernetes deployment status
-	kubectl get all -n agent-cloud
+	kubectl get all -n cloud-platform

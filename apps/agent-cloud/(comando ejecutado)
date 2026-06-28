@@ -1,0 +1,1 @@
+cd C:\Users\mairon.cuello\development\agent-cloud && npx tsc --noEmit 2>&1

@@ -1,0 +1,24 @@
+{
+  "name": "@backendkit-labs/cloud-mcp",
+  "version": "0.1.0",
+  "description": "Cloud MCP — MCP server wrapping the agent-cloud REST API. Exposes departments, deployables, workflows and metrics as MCP tools for the director-agent.",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc --noCheck",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=20.0.0" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@backendkit-labs/agent-cloud": "*",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

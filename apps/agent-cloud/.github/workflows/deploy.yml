@@ -1,0 +1,56 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches: [main]
+
+env:
+  KUBE_CONFIG: ${{ secrets.KUBE_CONFIG_DATA }}
+
+jobs:
+  deploy:
+    name: Deploy to K8s
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
+          kubectl apply -f k8s/service-account.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
+          kubectl apply -f k8s/network-policy.yaml
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/agent-cloud-backend -n agent-cloud --timeout=5m
+          kubectl get pods -n agent-cloud -l app=agent-cloud-backend
+
+      - name: Health check
+        run: |
+          sleep 30
+          kubectl port-forward service/agent-cloud-backend -n agent-cloud 3000:80 &
+          sleep 5
+          curl -f http://localhost:3000/api/health || exit 1

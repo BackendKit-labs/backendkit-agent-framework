@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: agent-cloud
+
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - configmap.yaml
+  - secret.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - postgres-statefulset.yaml
+  - redis-statefulset.yaml
+
+commonLabels:
+  app: agent-cloud-backend
+  managed-by: kustomize
+
+images:
+  - name: ghcr.io/agent-cloud/agent-cloud-backend
+    newTag: latest

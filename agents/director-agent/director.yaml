@@ -64,6 +64,13 @@ agents:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # config_path se pasa como argumento en cada tool call (soporta múltiples proyectos)
 
+  - name: cloud                 # agent-cloud — despliega agentes/apps por departamento, workflows
+    command: node
+    args: ["../cloud-mcp/dist/server.js"]
+    env:
+      AGENT_CLOUD_URL: ${AGENT_CLOUD_URL}
+      AGENT_CLOUD_API_KEY: ${AGENT_CLOUD_API_KEY}
+
   - name: project               # Workspace Manager PROJECT — proyectos, root, config de agentes
     command: node
     args: ["../bk-coder-v2/workspace-manager-project/dist/server.js"]
@@ -273,6 +280,7 @@ access_control:
     start_flow: { allowed_roles: ["*"] }
     run_task:   { allowed_roles: ["*"] }
     run_status: { allowed_roles: ["*"] }
+    list_runs:  { allowed_roles: ["admin", "development"] }   # listado global de runs del orquestador
 
     # ── Scheduler (programación de tareas) ─────────────────────────────────────
     schedule_task:     { allowed_roles: ["*"] }
@@ -311,3 +319,22 @@ access_control:
     list_deployments:   { allowed_roles: ["admin", "devops", "development"] }
     deploy_settings:    { allowed_roles: ["admin", "devops"] }
     fleet_health:       { allowed_roles: ["*"] }
+
+    # ── Cloud (agent-cloud: departments, deployables, workflows) ─────────────────
+    list_departments:    { allowed_roles: ["*"] }
+    get_department:      { allowed_roles: ["*"] }
+    list_deployables:    { allowed_roles: ["admin", "devops", "development"] }
+    get_deployable:      { allowed_roles: ["admin", "devops", "development"] }
+    cloud_deploy:        { allowed_roles: ["admin", "devops"] }
+    cloud_stop:          { allowed_roles: ["admin", "devops"] }
+    cloud_metrics:       { allowed_roles: ["admin", "devops", "development"] }
+    cloud_deployed_agents: { allowed_roles: ["admin", "devops", "development"] }
+    list_workflows:      { allowed_roles: ["*"] }
+    get_workflow:        { allowed_roles: ["*"] }
+    run_workflow:        { allowed_roles: ["admin", "devops", "development"] }
+    list_workflow_runs:  { allowed_roles: ["admin", "devops", "development"] }
+    get_workflow_run:    { allowed_roles: ["admin", "devops", "development"] }
+    list_catalog:          { allowed_roles: ["*"] }
+    get_catalog_entry:     { allowed_roles: ["*"] }
+    create_catalog_entry:  { allowed_roles: ["admin", "devops"] }
+    update_catalog_entry:  { allowed_roles: ["admin", "devops"] }

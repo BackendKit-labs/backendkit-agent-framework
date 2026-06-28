@@ -50,6 +50,69 @@ agent     agent   (bk-    context  agent   agent      especialistas
 | `run-recovery-daemon` | ✅ | orchestrator runs | recupera runs colgados, health de agentes |
 | `synthesizer-agent` | ✅ | planner + writer | síntesis de skills desde runs exitosos |
 
+## agent-cloud — Capa de infraestructura
+
+El director es el **cerebro pensante** de la plataforma. La **capa de infraestructura** que ejecuta sus decisiones es `agent-cloud` — una plataforma NestJS + Docker que gestiona departamentos empresariales, deployables (agentes y apps) y workflows.
+
+```
+director-agent  (inteligencia — este proceso)
+      │
+      │  REST API + X-Api-Key
+      ▼
+agent-cloud  (infraestructura — NestJS + TypeORM)
+      │
+      │  Docker API / k8s API
+      ▼
+Contenedores corriendo
+(knowledge-vault, hr-onboarding, support-bot, ...)
+```
+
+### Modelo de dominio de agent-cloud
+
+| Entidad | Rol |
+|---------|-----|
+| `Department` | Área de negocio (HR, Legal, IT, Ops...). Reemplaza `project`. |
+| `Deployable` | Unidad de despliegue: `kind='agent'` (MCP) o `kind='app'` (web/API). |
+| `Secret` | Variable sensible scoped a un `Department`. Inyectada automáticamente al deploy. |
+| `Workflow` | Flujo de negocio: secuencia de deployables con un trigger. |
+| `CatalogEntry` | Blueprint de deploy: image, env defaults, requiredSecrets, categoría. |
+| `ApiKey` | Credencial machine-to-machine para que el director llame a agent-cloud. |
+
+### Tools que el director necesita en agent-cloud (PR 6 pendiente)
+
+Cuando se implemente el connector (PR 6), el director tendrá un nuevo servidor MCP `cloud`:
+
+```
+mcp__cloud__deploy_deployable(catalogKey, departmentId, name, config?)
+mcp__cloud__list_deployables(departmentId?, kind?, status?)
+mcp__cloud__stop_deployable(id)
+mcp__cloud__get_logs(id)
+mcp__cloud__get_health(id)
+mcp__cloud__list_departments()
+mcp__cloud__list_catalog()
+mcp__cloud__create_workflow(departmentId, name, steps[])
+mcp__cloud__run_workflow(workflowId, input?)
+mcp__cloud__get_metrics()
+```
+
+### Relación con fleet-agent (hoy)
+
+Hoy el director usa `fleet-agent` → `orchestrator-gateway :3400` para deploys. Eso maneja el **Stack B** de flujos declarativos locales. `agent-cloud` es la capa para deploys **persistentes y enterprise** — contenedores gestionados, por departamento, con secrets y catalog. Son complementarios:
+
+| | fleet-agent (hoy) | agent-cloud (nuevo) |
+|---|---|---|
+| Foco | Flows y deploys temporales Stack B | Deployables persistentes enterprise |
+| Organización | Por flow/run | Por departamento |
+| Secrets | No | Sí, scoped por dept |
+| Catalog | No | Sí, con requiredSecrets |
+| Workflows | Flujos declarativos YAML | Workflows componibles |
+
+### Arquitectura de referencia
+
+Ver `agent-cloud/ARCHITECTURE.md` en el repo `agent-cloud` para el diseño completo del backend, el RuntimeSPI, el roadmap de implementación y el contrato de imagen de agente.
+
+---
+
 ## Dos planos de orquestación
 
 El ecosistema tiene dos orquestadores con **responsabilidades distintas** — no son variantes del mismo concepto:
@@ -180,6 +243,27 @@ Tarea de código, flujo conversacional, un dominio:
   "Implementá el módulo JWT según nuestra spec, con tests y code review"
   → bk-agent: general → backend + security + QA, streaming en tiempo real
 ```
+
+### El director AUTORA el diseño (modelo actual con bk-coder-v2)
+
+Para proyectos nuevos vía el coder (bk-coder-v2), el director **no delega la generación del diseño** —
+la **autora él mismo**, porque tiene el contexto humano completo. Esto evita que el coder re-decida y
+diverja de lo acordado. (Ver ADR-009/010 en `bk-coder-v2/design.md`.)
+
+```
+Director:
+  1. project_create(name, root)                            ← crea la ruta del proyecto
+  2. [diseña CON el humano]
+  3. project_write_specs(projectId, spec, design, roadmap) ← AUTORA y persiste <root>/.specs/
+       · design.md con "## Project Structure" (single src/ o backend/+frontend/ separados)
+       · cada fase con "**Domain:** frontend|backend|infra|data" → ruteo determinista
+  4. orchestrator_sdd(config_path, project)                ← el coder EJECUTA, no re-diseña
+       · cada fase → especialista de su Domain (frontend/backend/qa/security/infra) → gate
+```
+
+**Multi-proyecto:** las tools del coder y `project_write_specs` aceptan `project`/`projectId`
+explícito → bindean por id, inmune a un `project_switch` concurrente. `orchestrator_design` queda como
+fallback headless. Ver `bk-coder-v2/specification.md` §2.3 y `design.md` ADR-009/010.
 
 ### La combinación ideal — árbol completo del ecosistema
 

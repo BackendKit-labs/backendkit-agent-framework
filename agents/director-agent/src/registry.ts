@@ -18,6 +18,7 @@ const SERVER_LABELS: Record<string, string> = {
     coder:     'Coder — SDD (backend, QA, security, infra)',
     runs:      'Runs — Flows de negocio',
     fleet:     'Fleet — Deploy de agentes',
+    cloud:     'Cloud — Departments, Deployables & Workflows',
     config:    'Config — Configuración centralizada',
     scheduler: 'Scheduler — Programación de tareas',
     health:    'Health — Monitoreo del ecosistema',

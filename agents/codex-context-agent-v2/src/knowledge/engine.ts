@@ -57,8 +57,9 @@ export class KnowledgeEngine {
 
         const results = await this.rag.search(query, { topK: opts.topK || 5 });
 
+        // Synthesis is opt-in: it costs an extra LLM round-trip and writes a note to the vault.
         let synthesized: SearchResponse['synthesized'] = undefined;
-        if (opts.autoSynthesize !== false && results.length > 0) {
+        if (opts.autoSynthesize === true && results.length > 0) {
             const synthesis = await this.synthesizer.synthesize(query, results);
             if (synthesis) {
                 const saved = await this.synthesizer.saveNote(synthesis);

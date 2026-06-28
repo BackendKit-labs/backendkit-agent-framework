@@ -44,6 +44,7 @@ import { KnowledgeEngine }      from './knowledge/engine.js';
 import { createProvider, type ProviderName } from './providers/index.js';
 import { findAllFiles, loadManifest, saveManifest, hasFileChanged, updateManifestEntry, createManifest } from './checksum.js';
 import { resolveProject, findNote } from './project.js';
+import { bkPaths } from '@backendkit-labs/infra';
 import type { ProjectContext } from './project.js';
 import { CodexAuditLogger, buildCodexAuditPath } from './audit.js';
 
@@ -75,6 +76,27 @@ function makeProvider() {
 interface CurationState {
     activeJobs: number;
     lastCompletedAt?: Date;
+    reindexing?: boolean;
+    reindexTimer?: ReturnType<typeof setTimeout>;
+}
+
+// Debounce window for coalesced reindexing. A director/coder loop curates files one by
+// one; without coalescing each file triggers a full vault reindex (O(N²)). Instead we
+// arm a trailing timer and run a single reindex once curation goes quiet.
+const REINDEX_DEBOUNCE_MS = process.env.CODEX_REINDEX_DEBOUNCE_MS
+    ? parseInt(process.env.CODEX_REINDEX_DEBOUNCE_MS)
+    : 2_000;
+
+function scheduleReindex(engine: KnowledgeEngine, curation: CurationState): void {
+    if (curation.reindexTimer) clearTimeout(curation.reindexTimer);
+    curation.reindexTimer = setTimeout(() => {
+        curation.reindexTimer = undefined;
+        curation.reindexing = true;
+        engine.reload()
+            .then(r => log(`✓ Vault reindexed (coalesced): ${r.indexed} notes`))
+            .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`))
+            .finally(() => { curation.reindexing = false; curation.lastCompletedAt = new Date(); });
+    }, REINDEX_DEBOUNCE_MS);
 }
 
 function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState, audit?: CodexAuditLogger): McpServer {
@@ -119,23 +141,27 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
 
                     const fileStart = Date.now();
                     curation.activeJobs++;
-                    const result = await analyzer.analyzeFile(targetPath, targetPath);
-                    const transient = result.errors?.some(e => /LLM call failed|Cannot read file|Cannot extract PDF/i.test(e));
-                    if (!transient) {
-                        await updateManifestEntry(manifest, targetPath, rel, 'success');
-                        await saveManifest(dir, manifest);
+                    try {
+                        const result = await analyzer.analyzeFile(targetPath, targetPath);
+                        const transient = result.errors?.some(e => /LLM call failed|Cannot read file|Cannot extract PDF/i.test(e));
+                        if (!transient) {
+                            await updateManifestEntry(manifest, targetPath, rel, 'success');
+                            await saveManifest(dir, manifest);
+                        }
+                        audit?.write({
+                            event: transient ? 'curate.file.failed' : 'curate.file.done',
+                            path: targetPath, status: transient ? 'failed' : 'done',
+                            durationMs: Date.now() - fileStart,
+                            error: transient ? result.errors?.join('; ') : undefined,
+                        });
+                        // Coalesced reindex: many single-file curations now collapse into one
+                        // debounced reindex instead of a full reindex per file.
+                        scheduleReindex(engine, curation);
+                        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+                    } finally {
+                        curation.activeJobs--;
+                        curation.lastCompletedAt = new Date();
                     }
-                    engine.reload()
-                        .then(() => log('✓ Vault reindexed after single-file curation'))
-                        .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`))
-                        .finally(() => { curation.activeJobs--; curation.lastCompletedAt = new Date(); });
-                    audit?.write({
-                        event: transient ? 'curate.file.failed' : 'curate.file.done',
-                        path: targetPath, status: transient ? 'failed' : 'done',
-                        durationMs: Date.now() - fileStart,
-                        error: transient ? result.errors?.join('; ') : undefined,
-                    });
-                    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
                 }
 
                 // Directory — discover files and process in background
@@ -387,9 +413,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     const curator = new DocumentationCurator({ provider: makeProvider(), vaultPath: ctx.vaultPath });
                     const result = await curator.curateText(text, url, undefined, url);
 
-                    engine.reload()
-                        .then(() => log('✓ Vault reindexed after curate_link'))
-                        .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`));
+                    scheduleReindex(engine, curation);
 
                     log(`✓ curate_link complete: ${result.notesWritten.length} notes from ${url}`);
                     audit?.write({ event: 'curate.http.done', url, status: 'done', durationMs: Date.now() - httpStart, extra: { notesWritten: result.notesWritten.length } });
@@ -428,19 +452,20 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
         'search_vault',
         'Semantic search (RAG) across the project vault. ' +
         'Returns the most relevant curated notes for your query. ' +
-        'Optionally generates a synthetic summary note combining insights from the top results. ' +
+        'Optionally generates a synthetic summary note combining insights from the top results — ' +
+        'this is opt-in (autoSynthesize: true) because it costs an extra LLM round-trip and writes a note to the vault. ' +
         'Use this to answer questions about the codebase: architecture decisions, API usage, patterns, etc.',
         {
             query:         z.string().describe('Natural language query, e.g. "How does authentication work?" or "JWT token refresh flow"'),
             topK:          z.number().optional().describe('Number of results to return (default: 5)'),
-            autoSynthesize: z.boolean().optional().describe('Generate a synthesis note combining top results (default: true)'),
+            autoSynthesize: z.boolean().optional().describe('Generate a synthesis note combining top results (default: false — opt-in; adds an LLM call + vault write)'),
         },
         async ({ query, topK, autoSynthesize }: { query: string; topK?: number; autoSynthesize?: boolean }) => {
             const searchStart = Date.now();
             try {
                 const response = await engine.search(query, {
                     topK,
-                    autoSynthesize: autoSynthesize !== false,
+                    autoSynthesize: autoSynthesize === true,
                 });
                 audit?.write({
                     event: 'vault.search', query, durationMs: Date.now() - searchStart,
@@ -499,9 +524,11 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
         },
         async ({ reload }: { reload?: boolean }) => {
             try {
-                let reloadResult = undefined;
-                if (reload) {
-                    reloadResult = await engine.reload();
+                if (reload && !curation.reindexing) {
+                    curation.reindexing = true;
+                    engine.reload()
+                        .then(() => { curation.reindexing = false; })
+                        .catch(() => { curation.reindexing = false; });
                 }
 
                 const engineStats = await engine.getStats();
@@ -548,8 +575,8 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             curating: curation.activeJobs > 0,
                             ...(curation.activeJobs > 0 ? { curatingJobs: curation.activeJobs } : {}),
                             ...(curation.lastCompletedAt ? { lastCuratedAt: curation.lastCompletedAt.toISOString() } : {}),
+                            ...(curation.reindexing ? { reindexing: true } : {}),
                             engine: engineStats,
-                            ...(reloadResult ? { reindexed: reloadResult } : {}),
                             ...(claudeMdSuggestion ? { claudeMdSuggestion } : {}),
                         }),
                     }]
@@ -753,8 +780,9 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                 await fs.rm(ctx.vaultPath, { recursive: true, force: true });
                 await fs.mkdir(ctx.vaultPath, { recursive: true });
 
-                // 2. Delete RAG index
-                const indexPath = path.join(os.homedir(), '.codex-context', 'rag', `${ctx.projectName}.json`);
+                // 2. Delete RAG index — must match the path the provider actually uses
+                // (bkPaths.ragIndex(basename(vaultPath))), not the legacy ~/.codex-context path.
+                const indexPath = bkPaths.ragIndex(path.basename(ctx.vaultPath));
                 let indexDeleted = false;
                 try {
                     await fs.rm(indexPath, { force: true });

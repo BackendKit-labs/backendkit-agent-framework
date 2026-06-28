@@ -21,6 +21,9 @@ export class CuratorRagProvider {
     private embedder: TransformersEmbedder;
     private vaultPath: string;
     private isIndexed: boolean = false;
+    // Dedupe concurrent index passes so a reload and a cold-start search never run
+    // two index() calls against the shared store at once.
+    private indexing: Promise<{ indexed: number; updated: number }> | null = null;
 
     constructor(vaultPath: string) {
         this.vaultPath = vaultPath;
@@ -45,13 +48,22 @@ export class CuratorRagProvider {
     }
 
     async indexVault(): Promise<{ indexed: number; updated: number }> {
-        try {
-            const result = await this.rag.index({ verbose: false });
-            this.isIndexed = true;
-            return result;
-        } catch (err) {
-            throw new Error(`RAG indexing failed: ${(err as Error).message}`);
-        }
+        // ObsidianRAGProvider.index() is incremental (loads the persisted index from
+        // disk and re-embeds only changed files). Coalesce concurrent callers onto a
+        // single in-flight pass.
+        if (this.indexing) return this.indexing;
+        this.indexing = (async () => {
+            try {
+                const result = await this.rag.index({ verbose: false });
+                this.isIndexed = true;
+                return { indexed: result.indexed, updated: result.removed };
+            } catch (err) {
+                throw new Error(`RAG indexing failed: ${(err as Error).message}`);
+            } finally {
+                this.indexing = null;
+            }
+        })();
+        return this.indexing;
     }
 
     async search(query: string, opts: RagSearchOptions = {}): Promise<RagSearchResult[]> {
@@ -83,7 +95,9 @@ export class CuratorRagProvider {
     }
 
     async reload(): Promise<{ indexed: number; updated: number }> {
-        this.isIndexed = false;
+        // Do NOT drop isIndexed here: index() is incremental and reloads from disk on
+        // its own, so keeping the flag true lets concurrent searches keep serving the
+        // current in-memory index instead of blocking on (or spawning) a reindex.
         return await this.indexVault();
     }
 

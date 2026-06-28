@@ -23,10 +23,10 @@ import type {
     DirectorMetrics,
     Workflow,
     WorkflowRun,
-} from "@backendkit-labs/agent-cloud";
+} from "@backendkit-labs/cloud-platform";
 
-const BASE_URL = (process.env.AGENT_CLOUD_URL ?? "http://localhost:3100").replace(/\/$/, "");
-const API_KEY  = process.env.AGENT_CLOUD_API_KEY;
+const BASE_URL = (process.env.CLOUD_PLATFORM_URL ?? "http://localhost:3100").replace(/\/$/, "");
+const API_KEY  = process.env.CLOUD_PLATFORM_API_KEY;
 
 const log = (msg: string) => process.stderr.write(`[cloud-mcp] ${msg}\n`);
 
@@ -284,8 +284,8 @@ t("get_workflow_run",
 // ── Boot ───────────────────────────────────────────────────────────────────────
 
 async function main() {
-    log(`agent-cloud: ${BASE_URL}`);
-    log(API_KEY ? "auth: X-Api-Key ***" : "ADVERTENCIA: AGENT_CLOUD_API_KEY no configurada — requests sin autenticar");
+    log(`cloud-platform: ${BASE_URL}`);
+    log(API_KEY ? "auth: X-Api-Key ***" : "ADVERTENCIA: CLOUD_PLATFORM_API_KEY no configurada — requests sin autenticar");
 
     const transport = new StdioServerTransport();
     await srv.connect(transport);

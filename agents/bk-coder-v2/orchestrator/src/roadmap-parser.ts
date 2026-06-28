@@ -8,6 +8,7 @@ export interface RoadmapPhase {
     title:    string;     // "Core Authentication"
     body:     string;     // full markdown body of the phase (goal, files, criteria)
     criteria: string[];   // extracted completion criteria (checkbox items)
+    domain?:  string;     // declared phase domain (e.g. 'frontend'|'backend') — routes the implementer
 }
 
 // ── Parser ────────────────────────────────────────────────────────────────────
@@ -16,6 +17,10 @@ export interface RoadmapPhase {
 const PHASE_HEADER = /^#{2,3}\s+(?:Phase|Fase)\s+(\d+)\s*[:\-—.]?\s*(.*)$/i;
 // Matches checkbox criteria: "- [ ] criterion" or "- [x] criterion"
 const CRITERION    = /^\s*[-*]\s+\[[ xX]?\]\s+(.+)$/;
+// Matches an explicit domain line: "**Domain:** frontend" / "Domain: backend"
+const DOMAIN_LINE  = /^\s*\*{0,2}domain\*{0,2}\s*:\s*\*{0,2}\s*([a-z][a-z0-9_-]+)/im;
+// Matches a "[frontend]" tag prefixed to a phase title
+const TITLE_TAG    = /^\[([a-z][a-z0-9_-]+)\]\s*/i;
 
 /**
  * Parses a ROADMAP.md content string into ordered phases.
@@ -55,7 +60,16 @@ function finalize(c: { number: number; title: string; bodyLines: string[] }): Ro
         const m = CRITERION.exec(line);
         if (m) criteria.push(m[1].trim());
     }
-    return { number: c.number, title: c.title, body, criteria };
+
+    // Declared domain: a "[tag]" prefix in the title, or a "**Domain:** xxx" line (line wins).
+    let title  = c.title;
+    let domain: string | undefined;
+    const tag = TITLE_TAG.exec(title);
+    if (tag) { domain = tag[1].toLowerCase(); title = title.slice(tag[0].length).trim(); }
+    const dl = DOMAIN_LINE.exec(body);
+    if (dl) domain = dl[1].toLowerCase();
+
+    return { number: c.number, title, body, criteria, ...(domain ? { domain } : {}) };
 }
 
 /**

@@ -5,7 +5,7 @@ import type { RoadmapPhase } from './roadmap-parser.js';
 import { loadRoadmapPhases } from './roadmap-parser.js';
 import type { PhaseState, QaVerdict, StepResult } from './run-store.js';
 import { runProjectChecks, type ExecutionReport } from './command-runner.js';
-import { updateProgressSummary }                   from './context-reader.js';
+import { updateProgressSummary, type PhaseContext } from './context-reader.js';
 import { callMcpTool }                             from './mcp-client.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -41,6 +41,39 @@ export type PhaseStep = PhaseGate | PhaseComplete;
 
 function findAgent(config: OrchestratorConfig, domain: string): AgentConfig | undefined {
     return config.agents.find(a => a.domain === domain);
+}
+
+/**
+ * Infers whether a roadmap phase is frontend or backend work, so the SDD pipeline
+ * routes the IMPLEMENT step to the matching specialist instead of always using 'backend'.
+ * Conservative: needs ≥2 frontend signals to flip, otherwise defaults to 'backend'.
+ * Without this, a frontend-only roadmap is implemented by the backend agent (the bug
+ * that produced backend scaffolding for a Next.js-only spec).
+ */
+const FRONTEND_HINTS = [
+    'frontend', 'react', 'next.js', 'nextjs', 'vue', 'angular', 'svelte',
+    'component', 'componente', 'ui', 'ux', 'css', 'tailwind', 'dashboard', 'sidebar',
+    'layout', 'responsive', '.jsx', '.tsx', 'zustand', 'redux', 'app router',
+    'página', 'pantalla', 'formulario',
+];
+
+export function detectPhaseDomain(phase: RoadmapPhase): string {
+    const text = `${phase.title} ${phase.criteria.join(' ')} ${phase.body}`.toLowerCase();
+    const hits = FRONTEND_HINTS.filter(h => text.includes(h)).length;
+    return hits >= 2 ? 'frontend' : 'backend';
+}
+
+/**
+ * Selects the agent that implements a phase. Domain resolution order:
+ *   1. The phase's DECLARED domain (`**Domain:**` in the ROADMAP — set by the design layer).
+ *   2. Heuristic keyword detection as a fallback for roadmaps without the declaration.
+ * Then the specialist for that domain, else the 'backend' agent (backward-compatible).
+ */
+function selectImplementer(config: OrchestratorConfig, phase: RoadmapPhase): { agent: AgentConfig; domain: string; source: 'declarado' | 'inferido' } | undefined {
+    const source: 'declarado' | 'inferido' = phase.domain ? 'declarado' : 'inferido';
+    const domain = phase.domain ?? detectPhaseDomain(phase);
+    const agent  = findAgent(config, domain) ?? findAgent(config, 'backend');
+    return agent ? { agent, domain, source } : undefined;
 }
 
 // ── QA verdict parsing ────────────────────────────────────────────────────────
@@ -159,8 +192,9 @@ export class PhaseRunner {
 
         // ── 1. IMPLEMENT ──────────────────────────────────────────────────────
         state.stage = 'implement';
-        const backend = findAgent(this.config, 'backend');
-        if (!backend) throw new Error('No hay agente con domain "backend" configurado');
+        const selected = selectImplementer(this.config, phase);
+        if (!selected) throw new Error('No hay agente para implementar (ni un especialista de dominio ni "backend" configurado)');
+        const implementer = selected.agent;
 
         const reworkNote = state.qaFindings
             ? `\n\n⚠️ ESTA ES UNA RE-IMPLEMENTACIÓN (rework). El QA RECHAZÓ la versión anterior.\n` +
@@ -178,12 +212,12 @@ export class PhaseRunner {
 
         this.onProgress(`\n📍 Fase ${phase.number}/${this.phases.length}: ${phase.title}` +
             (state.reworkCount > 0 ? `  (rework #${state.reworkCount})` : ''));
-        this.onProgress(`  → [backend] implementando...`);
+        this.onProgress(`  → [${implementer.id}] implementando (dominio: ${selected.domain} · ${selected.source})...`);
 
         const phaseCtx = { number: phase.number, title: phase.title, criteria: phase.criteria };
 
         let implOutput = await this.callAgent(
-            backend.id,
+            implementer.id,
             'implement_phase',
             { projectRoot: this.projectRoot, phaseNumber: phase.number, phaseTitle: phase.title, criteria: phase.criteria, reworkFindings: state.qaFindings },
             implTask,
@@ -192,7 +226,7 @@ export class PhaseRunner {
 
         // Tarea 2.3: retry solo en modo inline — en modo MCP el agente escribe archivos
         // directamente con write_file(), el output es un resumen de texto sin bloques FILE:
-        const isMcpMode = !!backend.transport && backend.transport.type === 'stdio';
+        const isMcpMode = !!implementer.transport && implementer.transport.type === 'stdio';
         if (!isMcpMode) {
             const { extractFiles } = await import('./file-writer.js');
             if (extractFiles(implOutput).length === 0) {
@@ -203,8 +237,8 @@ export class PhaseRunner {
                     `### FILE: src/ruta/archivo.ext\n\`\`\`lang\ncontenido completo\n\`\`\`\n` +
                     `Sin explicaciones. Solo los archivos.`;
                 implOutput = await executeSubtask(
-                    this.config, backend,
-                    { id: `impl-p${phase.number}-retry`, agent_id: backend.id, task: retryTask, depends_on: [] },
+                    this.config, implementer,
+                    { id: `impl-p${phase.number}-retry`, agent_id: implementer.id, task: retryTask, depends_on: [] },
                     [], this.ragSearchFn, undefined, this.projectRoot, this.onProgress,
                 );
             }
@@ -212,7 +246,7 @@ export class PhaseRunner {
 
         collectStep({
             stepId: `impl-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
-            agentId: backend.id, task: `Implementar Fase ${phase.number}: ${phase.title}`,
+            agentId: implementer.id, task: `Implementar Fase ${phase.number}: ${phase.title}`,
             output: implOutput, success: true, durationMs: 0,
         });
 

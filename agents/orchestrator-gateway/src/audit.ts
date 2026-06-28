@@ -35,4 +35,4 @@ export const auditLogger = new GatewayAuditLogger(
 );
 
 /** Rutas ruidosas que no vale la pena auditar (polling frecuente). */
-const SKIP_ROUTES = new Set(['/api/runs', '/api/runs/stream', '/api/health', '/api/agents']);
+export const SKIP_ROUTES = new Set(['/api/runs', '/api/runs/stream', '/api/health', '/api/agents']);

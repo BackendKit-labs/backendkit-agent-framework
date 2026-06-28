@@ -4,6 +4,15 @@ import { AgentMCPServer }     from '@backendkit-labs/mcp-server';
 import { CallbackTransport }  from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { QA_TOOLS }           from './tools/index.js';
+import { loadQaSkills }       from './load-skills.js';
+
+// Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
+const QA_SKILLS = loadQaSkills();
+if (QA_SKILLS.length > 0) {
+    process.stderr.write(
+        `[qa-mcp] ${QA_SKILLS.length} skill(s) cargada(s): ${QA_SKILLS.map(s => s.name).join(', ')}\n`,
+    );
+}
 
 // QA uses deepseek-reasoner by default — deeper reasoning for spec validation.
 // Override with LLM_MODEL env var if needed.
@@ -33,8 +42,10 @@ function createEngine(transport: CallbackTransport) {
             [provider]: { apiKey, model, baseUrl },
         },
         defaultProvider: provider,
+        defaultAgent: 'qa-engineer',   // run as the QA specialist, not the legacy 'general' profile
         transport,
         disablePersistence: true,
+        extraSkills: QA_SKILLS,
     });
 }
 

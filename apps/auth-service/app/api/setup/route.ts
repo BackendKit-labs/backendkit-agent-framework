@@ -28,11 +28,13 @@ export async function POST(req: NextRequest) {
         );
     }
 
-    const { username, password, name } = await req.json() as {
-        username: string;
-        password: string;
-        name?:    string;
-    };
+    let body: { username?: string; password?: string; name?: string };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
+    const { username, password, name } = body;
 
     if (!username || !password) {
         return NextResponse.json({ error: 'username y password son requeridos' }, { status: 400 });

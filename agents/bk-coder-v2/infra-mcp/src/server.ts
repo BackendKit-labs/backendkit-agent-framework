@@ -4,6 +4,15 @@ import { AgentMCPServer } from '@backendkit-labs/mcp-server';
 import { CallbackTransport } from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { INFRA_TOOLS } from './tools/index.js';
+import { loadInfraSkills } from './load-skills.js';
+
+// Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
+const INFRA_SKILLS = loadInfraSkills();
+if (INFRA_SKILLS.length > 0) {
+    process.stderr.write(
+        `[infra-mcp] ${INFRA_SKILLS.length} skill(s) cargada(s): ${INFRA_SKILLS.map(s => s.name).join(', ')}\n`,
+    );
+}
 
 const PROVIDER_BASES: Record<string, string> = {
     deepseek: 'https://api.deepseek.com/v1',
@@ -26,8 +35,10 @@ function createEngine(transport: CallbackTransport) {
     return createCodingEngine({
         providers: { [provider]: { apiKey, model, baseUrl } },
         defaultProvider: provider,
+        defaultAgent: 'infrastructure',  // run as the infra specialist, not the legacy 'general' profile
         transport,
         disablePersistence: true,
+        extraSkills: INFRA_SKILLS,
     });
 }
 

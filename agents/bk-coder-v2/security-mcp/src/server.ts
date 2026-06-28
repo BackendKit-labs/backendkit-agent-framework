@@ -4,6 +4,16 @@ import { AgentMCPServer } from '@backendkit-labs/mcp-server';
 import { CallbackTransport } from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { SECURITY_TOOLS } from './tools/index.js';
+import { loadSecuritySkills } from './load-skills.js';
+
+// Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
+// Complements the framework's builtin OWASP `security-checklist` skill.
+const SECURITY_SKILLS = loadSecuritySkills();
+if (SECURITY_SKILLS.length > 0) {
+    process.stderr.write(
+        `[security-mcp] ${SECURITY_SKILLS.length} skill(s) cargada(s): ${SECURITY_SKILLS.map(s => s.name).join(', ')}\n`,
+    );
+}
 
 const PROVIDER_BASES: Record<string, string> = {
     deepseek: 'https://api.deepseek.com/v1',
@@ -26,8 +36,10 @@ function createEngine(transport: CallbackTransport) {
     return createCodingEngine({
         providers: { [provider]: { apiKey, model, baseUrl } },
         defaultProvider: provider,
+        defaultAgent: 'security',      // run as the security specialist, not the legacy 'general' profile
         transport,
         disablePersistence: true,
+        extraSkills: SECURITY_SKILLS,
     });
 }
 

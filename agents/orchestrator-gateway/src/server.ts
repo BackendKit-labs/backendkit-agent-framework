@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import * as path    from 'node:path';
+import * as os      from 'node:os';
 import * as fs      from 'node:fs';
 import express, { Request, Response } from 'express';
 import { auditLogger, SKIP_ROUTES } from './audit';
@@ -11,11 +12,17 @@ import { parseFlowResult }        from './parser';
 
 const PORT = parseInt(process.env.GATEWAY_PORT ?? '3400', 10);
 
-const ORCHESTRATOR_HTTP_URL = process.env.ORCHESTRATOR_HTTP_URL;   // e.g. http://localhost:3500
+// BK_HOME: raíz de la plataforma (default ~/.backendkit), igual que el resto del ecosistema.
+const BK_HOME = process.env.BK_HOME ?? path.join(os.homedir(), '.backendkit');
+
+const ORCHESTRATOR_HTTP_URL = process.env.ORCHESTRATOR_HTTP_URL;   // modo HTTP: orquestador como servicio aparte
+// Modo stdio (default): el gateway spawnea el orchestrator-mcp-agent del monorepo.
+// __dirname = agents/orchestrator-gateway/dist → ../../orchestrator-mcp-agent/dist/server.js
 const ORCHESTRATOR_SERVER   = process.env.ORCHESTRATOR_SERVER
-    ?? path.resolve(__dirname, '../../../backendkit-agents/packages/orchestrator-mcp-agent/dist/server.js');
+    ?? path.resolve(__dirname, '../../orchestrator-mcp-agent/dist/server.js');
+// Config estándar del ecosistema (sembrada en el primer arranque del director/orquestador).
 const ORCHESTRATOR_CONFIG   = process.env.ORCHESTRATOR_CONFIG
-    ?? path.resolve(__dirname, '../../workflow.mcp-agents/orchestrator-mcp.yaml');
+    ?? path.join(BK_HOME, 'config', 'orchestrator-mcp.yaml');
 
 // ── Orchestrator client (HTTP or stdio) ───────────────────────────────────────
 
@@ -304,7 +311,7 @@ async function start() {
         // ── Stdio mode: gateway spawns the orchestrator process ───────────────
         if (!fs.existsSync(ORCHESTRATOR_SERVER)) {
             console.error(`[gateway] orchestrator not built: ${ORCHESTRATOR_SERVER}`);
-            console.error('Run: cd ../../../backendkit-agents/packages/orchestrator-mcp-agent && npm run build');
+            console.error('Run: cd ../orchestrator-mcp-agent && npm run build');
             process.exit(1);
         }
         const mcpClient = new OrchestratorMcpClient(ORCHESTRATOR_SERVER, ORCHESTRATOR_CONFIG, {

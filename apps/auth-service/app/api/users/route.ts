@@ -22,12 +22,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     if (!await adminFromRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await req.json() as {
+    let body: {
         username: string; password: string; name?: string; email?: string;
         role: string; department?: string;
         directorTools?: string[] | null; vaultNamespaces?: string[] | null;
         canUseDirector?: boolean; canUseVault?: boolean;
     };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
 
     if (!body.username || !body.password || !body.role) {
         return NextResponse.json({ error: 'username, password y role son requeridos' }, { status: 400 });

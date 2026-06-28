@@ -31,6 +31,23 @@ agents:
         LLM_MODEL: deepseek-chat
         DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
 
+  - id: frontend-mcp
+    name: Frontend Specialist
+    description: Implements the UI (Next.js App Router / React — components, pages, hooks, typed service layer, styles). Consumes the existing backend API; never writes server/backend code.
+    capabilities: [frontend, react, nextjs, ui, typescript]
+    provider: deepseek
+    domain: frontend
+    soul_file: souls/frontend.md
+    gate: false
+    transport:
+      type: stdio
+      command: node
+      args: ["../frontend-mcp/dist/server.js"]
+      env:
+        LLM_PROVIDER: deepseek
+        LLM_MODEL: deepseek-chat
+        DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+
   - id: qa-mcp
     name: QA Specialist
     description: Validates code against specification.md independently using deepseek-reasoner. Reads files directly, writes qa-phaseN.md report.

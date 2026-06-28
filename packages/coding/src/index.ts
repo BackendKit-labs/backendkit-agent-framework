@@ -320,6 +320,20 @@ export interface CodingEngineOptions {
      * }
      */
     orchestration?: boolean | OrchestrationOptions;
+    /**
+     * Extra skills injected into the engine in addition to the builtin packs.
+     *
+     * Unlike project skills loaded from disk via SkillLoader (which is gated behind
+     * persistence and therefore disabled when `disablePersistence: true`), these are
+     * passed straight through and are always available. This is the supported path
+     * for MCP specialist servers (backend-mcp, qa-mcp, …) that run with
+     * `disablePersistence: true` but still want their own domain skill packs.
+     *
+     * Activation is identical to builtins: matched per-run by trigger keywords +
+     * stack/language gating, with `systemPromptAddition` injected into the loop's
+     * system prompt when active. Skills with `agents: [<id>]` are always-on for those agents.
+     */
+    extraSkills?: Skill[];
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -416,6 +430,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...JAVA_PACK_SKILLS,
         ...KOTLIN_PACK_SKILLS,
         ...PYTHON_PACK_SKILLS,
+        ...(opts.extraSkills ?? []),   // caller-supplied domain skills (always-on, survives disablePersistence)
     ];
     const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
     const loadSkills = skillLoader

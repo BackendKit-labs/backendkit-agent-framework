@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-coder-v2
+  labels:
+    app: orchestrator-coder-v2
+spec:
+  type: ClusterIP
+  selector:
+    app: orchestrator-coder-v2
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000

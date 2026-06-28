@@ -1,5 +1,6 @@
 import * as fs   from 'node:fs';
 import * as path from 'node:path';
+import type { ExecutionReport } from './command-runner.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,8 @@ export interface GatePending {
     verdict?:        QaVerdict;
     phase?:          number;
     allowRework?:    boolean;
+    // Real build+test results from the phase runner, surfaced to QA on-demand.
+    executionReport?: ExecutionReport;
 }
 
 export interface RunState {

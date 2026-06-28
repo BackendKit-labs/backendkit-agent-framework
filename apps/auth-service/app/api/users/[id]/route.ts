@@ -16,12 +16,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
     if (!await adminFromRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await req.json() as {
+    let body: {
         name?: string; email?: string; role?: string; department?: string;
         active?: boolean; password?: string;
         directorTools?: string[] | null; vaultNamespaces?: string[] | null;
         canUseDirector?: boolean; canUseVault?: boolean;
     };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
 
     const update: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (body.name        !== undefined) update.name        = body.name;

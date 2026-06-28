@@ -1,0 +1,85 @@
+name: vscode-terminal-conventions
+version: "1.0"
+description: "Convenciones específicas del proyecto vscode-terminal"
+triggers:
+  - vscode-terminal
+  - backendkit-console
+  - director-console
+  - vs-code-fork
+  - chat-first
+  - workbench
+  - mcp-client
+  - webview
+  - treeview
+agents:
+  - backend
+  - frontend
+  - infrastructure
+systemPromptAddition: |
+  ## Convenciones del proyecto: vscode-terminal
+
+  ### Stack
+  - Plataforma base: VS Code fork (MIT license), Electron + Workbench
+  - Lenguaje: TypeScript 5.x
+  - UI Chat: Webview API (HTML/CSS/JS dentro de VS Code)
+  - UI Paneles: TreeDataProvider (TreeView API nativa de VS Code)
+  - Comunicación: @modelcontextprotocol/sdk (cliente MCP vía stdio o TCP)
+  - Persistencia local: JSON file (un archivo por conversación)
+  - Build: yarn compile (VS Code build system)
+  - Distribución: VSIX + binario standalone
+
+  ### Estructura de directorios (fork de VS Code)
+  - vscode-fork/ — Raíz del fork de VS Code
+  - vscode-fork/src/vs/workbench/chat/ — Vista de conversación (chatView, chatInput, chatMessage, toolCallBlock, chatService)
+  - vscode-fork/src/vs/workbench/vault-panel/ — Panel Vault (vaultPanel, vaultService)
+  - vscode-fork/src/vs/workbench/fleet-panel/ — Panel Fleet (fleetPanel, fleetService)
+  - vscode-fork/src/vs/workbench/runs-panel/ — Panel Runs (runsPanel, runsService)
+  - vscode-fork/src/vs/workbench/config-panel/ — Panel Config (configPanel, configService)
+  - vscode-fork/src/vs/workbench/services/ — Servicios compartidos (mcpClient, conversationStore, keybindings, themeManager)
+  - vscode-fork/product.json — Branding "BackendKit Console"
+  - vscode-fork/scripts/remove-features.sh — Script para eliminar features del IDE
+
+  ### Features eliminadas del workbench
+  - editor/ — Editor de código (eliminado)
+  - debug/ — Debugger (eliminado)
+  - files/ — File explorer (eliminado)
+  - extensions/ — Extensions panel (a eliminar en fases posteriores)
+  - terminal/ — Terminal integrado (a eliminar en fases posteriores)
+  - scm/ — Source control (a eliminar en fases posteriores)
+
+  ### Entidades y tipos
+  - ChatMessage: id, role (user|assistant|system), content, timestamp, toolCalls, status (sending|sent|error)
+  - ToolCall: id, name, arguments, result, status (pending|running|completed|error), duration, error, expanded
+  - Conversation: id, title, messages, createdAt, updatedAt
+  - PanelState: id (vault|fleet|runs|config), visible, active
+  - VaultNote: id, title, summary, tags, updatedAt
+  - FleetAgent: id, name, status (active|idle|error|offline), lastHeartbeat, currentTask
+  - Run: id, name, status (running|waiting_gate|completed|failed), gates, createdAt
+  - Gate: id, name, status (pending|approved|rejected), requiredApprovers
+
+  ### Patrones aprobados por QA
+  - Fork de VS Code con remote upstream para merges controlados
+  - Branding en product.json (nameShort, nameLong, applicationName, dataFolderName)
+  - Scripts de eliminación de features en scripts/ para reproducibilidad
+  - Placeholder empty-editor como vista principal hasta implementar chat
+  - Webview para el chat (control visual completo), TreeView API para paneles (rendimiento nativo)
+  - Cliente MCP con soporte stdio (default) y TCP (opcional)
+  - Polling cada 30s para actualización de paneles (no WebSocket)
+  - Persistencia en JSON file (un archivo por conversación)
+
+  ### Decisiones de arquitectura
+  - ADR-001: Fork de VS Code como plataforma base (control total del layout)
+  - ADR-002: Webview para el chat, TreeView API para paneles laterales
+  - ADR-003: Persistencia en JSON file (simplicidad sobre consultas complejas)
+  - Comunicación con Director vía MCP (stdio default, TCP opcional)
+  - Polling para paneles (30s) en lugar de WebSocket
+  - Atajos de teclado: Ctrl+Enter (enviar), Ctrl+L (limpiar), Ctrl+1-4 (paneles)
+
+  ### Reglas de negocio
+  - Conversaciones persisten localmente y se restauran al abrir la app
+  - Solo una tool call expandida a la vez
+  - Scroll automático al recibir mensajes nuevos
+  - Tool calls se muestran con estado en tiempo real (pending→running→completed|error)
+  - Cache de paneles con refresh cada 30s
+  - Gate decisions solo para admin/manager
+  - Atajos no deben solaparse con atajos nativos de VS Code

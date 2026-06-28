@@ -8,9 +8,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!await adminFromRequest(req))
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { name, description, active } = await req.json() as {
-        name?: string; description?: string; active?: boolean;
-    };
+    let body: { name?: string; description?: string; active?: boolean };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
+    const { name, description, active } = body;
     const update: Record<string, unknown> = {};
     if (name        !== undefined) update.name        = name.trim();
     if (description !== undefined) update.description = description?.trim() || null;

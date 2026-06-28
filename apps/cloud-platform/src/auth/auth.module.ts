@@ -43,6 +43,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     PassportModule,
     JwtAuthGuard,
     FlexAuthGuard,
+    forwardRef(() => ApiKeysModule),
   ],
 })
 export class AuthModule {}

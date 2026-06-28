@@ -22,7 +22,7 @@ export class DatabaseConfigService {
   }
 
   get database(): string {
-    return this.configService.get<string>('DB_DATABASE', 'agent_cloud');
+    return this.configService.get<string>('DB_NAME', 'cloud_platform');
   }
 
   get databaseUrl(): string {

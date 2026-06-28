@@ -119,6 +119,56 @@ El sistema nació como un framework de agentes con LLMs locales alimentados por 
 
 ---
 
+## Ecosistema actual
+
+Mapa de lo que existe y corre hoy. Cada agente especialista expone un MCP server (stdio); el director los consume como cliente.
+
+```
+                        ┌──────────────────────────────────────────────────┐
+                        │               director-agent  :3500              │
+                        │  LLM coordinator — WebSocket front-door de chat  │
+                        │  RBAC: JWT (auth-service) + access_control.yaml  │
+                        └──────┬───┬───┬───┬───┬───┬───┬───┬───┬──────────┘
+                               │   │   │   │   │   │   │   │   │
+           ┌───────────────────┘   │   │   │   │   │   │   │   └────────────────────┐
+           │           ┌───────────┘   │   │   │   │   │   └────────────┐           │
+           │           │       ┌───────┘   │   │   │   └──────┐         │           │
+           ▼           ▼       ▼           ▼   ▼   ▼          ▼         ▼           ▼
+        codex         runs   coder       cloud fleet project config  scheduler  notifier
+   (vault RAG)  (orchestr.) (bk-coder)  (mcp) (gateway)  (workspace) (agent)  (agent)
+                                           │     │
+                                           ▼     ▼
+                                    cloud-platform  orchestrator-gateway
+                                    (NestJS :3100)  (HTTP :3400)
+                                           │               │
+                                      Docker/k8s    orchestrator-mcp-agent
+                                    (runtime SPI)    (flows, gates, runs)
+```
+
+### Agentes conectados al director
+
+| Nombre en director.yaml | Proyecto | Qué hace |
+|---|---|---|
+| `codex` | `codex-context-agent-v2` | Vault RAG: search, curate, read, reindex |
+| `runs` | `orchestrator-mcp-agent` | Flows de negocio, gates, estado de runs |
+| `coder` | `bk-coder-v2/orchestrator` | SDD spec-driven: diseño → código → QA |
+| `cloud` | `cloud-mcp` → `cloud-platform` | Infraestructura: departments, deployables, workflows |
+| `fleet` | `fleet-agent` → `orchestrator-gateway` | Deploy Docker/k8s vía HTTP gateway |
+| `project` | `bk-coder-v2/workspace-manager-project` | Proyectos, root, config de agentes |
+| `config` | `config-agent` | Configuración centralizada + secretos de agentes |
+| `scheduler` | `schedule-agent` | Tareas one-time y cron → dispara flows |
+| `health` | `health-checker` | Salud del ecosistema: orquestador, agentes, env, vault |
+| `notifier` | `notification-agent` | Email, Slack, Telegram, Discord, push |
+
+### Servicios de infraestructura
+
+| Servicio | Stack | Puerto | Rol |
+|---|---|---|---|
+| `auth-service` | Next.js 14 + SQLite/Turso | 4000 | Autenticación JWT, gestión de usuarios, roles y tools RBAC |
+| `cloud-platform` | NestJS + TypeORM + Postgres | 3100 | Control plane: departments, deployables, catalog, workflows, runtime adapters |
+
+---
+
 ## Componentes principales
 
 ### 1. Vault (Obsidian / filesystem)
@@ -146,28 +196,39 @@ La calidad de las respuestas de los agentes es directamente proporcional a la ca
 - Actualización incremental por `mtime` (solo re-indexa archivos modificados)
 - Búsqueda por cosine similarity (+ BM25 en roadmap)
 
-### 3. Orchestrator Agent (MCP Server)
+### 3. Director Agent + Orchestrator
 
-Punto de entrada. Recibe una tarea en lenguaje natural y coordina a los agentes:
+La coordinación se reparte en dos capas con responsabilidades distintas:
+
+**Director Agent** — inteligencia central y cara conversacional. No ejecuta tareas técnicas: las delega. Conecta vía MCP (stdio) a todos los agentes especialistas. Expone un WebSocket en `:3500` como front-door de chat.
 
 ```
-Usuario: "Analizá el impacto de migrar la BD a PostgreSQL"
-
-Orchestrator:
-  1. Consulta el vault (RAG): ¿qué sabemos del tema?
-  2. LLM genera el plan (TaskPlanner):
-       t1: architect    → "analizar arquitectura actual"
-       t2: data-analyst → "evaluar volumen de datos"
-       t3: risk-agent   → "identificar riesgos"
-       t4: writer       → "consolidar informe" (after t1, t2, t3)
-  3. PlanExecutor corre el DAG respetando dependencias
-  4. Consolida resultados
+Usuario: "Onboarding de María García, entra el lunes"
+  │
+  ▼
+Director (LLM + herramientas de todos los agentes)
+  → codex: busca el proceso de onboarding en el vault
+  → runs: inicia el flow "onboarding-empleado"
+  → cloud: verifica que el deployable "hr-agent" esté corriendo
+  → notifier: envía confirmación al manager
 ```
 
-Expone tres herramientas MCP:
-- `orchestrator_run` — ejecuta una tarea de punta a punta
-- `orchestrator_list_agents` — lista agentes y capacidades disponibles
-- `orchestrator_status` — recupera el estado de una ejecución anterior (checkpoint)
+**Orchestrator MCP Agent** (`runs`) — descompone flows en subtareas, coordina agentes especialistas y gestiona gates y checkpoints. Es la capa de *cómo ejecutarlo*:
+
+```
+run_flow("onboarding-empleado", { nombre: "María", depto: "backend" })
+  → t1: hr-agent   → "crear expediente"
+  → t2: it-agent   → "provisionar accesos"  (depends: t1)
+  → gate: manager aprueba antes de continuar
+  → t3: legal-agent → "firmar contratos"    (depends: t1)
+  → t4: writer      → "enviar email bienvenida" (depends: t2, t3)
+```
+
+Tools del orchestrator-mcp-agent expuestas al director:
+- `run_flow` / `start_flow` — inicia un flow definido en config
+- `run_task` — tarea ad-hoc sin flow predefinido
+- `run_status` — estado de una ejecución (checkpoint)
+- `list_runs` — historial de runs
 
 ### 4. Agentes especialistas
 
@@ -182,6 +243,40 @@ Cada agente puede tener asignado un provider distinto según la sensibilidad de 
 |---|---|---|
 | Personal (RRHH, pagos, legal) | `local` (Ollama) | Nunca sale de la empresa |
 | Razonamiento, reportes, código | `deepseek` o `anthropic` | Mayor calidad |
+
+### 5. Auth Service
+
+Servicio de identidad del ecosistema. Emite JWTs que el director usa para RBAC.
+
+- **Stack**: Next.js 14 + Drizzle + SQLite / Turso cloud
+- **Puerto**: 4000
+- **JWT payload**: `role`, `tools[]` (tools del director que puede invocar), `vault[]` (namespaces del vault), `apps[]` (director, vault-manager), `dept`
+- **Setup inicial**: `POST /api/setup` crea el primer admin (endpoint se cierra automáticamente tras el primer uso)
+- **Lockout**: 5 intentos fallidos → bloqueo 5 minutos
+
+El director valida el JWT de cada usuario y hace cumplir `access_control.yaml` usando las `tools[]` del payload.
+
+### 6. Cloud Platform
+
+Control plane de infraestructura para el ecosistema. Gestiona el ciclo de vida de agentes y apps como unidades desplegables.
+
+- **Stack**: NestJS + TypeORM + PostgreSQL
+- **Puerto**: 3100
+- **Runtime adapters**: Docker (disponible), k8s (disponible), process (coming soon)
+- **Auth**: `FlexAuthGuard` — acepta JWT o `X-Api-Key` (M2M para el director)
+
+Dominios:
+
+| Módulo | Responsabilidad |
+|---|---|
+| `Departments` | Unidades organizativas con secrets cifrados inyectados en runtime |
+| `Deployables` | Instancias de agentes/apps con estado de runtime (pending→running→stopped) |
+| `Catalog` | Templates reutilizables con `requiredSecrets` — validados antes del deploy |
+| `Workflows` | Pipelines multi-step con trigger manual/webhook/scheduled |
+| `Director` | Runtime adapter: deploy, stop, logs, metrics, exec |
+| `ApiKeys` | Credenciales M2M `bkc_xxx` — stored as SHA-256, mostradas una sola vez |
+
+El director accede vía `cloud-mcp` (MCP stdio) con 17 tools: `list_departments`, `cloud_deploy`, `cloud_stop`, `run_workflow`, etc.
 
 ---
 
@@ -247,9 +342,21 @@ El flywheel también amplifica errores: una alucinación escrita con `write_know
 
 ## Paquetes del framework
 
+### `packages/core`
+
+Base de todo agente. Define el loop de razonamiento y la infraestructura de tools.
+
+| Módulo | Responsabilidad |
+|---|---|
+| `AgentEngine` | Loop think → act → observe |
+| `ToolRegistry` | Registro y despacho de herramientas |
+| `ProviderRegistry` | Abstracción de LLM providers (OpenAI-compatible) |
+| `Transport` | Canales: WebSocket, Callback, stdio |
+| `Memory` | Episódica, semántica y procedural entre turnos |
+
 ### `packages/enterprise`
 
-Librería central. Contiene:
+Extensión con capacidades de negocio. Usa `core` como base.
 
 | Módulo | Responsabilidad |
 |---|---|
@@ -262,16 +369,37 @@ Librería central. Contiene:
 | `rag/VectorStore` | Índice en memoria (JSON file-backed) |
 | `rag/VaultWriter` | Escribe notas Markdown al vault con frontmatter |
 
-### `packages/orchestrator-agent`
+### `packages/mcp-server`
 
-Delivery layer (MCP server). Usa el enterprise como librería:
+SDK para construir MCP servers con las convenciones de BackendKit. Base de todos los agentes especialistas.
+
+### `packages/coding`
+
+Utilidades compartidas entre agentes de código (bk-coder-v2, design-agent, etc.).
+
+### `agents/director-agent`
+
+Delivery layer del coordinador. Implementa el loop LLM del director, el WebSocket server, el sistema de acceso (JWT + RBAC + vault visibility) y la conexión MCP a todos los especialistas.
+
+| Módulo | Responsabilidad |
+|---|---|
+| `src/server.ts` | WebSocket server + bootstrap de conexiones MCP |
+| `src/director.ts` | Loop principal LLM + tool dispatch |
+| `src/mcpManager.ts` | Gestión del ciclo de vida de procesos MCP hijo |
+| `src/access.ts` | Evaluación de `access_control.yaml` (RBAC capa 1+2) |
+| `src/registry.ts` | Mapa de labels de agentes para el usuario |
+| `director.yaml` | Config: providers, agents, RBAC, vault visibility, audit |
+
+### `agents/orchestrator-mcp-agent`
+
+Delivery layer del orquestador. Descompone flows en subtareas y coordina agentes especialistas.
 
 | Módulo | Responsabilidad |
 |---|---|
 | `src/planner.ts` | TaskPlanner: LLM genera el plan como DAG |
 | `src/executor.ts` | PlanExecutor: ejecución topológica del plan |
 | `src/provider.ts` | OpenAICompatibleProvider con retry exponencial |
-| `src/server.ts` | MCP server con 3 tools públicas |
+| `src/server.ts` | MCP server con tools: `run_flow`, `run_task`, `run_status`, `list_runs` |
 | `src/config.ts` | Carga y valida `orchestrator.yaml` |
 
 ---
@@ -307,7 +435,7 @@ La validación estructural (Capa 1) verifica IDs y ciclos pero **no inspecciona 
 
 ## Storage y BullMQ: estado actual vs. diseño objetivo
 
-### Estado actual (brecha importante)
+### Estado actual
 
 BullMQ y Redis están **subutilizados**. Solo sirven como audit log a través de `EventPublisher`:
 
@@ -320,13 +448,20 @@ publish(event)
 El flujo principal del orquestador es **completamente sincrónico** — no usa BullMQ en ningún punto:
 
 ```
-orchestrator_run(task)
-  → TaskPlanner llama LLM → espera respuesta
-  → PlanExecutor itera subtareas → llama LLM por cada una → espera
+run_flow(flowId, input)
+  → FlowRunner ejecuta pasos en orden → llama LLM por cada uno → espera
   → consolida → retorna
 ```
 
-Los workers que deberían consumir las queues de BullMQ no existen. Es infraestructura declarada sin consumidor.
+Los workers que deberían consumir las queues de BullMQ no existen todavía. Es infraestructura declarada sin consumidor.
+
+**Lo que sí está construido y corre hoy:**
+- Director-agent con RBAC completo (JWT + access_control.yaml + vault visibility + audit)
+- 10 agentes especialistas conectados via MCP (ver tabla en "Ecosistema actual")
+- Auth-service: autenticación, usuarios, roles con tools RBAC
+- Cloud-platform: runtime SPI completo (Docker + k8s), departments, deployables, catalog, workflows, API keys M2M
+- orchestrator-mcp-agent: flows sincrónicos, gates, checkpoints, recovery daemon
+- fleet-agent: deploy vía orchestrator-gateway HTTP
 
 ### Diseño objetivo: BullMQ como coordinador de agentes
 
@@ -851,21 +986,25 @@ Humanos no ejecutan — aprueban o auditan.
 
 ## Lo que falta para llegar a la visión completa
 
-Piezas que el diseño actual no tiene todavía, en orden de criticidad:
+Piezas pendientes, en orden de criticidad. Las marcadas con ✅ ya están construidas.
 
-1. **Gates por defecto en planes dinámicos** — la regla "toda acción con efectos hereda gate" no existe en el código; hoy un plan dinámico estructuralmente válido ejecuta sin frenos
-2. **Policy engine determinístico** — el matching por `applies_to` + frontmatter estructurado; sin esto las políticas dependen del azar del retrieval
-3. **Ejecución durable con `runId`** — `orchestrator_run` debe retornar inmediato y el run vivir en Redis/BullMQ; sin esto los gates de aprobación humana no pueden existir
-4. **BullMQ workers reales** — hoy el flujo es sincrónico; se necesitan workers paralelos con retry
-5. **Contexto de run por Redis** — eliminar la race condition del paso de resultados vía RAG
-6. **Provenance y curación de notas de agentes** — defensa contra el envenenamiento del vault
-7. **Hash chain en auditoría** — convertir "inmutable" de afirmación a garantía
-8. **Verificación cruzada de resultados** — reemplaza al confidence scoring auto-reportado (mal calibrado por naturaleza)
-9. **Dashboard de auditoría** — UI donde los humanos ven lo que pasó, aprueban lo pendiente y revisan excepciones
-10. **Anomaly detection** — detectar cuando un agente toma decisiones fuera de su patrón histórico
-11. **Enforcement de niveles de autonomía** — hoy el nivel por workflow es metadata; el executor debe hacerlo cumplir (qué gates se abren, qué se audita) según el nivel configurado
-12. **Conectores MCP a sistemas de empresa** — cliente MCP en el worker que monta tools externas en el ToolRegistry, con scopes por agente; arrancar con 2-3 conectores de solo-lectura (ERP del cliente piloto + mensajería)
-13. **n8n como sensor de eventos** — el camino n8n → `orchestrator_run` vía webhook, para que eventos de negocio (factura entrante, mensaje de cliente) disparen workflows sin intervención humana; depende de la ejecución durable (`runId`)
+1. ✅ **Auth + RBAC** — JWT con `tools[]` embebidas, access_control.yaml con 5 capas, audit NDJSON
+2. ✅ **Runtime SPI** — Docker adapter (disponible) + k8s adapter (disponible); deploy, stop, logs, exec, list
+3. ✅ **Cloud-platform** — departments, deployables, catalog con `requiredSecrets`, workflows, API keys M2M
+4. ✅ **Director como coordinador MCP** — conecta 10 agentes especialistas vía stdio, restart en caliente
+5. **Gates por defecto en planes dinámicos** — la regla "toda acción con efectos hereda gate" no existe en el código; hoy un plan dinámico estructuralmente válido ejecuta sin frenos
+6. **Policy engine determinístico** — el matching por `applies_to` + frontmatter estructurado; sin esto las políticas dependen del azar del retrieval
+7. **Ejecución durable con `runId`** — `run_flow` debe retornar inmediato y el run vivir en Redis/BullMQ; sin esto los gates de aprobación humana que duran horas no pueden existir
+8. **BullMQ workers reales** — hoy el flujo es sincrónico; se necesitan workers paralelos con retry
+9. **Contexto de run por Redis** — eliminar la race condition del paso de resultados entre subtareas vía RAG
+10. **Provenance y curación de notas de agentes** — defensa contra el envenenamiento del vault
+11. **Hash chain en auditoría** — convertir "inmutable" de afirmación a garantía
+12. **Verificación cruzada de resultados** — reemplaza al confidence scoring auto-reportado (mal calibrado por naturaleza)
+13. **Dashboard de auditoría** — UI donde los humanos ven lo que pasó, aprueban lo pendiente y revisan excepciones
+14. **Anomaly detection** — detectar cuando un agente toma decisiones fuera de su patrón histórico
+15. **Enforcement de niveles de autonomía** — hoy el nivel por workflow es metadata; el executor debe hacerlo cumplir según el nivel configurado
+16. **Conectores MCP a sistemas de empresa** — cliente MCP en el worker que monta tools externas en el ToolRegistry, con scopes por agente; arrancar con 2-3 conectores de solo-lectura (ERP del cliente piloto + mensajería)
+17. **n8n como sensor de eventos** — el camino n8n → `run_flow` vía webhook, para que eventos de negocio (factura entrante, mensaje de cliente) disparen workflows sin intervención humana; depende de la ejecución durable
 
 ---
 

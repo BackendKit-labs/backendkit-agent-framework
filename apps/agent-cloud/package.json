@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Agent-Cloud Backend API",
   "main": "dist/main.js",
+  "types": "./src/types.ts",
   "scripts": {
     "build": "nest build",
     "start": "nest start",

@@ -14,6 +14,16 @@ import "dotenv/config";
 import { McpServer }            from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z }                    from "zod";
+import type {
+    CatalogEntry,
+    DeployedAgentView,
+    DeployResult,
+    Department,
+    Deployable,
+    DirectorMetrics,
+    Workflow,
+    WorkflowRun,
+} from "@backendkit-labs/agent-cloud";
 
 const BASE_URL = (process.env.AGENT_CLOUD_URL ?? "http://localhost:3100").replace(/\/$/, "");
 const API_KEY  = process.env.AGENT_CLOUD_API_KEY;
@@ -22,12 +32,12 @@ const log = (msg: string) => process.stderr.write(`[cloud-mcp] ${msg}\n`);
 
 // ── HTTP helper ────────────────────────────────────────────────────────────────
 
-async function cloud(
+async function cloud<T>(
     method: string,
     path: string,
     body?: unknown,
     timeoutMs = 30_000,
-): Promise<unknown> {
+): Promise<T> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (API_KEY) headers["X-Api-Key"] = API_KEY;
 
@@ -44,7 +54,7 @@ async function cloud(
         try { detail = JSON.stringify(JSON.parse(text)); } catch { /* keep raw */ }
         throw new Error(`HTTP ${res.status} ${res.statusText}: ${detail}`);
     }
-    try { return JSON.parse(text); } catch { return text; }
+    try { return JSON.parse(text) as T; } catch { return text as unknown as T; }
 }
 
 const ok  = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
@@ -67,7 +77,7 @@ t("list_departments",
     async ({ status }: { status?: string }) => {
         try {
             const qs = status ? `?status=${status}` : "";
-            return ok(await cloud("GET", `/departments${qs}`));
+            return ok(await cloud<Department[]>("GET", `/departments${qs}`));
         } catch (e) { return err(e); }
     });
 
@@ -75,7 +85,7 @@ t("get_department",
     "Obtiene el detalle de un departamento incluyendo sus secretos (solo keys, sin valores).",
     { id: z.string().uuid().describe("UUID del departamento") },
     async ({ id }: { id: string }) => {
-        try { return ok(await cloud("GET", `/departments/${id}`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<Department>("GET", `/departments/${id}`)); } catch (e) { return err(e); }
     });
 
 // ── Deployables ────────────────────────────────────────────────────────────────
@@ -96,7 +106,7 @@ t("list_deployables",
             if (kind)   params.set("kind", kind);
             if (status) params.set("status", status);
             const qs = params.size ? `?${params}` : "";
-            return ok(await cloud("GET", `/deployables${qs}`));
+            return ok(await cloud<Deployable[]>("GET", `/deployables${qs}`));
         } catch (e) { return err(e); }
     });
 
@@ -104,7 +114,7 @@ t("get_deployable",
     "Obtiene el estado actual de un deployable específico.",
     { id: z.string().uuid().describe("UUID del deployable") },
     async ({ id }: { id: string }) => {
-        try { return ok(await cloud("GET", `/deployables/${id}`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<Deployable>("GET", `/deployables/${id}`)); } catch (e) { return err(e); }
     });
 
 // ── Director (deploy / stop / métricas) ───────────────────────────────────────
@@ -120,7 +130,7 @@ t("cloud_deploy",
     },
     async ({ deployable_id, image, env }: { deployable_id: string; image?: string; env?: Record<string, string> }) => {
         try {
-            return ok(await cloud("POST", "/director/deploy", { deployableId: deployable_id, image, env }, 120_000));
+            return ok(await cloud<DeployResult>("POST", "/director/deploy", { deployableId: deployable_id, image, env }, 120_000));
         } catch (e) { return err(e); }
     });
 
@@ -128,7 +138,7 @@ t("cloud_stop",
     "Detiene un deployable en ejecución en agent-cloud.",
     { deployable_id: z.string().uuid().describe("UUID del deployable a detener") },
     async ({ deployable_id }: { deployable_id: string }) => {
-        try { return ok(await cloud("POST", `/director/${deployable_id}/stop`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<{ message: string }>("POST", `/director/${deployable_id}/stop`)); } catch (e) { return err(e); }
     });
 
 t("cloud_metrics",
@@ -136,14 +146,14 @@ t("cloud_metrics",
     "distribución por kind (agent/app) y por estado, uptime y uso de memoria.",
     {},
     async () => {
-        try { return ok(await cloud("GET", "/director/metrics")); } catch (e) { return err(e); }
+        try { return ok(await cloud<DirectorMetrics>("GET", "/director/metrics")); } catch (e) { return err(e); }
     });
 
 t("cloud_deployed_agents",
     "Lista los agentes actualmente desplegados y su estado de runtime en agent-cloud.",
     {},
     async () => {
-        try { return ok(await cloud("GET", "/director/agents")); } catch (e) { return err(e); }
+        try { return ok(await cloud<DeployedAgentView[]>("GET", "/director/agents")); } catch (e) { return err(e); }
     });
 
 // ── Catalog ────────────────────────────────────────────────────────────────────
@@ -160,7 +170,7 @@ t("list_catalog",
     async ({ category }: { category?: string }) => {
         try {
             const qs = category ? `?category=${encodeURIComponent(category)}` : "";
-            return ok(await cloud("GET", `/catalog${qs}`));
+            return ok(await cloud<CatalogEntry[]>("GET", `/catalog${qs}`));
         } catch (e) { return err(e); }
     });
 
@@ -169,7 +179,7 @@ t("get_catalog_entry",
     "Incluye requiredSecrets — las claves que el departamento DEBE tener configuradas antes de desplegar.",
     { id: z.string().uuid().describe("UUID de la CatalogEntry") },
     async ({ id }: { id: string }) => {
-        try { return ok(await cloud("GET", `/catalog/${id}`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<CatalogEntry>("GET", `/catalog/${id}`)); } catch (e) { return err(e); }
     });
 
 t("create_catalog_entry",
@@ -195,7 +205,7 @@ t("create_catalog_entry",
         kind?: string; image: string; env?: Record<string, string>; defaultModel?: string;
         runtime?: string; requiredSecrets?: string[]; isPublic?: boolean;
     }) => {
-        try { return ok(await cloud("POST", "/catalog", dto)); } catch (e) { return err(e); }
+        try { return ok(await cloud<CatalogEntry>("POST", "/catalog", dto)); } catch (e) { return err(e); }
     });
 
 t("update_catalog_entry",
@@ -213,7 +223,7 @@ t("update_catalog_entry",
         isPublic:        z.boolean().optional(),
     },
     async ({ id, ...body }: { id: string; [k: string]: unknown }) => {
-        try { return ok(await cloud("PATCH", `/catalog/${id}`, body)); } catch (e) { return err(e); }
+        try { return ok(await cloud<CatalogEntry>("PATCH", `/catalog/${id}`, body)); } catch (e) { return err(e); }
     });
 
 // ── Workflows ──────────────────────────────────────────────────────────────────
@@ -231,7 +241,7 @@ t("list_workflows",
             if (department_id) params.set("departmentId", department_id);
             if (status) params.set("status", status);
             const qs = params.size ? `?${params}` : "";
-            return ok(await cloud("GET", `/workflows${qs}`));
+            return ok(await cloud<Workflow[]>("GET", `/workflows${qs}`));
         } catch (e) { return err(e); }
     });
 
@@ -239,7 +249,7 @@ t("get_workflow",
     "Obtiene la definición completa de un workflow, incluyendo sus steps ordenados.",
     { id: z.string().uuid().describe("UUID del workflow") },
     async ({ id }: { id: string }) => {
-        try { return ok(await cloud("GET", `/workflows/${id}`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<Workflow>("GET", `/workflows/${id}`)); } catch (e) { return err(e); }
     });
 
 t("run_workflow",
@@ -252,7 +262,7 @@ t("run_workflow",
     },
     async ({ workflow_id, input }: { workflow_id: string; input?: Record<string, unknown> }) => {
         try {
-            return ok(await cloud("POST", `/workflows/${workflow_id}/run`, { input }));
+            return ok(await cloud<WorkflowRun>("POST", `/workflows/${workflow_id}/run`, { input }));
         } catch (e) { return err(e); }
     });
 
@@ -260,7 +270,7 @@ t("list_workflow_runs",
     "Lista el historial de ejecuciones de un workflow.",
     { workflow_id: z.string().uuid().describe("UUID del workflow") },
     async ({ workflow_id }: { workflow_id: string }) => {
-        try { return ok(await cloud("GET", `/workflows/${workflow_id}/runs`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<WorkflowRun[]>("GET", `/workflows/${workflow_id}/runs`)); } catch (e) { return err(e); }
     });
 
 t("get_workflow_run",
@@ -268,7 +278,7 @@ t("get_workflow_run",
     "Incluye status, input, output y error si falló.",
     { run_id: z.string().uuid().describe("UUID del WorkflowRun") },
     async ({ run_id }: { run_id: string }) => {
-        try { return ok(await cloud("GET", `/workflows/runs/${run_id}`)); } catch (e) { return err(e); }
+        try { return ok(await cloud<WorkflowRun>("GET", `/workflows/runs/${run_id}`)); } catch (e) { return err(e); }
     });
 
 // ── Boot ───────────────────────────────────────────────────────────────────────

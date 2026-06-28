@@ -237,11 +237,11 @@ Tarea de código, flujo conversacional, un dominio:
   → bk-agent: general → backend + security + QA, streaming en tiempo real
 ```
 
-### El director AUTORA el diseño (modelo actual con bk-coder-v2)
+### El director AUTORA el diseño (modelo actual con bk-coder)
 
-Para proyectos nuevos vía el coder (bk-coder-v2), el director **no delega la generación del diseño** —
+Para proyectos nuevos vía el coder (bk-coder), el director **no delega la generación del diseño** —
 la **autora él mismo**, porque tiene el contexto humano completo. Esto evita que el coder re-decida y
-diverja de lo acordado. (Ver ADR-009/010 en `bk-coder-v2/design.md`.)
+diverja de lo acordado. (Ver ADR-009/010 en `bk-coder/design.md`.)
 
 ```
 Director:
@@ -256,7 +256,7 @@ Director:
 
 **Multi-proyecto:** las tools del coder y `project_write_specs` aceptan `project`/`projectId`
 explícito → bindean por id, inmune a un `project_switch` concurrente. `orchestrator_design` queda como
-fallback headless. Ver `bk-coder-v2/specification.md` §2.3 y `design.md` ADR-009/010.
+fallback headless. Ver `bk-coder/specification.md` §2.3 y `design.md` ADR-009/010.
 
 ### La combinación ideal — árbol completo del ecosistema
 
@@ -680,7 +680,7 @@ necesita ese secreto depende de si **verifica la firma** o solo reenvía el toke
 | **schedule-agent** (scheduling one-time + cron → ejecuta flows) | ✅ conectado + RBAC |
 | **health-checker** (monitoreo del ecosistema completo) | ✅ conectado + RBAC |
 | **notification-agent** (notificaciones multi-canal: email, Slack, Telegram, push) | ✅ conectado + RBAC |
-| **coder** (bk-coder-v2/orchestrator — SDD: backend, QA, security, infra) | ✅ conectado + RBAC |
+| **coder** (bk-coder/orchestrator — SDD: backend, QA, security, infra) | ✅ conectado + RBAC |
 | Auto-aprendizaje: ReflectionEngine + PatternDetector | ⬜ |
 | Síntesis de skills vía synthesizer-agent | ⬜ |
 | SkillManager integrado al engine | ⬜ |

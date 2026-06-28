@@ -19,7 +19,14 @@ async function init() {
 
 export async function POST(req: NextRequest) {
     await init();
-    const { username, password } = await req.json() as { username: string; password: string };
+
+    let body: { username?: string; password?: string };
+    try {
+        body = await req.json() as { username?: string; password?: string };
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON con username y password' }, { status: 400 });
+    }
+    const { username, password } = body;
 
     if (!username || !password) {
         return NextResponse.json({ error: 'username y password requeridos' }, { status: 400 });

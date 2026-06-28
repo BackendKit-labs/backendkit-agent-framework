@@ -16,9 +16,13 @@ export async function POST(req: NextRequest) {
     if (!await adminFromRequest(req))
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { name, label, description, tools } = await req.json() as {
-        name: string; label: string; description?: string; tools?: string[];
-    };
+    let body: { name?: string; label?: string; description?: string; tools?: string[] };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
+    const { name, label, description, tools } = body;
 
     if (!name?.trim() || !label?.trim())
         return NextResponse.json({ error: 'name y label son requeridos' }, { status: 400 });

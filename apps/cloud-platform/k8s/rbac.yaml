@@ -1,0 +1,35 @@
+# RBAC for cloud-platform when running inside the cluster.
+# The service account is used by the cloud-platform pod to manage Deployments and Services
+# in the cloud-platform namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloud-platform
+  namespace: cloud-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloud-platform-runtime
+  namespace: cloud-platform
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "pods/exec", "namespaces"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloud-platform-runtime
+  namespace: cloud-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cloud-platform-runtime
+subjects:
+  - kind: ServiceAccount
+    name: cloud-platform
+    namespace: cloud-platform

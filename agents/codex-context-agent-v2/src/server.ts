@@ -938,7 +938,22 @@ async function startStdio(ctx: ProjectContext, engine: KnowledgeEngine, curation
 }
 
 async function startHttp(port: number, ctx: ProjectContext, engine: KnowledgeEngine, curation: CurationState, audit?: CodexAuditLogger): Promise<void> {
+    const startedAt = Date.now();
     const server = http.createServer(async (req, res) => {
+        // Health probe (agent-image contract): GET /health and GET /.
+        if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                status: 'healthy',
+                agentId: process.env.AGENT_ID ?? null,
+                type: process.env.AGENT_TYPE ?? 'knowledge-vault',
+                project: ctx.projectName,
+                curating: curation.activeJobs > 0,
+                uptime: Math.round((Date.now() - startedAt) / 1000),
+            }));
+            return;
+        }
+
         if (req.method !== 'POST' || req.url !== '/mcp') {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Use POST /mcp' }));

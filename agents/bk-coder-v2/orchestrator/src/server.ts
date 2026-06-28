@@ -48,8 +48,58 @@ import { getAuditLogger }                         from './audit.js';
 const ok  = (text: string) => ({ content: [{ type: 'text' as const, text }] });
 const ts  = () => new Date().toISOString();
 
-function resolveProjectRoot(): string | undefined {
-    try { return new WorkspaceManager().current().root; } catch { return undefined; }
+/**
+ * Resolves a project root. With an explicit `project` (id/name) it binds to THAT project —
+ * immune to a concurrent project_switch that flips the global active project. Without it,
+ * falls back to the active project (single-project convenience). getRoot() handles both.
+ */
+function resolveProjectRoot(project?: string): string | undefined {
+    try { return new WorkspaceManager().getRoot(project).root; } catch { return undefined; }
+}
+
+/** Project display name for an explicit id/name, else the active project's name. */
+function resolveProjectName(project?: string): string {
+    try { return new WorkspaceManager().getRoot(project).name; } catch { return 'proyecto'; }
+}
+
+// Coder's bundled orchestrator.yaml (dist/server.js → ../orchestrator.yaml at package root).
+const DEFAULT_CONFIG_PATH = path.join(
+    path.resolve(fileURLToPath(import.meta.url), '..', '..'),
+    'orchestrator.yaml',
+);
+
+/**
+ * Resolves the orchestrator.yaml path so callers (and the director's LLM) never
+ * have to guess it. Each candidate is only accepted if the file actually exists,
+ * so a wrong explicit path or stale env var degrades gracefully instead of
+ * throwing "Config not found". Resolution order:
+ *   1. Explicit `config_path` argument (backward compatible).
+ *   2. ORCHESTRATOR_CONFIG env var.
+ *   3. `<activeProjectRoot>/orchestrator.yaml` if the active project ships one.
+ *   4. The coder's bundled default config.
+ */
+function resolveConfigPath(explicit?: string): string {
+    if (explicit && explicit.trim()) {
+        const resolved = path.resolve(explicit);
+        if (fs.existsSync(resolved)) return resolved;
+        process.stderr.write(
+            `[orchestrator-agent] config_path "${resolved}" not found — falling back to auto-resolution\n`,
+        );
+    }
+
+    const env = process.env['ORCHESTRATOR_CONFIG'];
+    if (env && env.trim()) {
+        const resolved = path.resolve(env);
+        if (fs.existsSync(resolved)) return resolved;
+    }
+
+    const root = resolveProjectRoot();
+    if (root) {
+        const candidate = path.join(root, 'orchestrator.yaml');
+        if (fs.existsSync(candidate)) return candidate;
+    }
+
+    return DEFAULT_CONFIG_PATH;
 }
 
 // ── Data directory + RunStore ─────────────────────────────────────────────────
@@ -309,7 +359,7 @@ async function executeInBackground(
         ragSearchFn:  rag?.search,
         reflection,
         episodicFn:   queue ? undefined : buildEpisodicFn(store),
-        projectRoot:  resolveProjectRoot(),
+        projectRoot:  state.projectRoot ?? resolveProjectRoot(),   // bound at run creation — no re-resolve race
         // BullMQ: dispatch via Redis queue so external worker processes execute the step
         dispatchFn: queue
             ? (subtask, pr) => queue.dispatch(subtask, pr, configPath)
@@ -431,6 +481,7 @@ async function startRun(
     task:       string,
     flowId?:    string,
     payload:    Record<string, string> = {},
+    project?:   string,
 ): Promise<StartRunOk | { error: string }> {
     let config: OrchestratorConfig;
     try { config = loadConfig(configPath); }
@@ -474,7 +525,7 @@ async function startRun(
     if ('error' in plan) return { error: (plan as { error: string }).error };
 
     const runId = store.newRunId();
-    await store.save({ runId, task, configPath, projectRoot: resolveProjectRoot(), status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
+    await store.save({ runId, task, configPath, projectRoot: resolveProjectRoot(project), status: 'running', startedAt: ts(), updatedAt: ts(), plan, completedSteps: [] });
 
     setImmediate(() => {
         executeInBackground(runId, configPath, config, plan, rag).catch(async err => {
@@ -537,6 +588,7 @@ async function executeSddInBackground(
                     gateId: `phase-${step.phase}`, stepId: `qa-p${step.phase}`, agentId: 'qa',
                     output: step.qaOutput, criteria: step.criteria, requestedAt: ts(),
                     verdict: step.verdict, phase: step.phase, allowRework: step.allowRework,
+                    executionReport: step.executionReport,
                 },
             });
             audit.write({ event: 'gate.hit', runId, task: cur.task, stepId: `qa-p${step.phase}`, agentId: 'qa', extra: { phase: step.phase, verdict: step.verdict } });
@@ -547,13 +599,15 @@ async function executeSddInBackground(
     }
 }
 
-async function startSdd(configPath: string): Promise<{ runId: string; phaseTitles: string[] } | { error: string }> {
+async function startSdd(configPath: string, project?: string): Promise<{ runId: string; phaseTitles: string[] } | { error: string }> {
     let config: OrchestratorConfig;
     try { config = loadConfig(configPath); }
     catch (err) { return { error: `Config error: ${err instanceof Error ? err.message : String(err)}` }; }
 
-    const projectRoot = resolveProjectRoot();
-    if (!projectRoot) return { error: 'No hay proyecto activo. Usá el workspace-manager para crear/activar un proyecto.' };
+    const projectRoot = resolveProjectRoot(project);
+    if (!projectRoot) return { error: project
+        ? `Proyecto '${project}' no encontrado. Listá con project_list o creá uno con project_create.`
+        : 'No hay proyecto activo. Activá uno (project_switch) o pasá `project` explícito.' };
 
     const rag    = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
     const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot, ragSearchFn: rag?.search });
@@ -562,7 +616,7 @@ async function startSdd(configPath: string): Promise<{ runId: string; phaseTitle
     }
 
     const store = await getStore(configPath, config);
-    const wm    = (() => { try { return new WorkspaceManager().current().name; } catch { return 'proyecto'; } })();
+    const wm    = resolveProjectName(project);
     const runId = store.newRunId();
     const state = runner.initialState();
 
@@ -597,16 +651,18 @@ srv.tool(
     'orchestrator_run',
     'Start a coordinated multi-agent task. Automatically uses a pre-defined static flow if the task matches one; otherwise the LLM plans dynamically. Returns a runId immediately — poll with orchestrator_status. Use orchestrator_approve when a gate is reached.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
         task:        z.string().describe('Task description in natural language'),
         flow_id:     z.string().optional().describe('Force a specific static flow ID instead of auto-detection'),
         payload:     z.record(z.string()).optional().describe(
             'Key-value pairs for {{payload.key}} interpolation in static flow templates ' +
             '(e.g. {"nombre": "Juan", "puesto": "Developer", "fecha_ingreso": "2026-07-01"})',
         ),
+        project:     z.string().optional().describe('Explicit project id/name to bind this run to. Recommended when multiple projects exist — resolves the project root by id instead of the global active project (immune to a concurrent project_switch). Omit to use the active project.'),
     },
-    async ({ config_path, task, flow_id, payload = {} }) => {
-        const result = await startRun(config_path, task, flow_id, payload);
+    async ({ config_path: cfgPathArg, task, flow_id, payload = {}, project }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
+        const result = await startRun(config_path, task, flow_id, payload, project);
         if ('error' in result) return ok(result.error);
         getAuditLogger(config_path).write({
             event: 'run.start', runId: result.runId, task, planSource: result.planSource,
@@ -645,19 +701,22 @@ srv.tool(
     'orchestrator_design',
     'Generate the SDD design artifacts (specification.md, design.md, ROADMAP.md) for the ACTIVE project, written into its .specs/ directory. This is the prerequisite for orchestrator_sdd. The project root is resolved from the workspace-manager active project — switch/create the project first. Takes a feature description in natural language.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
         feature:     z.string().describe('Feature description in natural language — what to specify and design'),
+        project:     z.string().optional().describe('Explicit project id/name to write .specs/ into. Recommended with multiple projects — binds the design to that project (immune to a concurrent project_switch). Omit to use the active project.'),
     },
-    async ({ config_path, feature }) => {
+    async ({ config_path: cfgPathArg, feature, project }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         let config: OrchestratorConfig;
         try { config = loadConfig(config_path); }
         catch (err) { return ok(`Config error: ${err instanceof Error ? err.message : String(err)}`); }
 
-        const projectRoot = resolveProjectRoot();
-        if (!projectRoot) return ok('No hay proyecto activo. Creá/activá un proyecto con el workspace-manager (project_create / project_switch) antes de diseñar.');
+        const projectRoot = resolveProjectRoot(project);
+        if (!projectRoot) return ok(project
+            ? `Proyecto '${project}' no encontrado. Listá con project_list o creá uno con project_create.`
+            : 'No hay proyecto activo. Creá/activá un proyecto (project_create / project_switch) o pasá `project` explícito antes de diseñar.');
 
-        let projectName = 'proyecto';
-        try { projectName = new WorkspaceManager().current().name; } catch { /* keep default */ }
+        const projectName = resolveProjectName(project);
 
         try {
             const art = await generateDesign(config, projectRoot, feature);
@@ -693,10 +752,12 @@ srv.tool(
     'orchestrator_sdd',
     'Start a Spec-Driven Development run over the active project\'s ROADMAP.md. Implements each phase, runs QA, and pauses at a gate with the QA verdict (GO/NO_GO/CONDITIONAL). Returns a runId immediately — poll with orchestrator_status. At each gate use orchestrator_approve: approved=true advances to the next phase, rework=true re-implements the phase with the QA findings, approved=false rejects. Requires the project to have .specs/ROADMAP.md (generate design first).',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
+        project:     z.string().optional().describe('Explicit project id/name to run SDD on. Recommended with multiple projects — binds to that project\'s .specs/ROADMAP.md (immune to a concurrent project_switch). Omit to use the active project.'),
     },
-    async ({ config_path }) => {
-        const result = await startSdd(config_path);
+    async ({ config_path: cfgPathArg, project }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
+        const result = await startSdd(config_path, project);
         if ('error' in result) return ok(result.error);
 
         getAuditLogger(config_path).write({
@@ -729,13 +790,14 @@ srv.tool(
     'orchestrator_approve',
     'Approve or reject a gate that paused a running orchestration. If approved, execution resumes automatically. For SDD phase gates, set rework=true to re-implement the phase with the QA findings instead of advancing.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml — same value used in orchestrator_run'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — auto-resolved if omitted; must match the value used when the run was started.'),
         run_id:      z.string().describe('Run ID returned by orchestrator_run / orchestrator_sdd'),
         approved:    z.boolean().describe('true to approve and continue, false to reject and stop'),
         rework:      z.boolean().optional().describe('SDD only: true to re-implement the current phase with the QA findings (instead of advancing). Ignored for static gates.'),
         notes:       z.string().optional().describe('Optional notes from the approver (required when rejecting)'),
     },
-    async ({ config_path, run_id, approved, rework, notes }) => {
+    async ({ config_path: cfgPathArg, run_id, approved, rework, notes }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         let config: OrchestratorConfig;
         try {
             config = loadConfig(config_path);
@@ -770,7 +832,7 @@ srv.tool(
             const projectRoot = state.projectRoot ?? resolveProjectRoot();
             if (!projectRoot) return ok('Run sin projectRoot — no se puede reanudar el SDD.');
             const rag    = await buildRAG(config, resolveDataDir(config_path, config)).catch(() => null);
-            const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(configPath)), projectRoot, ragSearchFn: rag?.search });
+            const runner = new PhaseRunner({ config, configDir: path.dirname(path.resolve(config_path)), projectRoot, ragSearchFn: rag?.search });
 
             const decision: 'approve' | 'rework' = rework ? 'rework' : 'approve';
             runner.advance(ps, decision, gate.output);
@@ -874,9 +936,10 @@ srv.tool(
     'orchestrator_list_agents',
     'List all specialist agents configured in orchestrator.yaml with their capabilities.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
     },
-    async ({ config_path }) => {
+    async ({ config_path: cfgPathArg }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         let config: OrchestratorConfig;
         try {
             config = loadConfig(config_path);
@@ -914,10 +977,11 @@ srv.tool(
     'orchestrator_status',
     'Get the status of a running or completed orchestration by runId.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml — same value used in orchestrator_run'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — auto-resolved if omitted; must match the value used when the run was started.'),
         run_id:      z.string().describe('Run ID returned by orchestrator_run'),
     },
-    async ({ config_path, run_id }) => {
+    async ({ config_path: cfgPathArg, run_id }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         const state = await (await getStore(config_path)).load(run_id);
         if (!state) return ok(`Run not found: ${run_id}`);
 
@@ -975,9 +1039,10 @@ srv.tool(
     'orchestrator_reflect',
     'View enterprise reflection status: pending pattern promotions, active policy rules, and demotion candidates. Call this to understand what the system has learned from gate outcomes and to decide what to promote or demote.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
     },
-    async ({ config_path }) => {
+    async ({ config_path: cfgPathArg }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         let config: OrchestratorConfig;
         try { config = loadConfig(config_path); }
         catch (err) { return ok(`Config error: ${err instanceof Error ? err.message : String(err)}`); }
@@ -1074,13 +1139,14 @@ srv.tool(
     'orchestrator_reflect_promote',
     'Approve or reject a pending pattern promotion. Approving writes a deterministic policy rule to manifest.yaml — enforced automatically on every matching step (Cable 2). Rejecting discards the promotion with an audit note in the failure catalog.',
     {
-        config_path:  z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path:  z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
         promotion_id: z.string().describe('Promotion identifier in format "domain::failureType" — copy from orchestrator_reflect output'),
         approved:     z.boolean().describe('true to create a policy rule; false to discard'),
         approver:     z.string().describe('Identity of the human approver (name or email — written to the audit trail)'),
         reason:       z.string().optional().describe('Required when rejecting; optional context note when approving'),
     },
-    async ({ config_path, promotion_id, approved, approver, reason }) => {
+    async ({ config_path: cfgPathArg, promotion_id, approved, approver, reason }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         if (!approved && !reason) {
             return ok('reason is required when rejecting a promotion.');
         }
@@ -1157,12 +1223,13 @@ srv.tool(
     'orchestrator_reflect_demote',
     'Approve demotion of an active policy rule with a high failure rate. Removes it from manifest.yaml with a full audit trail written to the failure catalog. Symmetric with orchestrator_reflect_promote — the rulebook only changes in either direction with explicit human approval.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
         rule_id:     z.string().describe('Rule ID to demote — copy from orchestrator_reflect demotion candidates'),
         approver:    z.string().describe('Identity of the human approver (name or email)'),
         reason:      z.string().describe('Reason for demotion — written to the audit trail'),
     },
-    async ({ config_path, rule_id, approver, reason }) => {
+    async ({ config_path: cfgPathArg, rule_id, approver, reason }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         let config: OrchestratorConfig;
         try { config = loadConfig(config_path); }
         catch (err) { return ok(`Config error: ${err instanceof Error ? err.message : String(err)}`); }
@@ -1216,13 +1283,14 @@ srv.tool(
     'orchestrator_list_runs',
     'List all persisted orchestration runs with their current status. Runs survive server restarts — use this to see what happened before a restart or to find a run_id.',
     {
-        config_path: z.string().describe('Absolute path to orchestrator.yaml'),
+        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — if omitted, resolved from ORCHESTRATOR_CONFIG env, the active project root, or the coder\'s bundled default config.'),
         status: z.enum(['running', 'waiting_gate', 'complete', 'failed', 'all']).default('all')
             .describe('Filter by status. Default: all'),
         limit: z.number().int().min(1).max(100).default(20)
             .describe('Maximum number of runs to return (most recent first). Default: 20'),
     },
-    async ({ config_path, status, limit }) => {
+    async ({ config_path: cfgPathArg, status, limit }) => {
+        const config_path = resolveConfigPath(cfgPathArg);
         const all  = await (await getStore(config_path)).list();
         const runs = (status === 'all' ? all : all.filter(r => r.status === status))
             .slice(0, limit);

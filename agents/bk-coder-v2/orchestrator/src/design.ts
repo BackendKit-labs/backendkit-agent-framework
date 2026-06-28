@@ -59,6 +59,16 @@ Structure:
 ## Architecture Overview
 Brief description of the technical approach.
 
+## Project Structure
+Declare the top-level directory layout the implementation MUST follow, so each concern lives
+in its own tree and frontend/backend never mix.
+- Single-domain project (only backend, OR only frontend): a single \`src/\` tree.
+- Full-stack project (UI + API in the same repo): SEPARATE top-level trees, e.g. \`backend/\`
+  (server code) and \`frontend/\` (UI). NEVER place UI (.tsx/.jsx) inside a backend tree, nor
+  server code inside a frontend tree.
+- If the feature only consumes an EXISTING backend, it is frontend-only — do NOT scaffold a backend.
+List each top-level directory and what it holds. The ROADMAP's file paths MUST match this layout.
+
 ## ADRs
 ### ADR-001: {Decision Title}
 - **Status:** Accepted
@@ -81,15 +91,19 @@ ASCII diagram of components and their relationships
 const ROADMAP_SYSTEM = `You are a senior software architect writing ROADMAP.md for incremental implementation.
 Output ONLY valid markdown — no preamble, no explanation outside the document.
 Each phase must be implementable in a single focused LLM session (~500 lines of code max).
+Each phase has ONE primary domain, and is implemented by that single specialist. If work spans
+domains (e.g. an API endpoint AND its UI), SPLIT it into separate phases — never mix frontend and
+backend in one phase. Use the Project Structure from design.md for every file path.
 
 Structure:
 # ROADMAP — {feature}
 
 ## Phase 1: {Title}
+**Domain:** backend | frontend | infra | data    (the single specialist that implements this phase)
 **Goal:** What this phase achieves.
 **Files to create:**
-- \`src/...\` — description
-- \`src/...\` — description
+- \`backend/src/...\` or \`frontend/src/...\` — paths MUST match the Project Structure in design.md
+- \`...\` — description
 
 **Completion criteria:**
 - [ ] Specific verifiable criterion 1

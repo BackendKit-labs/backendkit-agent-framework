@@ -17,7 +17,13 @@ export async function POST(req: NextRequest) {
     if (!await adminFromRequest(req))
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { name, description } = await req.json() as { name: string; description?: string };
+    let body: { name?: string; description?: string };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON' }, { status: 400 });
+    }
+    const { name, description } = body;
     if (!name?.trim())
         return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 });
 

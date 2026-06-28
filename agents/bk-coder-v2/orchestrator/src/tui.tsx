@@ -969,14 +969,20 @@ function App({ configPath, config, store, rag }: AppProps) {
                   : view === 'design'          ? 7
                   : view === 'qa-question'     ? 6
                   : 0;
-    const bodyH = termRows - HEADER_H - dialogH;
+    // Leave one row free: Ink's log-update writes the frame + a trailing newline.
+    // If the frame fills all `termRows` lines, that newline scrolls the terminal by
+    // one, the cursor-up clear count goes stale, and Ink reprints the whole frame on
+    // every render (the spinner ticks ~12×/s → a waterfall). Keeping the frame at
+    // termRows-1 lets it redraw in place.
+    const screenH = Math.max(3, termRows - 1);
+    const bodyH = screenH - HEADER_H - dialogH;
 
     // How many list items fit (bodyH minus 2 borders minus 3 header lines in panel)
     const maxListItems = Math.max(1, bodyH - 4);
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <Box flexDirection="column" height={termRows} width={termCols}>
+        <Box flexDirection="column" height={screenH} width={termCols}>
 
             {/* ── Header — fixed 3 lines ──────────────────────────────────── */}
             <Box borderStyle="single" paddingX={1} gap={2}>

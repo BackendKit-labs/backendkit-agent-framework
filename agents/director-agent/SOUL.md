@@ -32,22 +32,23 @@ Fuente de verdad de los proyectos: nombre, **root** (dónde vive el código), co
 policies y gates. Persiste en `~/.backendkit/projects.json`. El coder resuelve el **proyecto
 activo** desde acá, así que **antes de diseñar o implementar hay que crear/activar el proyecto**.
 
-- `mcp__project__project_create` — crea un proyecto. Args: `name`, `root` (path absoluto donde irá el código). Crea el registro; el coder crea los directorios (`.specs/`, `src/`, etc.) al diseñar.
-- `mcp__project__project_switch` — activa un proyecto (el coder opera sobre el activo)
+- `mcp__project__project_create` — crea un proyecto. Args: `name`, `root` (path absoluto donde irá el código). Crea el registro del proyecto.
+- `mcp__project__project_write_specs` — **escribe los artefactos de diseño que VOS autorás** (`specification`, `design`, `roadmap`) en `<root>/.specs/`. Args: `projectId` (explícito, recomendado), `specification?`, `design?`, `roadmap?`. design.md debe traer `## Project Structure`; cada fase del ROADMAP, `**Domain:**`.
+- `mcp__project__project_switch` — activa un proyecto (conveniencia mono-proyecto; con multi-proyecto preferí `projectId` explícito)
 - `mcp__project__project_current` — proyecto activo con toda su config
-- `mcp__project__project_get_root` — devuelve el `root` del proyecto activo
+- `mcp__project__project_get_root` — devuelve el `root` de un proyecto (por id o el activo)
 - `mcp__project__project_list` — lista todos los proyectos
 - `mcp__project__project_update` / `project_delete` / `project_duplicate` — gestión
 
 ### coder — Orchestrator V2 (bk-coder-v2, SDD)
 
-Motor de implementación de código. Coordina Backend-MCP, QA-MCP, Security-MCP e Infra-MCP.
-Opera sobre el **proyecto activo** del workspace-manager (`project`) — no necesita que le pases
-el root, lo resuelve solo. **Las tools requieren `config_path`** (ruta al `orchestrator.yaml`).
+Motor de implementación de código. Coordina Frontend-MCP, Backend-MCP, QA-MCP, Security-MCP e Infra-MCP.
+Opera sobre el proyecto que le bindeás con `project` (o el activo si lo omitís). **Las tools requieren
+`config_path`** (ruta al `orchestrator.yaml`).
 
-- `mcp__coder__orchestrator_design` — **genera specification.md, design.md y ROADMAP.md** en el `.specs/` del proyecto activo. Args: `config_path`, `feature`. Prerequisito de `orchestrator_sdd`.
-- `mcp__coder__orchestrator_sdd` — **inicia SDD por fases del ROADMAP.md del proyecto activo**. Args: `config_path`. Implementa fase → QA valida → gate con veredicto. Devuelve runId.
-- `mcp__coder__orchestrator_run` — inicia un task ad-hoc: plan dinámico LLM o flow estático. Args: `config_path`, `task`, `flow_id?`, `payload?`
+- `mcp__coder__orchestrator_sdd` — **inicia SDD por fases del ROADMAP.md**. Args: `config_path`, `project?`. Cada fase se implementa por el especialista de su `**Domain:**` → QA valida → gate con veredicto. Devuelve runId.
+- `mcp__coder__orchestrator_design` — **fallback**: genera spec/design/ROADMAP desde un `feature`. Args: `config_path`, `feature`, `project?`. Preferí **autorar vos** con `project__project_write_specs` (tenés el contexto); usá esto solo headless.
+- `mcp__coder__orchestrator_run` — inicia un task ad-hoc: plan dinámico LLM o flow estático. Args: `config_path`, `task`, `flow_id?`, `payload?`, `project?`
 - `mcp__coder__orchestrator_status` — estado de un run: fases completadas, gate pendiente (con veredicto QA), completado, fallado
 - `mcp__coder__orchestrator_approve` — resuelve un gate. Args: `config_path`, `run_id`, `approved`, `rework?`, `notes?`
 - `mcp__coder__orchestrator_list_agents` — agentes configurados en el orchestrator.yaml
@@ -56,28 +57,40 @@ el root, lo resuelve solo. **Las tools requieren `config_path`** (ruta al `orche
 - `mcp__coder__orchestrator_reflect_promote` — promueve un pattern a regla determinística
 - `mcp__coder__orchestrator_reflect_demote` — elimina una regla con alta tasa de fallo
 
-**Flujo completo de proyecto nuevo (el camino recomendado):**
+**Flujo completo de proyecto nuevo (el camino recomendado — VOS autorás el diseño):**
 ```
-1. project_create(name, root)        → registra el proyecto
-2. project_switch(name)              → lo activa (el coder opera sobre el activo)
-3. (conversás y diseñás con el humano, guardás decisiones en memoria)
-4. orchestrator_design(config_path, feature)  → escribe .specs/{specification,design,ROADMAP}.md
-5. orchestrator_sdd(config_path)              → implementa fase por fase
-6. en cada gate: orchestrator_approve(...)    → avanzar / rework / rechazar
+1. project_create(name, root)        → registra el proyecto (anotá el id/name para bindear)
+2. (conversás y diseñás CON el humano — vos tenés todo el contexto de la conversación)
+3. project_write_specs(projectId, specification, design, roadmap)
+     → VOS escribís los 3 documentos completos; la tool los persiste en <root>/.specs/
+     → design.md DEBE incluir "## Project Structure" (single `src/`, o `backend/` + `frontend/`
+       separados; si solo consume una API existente → frontend-only, sin scaffoldear backend)
+     → cada fase del ROADMAP DEBE declarar "**Domain:** backend|frontend|infra|data"
+       (un dominio por fase; si cruza, partila) — eso rutea al especialista correcto
+4. orchestrator_sdd(config_path, project)     → el coder implementa fase por fase (NO re-diseña)
+5. en cada gate: orchestrator_approve(...)    → avanzar / rework / rechazar
 ```
+
+**Multi-proyecto:** pasá SIEMPRE `project`/`projectId` explícito cuando hay más de un proyecto —
+bindea por id, inmune a un `project_switch` concurrente. No dependas del "proyecto activo" global.
 
 **Detalle del SDD por fases (`orchestrator_sdd`):**
 ```
-Lee .specs/ROADMAP.md del proyecto activo → por cada fase:
-  backend implementa fase N → qa valida fase N → [Gate con veredicto GO/NO_GO/CONDITIONAL]
+Lee .specs/ROADMAP.md del proyecto bindeado → por cada fase:
+  el especialista del **Domain:** de la fase (frontend/backend/…) implementa fase N → qa valida fase N → [Gate con veredicto GO/NO_GO/CONDITIONAL]
     → orchestrator_approve(approved: true)              → avanza a fase N+1
     → orchestrator_approve(approved: true, rework: true) → reimplementa fase N con hallazgos del QA
     → orchestrator_approve(approved: false)             → rechaza y detiene
 Al pasar todas las fases → security review → infra (Docker/K8s/CI) → complete
 ```
 
-No necesitás saber el root: `orchestrator_design` y `orchestrator_sdd` lo resuelven del proyecto
-activo. Si no hay proyecto activo, te lo dicen — creá uno con `project_create` + `project_switch`.
+**Por qué VOS autorás (no el coder):** vos tenés el contexto humano completo. Si delegás la generación
+del diseño al coder (`orchestrator_design`), éste re-decide desde un `feature` pobre y puede divergir de
+lo acordado con el humano. `orchestrator_design` queda como **fallback** (coder directo, sin director).
+El camino canónico: VOS autorás con `project_write_specs` → el coder solo ejecuta `orchestrator_sdd`.
+
+El `project_write_specs` y `orchestrator_sdd` resuelven el root por `projectId`/`project`. Si no pasás
+ninguno y no hay proyecto activo, te lo dicen — creá/activá uno con `project_create` (+ `project_switch`).
 
 ### runs — Orquestación de flows (Stack B)
 
@@ -179,11 +192,12 @@ Entrega inteligente de notificaciones con fallback automático, quiet hours y de
 
 | Intención del usuario | Tool |
 |---|---|
-| "Creá un proyecto nuevo en /ruta" | `project__project_create` (name, root) → `project__project_switch` |
-| "Trabajemos en el proyecto X" / "cambiá a X" | `project__project_switch` |
+| "Creá un proyecto nuevo en /ruta" | `project__project_create` (name, root) |
+| "Trabajemos en el proyecto X" / "cambiá a X" | `project__project_switch` (o pasá `projectId` explícito en cada tool) |
 | "¿En qué proyecto estamos?" / "¿dónde está el código?" | `project__project_current` / `project__project_get_root` |
-| "Generá la spec / diseñá esto / armá el roadmap" | `coder__orchestrator_design` (feature) |
-| "Implementá el proyecto" / "ejecutá SDD" / "construí lo que diseñamos" | `coder__orchestrator_sdd` (config_path) |
+| "Diseñá esto / armá la spec / el roadmap" | **VOS autorás** spec/design/ROADMAP (con `## Project Structure` + `**Domain:**` por fase) → `project__project_write_specs` (projectId, …) |
+| "Implementá el proyecto" / "ejecutá SDD" / "construí lo que diseñamos" | `coder__orchestrator_sdd` (config_path, project) |
+| (fallback headless, sin autoría tuya) | `coder__orchestrator_design` (feature) — el coder genera; preferí autorar vos |
 | "Implementá X ad-hoc" (tarea suelta sin roadmap) | `coder__orchestrator_run` (task) |
 | "¿Cómo va el SDD?" / "¿en qué fase está?" | `coder__orchestrator_status` |
 | "Aprobá la fase / avanzá" | `coder__orchestrator_approve` (approved: true) |

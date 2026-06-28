@@ -1,5 +1,5 @@
 import { db } from './index';
-import { sql } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
 import { departments, roles } from './schema';
 import { randomUUID } from 'node:crypto';
 import { DIRECTOR_TOOL_GROUPS, ROLE_DEFAULT_TOOLS } from '../lib/tools';
@@ -50,7 +50,20 @@ export async function ensureSchema(): Promise<void> {
     `);
 
     await seedRoles();
+    await syncAdminTools();
     await seedDepartments();
+}
+
+// ── Invariante: admin = acceso total ───────────────────────────────────────────
+// seedRoles() solo siembra si la tabla está vacía, así que el rol admin persistido
+// quedaría con un catálogo viejo cuando se agregan tools nuevas (p. ej. project_*,
+// orchestrator_design/sdd, list_runs). Acá forzamos admin = ALL_TOOLS en cada
+// arranque (idempotente). No tocamos roles no-admin: son subsets curados.
+async function syncAdminTools(): Promise<void> {
+    const tools = JSON.stringify(ROLE_DEFAULT_TOOLS['admin'] ?? []);
+    await db.update(roles)
+        .set({ tools, updatedAt: new Date().toISOString() })
+        .where(eq(roles.name, 'admin'));
 }
 
 // ── Roles por defecto ──────────────────────────────────────────────────────────

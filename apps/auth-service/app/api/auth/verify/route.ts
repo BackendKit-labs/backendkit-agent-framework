@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
-    const { token } = await req.json() as { token?: string };
+    let body: { token?: string };
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: 'Body inválido — se esperaba JSON con token' }, { status: 400 });
+    }
+    const { token } = body;
     if (!token) return NextResponse.json({ error: 'token requerido' }, { status: 400 });
     try {
         const payload = await verifyToken(token);

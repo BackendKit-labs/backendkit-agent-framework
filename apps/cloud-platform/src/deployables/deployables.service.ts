@@ -12,7 +12,7 @@ export class DeployablesService {
     private readonly repo: Repository<Deployable>,
   ) {}
 
-  async findAll(query: QueryDeployableDto) {
+  async findAll(query: QueryDeployableDto, deptScope: string | null = null) {
     const { page = 1, limit = 20, search, kind, status, departmentId } = query;
     const skip = (page - 1) * limit;
 
@@ -26,6 +26,8 @@ export class DeployablesService {
     if (kind) qb.andWhere('d.kind = :kind', { kind });
     if (status) qb.andWhere('d.status = :status', { status });
     if (departmentId) qb.andWhere('d.departmentId = :departmentId', { departmentId });
+    // Scope por departamento (claim `dept` del JWT → Department.slug). Null = sin restricción.
+    if (deptScope) qb.andWhere('dept.slug = :deptScope', { deptScope });
 
     const [data, total] = await qb
       .orderBy('d.createdAt', 'DESC')
@@ -45,23 +47,30 @@ export class DeployablesService {
     return this.repo.save(deployable);
   }
 
-  async findOne(id: string): Promise<Deployable> {
+  async findOne(id: string, deptScope: string | null = null): Promise<Deployable> {
     const d = await this.repo.findOne({
       where: { id },
       relations: ['department'],
     });
-    if (!d) throw new NotFoundException(`Deployable "${id}" not found`);
+    // Fuera de scope se trata como inexistente (404) para no filtrar existencia entre depts.
+    if (!d || (deptScope && d.department?.slug !== deptScope)) {
+      throw new NotFoundException(`Deployable "${id}" not found`);
+    }
     return d;
   }
 
-  async update(id: string, dto: UpdateDeployableDto): Promise<Deployable> {
-    const d = await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdateDeployableDto,
+    deptScope: string | null = null,
+  ): Promise<Deployable> {
+    const d = await this.findOne(id, deptScope);
     Object.assign(d, dto);
     return this.repo.save(d);
   }
 
-  async remove(id: string): Promise<void> {
-    const d = await this.findOne(id);
+  async remove(id: string, deptScope: string | null = null): Promise<void> {
+    const d = await this.findOne(id, deptScope);
     await this.repo.remove(d);
   }
 

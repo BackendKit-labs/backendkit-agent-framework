@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
 import { DirectorModule } from './director/director.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { DeployablesModule } from './deployables/deployables.module';
@@ -25,7 +24,6 @@ import { WorkflowsModule } from './workflows/workflows.module';
       synchronize: process.env.NODE_ENV !== 'production',
     }),
     AuthModule,
-    UsersModule,
     DirectorModule,
     DepartmentsModule,
     DeployablesModule,

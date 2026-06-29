@@ -108,26 +108,34 @@ K8S_NAMESPACE: "cloud-platform"   # namespace donde se crean los agents
 
 ## Setup inicial (primera vez)
 
+> **Identidad unificada:** cloud-platform NO gestiona usuarios. El registro y el login
+> viven en **auth-service** (único IdP). cloud-platform solo valida los JWT que emite
+> auth-service, usando la clave compartida `AUTH_SECRET`. Ver `.specs/adr-unified-auth.md`.
+
 ```bash
-BASE=http://localhost:3100   # ajustar según entorno
+BASE=http://localhost:3100        # cloud-platform
+AUTH=http://localhost:4000        # auth-service (único IdP)
 
-# 1. Registrar primer usuario admin
-curl -X POST $BASE/auth/register \
+# 1. (En auth-service) crear el primer admin y loguear → obtener JWT
+#    Ver apps/auth-service/README.md. Resumido:
+curl -X POST $AUTH/api/setup \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","email":"admin@example.com","password":"changeme"}'
+  -d '{"username":"admin","password":"minimo10chars","name":"Administrador"}'
 
-# 2. Login → obtener JWT
-TOKEN=$(curl -s -X POST $BASE/auth/login \
+TOKEN=$(curl -s -X POST $AUTH/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"changeme"}' | jq -r .access_token)
+  -d '{"username":"admin","password":"minimo10chars"}' | jq -r .token)
 
-# 3. Crear API key M2M para el director-agent (se muestra UNA sola vez)
+# 2. Con ese JWT, crear la API key M2M para el director en cloud-platform (se muestra UNA vez)
 curl -X POST $BASE/api-keys \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"director-key","scopes":["*"]}'
 # → guarda el campo "key": "bkc_xxx..."
 ```
+
+> Requisito: `AUTH_SECRET` en cloud-platform debe ser **idéntico** al de auth-service para
+> que sus JWT validen.
 
 Configurá el director con esa key:
 
@@ -145,10 +153,12 @@ Todos los endpoints (excepto `GET /director/status`, `GET /director/health`, `GE
 
 | Tipo | Header | Cuándo usarlo |
 |---|---|---|
-| JWT | `Authorization: Bearer <token>` | Usuario humano vía login |
+| JWT | `Authorization: Bearer <token>` | Usuario humano. **Lo emite auth-service**, cloud-platform solo lo valida (stateless, con `AUTH_SECRET`). |
 | API Key | `X-Api-Key: bkc_xxx` | Machine-to-machine (director, CI, scripts) |
 
 El guard `FlexAuthGuard` acepta ambos en cualquier endpoint protegido. El endpoint `/api-keys` solo acepta JWT (para gestionar keys necesitás ser humano).
+
+Autorización: el guard `AuthzGuard` exige la tool cloud correspondiente (claim `tools[]` del JWT o `scopes[]` de la ApiKey) vía `@RequireTool(...)`, y el scope por departamento usa el claim `dept` (match contra `Department.slug`). Ver `.specs/adr-unified-auth.md`.
 
 ---
 
@@ -156,10 +166,9 @@ El guard `FlexAuthGuard` acepta ambos en cualquier endpoint protegido. El endpoi
 
 ### Auth
 
-```
-POST /auth/register   body: { username, email, password }
-POST /auth/login      body: { username, password }  → { access_token }
-```
+cloud-platform **no expone** endpoints de registro/login. La identidad la gestiona
+**auth-service** (`apps/auth-service`, puerto 4000): `POST /api/setup`, `POST /api/auth/login`
+→ `{ token }`. cloud-platform solo valida ese JWT. Ver `.specs/adr-unified-auth.md`.
 
 ### Departments
 

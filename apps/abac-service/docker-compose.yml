@@ -1,0 +1,35 @@
+# Infra local de abac-service: PostgreSQL + Redis.
+# Alineado con .env.development (DB_PORT=5432, postgres/postgres, abac_db).
+services:
+  db:
+    image: postgres:16
+    container_name: abac-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: abac_db
+    ports:
+      # Host 5433 para coexistir con cloud-platform (que usa 5432).
+      - "5433:5432"
+    volumes:
+      - abac_pg_data:/var/lib/postgresql/data
+      - ./docker/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d abac_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: abac-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - abac_redis_data:/data
+
+volumes:
+  abac_pg_data:
+  abac_redis_data:

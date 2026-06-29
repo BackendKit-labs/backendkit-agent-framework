@@ -1,19 +1,43 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { UsersService } from '../../users/users.service';
 
-interface JwtPayload {
+/**
+ * Claims emitidos por auth-service (único IdP del ecosistema).
+ * Ver `apps/auth-service/README.md` y `.specs/adr-unified-auth.md`.
+ */
+interface AuthServiceJwtPayload {
   sub: string;
-  email: string;
+  role?: string;
+  dept?: string;
+  tools?: string[];
+  vault?: string[];
+  apps?: string[];
+  email?: string;
+}
+
+/**
+ * Forma proyectada en `req.user`. Stateless: derivada solo del token,
+ * sin lookup a ninguna tabla local de usuarios.
+ */
+export interface AuthenticatedUser {
+  id: string;
+  role: string | null;
+  dept: string | null;
+  tools: string[];
+  vault: string[];
+  apps: string[];
+  email: string | null;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly usersService: UsersService) {
-    const secret = process.env.JWT_SECRET;
+  constructor() {
+    // auth-service es el único emisor de identidad. cloud-platform solo valida sus
+    // JWT con la clave compartida AUTH_SECRET (ver .specs/adr-unified-auth.md).
+    const secret = process.env.AUTH_SECRET;
     if (!secret) {
-      throw new Error('JWT_SECRET no configurado');
+      throw new Error('AUTH_SECRET no configurado');
     }
 
     super({
@@ -23,11 +47,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: JwtPayload): Promise<any> {
-    const user = await this.usersService.findById(payload.sub);
-    if (!user) {
-      throw new UnauthorizedException('Invalid token: user not found');
+  /**
+   * passport-jwt ya verificó firma y expiración. Aquí solo proyectamos los
+   * claims de auth-service a `req.user` — no se consulta la base de datos.
+   */
+  async validate(payload: AuthServiceJwtPayload): Promise<AuthenticatedUser> {
+    if (!payload?.sub) {
+      throw new UnauthorizedException('Invalid token: missing subject');
     }
-    return { id: user.id, email: user.email, name: user.name };
+
+    return {
+      id: payload.sub,
+      role: payload.role ?? null,
+      dept: payload.dept ?? null,
+      tools: payload.tools ?? [],
+      vault: payload.vault ?? [],
+      apps: payload.apps ?? [],
+      email: payload.email ?? null,
+    };
   }
 }

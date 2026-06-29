@@ -19,6 +19,7 @@ interface AuthServiceJwtPayload {
 /**
  * Forma proyectada en `req.user`. Stateless: derivada solo del token,
  * sin lookup a ninguna tabla local de usuarios.
+ * Los campos `org`/`orgSlug`/`accountType` solo están presentes en tokens de abac-service.
  */
 export interface AuthenticatedUser {
   id: string;
@@ -28,6 +29,10 @@ export interface AuthenticatedUser {
   vault: string[];
   apps: string[];
   email: string | null;
+  // abac-service claims (presentes cuando el token viene de abac-service)
+  org?: string | null;
+  orgSlug?: string | null;
+  accountType?: string;
 }
 
 @Injectable()

@@ -14,7 +14,7 @@ import { DeployAgentDto } from './dto/deploy-agent.dto';
 import { ExecuteActionDto } from './dto/execute-action.dto';
 import { FlexAuthGuard } from '../auth/guards/flex-auth.guard';
 import { AuthzGuard } from '../auth/guards/authz.guard';
-import { RequireTool } from '../common/decorators';
+import { RequirePermission } from '../common/decorators';
 
 @Controller('director')
 export class DirectorController {
@@ -42,14 +42,14 @@ export class DirectorController {
 
   @Get('agents')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_deployed_agents')
+  @RequirePermission('deployable:list')
   getAgents() {
     return this.directorService.getDeployedAgents();
   }
 
   @Post('deploy')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_deploy')
+  @RequirePermission('deployable:deploy')
   @HttpCode(HttpStatus.CREATED)
   deploy(@Body() deployAgentDto: DeployAgentDto) {
     return this.directorService.deployAgent(deployAgentDto);
@@ -57,7 +57,7 @@ export class DirectorController {
 
   @Post(':id/stop')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_stop')
+  @RequirePermission('deployable:stop')
   @HttpCode(HttpStatus.OK)
   stop(@Param('id') id: string) {
     return this.directorService.stopAgent(id);
@@ -65,7 +65,7 @@ export class DirectorController {
 
   @Post('execute/:id')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_deploy')
+  @RequirePermission('deployable:deploy')
   @HttpCode(HttpStatus.OK)
   execute(@Param('id') id: string, @Body() executeActionDto: ExecuteActionDto) {
     return this.directorService.executeAgent(id, executeActionDto);
@@ -73,14 +73,14 @@ export class DirectorController {
 
   @Get('agents/:id/logs')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_deployed_agents')
+  @RequirePermission('deployable:list')
   getLogs(@Param('id') id: string) {
     return this.directorService.getAgentLogs(id);
   }
 
   @Get('metrics')
   @UseGuards(FlexAuthGuard, AuthzGuard)
-  @RequireTool('cloud_metrics')
+  @RequirePermission('deployable:metrics')
   getMetrics() {
     return this.directorService.getMetrics();
   }

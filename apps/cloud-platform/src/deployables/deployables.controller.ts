@@ -15,7 +15,7 @@ import { DeployablesService } from './deployables.service';
 import { CreateDeployableDto, UpdateDeployableDto, QueryDeployableDto } from './dto';
 import { FlexAuthGuard } from '../auth/guards/flex-auth.guard';
 import { AuthzGuard } from '../auth/guards/authz.guard';
-import { RequireTool, DeptScope } from '../common/decorators';
+import { RequirePermission, DeptScope } from '../common/decorators';
 
 @Controller('deployables')
 @UseGuards(FlexAuthGuard, AuthzGuard)
@@ -23,7 +23,7 @@ export class DeployablesController {
   constructor(private readonly deployablesService: DeployablesService) {}
 
   @Get()
-  @RequireTool('list_deployables')
+  @RequirePermission('deployable:list')
   findAll(
     @Query() query: QueryDeployableDto,
     @DeptScope() deptScope: string | null,
@@ -32,19 +32,19 @@ export class DeployablesController {
   }
 
   @Post()
-  @RequireTool('cloud_deploy')
+  @RequirePermission('deployable:deploy')
   create(@Body() dto: CreateDeployableDto) {
     return this.deployablesService.create(dto);
   }
 
   @Get(':id')
-  @RequireTool('get_deployable')
+  @RequirePermission('deployable:read')
   findOne(@Param('id') id: string, @DeptScope() deptScope: string | null) {
     return this.deployablesService.findOne(id, deptScope);
   }
 
   @Patch(':id')
-  @RequireTool('cloud_deploy')
+  @RequirePermission('deployable:deploy')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateDeployableDto,
@@ -54,7 +54,7 @@ export class DeployablesController {
   }
 
   @Delete(':id')
-  @RequireTool('cloud_stop')
+  @RequirePermission('deployable:stop')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @DeptScope() deptScope: string | null) {
     return this.deployablesService.remove(id, deptScope);

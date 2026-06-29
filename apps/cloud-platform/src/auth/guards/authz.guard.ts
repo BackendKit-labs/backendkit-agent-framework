@@ -6,52 +6,78 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { REQUIRE_TOOL_KEY } from '../../common/decorators/require-tool.decorator';
+import { REQUIRE_PERMISSION_KEY } from '../../common/decorators/require-permission.decorator';
+import { AbacClientService } from '../../abac/abac-client.service';
 
 /**
- * Autoriza un endpoint contra el vocabulario de tools cloud.
+ * Autoriza un endpoint contra permisos ABAC o tools legacy.
  *
- * Debe ejecutarse DESPUÉS de `FlexAuthGuard` (que puebla `req.user` para JWT o
- * `req.apiKey` para M2M). Dos caminos:
- *  - Humano (JWT de auth-service): autoriza si `req.user.tools` incluye la tool requerida.
- *  - M2M (ApiKey): autoriza si `scopes` incluye la tool, o es comodín (`*`, null o vacío).
+ * Debe ejecutarse DESPUÉS de `FlexAuthGuard`. Dos modos:
  *
- * Sin `@RequireTool` en el endpoint → no exige nada (solo autenticación).
- * Ver `.specs/adr-unified-auth.md` (sub-fase 4b).
+ *  @RequirePermission('resource:action') — NUEVO. Llama al PDP de abac-service cuando
+ *    el token proviene de abac-service (tiene claim `org`). Para tokens de auth-service
+ *    hace fallback a tools[].
+ *
+ *  @RequireTool('tool_name') — LEGACY. Mantiene el check directo sobre tools[].
+ *
+ * M2M ApiKey: scopes null/vacío/'*' = todas las scopes permitidas (sin PDP).
+ * Ver `.specs/adr-unified-auth.md` (sub-fases 4b y 4d).
  */
 @Injectable()
 export class AuthzGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly abacClient: AbacClientService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    const required = this.reflector.getAllAndOverride<string[]>(
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const permission = this.reflector.getAllAndOverride<string>(
+      REQUIRE_PERMISSION_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    const requiredTools = this.reflector.getAllAndOverride<string[]>(
       REQUIRE_TOOL_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required || required.length === 0) return true;
+
+    if (!permission && (!requiredTools || requiredTools.length === 0)) return true;
 
     const req = context.switchToHttp().getRequest();
 
-    // M2M: ApiKey. scopes null/vacío o '*' = todas las scopes permitidas.
+    // M2M ApiKey: scopes null/vacío o '*' = todas las scopes
     const apiKey = req.apiKey;
     if (apiKey) {
       const scopes: string[] | null = apiKey.scopes;
       if (!scopes || scopes.length === 0 || scopes.includes('*')) return true;
+      const required = requiredTools ?? (permission ? [permission] : []);
       if (required.some((t) => scopes.includes(t))) return true;
       throw new ForbiddenException(
-        `API key missing required scope: ${required.join(' | ')}`,
+        `API key sin scope requerida: ${required.join(' | ')}`,
       );
     }
 
-    // Humano: JWT con tools[] emitido por auth-service.
     const user = req.user;
-    if (user) {
-      const tools: string[] = user.tools ?? [];
-      if (required.some((t) => tools.includes(t))) return true;
-      throw new ForbiddenException(
-        `Missing required tool: ${required.join(' | ')}`,
+    if (!user) throw new ForbiddenException('Sin contexto de autenticación');
+
+    // abac-service token (claim `org` presente) + @RequirePermission → llama al PDP
+    if (permission && user.org !== undefined) {
+      const [resource, action] = permission.split(':');
+      const allowed = await this.abacClient.canAccess(
+        user.id,
+        resource,
+        action,
+        { organizationId: user.org },
       );
+      if (allowed) return true;
+      throw new ForbiddenException(`Permiso denegado: ${permission}`);
     }
 
-    throw new ForbiddenException('No authentication context');
+    // Fallback: check directo de tools[] (tokens de auth-service o @RequireTool)
+    const tools: string[] = user.tools ?? [];
+    const toolsToCheck = requiredTools ?? (permission ? [permission] : []);
+    if (toolsToCheck.some((t) => tools.includes(t))) return true;
+    throw new ForbiddenException(
+      `Permiso insuficiente: ${permission ?? requiredTools?.join(' | ')}`,
+    );
   }
 }

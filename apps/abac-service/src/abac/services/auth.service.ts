@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 
-import { Application, RolePermission, User, UserApplication, UserRole } from 'src/entities';
+import { Application, Organization, RolePermission, User, UserApplication, UserRole } from 'src/entities';
 // Note: Application, RolePermission, UserRole se mantienen para el flow M2M (validateApplicationCredentials)
 import { LoggerService } from '../../observability';
 import { Result } from 'src/common/result/result';
@@ -21,6 +21,7 @@ import { SYSTEM_ORG_ID } from '../../common/tenancy/tenancy.constants';
 export class AuthService {
     constructor(
         @InjectRepository(User) private userRepository: Repository<User>,
+        @InjectRepository(Organization) private organizationRepository: Repository<Organization>,
         @InjectRepository(Application) private applicationRepository: Repository<Application>,
         @InjectRepository(RolePermission) private rolePermissionRepository: Repository<RolePermission>,
         @InjectRepository(UserRole) private userRoleRepository: Repository<UserRole>,
@@ -121,7 +122,17 @@ export class AuthService {
         user.lastLoginAt = new Date();
         await this.userRepository.save(user);
 
-        // 8. Generar JWT
+        // 8. Resolver orgSlug para el claim (carga ligera — solo slug).
+        let orgSlug: string | null = null;
+        if (user.organizationId) {
+            const org = await this.organizationRepository.findOne({
+                where: { id: user.organizationId },
+                select: ['id', 'slug'],
+            });
+            orgSlug = org?.slug ?? null;
+        }
+
+        // 9. Generar JWT
         const payload = {
             sub: user.id,
             email: user.email,
@@ -129,6 +140,7 @@ export class AuthService {
             accountType: user.accountType,
             // Multi-tenancy: tenant del usuario (keystone del aislamiento).
             org: user.organizationId ?? null,
+            orgSlug,
             appId,
             roles: roleNames,
             permissions,

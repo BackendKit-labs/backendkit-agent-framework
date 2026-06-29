@@ -14,6 +14,7 @@ import { AbacService } from './services/abac.service';
 import {
     Application,
     AuditLog,
+    Organization,
     Permission,
     Policy,
     PolicyPermission,
@@ -63,6 +64,7 @@ import { OauthService } from './services/oauth.service';
         CacheLocalModule,
         TypeOrmModule.forFeature([
             User,
+            Organization,
             UserApplication,
             Application,
             Role,

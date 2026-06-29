@@ -8,7 +8,7 @@ import { AuthService } from './auth.service';
 import { EntraIdService } from './entra-id.service';
 import { AuditService } from './audit.service';
 import { OauthService } from './oauth.service';
-import { Application, RolePermission, User, UserApplication, UserRole } from '../../entities';
+import { Application, Organization, RolePermission, User, UserApplication, UserRole } from '../../entities';
 import { LoggerService } from '../../observability';
 import { Result } from '../../common/result/result';
 
@@ -48,6 +48,10 @@ describe('AuthService', () => {
         save: jest.fn().mockResolvedValue({}),
     };
 
+    const mockOrgRepo = {
+        findOne: jest.fn().mockResolvedValue(null),
+    };
+
     const mockJwtService = {
         sign: jest.fn().mockReturnValue('jwt-token-mock'),
         verify: jest.fn(),
@@ -80,6 +84,7 @@ describe('AuthService', () => {
             providers: [
                 AuthService,
                 { provide: getRepositoryToken(User), useValue: mockUserRepo },
+                { provide: getRepositoryToken(Organization), useValue: mockOrgRepo },
                 { provide: getRepositoryToken(Application), useValue: mockAppRepo },
                 { provide: getRepositoryToken(RolePermission), useValue: mockRolePermRepo },
                 { provide: getRepositoryToken(UserRole), useValue: mockUserRoleRepo },

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { TenantContext, TenantScope } from '../../common/tenancy';
 import { Application } from '../../entities/application.entity';
 import { User } from '../../entities/user.entity';
 import { LoggerService } from '../../observability';
@@ -143,12 +144,13 @@ export class ApplicationService {
         environment?: string;
         page?: number;
         limit?: number;
-    } = {}): Promise<{ applications: Application[]; total: number }> {
+    } = {}, ctx?: TenantContext): Promise<{ applications: Application[]; total: number }> {
         const page = filters.page || 1;
         const limit = filters.limit || 20;
         const skip = (page - 1) * limit;
 
         const query = this.applicationRepository.createQueryBuilder('app');
+        if (ctx) TenantScope.apply(query, 'app', ctx);
 
         if (filters.isActive !== undefined) {
             query.andWhere('app.isActive = :isActive', { isActive: filters.isActive });
@@ -400,12 +402,12 @@ export class ApplicationService {
     /**
      * Busca una aplicación por ID. Enmascara las credenciales en la respuesta.
      */
-    async getApplicationById(appId: string): Promise<Application> {
+    async getApplicationById(appId: string, ctx?: TenantContext): Promise<Application> {
         const application = await this.applicationRepository.findOne({
             where: { id: appId },
         });
 
-        if (!application) {
+        if (!application || (ctx && !TenantScope.owns(ctx, application.organizationId))) {
             throw new NotFoundException('Aplicación no encontrada');
         }
 

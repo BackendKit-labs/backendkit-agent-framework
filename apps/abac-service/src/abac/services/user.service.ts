@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { TenantContext, TenantScope } from '../../common/tenancy';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../../entities/user.entity';
 import { UserRole } from '../../entities/user-role.entity';
@@ -104,12 +105,13 @@ export class UserService {
         limit?: number;
         searchTerm?: string;
         accountType?: string;
-    } = {}): Promise<{ users: User[]; total: number }> {
+    } = {}, ctx?: TenantContext): Promise<{ users: User[]; total: number }> {
         const page = filters.page || 1;
         const limit = filters.limit || 20;
         const skip = (page - 1) * limit;
 
         const query = this.userRepository.createQueryBuilder('user');
+        if (ctx) TenantScope.apply(query, 'user', ctx);
 
         if (filters.isActive !== undefined) {
             query.andWhere('user.isActive = :isActive', { isActive: filters.isActive });
@@ -140,12 +142,12 @@ export class UserService {
         return { users, total };
     }
 
-    async getUserById(userId: string): Promise<User> {
+    async getUserById(userId: string, ctx?: TenantContext): Promise<User> {
         const user = await this.userRepository.findOne({
             where: { id: userId },
         });
 
-        if (!user) {
+        if (!user || (ctx && !TenantScope.owns(ctx, user.organizationId))) {
             throw new NotFoundException('Usuario no encontrado');
         }
 

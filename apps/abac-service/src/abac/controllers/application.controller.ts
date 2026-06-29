@@ -44,12 +44,13 @@ export class ApplicationController {
     @Permissions('application:read')
     @ApiOperation({ summary: 'Listar aplicaciones' })
     async getApplications(
+        @CurrentOrg() org: TenantContext,
         @Query('isActive') isActive?: boolean,
         @Query('environment') environment?: string,
         @Query('page') page?: number,
         @Query('limit') limit?: number,
     ) {
-        return this.applicationService.getApplications({ isActive, environment, page, limit });
+        return this.applicationService.getApplications({ isActive, environment, page, limit }, org);
     }
 
     /**
@@ -59,8 +60,8 @@ export class ApplicationController {
     @Roles('admin')
     @ApiOperation({ summary: 'Obtener aplicación por ID' })
     @ApiParam({ name: 'id', description: 'UUID de la aplicación' })
-    async getApplicationById(@Param('id') id: string) {
-        return this.applicationService.getApplicationById(id);
+    async getApplicationById(@Param('id') id: string, @CurrentOrg() org: TenantContext) {
+        return this.applicationService.getApplicationById(id, org);
     }
 
     /**

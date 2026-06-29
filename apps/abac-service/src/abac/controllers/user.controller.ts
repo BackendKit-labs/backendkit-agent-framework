@@ -65,6 +65,7 @@ export class UserController {
     @Permissions('user:read')
     @Roles('admin')
     async findAll(
+        @CurrentOrg() org: TenantContext,
         @Query('isActive') isActive?: boolean,
         @Query('searchTerm') searchTerm?: string,
         @Query('accountType') accountType?: string,
@@ -78,15 +79,15 @@ export class UserController {
             searchTerm,
             accountType,
             page,
-            limit
-        });
+            limit,
+        }, org);
     }
 
     @Get(':id')
     @ApiOperation({ summary: 'Obtener usuario por ID' })
     @Permissions('user:read')
-    async findOne(@Param('id') id: string) {
-        return this.userService.getUserById(id);
+    async findOne(@Param('id') id: string, @CurrentOrg() org: TenantContext) {
+        return this.userService.getUserById(id, org);
     }
 
     @Patch(':id')

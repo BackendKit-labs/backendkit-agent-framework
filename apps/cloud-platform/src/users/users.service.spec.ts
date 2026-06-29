@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 
@@ -44,33 +43,30 @@ describe('UsersService', () => {
   });
 
   describe('create', () => {
-    it('should hash password with bcrypt and create a new user', async () => {
+    it('creates and persists a new user (hashing happens in AuthService)', async () => {
       const createUserDto = {
         email: 'new@example.com',
         password: 'plainpassword',
         name: 'New User',
       };
 
-      const bcryptHashSpy = jest.spyOn(bcrypt, 'hash').mockResolvedValue('$2b$10$hashedpassword' as never);
-
       const createdUser = {
         ...mockUser,
         email: createUserDto.email,
         name: createUserDto.name,
-        password: '$2b$10$hashedpassword',
       };
 
+      mockRepository.findOne.mockResolvedValue(null);
       mockRepository.create.mockReturnValue(createdUser);
       mockRepository.save.mockResolvedValue(createdUser);
 
       const result = await service.create(createUserDto);
 
-      expect(bcryptHashSpy).toHaveBeenCalledWith('plainpassword', 10);
-      expect(mockRepository.create).toHaveBeenCalledWith({
-        email: createUserDto.email,
-        password: '$2b$10$hashedpassword',
-        name: createUserDto.name,
+      // UsersService.create no hashea: persiste el DTO tal cual.
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { email: createUserDto.email },
       });
+      expect(mockRepository.create).toHaveBeenCalledWith(createUserDto);
       expect(mockRepository.save).toHaveBeenCalledWith(createdUser);
       expect(result).toEqual(createdUser);
     });

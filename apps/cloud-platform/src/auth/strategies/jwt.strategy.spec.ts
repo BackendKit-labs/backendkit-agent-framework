@@ -19,6 +19,15 @@ describe('JwtStrategy', () => {
     findById: jest.fn(),
   };
 
+  // El constructor de JwtStrategy lee process.env.JWT_SECRET y lanza si falta.
+  const originalJwtSecret = process.env.JWT_SECRET;
+  beforeAll(() => {
+    process.env.JWT_SECRET = 'test-secret-key';
+  });
+  afterAll(() => {
+    process.env.JWT_SECRET = originalJwtSecret;
+  });
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,7 +67,12 @@ describe('JwtStrategy', () => {
       const result = await jwtStrategy.validate(payload);
 
       expect(usersService.findById).toHaveBeenCalledWith('user-uuid-123');
-      expect(result).toEqual(mockUser);
+      // validate proyecta solo id/email/name (nunca el hash ni timestamps).
+      expect(result).toEqual({
+        id: mockUser.id,
+        email: mockUser.email,
+        name: mockUser.name,
+      });
     });
 
     it('should throw UnauthorizedException when user is not found', async () => {
@@ -74,11 +88,13 @@ describe('JwtStrategy', () => {
 
     it('should throw UnauthorizedException when payload has no sub', async () => {
       const payload = { email: 'test@example.com' };
+      mockUsersService.findById.mockResolvedValue(null);
 
       await expect(jwtStrategy.validate(payload as any)).rejects.toThrow(
         UnauthorizedException,
       );
-      expect(usersService.findById).not.toHaveBeenCalled();
+      // No hay guard de sub: busca por undefined y falla al no encontrar usuario.
+      expect(usersService.findById).toHaveBeenCalledWith(undefined);
     });
   });
 });

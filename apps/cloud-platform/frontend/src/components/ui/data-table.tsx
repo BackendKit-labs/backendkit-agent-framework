@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Loader2 } from 'lucide-react';
 import { Input } from './input';
-import { Button } from './button';
 
 export interface Column<T> {
   key: string;
@@ -35,7 +34,7 @@ export interface DataTableProps<T> {
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const;
 
-function DataTable<T extends Record<string, unknown>>({
+function DataTable<T extends object>({
   columns,
   data,
   total,
@@ -55,7 +54,6 @@ function DataTable<T extends Record<string, unknown>>({
   className = '',
 }: DataTableProps<T>) {
   const [searchInput, setSearchInput] = useState(searchValue);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,8 +143,6 @@ function DataTable<T extends Record<string, unknown>>({
             placeholder="Buscar..."
             value={searchInput}
             onChange={handleSearchChange}
-            onFocus={() => setIsSearchFocused(true)}
-            onBlur={() => setIsSearchFocused(false)}
             className="pl-10 pr-8"
             aria-label="Buscar registros"
           />
@@ -219,7 +215,7 @@ function DataTable<T extends Record<string, unknown>>({
                         column.className || ''
                       }`}
                     >
-                      {column.render ? column.render(item) : (item[column.key] as React.ReactNode) || '-'}
+                      {column.render ? column.render(item) : ((item as Record<string, unknown>)[column.key] as React.ReactNode) || '-'}
                     </td>
                   ))}
                 </tr>

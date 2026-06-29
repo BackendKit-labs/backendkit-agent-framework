@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, AuthResponse } from './types';
-import { api, ApiError } from './api';
+import { api } from './api';
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +16,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// El middleware (server-side) solo puede leer cookies, no localStorage.
+// Mantenemos el token en ambos: localStorage para el header Authorization
+// y una cookie para que el middleware autorice las rutas protegidas.
+const TOKEN_COOKIE = 'accessToken';
+
+function setTokenCookie(token: string) {
+  // max-age alineado con JWT_EXPIRATION del backend (1h).
+  document.cookie = `${TOKEN_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
+}
+
+function clearTokenCookie() {
+  document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -27,6 +41,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(JSON.parse(storedUser));
+      // Re-sincroniza la cookie por si expiró o se perdió (la lee el middleware).
+      setTokenCookie(storedToken);
     }
     setIsLoading(false);
   }, []);
@@ -35,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await api.post<AuthResponse>('/auth/login', { email, password }, { skipAuth: true });
     localStorage.setItem('accessToken', response.accessToken);
     localStorage.setItem('user', JSON.stringify(response.user));
+    setTokenCookie(response.accessToken);
     setToken(response.accessToken);
     setUser(response.user);
   }, []);
@@ -43,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await api.post<AuthResponse>('/auth/register', { name, email, password }, { skipAuth: true });
     localStorage.setItem('accessToken', response.accessToken);
     localStorage.setItem('user', JSON.stringify(response.user));
+    setTokenCookie(response.accessToken);
     setToken(response.accessToken);
     setUser(response.user);
   }, []);
@@ -50,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('user');
+    clearTokenCookie();
     setToken(null);
     setUser(null);
   }, []);

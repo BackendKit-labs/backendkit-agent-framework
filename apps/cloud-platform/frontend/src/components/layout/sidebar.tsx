@@ -1,75 +1,110 @@
 'use client';
 
-import React from 'react';
+import type React from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  LayoutGrid,
+  FolderOpen,
+  Bot,
+  Server,
+  Package,
+  Workflow,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth-context';
 
-interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
+interface NavItem {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
 }
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
-  { href: '/dashboard/projects', label: 'Proyectos', icon: '📁' },
-  { href: '/dashboard/agents', label: 'Agentes', icon: '🤖' },
-  { href: '/dashboard/director', label: 'Director', icon: '🎯' },
+const NAV_ITEMS: NavItem[] = [
+  { href: '/dashboard', icon: LayoutGrid, label: 'Dashboard' },
+  { href: '/dashboard/departments', icon: FolderOpen, label: 'Departamentos' },
+  { href: '/dashboard/deployables', icon: Bot, label: 'Deployables' },
+  { href: '/dashboard/catalog', icon: Package, label: 'Catálogo' },
+  { href: '/dashboard/workflows', icon: Workflow, label: 'Workflows' },
+  { href: '/dashboard/director', icon: Server, label: 'Director' },
 ];
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  const isActive = (href: string) =>
+    href === '/dashboard' ? pathname === href : (pathname?.startsWith(href) ?? false);
 
   return (
-    <>
-      {/* Mobile overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={onClose}
-        />
+    <aside
+      className={cn(
+        'flex shrink-0 flex-col border-r border-border bg-card transition-all duration-200',
+        collapsed ? 'w-14' : 'w-52',
       )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <Link href="/dashboard" className="text-xl font-bold text-primary-600">
-            Agent-Cloud
-          </Link>
-          <button
-            onClick={onClose}
-            className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    >
+      {/* Brand */}
+      <div className="flex h-14 items-center gap-3 border-b border-border px-3.5">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/20">
+          <Server className="h-4 w-4 text-primary" />
         </div>
+        {!collapsed && <span className="text-sm font-semibold text-foreground">Agent Cloud</span>}
+      </div>
 
-        <nav className="p-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-primary-50 text-primary-700'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-                onClick={onClose}
-              >
-                <span className="text-lg">{item.icon}</span>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </aside>
-    </>
+      {/* Nav */}
+      <nav className="flex flex-1 flex-col gap-1 p-2">
+        {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={collapsed ? label : undefined}
+              className={cn(
+                'flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors',
+                active
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && <span className="flex-1 truncate">{label}</span>}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Logout */}
+      <div className="border-t border-border p-2">
+        <button
+          onClick={handleLogout}
+          title={collapsed ? 'Cerrar sesión' : undefined}
+          className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span className="flex-1 truncate text-left">Cerrar sesión</span>}
+        </button>
+      </div>
+
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex h-10 items-center justify-center border-t border-border text-muted-foreground transition-colors hover:text-foreground"
+        title={collapsed ? 'Expandir' : 'Colapsar'}
+      >
+        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+      </button>
+    </aside>
   );
 }

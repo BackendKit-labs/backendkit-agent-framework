@@ -36,8 +36,11 @@ export class AuthService {
       password: hashedPassword,
     });
 
-    const { password, ...result } = user;
-    return result;
+    const { password, ...userWithoutPassword } = user;
+    return {
+      accessToken: this.signToken(user.id, user.email),
+      user: userWithoutPassword,
+    };
   }
 
   async login(loginDto: LoginDto) {
@@ -51,15 +54,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: user.id, email: user.email };
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.jwtSecret,
-    });
-
     const { password, ...userWithoutPassword } = user;
     return {
-      accessToken,
+      accessToken: this.signToken(user.id, user.email),
       user: userWithoutPassword,
     };
+  }
+
+  private signToken(userId: string, email: string): string {
+    return this.jwtService.sign(
+      { sub: userId, email },
+      { secret: this.jwtSecret },
+    );
   }
 }

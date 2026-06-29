@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -13,22 +14,24 @@ export function Input({ label, error, className = '', id, ...props }: InputProps
   return (
     <div className="w-full">
       {label && (
-        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor={inputId} className="mb-1 block text-sm font-medium text-foreground">
           {label}
         </label>
       )}
       <input
         id={inputId}
-        className={`block w-full rounded-lg border px-3 py-2 text-sm shadow-sm transition-colors
-          ${error
-            ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
-            : 'border-gray-300 focus:border-primary-500 focus:ring-primary-500'
-          }
-          focus:outline-none focus:ring-1 disabled:bg-gray-50 disabled:text-gray-500
-          ${className}`}
+        className={cn(
+          'block w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm transition-colors',
+          'placeholder:text-muted-foreground focus:outline-none focus:ring-1',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          error
+            ? 'border-destructive focus:border-destructive focus:ring-destructive'
+            : 'border-input focus:border-ring focus:ring-ring',
+          className,
+        )}
         {...props}
       />
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-sm text-destructive">{error}</p>}
     </div>
   );
 }

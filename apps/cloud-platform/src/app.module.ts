@@ -3,8 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
-import { AgentsModule } from './agents/agents.module';
-import { ProjectsModule } from './projects/projects.module';
 import { DirectorModule } from './director/director.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { DeployablesModule } from './deployables/deployables.module';
@@ -28,8 +26,6 @@ import { WorkflowsModule } from './workflows/workflows.module';
     }),
     AuthModule,
     UsersModule,
-    AgentsModule,
-    ProjectsModule,
     DirectorModule,
     DepartmentsModule,
     DeployablesModule,

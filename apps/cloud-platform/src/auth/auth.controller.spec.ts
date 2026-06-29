@@ -33,6 +33,12 @@ describe('AuthController', () => {
     user: mockUser,
   };
 
+  // register ahora devuelve { accessToken, user } igual que login.
+  const mockRegisterResponse = {
+    accessToken: 'mock-jwt-token',
+    user: mockUser,
+  };
+
   beforeEach(async () => {
     const mockAuthService = {
       register: jest.fn(),
@@ -55,11 +61,11 @@ describe('AuthController', () => {
 
   describe('POST /api/auth/register', () => {
     it('should register a new user and return 201 status', async () => {
-      authService.register.mockResolvedValue(mockUser);
+      authService.register.mockResolvedValue(mockRegisterResponse);
 
       const result = await authController.register(mockRegisterDto);
 
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual(mockRegisterResponse);
       expect(authService.register).toHaveBeenCalledWith(mockRegisterDto);
       expect(authService.register).toHaveBeenCalledTimes(1);
     });
@@ -82,14 +88,13 @@ describe('AuthController', () => {
       await expect(authController.register(invalidDto)).rejects.toThrow('Validation failed');
     });
 
-    it('should return user without password field', async () => {
-      const userWithoutPassword = { ...mockUser };
-      authService.register.mockResolvedValue(userWithoutPassword);
+    it('should return a user without password field', async () => {
+      authService.register.mockResolvedValue(mockRegisterResponse);
 
       const result = await authController.register(mockRegisterDto);
 
-      expect(result).not.toHaveProperty('password');
-      expect(result).toEqual(userWithoutPassword);
+      expect(result.user).not.toHaveProperty('password');
+      expect(result).toEqual(mockRegisterResponse);
     });
   });
 

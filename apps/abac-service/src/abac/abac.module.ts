@@ -49,6 +49,8 @@ import { UserPolicyAssignment } from 'src/entities/userPolicyAssignment.entity';
 import { AbacMetricsService } from './services/abac-metrics.service';
 import { EntraIdService } from './services/entra-id.service';
 import { OauthService } from './services/oauth.service';
+import { SignupService } from './services/signup.service';
+import { OrganizationController } from './controllers/organization.controller';
 
 /**
  * @description
@@ -110,6 +112,7 @@ import { OauthService } from './services/oauth.service';
         CacheService,
         EntraIdService,
         OauthService,
+        SignupService,
     ],
     controllers: [
         AbacController,
@@ -120,7 +123,8 @@ import { OauthService } from './services/oauth.service';
         RoleController,
         ApplicationController,
         AuthController,
-        AuditController
+        AuditController,
+        OrganizationController,
     ],
     exports: [AbacService, UserService, UserPolicyService, PermissionService],
 })

@@ -3,7 +3,22 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  createdAt: string;
+  roles: string[];
+}
+
+// Raw response shape from abac-service POST /auth/admin/login
+export interface AbacAuthResponse {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    roles: string[];
+  };
+  permissions: string[];
 }
 
 export interface AuthResponse {

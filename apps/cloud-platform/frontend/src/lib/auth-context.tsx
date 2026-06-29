@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, AuthResponse } from './types';
+import { User, AbacAuthResponse } from './types';
 import { api } from './api';
 
 interface AuthContextType {
@@ -10,7 +10,6 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -21,9 +20,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // y una cookie para que el middleware autorice las rutas protegidas.
 const TOKEN_COOKIE = 'accessToken';
 
-function setTokenCookie(token: string) {
-  // max-age alineado con JWT_EXPIRATION del backend (1h).
-  document.cookie = `${TOKEN_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
+function setTokenCookie(token: string, maxAge = 28800) {
+  document.cookie = `${TOKEN_COOKIE}=${token}; path=/; max-age=${maxAge}; SameSite=Lax`;
 }
 
 function clearTokenCookie() {
@@ -48,21 +46,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const response = await api.post<AuthResponse>('/auth/login', { email, password }, { skipAuth: true });
-    localStorage.setItem('accessToken', response.accessToken);
-    localStorage.setItem('user', JSON.stringify(response.user));
-    setTokenCookie(response.accessToken);
-    setToken(response.accessToken);
-    setUser(response.user);
-  }, []);
-
-  const register = useCallback(async (name: string, email: string, password: string) => {
-    const response = await api.post<AuthResponse>('/auth/register', { name, email, password }, { skipAuth: true });
-    localStorage.setItem('accessToken', response.accessToken);
-    localStorage.setItem('user', JSON.stringify(response.user));
-    setTokenCookie(response.accessToken);
-    setToken(response.accessToken);
-    setUser(response.user);
+    const raw = await api.post<AbacAuthResponse>('/auth/admin/login', { email, password }, { skipAuth: true });
+    const user: User = {
+      id: raw.user.id,
+      email: raw.user.email,
+      name: `${raw.user.firstName} ${raw.user.lastName}`.trim(),
+      roles: raw.user.roles,
+    };
+    localStorage.setItem('accessToken', raw.accessToken);
+    localStorage.setItem('user', JSON.stringify(user));
+    setTokenCookie(raw.accessToken, raw.expiresIn);
+    setToken(raw.accessToken);
+    setUser(user);
   }, []);
 
   const logout = useCallback(() => {
@@ -81,7 +76,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isAuthenticated: !!token && !!user,
         login,
-        register,
         logout,
       }}
     >

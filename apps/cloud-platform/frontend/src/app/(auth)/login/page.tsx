@@ -2,7 +2,6 @@
 
 import React, { useState, useCallback, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 
@@ -165,16 +164,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Register link */}
-          <p className="mt-6 text-center text-sm text-slate-400">
-            ¿No tienes cuenta?{' '}
-            <Link
-              href="/register"
-              className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              Regístrate aquí
-            </Link>
-          </p>
         </div>
 
         {/* Footer */}

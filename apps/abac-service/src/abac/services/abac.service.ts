@@ -48,11 +48,20 @@ export class AbacService {
         const execute = async (): Promise<boolean> => {
             const cid = this.correlation.getCorrelationId() ?? '';
             const startTime = Date.now();
-            const hasContext = Object.keys(context).length > 0;
 
-            // === CACHÉ: solo cuando NO hay context (context cambia el resultado) ===
-            const cacheKey = this.generateKeyGranted(userId, appId, resource, action);
-            if (!hasContext) {
+            // orgId extraído del contexto — es el tenant del que proviene la request.
+            // cloud-platform lo envía como context.organizationId desde authz.guard.
+            const orgId = (context.organizationId as string) ?? undefined;
+
+            // Cache: habilitado cuando el contexto está vacío o SOLO contiene
+            // organizationId (fact estable por request). Cualquier otra clave dinámica
+            // (ip, timestamp, resourceOwnerId…) invalida el cache.
+            const keys = Object.keys(context);
+            const isOrgOnlyContext =
+                keys.length === 0 ||
+                (keys.length === 1 && context.organizationId !== undefined);
+            const cacheKey = this.generateKeyGranted(userId, appId, resource, action, orgId);
+            if (isOrgOnlyContext) {
                 const cached = await this.cache.get<boolean>(cacheKey);
                 if (cached !== null) {
                     this.abacMetrics?.recordCacheHit();
@@ -68,22 +77,22 @@ export class AbacService {
                 // === PASO 1: Validar acceso a la aplicación ===
                 const userApplication = await this.validateUserApplication(userId, appId);
                 if (!userApplication) {
-                    if (!hasContext) await this.cache.set(cacheKey, false, 60 * 60);
+                    if (isOrgOnlyContext) await this.cache.set(cacheKey, false, 60 * 60);
                     this.logger.debug('Denegado: sin acceso a la aplicación', 'ABAC', { cid, userId, appId });
                     return false;
                 }
 
-                // === PASO 2: Verificar permisos efectivos ===
-                const permissionsMap = await this.getUserPermissions(userId, appId, resource, action);
+                // === PASO 2: Verificar permisos efectivos (scoped por org) ===
+                const permissionsMap = await this.getUserPermissions(userId, appId, resource, action, orgId);
                 const perm = permissionsMap.get(`${resource}:${action}`);
                 if (!perm || perm.effect === 'deny') {
-                    if (!hasContext) await this.cache.set(cacheKey, false, 60 * 60);
+                    if (isOrgOnlyContext) await this.cache.set(cacheKey, false, 60 * 60);
                     this.logger.debug('Denegado: sin permisos para el recurso', 'ABAC', { cid, userId, appId, resource, action });
                     return false;
                 }
 
-                // === PASO 3: Evaluar políticas ===
-                const policies = await this.getRelevantPolicies(appId, resource, action);
+                // === PASO 3: Evaluar políticas (scoped por org) ===
+                const policies = await this.getRelevantPolicies(appId, resource, action, orgId);
                 this.abacMetrics?.recordPoliciesEvaluated(policies.length);
 
                 let granted: boolean;
@@ -96,12 +105,12 @@ export class AbacService {
                     granted = policyResult !== null ? policyResult : true;
                 }
 
-                if (!hasContext) await this.cache.set(cacheKey, granted, 60 * 60);
+                if (isOrgOnlyContext) await this.cache.set(cacheKey, granted, 60 * 60);
 
                 const processingTime = Date.now() - startTime;
                 this.abacMetrics?.recordAccessDecision(resource, action, granted, processingTime);
                 this.logger.log(`Decisión de acceso: ${granted ? 'PERMIT' : 'DENY'}`, 'ABAC', {
-                    cid, userId, appId, resource, action, granted, processingTime, policiesEvaluated: policies.length,
+                    cid, userId, appId, resource, action, orgId, granted, processingTime, policiesEvaluated: policies.length,
                 });
 
                 return granted;
@@ -138,7 +147,7 @@ export class AbacService {
     /**
      * Obtiene todos los permisos efectivos del usuario (roles + políticas)
      */
-    async getUserPermissions(userId: string, appId: string, resource?: string, action?: string): Promise<Map<string, { effect: 'allow' | 'deny' }>> {
+    async getUserPermissions(userId: string, appId: string, resource?: string, action?: string, orgId?: string): Promise<Map<string, { effect: 'allow' | 'deny' }>> {
         const permissionsMap = new Map<string, { effect: 'allow' | 'deny' }>();
 
         // 1. Permisos directos a través de roles
@@ -151,6 +160,14 @@ export class AbacService {
             .andWhere('role.isActive = true')
             .andWhere('rp.isActive = true')
             .andWhere('permission.isActive = true');
+
+        // Aislar por org: roles del tenant del usuario o roles de plataforma (orgId = null).
+        if (orgId) {
+            rolePermissionsQuery.andWhere(
+                '(role.organizationId = :orgId OR role.organizationId IS NULL)',
+                { orgId },
+            );
+        }
 
         if (resource) rolePermissionsQuery.andWhere('permission.resource = :resource', { resource });
         if (action) rolePermissionsQuery.andWhere('permission.action = :action', { action });
@@ -194,8 +211,8 @@ export class AbacService {
     /**
      * Obtiene políticas relevantes para el recurso/acción solicitado
      */
-    private async getRelevantPolicies(appId: string, resource: string, action: string): Promise<Policy[]> {
-        return this.policyRepo
+    private async getRelevantPolicies(appId: string, resource: string, action: string, orgId?: string): Promise<Policy[]> {
+        const query = this.policyRepo
             .createQueryBuilder('policy')
             .innerJoinAndSelect('policy.permissions', 'policyPermission')
             .innerJoinAndSelect('policyPermission.permission', 'permission')
@@ -204,9 +221,18 @@ export class AbacService {
             .andWhere('policy.isActive = true')
             .andWhere('permission.resource = :resource', { resource })
             .andWhere('permission.action = :action', { action })
-            .andWhere('permission.isActive = true')
-            .orderBy('policy.priority', 'DESC')
-            .getMany();
+            .andWhere('permission.isActive = true');
+
+        // Políticas de plataforma (orgId IS NULL) siempre se evalúan.
+        // Políticas de tenant solo para el tenant correspondiente.
+        if (orgId) {
+            query.andWhere(
+                '(policy.organizationId = :orgId OR policy.organizationId IS NULL)',
+                { orgId },
+            );
+        }
+
+        return query.orderBy('policy.priority', 'DESC').getMany();
     }
 
     private buildFacts(userApp: UserApplication, context: Record<string, any>, roles: Role[] = []): any {
@@ -218,6 +244,10 @@ export class AbacService {
                 profile: userApp.user.profile || {},
                 attributes: userApp.attributes || {},
                 roles: roles.map(r => r.name),
+                organizationId: userApp.user.organizationId ?? null,
+            },
+            organization: {
+                id: userApp.user.organizationId ?? null,
             },
             application: {
                 id: userApp.application.id,
@@ -362,7 +392,8 @@ export class AbacService {
      * Bug 6 fix: implementación real de invalidación de caché.
      */
     async invalidateUserCache(userId: string, appId: string): Promise<void> {
-        await this.cache.deletePattern(`abac_granted:${userId}:${appId}`);
+        // Patrón cubre todas las orgs: abac_granted:<org>:<userId>:<appId>:*
+        await this.cache.deletePattern(`abac_granted:*:${userId}:${appId}`);
         this.logger.debug('Cache invalidado para usuario', 'ABAC', { userId, appId });
     }
 
@@ -420,7 +451,7 @@ export class AbacService {
 
     // === CACHÉ ===
 
-    generateKeyGranted(userId: string, appId: string, resource: string, action: string): string {
-        return `abac_granted:${userId}:${appId}:${resource}:${action}`;
+    generateKeyGranted(userId: string, appId: string, resource: string, action: string, orgId?: string): string {
+        return `abac_granted:${orgId ?? 'any'}:${userId}:${appId}:${resource}:${action}`;
     }
 }

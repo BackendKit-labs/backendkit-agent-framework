@@ -313,17 +313,23 @@ describe('AbacService', () => {
         it('should delete cache pattern for user+app', async () => {
             await service.invalidateUserCache('u1', 'a1');
 
-            expect(mockCacheService.deletePattern).toHaveBeenCalledWith('abac_granted:u1:a1');
+            expect(mockCacheService.deletePattern).toHaveBeenCalledWith('abac_granted:*:u1:a1');
         });
     });
 
     // ═══════════════ generateKeyGranted ═════════════════════════════
 
     describe('generateKeyGranted', () => {
-        it('should generate deterministic cache key', () => {
+        it('should generate deterministic cache key without orgId', () => {
             const key = service.generateKeyGranted('u1', 'a1', 'doc', 'read');
 
-            expect(key).toBe('abac_granted:u1:a1:doc:read');
+            expect(key).toBe('abac_granted:any:u1:a1:doc:read');
+        });
+
+        it('should include orgId in cache key when provided', () => {
+            const key = service.generateKeyGranted('u1', 'a1', 'doc', 'read', 'org-123');
+
+            expect(key).toBe('abac_granted:org-123:u1:a1:doc:read');
         });
     });
 

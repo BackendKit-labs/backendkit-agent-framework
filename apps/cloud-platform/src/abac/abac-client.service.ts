@@ -33,7 +33,7 @@ export class AbacClientService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.m2mToken}`,
         },
-        body: JSON.stringify({ userId, appId: this.appId, resource, action, context }),
+        body: JSON.stringify({ userId, applicationId: this.appId, resource, action, context }),
         signal: AbortSignal.timeout(3000),
       });
 
@@ -44,8 +44,8 @@ export class AbacClientService {
         return false;
       }
 
-      const data = (await response.json()) as { allowed: boolean };
-      return data.allowed === true;
+      const data = (await response.json()) as { granted: boolean };
+      return data.granted === true;
     } catch (err: any) {
       this.logger.error(
         `ABAC PDP inalcanzable — denegando ${resource}:${action}: ${err?.message}`,

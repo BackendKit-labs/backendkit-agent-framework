@@ -1,7 +1,7 @@
 import 'server-only';
 
 // curator-codex-agent fue eliminado del monorepo.
-// Estas funciones devuelven un error controlado hasta que el agente sea re-integrado.
+// Estas funciones lanzan un error controlado hasta que el agente sea re-integrado.
 
 export interface CurateResult {
     notesWritten:     string[];
@@ -12,6 +12,17 @@ export interface CurateResult {
     tags:             string[];
     area:             string;
     durationMs:       number;
+}
+
+export interface SearchResult {
+    results: { id: string; score: number; content: string; metadata?: Record<string, unknown> }[];
+    synthesized?: string | null;
+}
+
+export interface ReindexResult {
+    indexed: number;
+    skipped: number;
+    durationMs: number;
 }
 
 export class CuratorUnavailableError extends Error {
@@ -33,10 +44,10 @@ export async function searchVault(
     _vaultPath: string,
     _query:     string,
     _topK      = 8,
-): Promise<never> {
+): Promise<SearchResult> {
     throw new CuratorUnavailableError();
 }
 
-export async function reindexVault(_vaultPath: string): Promise<never> {
+export async function reindexVault(_vaultPath: string): Promise<ReindexResult> {
     throw new CuratorUnavailableError();
 }

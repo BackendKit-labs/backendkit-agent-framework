@@ -65,6 +65,14 @@ export class User extends BaseEntity {
     @Column({ type: 'varchar', length: 100, nullable: true, unique: true })
     entraId?: string | null;  // Azure AD object ID (oid claim)
 
+    /** Override personal de MCP Resource URI patterns. Null = hereda del department ceiling. */
+    @Column({ type: 'jsonb', nullable: true })
+    vaultResources?: string[] | null;
+
+    /** Department del usuario — define el resource ceiling y enruta al agente correcto. */
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    department?: string | null;
+
     @OneToMany(() => UserApplication, (ua) => ua.user)
     userApplications!: UserApplication[];
 

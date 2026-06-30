@@ -330,15 +330,117 @@ Todo contenedor desplegado por agent-cloud debe cumplir:
 
 ---
 
-## Relación con auth-service
+## Relación con abac-service
 
-`apps/auth-service` (monorepo agent-framework) gestiona identidad de personas: login, roles, departments organizacionales (RRHH). agent-cloud gestiona **deployables operacionales**.
+`apps/abac-service` gestiona identidad y autorización de personas (login, roles, departments, ABAC con json-rules-engine). director-api gestiona **deployables operacionales**.
 
 Son complementarios:
-- `auth-service` → quién puede usar qué (identidad de personas)
-- `agent-cloud` → qué agentes y apps corren dónde (infraestructura de IA)
+- `abac-service` → quién puede usar qué (identidad + políticas)
+- `director-api` → qué agentes y apps corren dónde (infraestructura de IA)
 
-**Integración futura:** auth-service emite JWT con claim `dept` → agent-cloud usa ese claim para filtrar qué deployables puede ver y operar cada usuario.
+El JWT emitido por abac-service incluye `{ sub, roles, department, permissions }`. director-api lo valida con `FlexAuthGuard` (EdDSA → ApiKey).
+
+---
+
+## MCP Resources — Autorización ABAC
+
+### Concepto
+
+Los MCP Resources son contexto pre-cargado que el host inyecta en el LLM **antes** del primer token, a diferencia de los Tools que el LLM invoca durante la inferencia. Dado que los Resources se cargan silenciosamente, deben estar gateados por ABAC con la misma rigurosidad que los Tools.
+
+### Modelo de dos capas
+
+```
+Acceso efectivo = department_ceiling ∩ user_grant
+```
+
+| Capa | Define | Unidad | Quién configura |
+|------|--------|--------|-----------------|
+| **Department ceiling** | Máximo de URIs disponibles para el área | `DepartmentResource` (uri_pattern) | Admin de plataforma |
+| **User grant** | Subconjunto real del usuario | `vault_resources[]` en perfil | Admin de departamento |
+
+Si el usuario no tiene `vault_resources` explícito → hereda todos los Resources del department (default sin fricción). Si los tiene → intersección.
+
+### URI patterns por department (primera etapa)
+
+| Department | Resources autorizados |
+|------------|----------------------|
+| `development` | `jira://*`, `director://workflows`, `director://agents/health` |
+| `sales` | `hubspot://contacts/*`, `hubspot://deals/pipeline`, `odoo://customers/*`, `odoo://products/catalog` |
+| `finance` | `odoo://invoices/*`, `odoo://products/catalog` |
+| `hr` | _(sin recursos de negocio — solo contexto de plataforma)_ |
+| `devops` | `director://workflows`, `director://agents/health`, `director://deployables` |
+
+### Políticas en json-rules-engine
+
+```json
+{
+  "name": "sales-rep-resources",
+  "conditions": {
+    "all": [
+      { "fact": "department", "operator": "equal",    "value": "sales" },
+      { "fact": "role",       "operator": "notEqual", "value": "sales-manager" }
+    ]
+  },
+  "effect": "allow",
+  "resources": ["hubspot://contacts/*", "odoo://customers/*"]
+}
+```
+
+El engine evalúa `{ department, role }` del JWT y devuelve los URI patterns efectivos. Un manager puede superar la restricción de rol dentro del mismo department ceiling.
+
+### Flujo de resolución
+
+```
+JWT: { department: "sales", role: "sales-rep", sub: "usr_123" }
+
+abac-service evalúa en orden:
+  1. ¿usr_123 tiene vault_resources explícito? → usa ese
+  2. Si no → evalúa policies por (department, role)
+  3. Intersecta con department ceiling
+
+mcp-server filtra resources/list y resources/read contra la lista efectiva
+```
+
+### Endpoint nuevo en abac-service
+
+```
+GET /resources/allowed
+Headers: Authorization: Bearer <jwt>
+Response: { patterns: ["hubspot://contacts/*", "odoo://customers/*"] }
+```
+
+### Esquema de datos
+
+```sql
+-- Techo por department
+CREATE TABLE department_resources (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  department  VARCHAR(100) NOT NULL,
+  uri_pattern VARCHAR(500) NOT NULL,  -- e.g. "hubspot://contacts/*"
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Override opcional por usuario (se guarda en user.vault_resources jsonb)
+-- No requiere tabla nueva — extiende el campo vault existente
+```
+
+### Puntos de consumo
+
+| Consumidor | Cómo usa los Resources |
+|------------|------------------------|
+| **director-agent** | Lee Resources relevantes y los inyecta en el system prompt del especialista antes de rutear |
+| **Claude Desktop / Cursor / Cline** | Subscribirse a Resources vía config MCP — el IDE inyecta el contexto en cada conversación |
+| **agent-studio** | Panel de gestión: lista Resources disponibles, preview de contenido, estado de subscripción por agente |
+
+### Comparación con vault[] de Tools
+
+| | `vault[]` (tools) | `vault_resources[]` (nuevo) |
+|--|-------------------|-----------------------------|
+| Granularidad | Tool exacta (`jira_get_issue`) | Patrón URI (`jira://*`) |
+| Definido por | Usuario individual | Department → User override |
+| Evaluado por | `vault-filter.ts` en director-agent | `abac-service` + mcp-server middleware |
+| Silencio | El LLM decide cuándo llamar | El host pre-carga sin decisión del LLM |
 
 ---
 

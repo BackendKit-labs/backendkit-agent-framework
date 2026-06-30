@@ -4,10 +4,9 @@ import { NotFoundException } from '@nestjs/common';
 import { DeployablesService } from './deployables.service';
 import { Deployable } from './entities/deployable.entity';
 
-describe('DeployablesService — dept-scoping', () => {
+describe('DeployablesService', () => {
   let service: DeployablesService;
 
-  // QueryBuilder espía: registra los andWhere y devuelve resultados controlados.
   const qbCalls: Array<{ clause: string; params?: any }> = [];
   const qb: any = {
     leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -24,6 +23,9 @@ describe('DeployablesService — dept-scoping', () => {
   const repo = {
     createQueryBuilder: jest.fn(() => qb),
     findOne: jest.fn(),
+    remove: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((d) => d),
   };
 
   beforeEach(async () => {
@@ -39,40 +41,27 @@ describe('DeployablesService — dept-scoping', () => {
   });
 
   describe('findAll', () => {
-    it('filtra por dept.slug cuando hay deptScope', async () => {
-      await service.findAll({}, 'backend');
-      const deptFilter = qbCalls.find((c) => c.clause === 'dept.slug = :deptScope');
-      expect(deptFilter).toBeDefined();
-      expect(deptFilter?.params).toEqual({ deptScope: 'backend' });
+    it('devuelve resultados paginados sin filtros adicionales', async () => {
+      const result = await service.findAll({});
+      expect(result).toEqual({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
     });
 
-    it('no filtra por dept cuando deptScope es null (M2M / sin dept)', async () => {
-      await service.findAll({}, null);
-      expect(qbCalls.find((c) => c.clause === 'dept.slug = :deptScope')).toBeUndefined();
+    it('no aplica filtro de dept (scope eliminado con HS256)', async () => {
+      await service.findAll({});
+      expect(qbCalls.find((c) => c.clause.includes('dept.slug'))).toBeUndefined();
     });
   });
 
   describe('findOne', () => {
-    it('devuelve el deployable cuando su dept.slug coincide con el scope', async () => {
+    it('devuelve el deployable cuando existe', async () => {
       const d = { id: 'x', department: { slug: 'backend' } };
       repo.findOne.mockResolvedValue(d);
-      await expect(service.findOne('x', 'backend')).resolves.toBe(d);
-    });
-
-    it('lanza 404 cuando el dept.slug no coincide con el scope', async () => {
-      repo.findOne.mockResolvedValue({ id: 'x', department: { slug: 'legal' } });
-      await expect(service.findOne('x', 'backend')).rejects.toThrow(NotFoundException);
-    });
-
-    it('sin scope (M2M) devuelve cualquier deployable', async () => {
-      const d = { id: 'x', department: { slug: 'legal' } };
-      repo.findOne.mockResolvedValue(d);
-      await expect(service.findOne('x', null)).resolves.toBe(d);
+      await expect(service.findOne('x')).resolves.toBe(d);
     });
 
     it('lanza 404 cuando no existe', async () => {
       repo.findOne.mockResolvedValue(null);
-      await expect(service.findOne('x', 'backend')).rejects.toThrow(NotFoundException);
+      await expect(service.findOne('x')).rejects.toThrow(NotFoundException);
     });
   });
 });

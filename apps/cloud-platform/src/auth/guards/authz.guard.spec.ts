@@ -15,8 +15,8 @@ describe('AuthzGuard', () => {
       getClass: () => class {},
     }) as unknown as ExecutionContext;
 
-  const requireTool = (...tools: string[]) =>
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(tools);
+  const requirePermission = (perm: string) =>
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(perm);
 
   beforeEach(() => {
     reflector = new Reflector();
@@ -24,94 +24,68 @@ describe('AuthzGuard', () => {
     guard = new AuthzGuard(reflector, mockAbacClient as unknown as AbacClientService);
   });
 
-  it('permite cuando el endpoint no declara permiso requerido', async () => {
+  it('permite cuando el endpoint no declara @RequirePermission', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
-    expect(await guard.canActivate(ctxWith({ user: { tools: [] } }))).toBe(true);
+    expect(await guard.canActivate(ctxWith({ user: { id: 'u1', org: 'org-1' } }))).toBe(true);
   });
 
-  describe('JWT humano (auth-service — tools[])', () => {
-    it('permite cuando user.tools incluye la tool requerida', async () => {
-      requireTool('cloud_deploy');
-      const ctx = ctxWith({ user: { tools: ['cloud_deploy', 'cloud_stop'] } });
-      expect(await guard.canActivate(ctx)).toBe(true);
-    });
-
-    it('lanza Forbidden cuando user.tools no incluye la tool', async () => {
-      requireTool('cloud_deploy');
-      const ctx = ctxWith({ user: { tools: ['cloud_metrics'] } });
-      await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lanza Forbidden cuando user no tiene tools', async () => {
-      requireTool('cloud_deploy');
-      await expect(guard.canActivate(ctxWith({ user: {} }))).rejects.toThrow(
-        ForbiddenException,
-      );
-    });
-  });
-
-  describe('JWT abac-service (con claim org) + @RequirePermission → llama al PDP', () => {
-    it('permite cuando el PDP retorna allowed=true', async () => {
-      jest
-        .spyOn(reflector, 'getAllAndOverride')
-        .mockReturnValueOnce('deployable:deploy') // REQUIRE_PERMISSION_KEY
-        .mockReturnValueOnce(undefined);           // REQUIRE_TOOL_KEY
+  describe('Bearer EdDSA (abac-service) → llama al PDP', () => {
+    it('permite cuando el PDP retorna true', async () => {
+      requirePermission('deployable:deploy');
       mockAbacClient.canAccess.mockResolvedValue(true);
-      const ctx = ctxWith({ user: { id: 'u1', org: 'org-uuid', tools: [] } });
+      const ctx = ctxWith({ user: { id: 'u1', org: 'org-uuid' } });
       expect(await guard.canActivate(ctx)).toBe(true);
       expect(mockAbacClient.canAccess).toHaveBeenCalledWith(
         'u1', 'deployable', 'deploy', { organizationId: 'org-uuid' },
       );
     });
 
-    it('lanza Forbidden cuando el PDP retorna allowed=false', async () => {
-      jest
-        .spyOn(reflector, 'getAllAndOverride')
-        .mockReturnValueOnce('deployable:deploy')
-        .mockReturnValueOnce(undefined);
+    it('lanza Forbidden cuando el PDP retorna false', async () => {
+      requirePermission('deployable:deploy');
       mockAbacClient.canAccess.mockResolvedValue(false);
-      const ctx = ctxWith({ user: { id: 'u1', org: 'org-uuid', tools: [] } });
+      const ctx = ctxWith({ user: { id: 'u1', org: 'org-uuid' } });
       await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
     });
 
-    it('no llama al PDP cuando org es undefined (token auth-service)', async () => {
-      jest
-        .spyOn(reflector, 'getAllAndOverride')
-        .mockReturnValueOnce('deployable:deploy')
-        .mockReturnValueOnce(undefined);
-      const ctx = ctxWith({ user: { id: 'u1', tools: ['deployable:deploy'] } });
-      expect(await guard.canActivate(ctx)).toBe(true);
-      expect(mockAbacClient.canAccess).not.toHaveBeenCalled();
+    it('llama al PDP con organizationId null cuando org no está en el token', async () => {
+      requirePermission('deployable:deploy');
+      mockAbacClient.canAccess.mockResolvedValue(true);
+      const ctx = ctxWith({ user: { id: 'u1' } });
+      await guard.canActivate(ctx);
+      expect(mockAbacClient.canAccess).toHaveBeenCalledWith(
+        'u1', 'deployable', 'deploy', { organizationId: null },
+      );
     });
   });
 
   describe('M2M ApiKey', () => {
     it('permite con scope comodín "*"', async () => {
-      requireTool('cloud_deploy');
-      const ctx = ctxWith({ apiKey: { scopes: ['*'] } });
-      expect(await guard.canActivate(ctx)).toBe(true);
+      requirePermission('deployable:deploy');
+      expect(await guard.canActivate(ctxWith({ apiKey: { scopes: ['*'] } }))).toBe(true);
     });
 
     it('permite con scopes null (todas permitidas)', async () => {
-      requireTool('cloud_deploy');
+      requirePermission('deployable:deploy');
       expect(await guard.canActivate(ctxWith({ apiKey: { scopes: null } }))).toBe(true);
     });
 
-    it('permite cuando scopes incluye la tool exacta', async () => {
-      requireTool('cloud_deploy');
-      const ctx = ctxWith({ apiKey: { scopes: ['cloud_deploy'] } });
-      expect(await guard.canActivate(ctx)).toBe(true);
+    it('permite cuando scopes incluye el permiso exacto', async () => {
+      requirePermission('deployable:deploy');
+      expect(
+        await guard.canActivate(ctxWith({ apiKey: { scopes: ['deployable:deploy'] } })),
+      ).toBe(true);
     });
 
-    it('lanza Forbidden cuando scopes no incluye la tool', async () => {
-      requireTool('cloud_deploy');
-      const ctx = ctxWith({ apiKey: { scopes: ['cloud_metrics'] } });
-      await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    it('lanza Forbidden cuando scopes no incluye el permiso', async () => {
+      requirePermission('deployable:deploy');
+      await expect(
+        guard.canActivate(ctxWith({ apiKey: { scopes: ['vault:search'] } })),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
   it('lanza Forbidden sin contexto de autenticación', async () => {
-    requireTool('cloud_deploy');
+    requirePermission('deployable:deploy');
     await expect(guard.canActivate(ctxWith({}))).rejects.toThrow(ForbiddenException);
   });
 });

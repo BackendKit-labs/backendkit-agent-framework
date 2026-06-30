@@ -1,24 +1,30 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { AuthenticatedUser } from './jwt.strategy';
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string | null;
+  org: string | null;
+  orgSlug: string | null;
+  accountType?: string;
+  roles?: string[];
+  permissions?: string[];
+}
 
 interface AbacJwtPayload {
   sub: string;
+  email?: string;
   type?: string;
   accountType?: string;
   org?: string | null;
   orgSlug?: string | null;
-  applicationId?: string;
-  applicationName?: string;
+  appId?: string;
+  roles?: string[];
+  permissions?: string[];
 }
 
-/**
- * Convierte una clave pública Ed25519 raw (32 bytes base64) a PEM SPKI.
- * jsonwebtoken 9.x puede verificar EdDSA con una clave PEM en formato SPKI.
- */
 function toSpkiPem(base64RawKey: string): string {
-  // DER prefix para Ed25519 SPKI (RFC 8410)
   const prefix = Buffer.from('302a300506032b6570032100', 'hex');
   const rawKey = Buffer.from(base64RawKey, 'base64');
   if (rawKey.length !== 32) {
@@ -26,8 +32,7 @@ function toSpkiPem(base64RawKey: string): string {
       `ABAC_PUBLIC_KEY debe ser una clave Ed25519 de 32 bytes (recibidos: ${rawKey.length})`,
     );
   }
-  const der = Buffer.concat([prefix, rawKey]);
-  return `-----BEGIN PUBLIC KEY-----\n${der.toString('base64')}\n-----END PUBLIC KEY-----`;
+  return `-----BEGIN PUBLIC KEY-----\n${Buffer.concat([prefix, rawKey]).toString('base64')}\n-----END PUBLIC KEY-----`;
 }
 
 @Injectable()
@@ -36,9 +41,6 @@ export class EdDsaJwtStrategy extends PassportStrategy(Strategy, 'eddsa-jwt') {
 
   constructor() {
     const rawKey = process.env.ABAC_PUBLIC_KEY;
-
-    // Si no está configurado usamos una clave dummy (32 ceros). Toda verificación fallará
-    // con 401 y FlexAuthGuard caerá al siguiente strategy — nunca falla en el arranque.
     const secretOrKey = rawKey
       ? toSpkiPem(rawKey)
       : toSpkiPem(Buffer.alloc(32).toString('base64'));
@@ -63,15 +65,12 @@ export class EdDsaJwtStrategy extends PassportStrategy(Strategy, 'eddsa-jwt') {
     }
     return {
       id: payload.sub,
-      role: null,
-      dept: null,
-      tools: [],
-      vault: [],
-      apps: [],
-      email: null,
+      email: payload.email ?? null,
       org: payload.org ?? null,
       orgSlug: payload.orgSlug ?? null,
       accountType: payload.accountType,
+      roles: payload.roles ?? [],
+      permissions: payload.permissions ?? [],
     };
   }
 }

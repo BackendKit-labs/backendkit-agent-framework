@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as k8s from '@kubernetes/client-node';
+import { withResilience } from '../resilience.helper';
 import type {
   AgentSpec,
   ExecResult,
@@ -88,6 +89,10 @@ export class K8sRuntimeAdapter implements RuntimeAdapter {
   }
 
   async deploy(spec: AgentSpec): Promise<RuntimeHandle> {
+    return withResilience(this.kind, 'deploy', () => this._deploy(spec), { maxAttempts: 2, baseDelayMs: 500 });
+  }
+
+  private async _deploy(spec: AgentSpec): Promise<RuntimeHandle> {
     await this.ensureNamespace(DEFAULT_NS);
 
     const name   = deploymentName(spec.agentId);
@@ -162,18 +167,22 @@ export class K8sRuntimeAdapter implements RuntimeAdapter {
   }
 
   async stop(handleId: string): Promise<void> {
-    const { namespace, name } = decodeHandle(handleId);
-    const dep = await this.apps.readNamespacedDeployment({ name, namespace });
-    const body = { ...dep, spec: { ...dep.spec, replicas: 0 } };
-    await this.apps.replaceNamespacedDeployment({ name, namespace, body });
-    this.logger.log(`Scaled ${namespace}/${name} to 0`);
+    return withResilience(this.kind, 'stop', async () => {
+      const { namespace, name } = decodeHandle(handleId);
+      const dep = await this.apps.readNamespacedDeployment({ name, namespace });
+      const body = { ...dep, spec: { ...dep.spec, replicas: 0 } };
+      await this.apps.replaceNamespacedDeployment({ name, namespace, body });
+      this.logger.log(`Scaled ${namespace}/${name} to 0`);
+    }, { maxAttempts: 2, baseDelayMs: 300 });
   }
 
   async remove(handleId: string): Promise<void> {
-    const { namespace, name } = decodeHandle(handleId);
-    await this.apps.deleteNamespacedDeployment({ name, namespace }).catch(ignoreNotFound);
-    await this.core.deleteNamespacedService({ name, namespace }).catch(ignoreNotFound);
-    this.logger.log(`Deleted Deployment + Service ${namespace}/${name}`);
+    return withResilience(this.kind, 'remove', async () => {
+      const { namespace, name } = decodeHandle(handleId);
+      await this.apps.deleteNamespacedDeployment({ name, namespace }).catch(ignoreNotFound);
+      await this.core.deleteNamespacedService({ name, namespace }).catch(ignoreNotFound);
+      this.logger.log(`Deleted Deployment + Service ${namespace}/${name}`);
+    }, { maxAttempts: 2, baseDelayMs: 300 });
   }
 
   async status(handleId: string): Promise<RuntimeStatus> {

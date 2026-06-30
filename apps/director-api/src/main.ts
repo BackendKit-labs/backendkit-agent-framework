@@ -1,13 +1,33 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import {
+  CorrelationInterceptor,
+  PerformanceInterceptor,
+  AllExceptionsFilter,
+  LoggerService,
+} from '@backendkit-labs/observability';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  // Use structured logger from observability module
+  const logger = app.get(LoggerService);
+  app.useLogger(logger);
+
+  // Correlation ID + performance tracking on every request
+  app.useGlobalInterceptors(
+    app.get(CorrelationInterceptor),
+    app.get(PerformanceInterceptor),
+  );
+
+  // Structured exception handling
+  app.useGlobalFilters(app.get(AllExceptionsFilter));
 
   // Enable CORS for frontend communication
+  const origins = (process.env.CORS_ORIGIN || 'http://localhost:3001,http://localhost:3002').split(',');
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3002',
+    origin: origins.length === 1 ? origins[0] : origins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
@@ -29,6 +49,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
+  logger.log(`director-api running on http://localhost:${port}`, 'Bootstrap');
 }
 bootstrap();

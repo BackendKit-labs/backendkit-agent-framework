@@ -189,6 +189,8 @@ services:
       GATEWAY_URL: http://director-api:3000
       DIRECTOR_URL: http://director-api:3000
       ABAC_URL: http://abac-service:3005
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3001}
     depends_on:
       director-api:
         condition: service_healthy

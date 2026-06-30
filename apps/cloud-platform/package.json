@@ -13,7 +13,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "test:integration": "jest --testPathIgnorePatterns=/node_modules/ --testPathPattern=integration\\.spec"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
@@ -74,6 +75,13 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^@kubernetes/client-node$": "<rootDir>/../test/mocks/k8s-client-node.ts"
+    },
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.integration\\.spec\\.ts$"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

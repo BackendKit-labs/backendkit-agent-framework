@@ -1,51 +1,41 @@
-import { jwtVerify, SignJWT } from 'jose';
+import { jwtVerify, importSPKI } from 'jose';
 import type { Principal } from './types.js';
 
-// Soporta AUTH_SECRET (auth-service unificado) y JWT_SECRET (legacy director-only).
-// AUTH_SECRET tiene prioridad.
-function getSecret(): Uint8Array | null {
-    const key = process.env['AUTH_SECRET'] ?? process.env['JWT_SECRET'];
-    return key ? new TextEncoder().encode(key) : null;
+function toSpkiPem(base64RawKey: string): string {
+    const prefix = Buffer.from('302a300506032b6570032100', 'hex');
+    const rawKey = Buffer.from(base64RawKey, 'base64');
+    if (rawKey.length !== 32) {
+        throw new Error(`ABAC_PUBLIC_KEY debe ser Ed25519 de 32 bytes (recibidos: ${rawKey.length})`);
+    }
+    return `-----BEGIN PUBLIC KEY-----\n${Buffer.concat([prefix, rawKey]).toString('base64')}\n-----END PUBLIC KEY-----`;
 }
 
-/** true cuando el modo empresa está activo (AUTH_SECRET o JWT_SECRET seteado). */
-export const isEnterpriseMode = (): boolean =>
-    !!(process.env['AUTH_SECRET'] ?? process.env['JWT_SECRET']);
+async function getPublicKey() {
+    const raw = process.env['ABAC_PUBLIC_KEY'];
+    if (!raw) throw new Error('ABAC_PUBLIC_KEY no configurado');
+    return importSPKI(toSpkiPem(raw), 'EdDSA');
+}
 
-/**
- * Verifica un JWT HS256 y extrae el Principal completo.
- * Soporta JWTs emitidos por auth-service (con tools/vault/apps)
- * y JWTs legacy del director (solo sub/role/department).
- */
+/** true cuando el modo empresa está activo (ABAC_PUBLIC_KEY seteado). */
+export const isEnterpriseMode = (): boolean => !!process.env['ABAC_PUBLIC_KEY'];
+
+/** Verifica un JWT EdDSA emitido por abac-service y extrae el Principal. */
 export async function verifyToken(token: string): Promise<Principal> {
-    const secret = getSecret();
-    if (!secret) throw new Error('AUTH_SECRET no configurado');
+    const key = await getPublicKey();
     try {
-        const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
+        const { payload } = await jwtVerify(token, key, { algorithms: ['EdDSA'] });
+        if (!payload.sub) throw new Error('Token sin sub');
+        const roles: string[] = Array.isArray(payload['roles']) ? payload['roles'] as string[] : [];
         return {
-            id:         typeof payload['sub']  === 'string' ? payload['sub']  : '',
-            role:       typeof payload['role'] === 'string' ? payload['role'] : 'viewer',
-            department: typeof payload['dept'] === 'string' ? payload['dept'] : undefined,
-            tools:      Array.isArray(payload['tools']) ? payload['tools'] as string[]  : undefined,
-            vault:      Array.isArray(payload['vault']) ? payload['vault'] as string[]  : undefined,
-            apps:       Array.isArray(payload['apps'])  ? payload['apps']  as string[]  : undefined,
+            id:          payload.sub,
+            email:       typeof payload['email']   === 'string' ? payload['email']   : undefined,
+            org:         typeof payload['org']     === 'string' ? payload['org']     : null,
+            orgSlug:     typeof payload['orgSlug'] === 'string' ? payload['orgSlug'] : null,
+            roles,
+            permissions: Array.isArray(payload['permissions']) ? payload['permissions'] as string[] : [],
+            role:        roles[0] ?? 'viewer',
         };
     } catch (cause) {
         throw new Error(`Token inválido: ${(cause as Error).message}`);
     }
-}
-
-/**
- * Firma un JWT legacy (sin workspace) — solo para testing/dev.
- * En producción los JWTs los emite auth-service.
- */
-export async function signToken(principal: Principal, expiresIn = '8h'): Promise<string> {
-    const secret = getSecret();
-    if (!secret) throw new Error('AUTH_SECRET no configurado');
-    return new SignJWT({ role: principal.role, dept: principal.department })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setSubject(principal.id)
-        .setIssuedAt()
-        .setExpirationTime(expiresIn)
-        .sign(secret);
 }

@@ -1,0 +1,35 @@
+# RBAC for agent-cloud when running inside the cluster.
+# The service account is used by the agent-cloud pod to manage Deployments and Services
+# in the agent-cloud namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-cloud
+  namespace: agent-cloud
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-cloud-runtime
+  namespace: agent-cloud
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "pods/log", "pods/exec", "namespaces"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-cloud-runtime
+  namespace: agent-cloud
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agent-cloud-runtime
+subjects:
+  - kind: ServiceAccount
+    name: agent-cloud
+    namespace: agent-cloud

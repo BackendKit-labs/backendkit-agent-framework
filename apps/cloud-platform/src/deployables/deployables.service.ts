@@ -20,9 +20,7 @@ export class DeployablesService {
       .createQueryBuilder('d')
       .leftJoinAndSelect('d.department', 'dept');
 
-    if (search) {
-      qb.andWhere('d.name ILIKE :search', { search: `%${search}%` });
-    }
+    if (search) qb.andWhere('d.name ILIKE :search', { search: `%${search}%` });
     if (kind) qb.andWhere('d.kind = :kind', { kind });
     if (status) qb.andWhere('d.status = :status', { status });
     if (departmentId) qb.andWhere('d.departmentId = :departmentId', { departmentId });
@@ -46,10 +44,7 @@ export class DeployablesService {
   }
 
   async findOne(id: string): Promise<Deployable> {
-    const d = await this.repo.findOne({
-      where: { id },
-      relations: ['department'],
-    });
+    const d = await this.repo.findOne({ where: { id }, relations: ['department'] });
     if (!d) throw new NotFoundException(`Deployable "${id}" not found`);
     return d;
   }

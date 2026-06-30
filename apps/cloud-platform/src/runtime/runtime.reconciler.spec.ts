@@ -1,24 +1,29 @@
 import { RuntimeReconciler } from './runtime.reconciler';
-import { Agent, AgentStatus } from '../agents/entities/agent.entity';
+import { Deployable } from '../deployables/entities/deployable.entity';
 import type { RuntimeAdapter, RuntimeHandle } from './runtime.spi';
 
-function agent(partial: Partial<Agent>): Agent {
+function deployable(partial: Partial<Deployable>): Deployable {
   return {
     id: 'a1',
     name: 'A',
     description: null,
-    type: 'backend',
-    status: AgentStatus.ACTIVE,
-    config: {},
-    projectId: null,
-    model: null,
-    runtime: 'docker',
+    kind: 'agent',
+    status: 'running',
+    departmentId: null,
+    department: null,
+    catalogKey: null,
     image: null,
+    runtime: 'docker',
     runtimeHandle: null,
+    model: null,
+    mcpPort: null,
+    publicPort: null,
+    publicUrl: null,
+    framework: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...partial,
-  };
+  } as Deployable;
 }
 
 function adapter(handles: RuntimeHandle[]): RuntimeAdapter {
@@ -38,21 +43,21 @@ function adapter(handles: RuntimeHandle[]): RuntimeAdapter {
 }
 
 describe('RuntimeReconciler', () => {
-  it('marks an active agent STOPPED when its container is gone', async () => {
-    const stale = agent({ status: AgentStatus.ACTIVE, runtimeHandle: 'container-gone' });
-    const repo = { find: jest.fn().mockResolvedValue([stale]), save: jest.fn(async (a) => a) };
+  it('marks a running deployable STOPPED when its container is gone', async () => {
+    const stale = deployable({ status: 'running', runtimeHandle: 'container-gone' });
+    const repo = { find: jest.fn().mockResolvedValue([stale]), save: jest.fn(async (d) => d) };
     const registry = { all: () => [adapter([])] };
 
     const reconciler = new RuntimeReconciler(repo as any, registry as any);
     await reconciler.onApplicationBootstrap();
 
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ status: AgentStatus.STOPPED, runtimeHandle: null }),
+      expect.objectContaining({ status: 'stopped', runtimeHandle: null }),
     );
   });
 
-  it('keeps an agent ACTIVE when its container is still running', async () => {
-    const running = agent({ status: AgentStatus.STOPPED, runtimeHandle: 'c1' });
+  it('marks a deployable RUNNING when its container is still running', async () => {
+    const stopped = deployable({ status: 'stopped', runtimeHandle: 'c1' });
     const handle: RuntimeHandle = {
       id: 'c1',
       kind: 'docker',
@@ -61,15 +66,13 @@ describe('RuntimeReconciler', () => {
       phase: 'running',
       createdAt: 'now',
     };
-    const repo = { find: jest.fn().mockResolvedValue([running]), save: jest.fn(async (a) => a) };
+    const repo = { find: jest.fn().mockResolvedValue([stopped]), save: jest.fn(async (d) => d) };
     const registry = { all: () => [adapter([handle])] };
 
     const reconciler = new RuntimeReconciler(repo as any, registry as any);
     await reconciler.onApplicationBootstrap();
 
-    expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ status: AgentStatus.ACTIVE }),
-    );
+    expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'running' }));
   });
 
   it('does not crash when an adapter list() fails', async () => {

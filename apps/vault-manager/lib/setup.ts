@@ -3,8 +3,7 @@
  * Run once: npx tsx lib/setup.ts
  *
  * NOTE: Los usuarios ya NO se crean aquí.
- * Gestionalos en auth-service: http://localhost:4000/admin/users
- * (con canUseVault=true para que puedan ingresar al Vault Manager)
+ * Gestionalos en abac-service: http://localhost:3005/docs (POST /organizations/signup)
  */
 import 'dotenv/config';
 import { db, schema } from '../db';
@@ -12,7 +11,7 @@ import { eq } from 'drizzle-orm';
 
 async function setup() {
     console.log('Setting up Vault Manager...\n');
-    console.log('ℹ  Los usuarios se gestionan en auth-service (http://localhost:4000)\n');
+    console.log('ℹ  Los usuarios se gestionan en abac-service (http://localhost:3005/docs)\n');
 
     const vaultSeeds = [
         { id: 'vault-ai',           label: 'AI Engineering',        ownerRole: 'technical', description: 'Conocimiento de ML, deep learning, LLMs, RAG y agentes', icon: 'Brain',    path: process.env.AI_VAULT_PATH      ?? '' },

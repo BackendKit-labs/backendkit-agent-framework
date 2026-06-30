@@ -1,6 +1,14 @@
 'use client';
 
-export interface WsUser { id: string; role: string; department?: string; }
+export interface WsUser {
+  id: string;
+  name?: string;
+  email?: string;
+  roles?: string[];
+  // legacy WS server fields (kept for auth_ok backwards compat)
+  role?: string;
+  department?: string;
+}
 
 export type WsIncoming =
   | { type: 'ready';       auth_required: boolean }
@@ -13,17 +21,19 @@ export type WsIncoming =
   | { type: 'error';       message: string };
 
 export type WsOutgoing =
-  | { type: 'login';  username: string; password: string }
   | { type: 'auth';   token: string }
   | { type: 'chat';   message: string }
   | { type: 'clear' };
 
-// Obtiene la URL del WS desde env o default
 export function getWsUrl(): string {
   return process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3500';
 }
 
-// Colores por rol (consistent con vault-manager topbar)
+export function primaryRole(user: WsUser): string {
+  if (user.roles?.length) return user.roles[0];
+  return user.role ?? 'viewer';
+}
+
 export function roleColor(role: string): string {
   switch (role) {
     case 'admin':       return 'text-rose-400';

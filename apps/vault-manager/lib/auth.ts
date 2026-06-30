@@ -3,20 +3,27 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { authConfig } from './auth.config';
 
-// hashPassword y verifyPassword eliminados — auth delegada al auth-service.
+const ABAC_URL = process.env['ABAC_URL'] ?? 'http://localhost:3005';
 
-const AUTH_SERVICE_URL = process.env['AUTH_SERVICE_URL'] ?? 'http://localhost:4000';
+// Roles que vault-manager reconoce (source of truth: lib/permissions.ts)
+const KNOWN_ROLES = new Set(['admin', 'development', 'devops', 'hr', 'sales', 'finance', 'viewer']);
 
-interface AuthServiceUser {
-    id:             string;
-    username:       string;
-    name?:          string;
-    email?:         string;
-    role:           string;
-    department?:    string;
-    active:         boolean;
-    canUseVault:    boolean;
-    canUseDirector: boolean;
+function primaryRole(roles: string[]): string {
+    for (const r of roles) {
+        if (KNOWN_ROLES.has(r)) return r;
+    }
+    return 'viewer';
+}
+
+interface AbacLoginResponse {
+    accessToken: string;
+    user: {
+        id:        string;
+        email:     string;
+        firstName: string;
+        lastName:  string;
+        roles:     string[];
+    };
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -31,11 +38,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 if (!credentials?.email || !credentials?.password) return null;
 
                 try {
-                    const res = await fetch(`${AUTH_SERVICE_URL}/api/auth/login`, {
+                    const res = await fetch(`${ABAC_URL}/auth/admin/login`, {
                         method:  'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body:    JSON.stringify({
-                            username: credentials.email,   // el form usa 'email' como campo
+                            email:    credentials.email,
                             password: credentials.password,
                         }),
                         signal: AbortSignal.timeout(5_000),
@@ -43,20 +50,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
                     if (!res.ok) return null;
 
-                    const data = await res.json() as { token?: string; user?: AuthServiceUser; error?: string };
-                    if (!data.token || !data.user) return null;
-
-                    // Solo permitir acceso si el usuario tiene habilitado Vault Manager
-                    if (!data.user.canUseVault) return null;
-                    if (!data.user.active) return null;
+                    const data = await res.json() as AbacLoginResponse;
+                    if (!data.accessToken || !data.user) return null;
 
                     return {
-                        id:         data.user.username,
-                        email:      data.user.email ?? data.user.username,
-                        name:       data.user.name  ?? data.user.username,
-                        role:       data.user.role,
-                        department: data.user.department,
-                        authToken:  data.token,   // JWT del auth-service para llamadas API
+                        id:        data.user.id,
+                        email:     data.user.email,
+                        name:      `${data.user.firstName} ${data.user.lastName}`.trim(),
+                        role:      primaryRole(data.user.roles),
+                        authToken: data.accessToken,
                     };
                 } catch {
                     return null;
@@ -69,12 +71,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 declare module 'next-auth' {
     interface Session {
         user: {
-            id:          string;
-            email:       string;
-            name:        string;
-            role:        string;
-            department?: string;
-            authToken?:  string;
+            id:         string;
+            email:      string;
+            name:       string;
+            role:       string;
+            authToken?: string;
         };
     }
 }

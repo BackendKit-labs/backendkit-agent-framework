@@ -12,8 +12,9 @@ import {
 import { DirectorService } from './director.service';
 import { DeployAgentDto } from './dto/deploy-agent.dto';
 import { ExecuteActionDto } from './dto/execute-action.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FlexAuthGuard } from '../auth/guards/flex-auth.guard';
+import { AuthzGuard } from '../auth/guards/authz.guard';
+import { RequirePermission } from '../common/decorators';
 
 @Controller('director')
 export class DirectorController {
@@ -40,40 +41,46 @@ export class DirectorController {
   }
 
   @Get('agents')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:list')
   getAgents() {
     return this.directorService.getDeployedAgents();
   }
 
   @Post('deploy')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:deploy')
   @HttpCode(HttpStatus.CREATED)
   deploy(@Body() deployAgentDto: DeployAgentDto) {
     return this.directorService.deployAgent(deployAgentDto);
   }
 
   @Post(':id/stop')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:stop')
   @HttpCode(HttpStatus.OK)
   stop(@Param('id') id: string) {
     return this.directorService.stopAgent(id);
   }
 
   @Post('execute/:id')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:deploy')
   @HttpCode(HttpStatus.OK)
   execute(@Param('id') id: string, @Body() executeActionDto: ExecuteActionDto) {
     return this.directorService.executeAgent(id, executeActionDto);
   }
 
   @Get('agents/:id/logs')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:list')
   getLogs(@Param('id') id: string) {
     return this.directorService.getAgentLogs(id);
   }
 
   @Get('metrics')
-  @UseGuards(FlexAuthGuard)
+  @UseGuards(FlexAuthGuard, AuthzGuard)
+  @RequirePermission('deployable:metrics')
   getMetrics() {
     return this.directorService.getMetrics();
   }

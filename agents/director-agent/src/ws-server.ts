@@ -2,7 +2,7 @@
  * WebSocket front-door del Director Agent (:ws_port, default 3500).
  *
  * Protocolo (cliente → servidor):
- *   { type: "login", username, password }   → autenticar con credenciales
+ *   { type: "login", email, password }      → autenticar con credenciales (abac-service)
  *   { type: "auth",  token }                → autenticar con JWT existente
  *   { type: "chat",  message }              → enviar mensaje al Director
  *   { type: "clear" }                       → limpiar historial de la sesión
@@ -30,7 +30,8 @@ import type { SessionEngineManager } from './engine.js';
 
 interface IncomingMsg {
     type:      'login' | 'auth' | 'chat' | 'clear';
-    username?: string;
+    email?:    string;
+    username?: string; // legacy alias — acepta ambos
     password?: string;
     token?:    string;
     message?:  string;
@@ -64,11 +65,12 @@ function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
         // ── Autenticación ──────────────────────────────────────────────────────
 
         if (msg.type === 'login') {
-            if (!msg.username || !msg.password) {
-                send(ws, { type: 'auth_error', error: 'username y password requeridos' });
+            const emailOrUser = msg.email ?? msg.username;
+            if (!emailOrUser || !msg.password) {
+                send(ws, { type: 'auth_error', error: 'email y password requeridos' });
                 return;
             }
-            const result = await login(msg.username, msg.password);
+            const result = await login(emailOrUser, msg.password);
             if (result.ok) {
                 principal = result.user;
                 send(ws, { type: 'auth_ok', token: result.token, user: result.user });
@@ -93,7 +95,7 @@ function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
 
         const activePrincipal = principal ?? (enterpriseMode ? null : ADMIN_PRINCIPAL);
         if (!activePrincipal) {
-            send(ws, { type: 'error', message: 'No autenticado. Enviá { type: "login", username, password } primero.' });
+            send(ws, { type: 'error', message: 'No autenticado. Enviá { type: "login", email, password } primero.' });
             return;
         }
 

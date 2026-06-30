@@ -1,48 +1,35 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { EdDsaJwtStrategy } from './strategies/eddsa-jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { EdDsaAuthGuard } from './guards/eddsa-auth.guard';
 import { FlexAuthGuard } from './guards/flex-auth.guard';
-import { UsersModule } from '../users/users.module';
+import { AuthzGuard } from './guards/authz.guard';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 
+/**
+ * cloud-platform NO emite identidad: abac-service es el único IdP.
+ * Valida tokens EdDSA de abac-service de forma stateless.
+ */
 @Module({
   imports: [
-    PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '24h',
-        },
-      }),
-    }),
-    UsersModule,
+    PassportModule.register({ defaultStrategy: 'eddsa-jwt' }),
     forwardRef(() => ApiKeysModule),
   ],
-  controllers: [AuthController],
   providers: [
-    AuthService,
-    JwtStrategy,
-    {
-      provide: 'JWT_AUTH_GUARD',
-      useClass: JwtAuthGuard,
-    },
+    EdDsaJwtStrategy,
+    { provide: 'JWT_AUTH_GUARD', useClass: JwtAuthGuard },
     JwtAuthGuard,
+    EdDsaAuthGuard,
     FlexAuthGuard,
+    AuthzGuard,
   ],
   exports: [
-    AuthService,
-    JwtModule,
     PassportModule,
     JwtAuthGuard,
+    EdDsaAuthGuard,
     FlexAuthGuard,
+    AuthzGuard,
     forwardRef(() => ApiKeysModule),
   ],
 })

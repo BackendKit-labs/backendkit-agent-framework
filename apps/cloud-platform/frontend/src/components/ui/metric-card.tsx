@@ -29,19 +29,19 @@ export function MetricCard({
     return (
       <div
         className={cn(
-          'rounded-lg border border-gray-200 bg-white p-6 shadow-sm',
+          'rounded-xl border border-border bg-card p-6 shadow',
           className
         )}
       >
         <div className="flex items-center justify-between">
           <div className="space-y-2">
-            <div className="h-4 w-24 animate-pulse rounded bg-gray-200" />
-            <div className="h-8 w-16 animate-pulse rounded bg-gray-200" />
+            <div className="skeleton h-4 w-24 rounded" />
+            <div className="skeleton h-8 w-16 rounded" />
           </div>
-          <div className="h-10 w-10 animate-pulse rounded-lg bg-gray-200" />
+          <div className="skeleton h-10 w-10 rounded-lg" />
         </div>
         {description && (
-          <div className="mt-2 h-3 w-32 animate-pulse rounded bg-gray-200" />
+          <div className="skeleton mt-2 h-3 w-32 rounded" />
         )}
       </div>
     );
@@ -50,17 +50,17 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        'rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md',
+        'rounded-xl border border-border bg-card p-6 text-card-foreground shadow transition-shadow hover:border-primary/40',
         className
       )}
     >
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="text-3xl font-bold text-foreground">{value}</p>
         </div>
         {icon && (
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/15 text-primary">
             {icon}
           </div>
         )}
@@ -71,8 +71,8 @@ export function MetricCard({
             className={cn(
               'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
               trend.isPositive
-                ? 'bg-green-50 text-green-700'
-                : 'bg-red-50 text-red-700'
+                ? 'bg-primary/15 text-primary'
+                : 'bg-destructive/20 text-destructive-foreground'
             )}
           >
             <svg
@@ -96,7 +96,7 @@ export function MetricCard({
           </span>
         )}
         {description && (
-          <p className="text-sm text-gray-500">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         )}
       </div>
     </div>

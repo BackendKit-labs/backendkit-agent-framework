@@ -5,6 +5,24 @@ interface RequestOptions {
   headers?: Record<string, string>;
   body?: unknown;
   skipAuth?: boolean;
+  params?: Record<string, string | number | boolean | undefined | null>;
+}
+
+function buildUrl(endpoint: string, params?: RequestOptions['params']): string {
+  let url = `${API_BASE_URL}${endpoint}`;
+  if (params) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value));
+      }
+    }
+    const queryString = query.toString();
+    if (queryString) {
+      url += (url.includes('?') ? '&' : '?') + queryString;
+    }
+  }
+  return url;
 }
 
 class ApiError extends Error {
@@ -22,7 +40,7 @@ async function getAuthToken(): Promise<string | null> {
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', headers = {}, body, skipAuth = false } = options;
+  const { method = 'GET', headers = {}, body, skipAuth = false, params } = options;
 
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -45,7 +63,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     config.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  const response = await fetch(buildUrl(endpoint, params), config);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: 'An error occurred' }));

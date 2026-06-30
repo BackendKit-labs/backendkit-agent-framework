@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AbacModule } from './abac/abac.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { AgentsModule } from './agents/agents.module';
-import { ProjectsModule } from './projects/projects.module';
 import { DirectorModule } from './director/director.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { DeployablesModule } from './deployables/deployables.module';
@@ -13,9 +11,8 @@ import { WorkflowsModule } from './workflows/workflows.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
+    ConfigModule.forRoot({ isGlobal: true }),
+    AbacModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST || 'localhost',
@@ -27,9 +24,6 @@ import { WorkflowsModule } from './workflows/workflows.module';
       synchronize: process.env.NODE_ENV !== 'production',
     }),
     AuthModule,
-    UsersModule,
-    AgentsModule,
-    ProjectsModule,
     DirectorModule,
     DepartmentsModule,
     DeployablesModule,

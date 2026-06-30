@@ -15,7 +15,7 @@ export interface CurateResult {
 }
 
 export interface SearchResult {
-    results: { id: string; score: number; content: string; metadata?: Record<string, unknown> }[];
+    results: { id: string; score: number; title: string; content: string; metadata?: Record<string, unknown> }[];
     synthesized?: string | null;
 }
 

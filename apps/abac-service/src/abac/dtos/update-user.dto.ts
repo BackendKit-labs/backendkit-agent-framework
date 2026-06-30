@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsArray, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 
@@ -23,4 +23,16 @@ export class UpdateUserDto {
     @IsOptional()
     @Transform(({ value }) => value ?? null)
     entraId?: string | null;
+
+    @ApiPropertyOptional({ example: 'sales', description: 'Department del usuario — define el resource ceiling MCP' })
+    @IsString()
+    @IsOptional()
+    @MaxLength(100)
+    department?: string | null;
+
+    @ApiPropertyOptional({ type: [String], example: ['hubspot://contacts/*'], description: 'Override personal de MCP Resource URI patterns (subconjunto del ceiling del department)' })
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    vaultResources?: string[] | null;
 }

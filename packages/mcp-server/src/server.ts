@@ -16,6 +16,7 @@ import { GraphStore } from './indexer/graph-store.js';
 import { CodeIndexer } from './indexer/indexer.js';
 import { FileWatcher } from './indexer/watcher.js';
 import { detectStackFromGraph } from './indexer/stack-detector.js';
+import { registerPlatformResources } from './resources/platform-resources.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
@@ -34,12 +35,13 @@ const watcher = new FileWatcher();
 // Server factory — creates a fresh McpServer with all tools registered.
 // Called once for stdio mode; called per-session in HTTP mode.
 // ---------------------------------------------------------------------------
-function buildServer(): McpServer {
+function buildServer(bearerToken?: string): McpServer {
     const srv = new McpServer({
         name: '@backendkit-labs/mcp-server',
         version: '0.2.0',
     });
     registerTools(srv);
+    registerPlatformResources(srv, bearerToken);
     return srv;
 }
 
@@ -299,13 +301,14 @@ async function startHttp() {
             }
 
             const body = await parseBody(req);
+            const bearerToken = req.headers['authorization'] as string | undefined;
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
             });
 
             // Connect a fresh McpServer per session so each session has
             // isolated protocol state (initialized, tool list, etc.)
-            const sessionServer = buildServer();
+            const sessionServer = buildServer(bearerToken);
             await sessionServer.connect(transport);
 
             // handleRequest processes the initialize message and sets transport.sessionId

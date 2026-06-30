@@ -1,8 +1,8 @@
 /**
  * MCP Resources — platform-level resources served by mcp-server.
  *
- * Each resource fetches from director-api at read time.
- * URIs follow the director:// scheme defined in ARCHITECTURE.md.
+ * Each resource fetches from director-api at read time and is ABAC-gated
+ * via abac-service. URIs follow the director:// scheme defined in ARCHITECTURE.md.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -70,45 +70,24 @@ const PLATFORM_RESOURCES: ResourceDef[] = [
 // ── Registration ──────────────────────────────────────────────────────────────
 
 export function registerPlatformResources(srv: McpServer, bearerToken?: string): void {
-    // resources/list — filtered by ABAC
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (srv as any).server.setRequestHandler(
-        { method: 'resources/list' } as never,
-        async () => {
-            const auth = await resolveResourceAuth(bearerToken);
-            const visible = PLATFORM_RESOURCES.filter(r => auth.isAllowed(r.uri));
-            return {
-                resources: visible.map(r => ({
-                    uri: r.uri,
-                    name: r.name,
-                    description: r.description,
-                    mimeType: r.mimeType,
-                })),
-            };
-        },
-    );
+    for (const def of PLATFORM_RESOURCES) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (srv as any).resource(
+            def.name,
+            def.uri,
+            { description: def.description, mimeType: def.mimeType },
+            async (uri: URL) => {
+                // ABAC check — evaluated lazily at read time so the JWT is fresh
+                const auth = await resolveResourceAuth(bearerToken);
+                if (!auth.isAllowed(uri.toString())) {
+                    throw new Error(`Access denied to resource: ${uri}`);
+                }
 
-    // resources/read — validate + fetch
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (srv as any).server.setRequestHandler(
-        { method: 'resources/read' } as never,
-        async (req: { params: { uri: string } }) => {
-            const { uri } = req.params;
-            const auth = await resolveResourceAuth(bearerToken);
-
-            if (!auth.isAllowed(uri)) {
-                throw new Error(`Access denied to resource: ${uri}`);
-            }
-
-            const def = PLATFORM_RESOURCES.find(r => r.uri === uri);
-            if (!def) {
-                throw new Error(`Unknown resource: ${uri}`);
-            }
-
-            const text = await def.fetch();
-            return {
-                contents: [{ uri, mimeType: def.mimeType, text }],
-            };
-        },
-    );
+                const text = await def.fetch();
+                return {
+                    contents: [{ uri: uri.toString(), mimeType: def.mimeType, text }],
+                };
+            },
+        );
+    }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ObservabilityModule } from '@backendkit-labs/observability';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AgentsModule } from './agents/agents.module';
@@ -15,6 +16,10 @@ import { WorkflowsModule } from './workflows/workflows.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    ObservabilityModule.forRoot({
+      serviceName: 'director-api',
+      logLevel: (process.env.LOG_LEVEL as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
     }),
     TypeOrmModule.forRoot({
       type: 'postgres',

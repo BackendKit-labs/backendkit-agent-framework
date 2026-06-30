@@ -19,6 +19,7 @@ import {
   mapDockerPhase,
   now,
 } from '../runtime.helpers';
+import { withResilience } from '../resilience.helper';
 
 /** Real Docker runtime backed by dockerode. */
 @Injectable()
@@ -65,34 +66,40 @@ export class DockerRuntimeAdapter implements RuntimeAdapter {
   }
 
   async deploy(spec: AgentSpec): Promise<RuntimeHandle> {
-    await this.ensureImage(spec.image);
-    // Idempotency: drop a previous container for the same agent before recreating.
-    await this.removeByAgentId(spec.agentId);
+    return withResilience(this.kind, 'deploy', async () => {
+      await this.ensureImage(spec.image);
+      // Idempotency: drop a previous container for the same agent before recreating.
+      await this.removeByAgentId(spec.agentId);
 
-    const container = await this.docker.createContainer(buildCreateOptions(spec));
-    await container.start();
-    this.logger.log(`Deployed agent ${spec.agentId} -> container ${container.id.slice(0, 12)}`);
-    return {
-      id: container.id,
-      kind: this.kind,
-      agentId: spec.agentId,
-      name: spec.name,
-      phase: 'running',
-      createdAt: now(),
-    };
+      const container = await this.docker.createContainer(buildCreateOptions(spec));
+      await container.start();
+      this.logger.log(`Deployed agent ${spec.agentId} -> container ${container.id.slice(0, 12)}`);
+      return {
+        id: container.id,
+        kind: this.kind,
+        agentId: spec.agentId,
+        name: spec.name,
+        phase: 'running',
+        createdAt: now(),
+      };
+    }, { maxAttempts: 2, baseDelayMs: 300 });
   }
 
   async stop(handleId: string): Promise<void> {
-    try {
-      await this.docker.getContainer(handleId).stop();
-    } catch (err) {
-      // 304 = already stopped; treat as success.
-      if ((err as { statusCode?: number }).statusCode !== 304) throw err;
-    }
+    return withResilience(this.kind, 'stop', async () => {
+      try {
+        await this.docker.getContainer(handleId).stop();
+      } catch (err) {
+        // 304 = already stopped; treat as success.
+        if ((err as { statusCode?: number }).statusCode !== 304) throw err;
+      }
+    }, { maxAttempts: 2, baseDelayMs: 200 });
   }
 
   async remove(handleId: string): Promise<void> {
-    await this.docker.getContainer(handleId).remove({ force: true });
+    return withResilience(this.kind, 'remove', async () => {
+      await this.docker.getContainer(handleId).remove({ force: true });
+    }, { maxAttempts: 2, baseDelayMs: 200 });
   }
 
   async status(handleId: string): Promise<RuntimeStatus> {

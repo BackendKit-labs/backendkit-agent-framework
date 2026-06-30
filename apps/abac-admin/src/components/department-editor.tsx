@@ -7,15 +7,15 @@ import { Loader2, Plus, X } from "lucide-react"
 
 const DEPARTMENTS = ['development', 'devops', 'sales', 'finance', 'hr']
 
-interface User {
+interface UserDeptFields {
     id: string
     department?: string | null
     vaultResources?: string[] | null
 }
 
 interface Props {
-    user: User
-    onUpdated: (updated: User) => void
+    user: UserDeptFields
+    onUpdated: (updated: UserDeptFields) => void
 }
 
 export function DepartmentEditor({ user, onUpdated }: Props) {

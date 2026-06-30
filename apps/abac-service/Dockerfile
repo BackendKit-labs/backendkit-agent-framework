@@ -3,8 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci && npm cache clean --force
+COPY package.json ./
+RUN npm install --prefer-offline && npm cache clean --force
 
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src ./src
@@ -33,4 +33,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 
 EXPOSE ${PORT}
 
-CMD ["node", "dist/src/main.js"]
+CMD ["node", "dist/main.js"]

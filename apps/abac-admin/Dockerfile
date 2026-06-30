@@ -3,8 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci && npm cache clean --force
+COPY package.json ./
+RUN npm install --prefer-offline && npm cache clean --force
 
 COPY . .
 

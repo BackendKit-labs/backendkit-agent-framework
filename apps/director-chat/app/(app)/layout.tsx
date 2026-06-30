@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Terminal, Kanban, MessageSquare, LogOut } from 'lucide-react';
+import { Terminal, Kanban, MessageSquare, History, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type WsUser, primaryRole, roleBg } from '@/lib/ws';
 
@@ -65,6 +65,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Kanban className="w-3.5 h-3.5" />
               <span>Kanban</span>
+            </Link>
+            <Link
+              href="/runs"
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors',
+                pathname === '/runs'
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              )}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Historial</span>
             </Link>
           </nav>
         </div>

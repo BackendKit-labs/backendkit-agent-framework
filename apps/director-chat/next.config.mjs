@@ -3,6 +3,7 @@ const ABAC_URL = process.env.ABAC_URL || 'http://localhost:3005';
 const DIRECTOR_URL = process.env.DIRECTOR_URL || 'http://localhost:4000';
 
 const nextConfig = {
+  output: 'standalone',
   env: {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3500',
   },

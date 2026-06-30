@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const config = {
+    output: 'standalone',
     async rewrites() {
         const gateway  = process.env.GATEWAY_URL  ?? 'http://localhost:3400';
         const director = process.env.DIRECTOR_URL ?? 'http://localhost:4000';

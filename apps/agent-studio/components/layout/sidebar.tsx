@@ -2,8 +2,9 @@
 import type React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Bot, Workflow, Container, ChevronLeft, ChevronRight, GitBranch, ShieldCheck } from 'lucide-react';
+import { LayoutGrid, Bot, Workflow, Container, ChevronLeft, ChevronRight, GitBranch, ShieldCheck, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import { signOut, useSession } from 'next-auth/react';
 import { cn } from '@/components/ui';
 
 interface NavItem {
@@ -23,7 +24,8 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Sidebar() {
-    const pathname   = usePathname();
+    const pathname    = usePathname();
+    const { data: session } = useSession();
     const [collapsed, setCollapsed] = useState(false);
 
     return (
@@ -69,6 +71,23 @@ export function Sidebar() {
                     );
                 })}
             </nav>
+
+            {/* User + logout */}
+            <div className="border-t border-border">
+                {!collapsed && session?.user && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground truncate">
+                        {session.user.email}
+                    </div>
+                )}
+                <button
+                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    title="Cerrar sesión"
+                    className="flex w-full h-9 items-center gap-3 px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                >
+                    <LogOut className="h-4 w-4 shrink-0" />
+                    {!collapsed && <span className="text-sm">Salir</span>}
+                </button>
+            </div>
 
             {/* Collapse toggle */}
             <button

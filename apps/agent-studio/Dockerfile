@@ -29,7 +29,7 @@ COPY --from=builder /app/.next/static ./.next/static
 USER nodejs
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${PORT}/api/health || exit 1
 
 EXPOSE ${PORT}
 

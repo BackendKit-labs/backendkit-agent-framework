@@ -8,7 +8,7 @@ RUN npm install --prefer-offline && npm cache clean --force
 
 COPY . .
 
-ARG VITE_ABAC_API_URL=http://localhost:3005
+ARG VITE_ABAC_API_URL=http://127.0.0.1:3005
 ENV VITE_ABAC_API_URL=${VITE_ABAC_API_URL}
 
 RUN npm run build
@@ -29,7 +29,7 @@ RUN printf 'server {\n\
 }\n' > /etc/nginx/conf.d/default.conf
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3003/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3003/ || exit 1
 
 EXPOSE 3003
 

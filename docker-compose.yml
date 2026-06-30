@@ -124,8 +124,8 @@ services:
       PORT: 3000
       DB_HOST: postgres-director
       DB_PORT: 5432
-      DB_NAME: director_db
-      DB_USER: director_user
+      DB_DATABASE: director_db
+      DB_USERNAME: director_user
       DB_PASSWORD: ${DIRECTOR_DB_PASSWORD:-change_me}
       ABAC_PUBLIC_KEY: ${ED25519_PUBLIC_KEY:?ED25519_PUBLIC_KEY is required}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3001,http://localhost:3002}
@@ -153,6 +153,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      DB_HOST: postgres-cloud
       DB_USER: cloud_user
       DB_PASSWORD: ${CLOUD_DB_PASSWORD:-change_me}
       DB_NAME: cloud_platform

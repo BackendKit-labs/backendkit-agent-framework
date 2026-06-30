@@ -1,49 +1,33 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import { Loader2, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [form,    setForm]   = useState({ email: '', password: '' });
-  const [error,   setError]  = useState('');
-  const [loading, setLoad]   = useState(false);
+  const [form,    setForm]  = useState({ email: '', password: '' });
+  const [error,   setError] = useState('');
+  const [loading, setLoad]  = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.email || !form.password) { setError('Completá email y contraseña'); return; }
     setError(''); setLoad(true);
 
-    try {
-      const res = await fetch('/api/auth/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email, password: form.password }),
-      });
+    const result = await signIn('credentials', {
+      email:    form.email,
+      password: form.password,
+      redirect: false,
+    });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body?.message ?? 'Credenciales inválidas');
-        setLoad(false);
-        return;
-      }
-
-      const data = await res.json();
-      sessionStorage.setItem('director_token', data.accessToken);
-      sessionStorage.setItem('director_user', JSON.stringify({
-        id:    data.user.id,
-        name:  [data.user.firstName, data.user.lastName].filter(Boolean).join(' '),
-        email: data.user.email,
-        roles: data.user.roles ?? [],
-      }));
-
-      router.push('/chat');
-    } catch {
-      setError('No se pudo conectar al servidor de autenticación');
+    if (result?.error) {
+      setError('Credenciales inválidas');
       setLoad(false);
+      return;
     }
+
+    window.location.href = '/chat';
   }
 
   return (

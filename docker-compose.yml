@@ -96,6 +96,8 @@ services:
       ED25519_PUBLIC_KEY: ${ED25519_PUBLIC_KEY:?ED25519_PUBLIC_KEY is required}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
     depends_on:
       postgres-abac:
         condition: service_healthy

@@ -16,6 +16,12 @@ import { HealthController } from './health.controller';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './abac/interceptors/audit.interceptor';
 import { TenantContextInterceptor } from './common/tenancy';
+import { BootstrapService } from './bootstrap.service';
+import { TypeOrmModule as TypeOrmFeature } from '@nestjs/typeorm';
+import { User } from './entities/user.entity';
+import { Role } from './entities/role.entity';
+import { Application } from './entities/application.entity';
+import { UserRole } from './entities/user-role.entity';
 
 /**
  * @description
@@ -57,9 +63,11 @@ import { TenantContextInterceptor } from './common/tenancy';
     OrganizationsModule,
     ResourcesModule,
     ObservabilityModule.forRoot({ serviceName: 'abac-service' }),
+    TypeOrmFeature.forFeature([User, Role, Application, UserRole]),
   ],
   controllers: [HealthController],
   providers: [
+    BootstrapService,
     // Normaliza req.tenant antes que el resto de interceptors lo necesiten.
     {
       provide: APP_INTERCEPTOR,

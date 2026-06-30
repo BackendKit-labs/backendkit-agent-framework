@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, LogOut, RotateCcw, ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Send, RotateCcw, ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getWsUrl, roleBg, roleColor, type WsUser, type WsIncoming } from '@/lib/ws';
+import { getWsUrl, roleBg, primaryRole, type WsUser, type WsIncoming } from '@/lib/ws';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,8 +29,8 @@ interface Message {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
-  const router  = useRouter();
-  const wsRef   = useRef<WebSocket | null>(null);
+  const router    = useRouter();
+  const wsRef     = useRef<WebSocket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
 
@@ -43,17 +43,15 @@ export default function ChatPage() {
   // ── WebSocket ───────────────────────────────────────────────────────────────
 
   const connect = useCallback(() => {
-    const token = sessionStorage.getItem('director_token');
+    const token   = sessionStorage.getItem('director_token');
     const userRaw = sessionStorage.getItem('director_user');
-    const wsUrl = getWsUrl();
 
-    if (!token && !userRaw) {
-      // Dev mode: no auth required — connect directly
-    } else if (userRaw) {
+    if (!token) { router.push('/login'); return; }
+    if (userRaw) {
       try { setUser(JSON.parse(userRaw) as WsUser); } catch { /* ignore */ }
     }
 
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => setStatus('connecting');
@@ -62,10 +60,8 @@ export default function ChatPage() {
       const msg = JSON.parse(ev.data) as WsIncoming;
 
       if (msg.type === 'ready') {
-        if (msg.auth_required && token) {
+        if (msg.auth_required) {
           ws.send(JSON.stringify({ type: 'auth', token }));
-        } else if (msg.auth_required && !token) {
-          router.push('/login');
         } else {
           setStatus('connected');
         }
@@ -73,9 +69,7 @@ export default function ChatPage() {
       }
 
       if (msg.type === 'auth_ok') {
-        setUser(msg.user);
-        sessionStorage.setItem('director_token', msg.token);
-        sessionStorage.setItem('director_user', JSON.stringify(msg.user));
+        // User already loaded from sessionStorage; WS auth_ok only updates status
         setStatus('connected');
         return;
       }
@@ -101,11 +95,11 @@ export default function ChatPage() {
         const toolId = `${msg.name}-${Date.now()}`;
         setMessages(prev => {
           const last = prev[prev.length - 1];
+          const newTool: ToolCall = { id: toolId, name: msg.name, server: msg.server, preview: msg.preview, status: 'running', expanded: false };
           if (last?.role === 'assistant') {
-            const newTool: ToolCall = { id: toolId, name: msg.name, server: msg.server, preview: msg.preview, status: 'running', expanded: false };
             return [...prev.slice(0, -1), { ...last, toolCalls: [...last.toolCalls, newTool] }];
           }
-          return [...prev, { id: Date.now().toString(), role: 'assistant', content: '', toolCalls: [{ id: toolId, name: msg.name, server: msg.server, preview: msg.preview, status: 'running', expanded: false }], isStreaming: true }];
+          return [...prev, { id: Date.now().toString(), role: 'assistant', content: '', toolCalls: [newTool], isStreaming: true }];
         });
         return;
       }
@@ -149,8 +143,8 @@ export default function ChatPage() {
     };
 
     ws.onerror = () => setStatus('error');
-    ws.onclose = () => { if (status !== 'error') setStatus('error'); };
-  }, [router, status]);
+    ws.onclose = () => setStatus('error');
+  }, [router]);
 
   useEffect(() => {
     connect();
@@ -177,12 +171,6 @@ export default function ChatPage() {
     setMessages([]);
   }
 
-  function logout() {
-    wsRef.current?.close();
-    sessionStorage.clear();
-    router.push('/login');
-  }
-
   function toggleTool(msgId: string, toolId: string) {
     setMessages(prev => prev.map(m =>
       m.id === msgId
@@ -191,51 +179,23 @@ export default function ChatPage() {
     ));
   }
 
+  const role = user ? primaryRole(user) : 'viewer';
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-full">
 
-      {/* Topbar */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-            <Terminal className="w-4 h-4 text-primary" />
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-foreground">Director</span>
-            <span className="text-xs text-muted-foreground ml-2">BackendKit Platform</span>
-          </div>
+      {/* WS status bar — only when not connected */}
+      {status !== 'connected' && (
+        <div className={cn(
+          'flex items-center gap-2 px-4 py-1.5 text-xs shrink-0',
+          status === 'connecting' ? 'bg-amber-400/10 text-amber-400' : 'bg-red-400/10 text-red-400'
+        )}>
+          <div className={cn('w-1.5 h-1.5 rounded-full', status === 'connecting' ? 'bg-amber-400 animate-pulse' : 'bg-red-400')} />
+          {status === 'connecting' ? 'Conectando al Director...' : 'Director desconectado'}
         </div>
-
-        <div className="flex items-center gap-3">
-          {/* Status dot */}
-          <div className="flex items-center gap-1.5">
-            <div className={cn('w-2 h-2 rounded-full', status === 'connected' ? 'bg-emerald-400 animate-pulse-dot' : status === 'connecting' ? 'bg-amber-400 animate-pulse-dot' : 'bg-red-400')} />
-            <span className="text-xs text-muted-foreground hidden sm:block">
-              {status === 'connected' ? 'conectado' : status === 'connecting' ? 'conectando...' : 'desconectado'}
-            </span>
-          </div>
-
-          {/* User badge */}
-          {user && (
-            <div className="flex items-center gap-2">
-              <div className={cn('px-2 py-0.5 rounded-md text-xs font-medium', roleBg(user.role))}>
-                {user.role}
-              </div>
-              <span className={cn('text-sm font-medium', roleColor(user.role))}>{user.id}</span>
-            </div>
-          )}
-
-          {/* Actions */}
-          <button onClick={clearChat} title="Limpiar chat" className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-            <RotateCcw className="w-4 h-4" />
-          </button>
-          <button onClick={logout} title="Cerrar sesión" className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
@@ -260,7 +220,6 @@ export default function ChatPage() {
             )}
 
             <div className={cn('max-w-[75%] space-y-2', msg.role === 'user' ? 'items-end' : 'items-start')}>
-              {/* Tool calls */}
               {msg.toolCalls.map(tool => (
                 <div key={tool.id} className="rounded-lg border border-border bg-secondary/50 overflow-hidden text-xs">
                   <button
@@ -285,7 +244,6 @@ export default function ChatPage() {
                 </div>
               ))}
 
-              {/* Content bubble */}
               {(msg.content || msg.isStreaming) && (
                 <div className={cn(
                   'px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
@@ -303,8 +261,8 @@ export default function ChatPage() {
             </div>
 
             {msg.role === 'user' && user && (
-              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5', roleBg(user.role))}>
-                {user.id[0]?.toUpperCase()}
+              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5', roleBg(role))}>
+                {(user.name ?? user.email ?? user.id)[0]?.toUpperCase()}
               </div>
             )}
           </div>
@@ -315,6 +273,13 @@ export default function ChatPage() {
       {/* Input */}
       <div className="px-4 pb-4 pt-2 border-t border-border bg-secondary/10 shrink-0">
         <div className="flex gap-2 items-end">
+          <button
+            onClick={clearChat}
+            title="Limpiar chat"
+            className="p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
           <textarea
             ref={inputRef}
             value={input}

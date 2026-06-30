@@ -1,61 +1,55 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getWsUrl, type WsIncoming } from '@/lib/ws';
 
 export default function LoginPage() {
-  const router   = useRouter();
-  const wsRef    = useRef<WebSocket | null>(null);
-  const [form,   setForm]   = useState({ username: '', password: '' });
-  const [error,  setError]  = useState('');
-  const [loading, setLoad]  = useState(false);
+  const router = useRouter();
+  const [form,    setForm]   = useState({ email: '', password: '' });
+  const [error,   setError]  = useState('');
+  const [loading, setLoad]   = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.username || !form.password) { setError('Completá usuario y contraseña'); return; }
+    if (!form.email || !form.password) { setError('Completá email y contraseña'); return; }
     setError(''); setLoad(true);
 
-    const ws = new WebSocket(getWsUrl());
-    wsRef.current = ws;
+    try {
+      const res = await fetch('/api/auth/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, password: form.password }),
+      });
 
-    ws.onopen = () => {
-      // Esperar el mensaje 'ready' antes de enviar login
-    };
-
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data) as WsIncoming;
-
-      if (msg.type === 'ready') {
-        ws.send(JSON.stringify({ type: 'login', username: form.username, password: form.password }));
-        return;
-      }
-      if (msg.type === 'auth_ok') {
-        sessionStorage.setItem('director_token', msg.token);
-        sessionStorage.setItem('director_user', JSON.stringify(msg.user));
-        ws.close();
-        router.push('/chat');
-        return;
-      }
-      if (msg.type === 'auth_error') {
-        setError(msg.error);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body?.message ?? 'Credenciales inválidas');
         setLoad(false);
-        ws.close();
         return;
       }
-    };
 
-    ws.onerror = () => { setError('No se pudo conectar al Director (ws://localhost:3500)'); setLoad(false); };
-    ws.onclose = () => { if (loading) { setLoad(false); } };
+      const data = await res.json();
+      sessionStorage.setItem('director_token', data.accessToken);
+      sessionStorage.setItem('director_user', JSON.stringify({
+        id:    data.user.id,
+        name:  [data.user.firstName, data.user.lastName].filter(Boolean).join(' '),
+        email: data.user.email,
+        roles: data.user.roles ?? [],
+      }));
+
+      router.push('/chat');
+    } catch {
+      setError('No se pudo conectar al servidor de autenticación');
+      setLoad(false);
+    }
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-sm animate-fade-in">
 
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
             <Terminal className="w-7 h-7 text-primary" />
@@ -64,15 +58,14 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground mt-1">Iniciá sesión para continuar</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Usuario</label>
+            <label className="text-sm font-medium text-foreground">Email</label>
             <input
-              type="text"
-              value={form.username}
-              onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-              placeholder="tu.usuario"
+              type="email"
+              value={form.email}
+              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+              placeholder="tu@empresa.com"
               autoFocus
               className={cn(
                 'w-full px-3 py-2 rounded-lg text-sm',
@@ -118,7 +111,7 @@ export default function LoginPage() {
               'flex items-center justify-center gap-2'
             )}
           >
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Conectando...</> : 'Iniciar sesión'}
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verificando...</> : 'Iniciar sesión'}
           </button>
         </form>
 

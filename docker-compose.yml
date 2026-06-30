@@ -157,8 +157,8 @@ services:
       DATABASE_URL: postgresql://cloud_user:${CLOUD_DB_PASSWORD:-change_me}@postgres-cloud:5432/cloud_platform
       ABAC_PUBLIC_KEY: ${ED25519_PUBLIC_KEY:?ED25519_PUBLIC_KEY is required}
       ABAC_BASE_URL: http://abac-service:3005
-      ABAC_M2M_TOKEN: ${CLOUD_M2M_TOKEN:?CLOUD_M2M_TOKEN is required — run seed:m2m in abac-service}
-      ABAC_APP_ID: ${CLOUD_APP_ID:?CLOUD_APP_ID is required — run seed:m2m in abac-service}
+      ABAC_M2M_TOKEN: ${CLOUD_M2M_TOKEN:-}
+      ABAC_APP_ID: ${CLOUD_APP_ID:-}
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:

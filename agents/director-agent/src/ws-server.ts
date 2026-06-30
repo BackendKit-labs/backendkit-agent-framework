@@ -17,6 +17,9 @@
  */
 
 import { createServer }  from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { join, extname }  from 'node:path';
+import { fileURLToPath }  from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AgentEvent } from '@backendkit-labs/agent-core';
 import { login }              from './auth/login.js';
@@ -25,6 +28,32 @@ import { requestContext }     from './auth/context.js';
 import { ADMIN_PRINCIPAL }    from './auth/types.js';
 import type { Principal }     from './auth/types.js';
 import type { SessionEngineManager } from './engine.js';
+
+const UI_DIST = join(fileURLToPath(import.meta.url), '..', '..', 'ui', 'dist');
+
+const MIME: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js':   'application/javascript',
+    '.css':  'text/css',
+    '.svg':  'image/svg+xml',
+    '.ico':  'image/x-icon',
+    '.png':  'image/png',
+    '.woff2': 'font/woff2',
+};
+
+async function serveStatic(pathname: string, res: import('node:http').ServerResponse): Promise<boolean> {
+    try {
+        let filePath = join(UI_DIST, pathname === '/' ? 'index.html' : pathname);
+        try { await stat(filePath); } catch { filePath = join(UI_DIST, 'index.html'); }
+        const data = await readFile(filePath);
+        const mime = MIME[extname(filePath)] ?? 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': mime });
+        res.end(data);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -153,12 +182,12 @@ function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
 // ── Server factory ────────────────────────────────────────────────────────────
 
 export function startWsServer(port: number, manager: SessionEngineManager): void {
-    const http = createServer((_req, res) => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            service: 'director-agent-ws',
-            auth_required: isEnterpriseMode(),
-        }));
+    const http = createServer(async (req, res) => {
+        const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
+        const served = await serveStatic(pathname, res);
+        if (!served) {
+            res.writeHead(404); res.end('Not found');
+        }
     });
 
     const wss = new WebSocketServer({ server: http });

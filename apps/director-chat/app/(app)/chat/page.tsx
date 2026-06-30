@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Send, RotateCcw, ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWsUrl, roleBg, primaryRole, type WsUser, type WsIncoming } from '@/lib/ws';
@@ -29,7 +29,7 @@ interface Message {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
-  const router    = useRouter();
+  const { data: session } = useSession();
   const wsRef     = useRef<WebSocket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
@@ -40,16 +40,17 @@ export default function ChatPage() {
   const [status,   setStatus]   = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [sending,  setSending]  = useState(false);
 
+  useEffect(() => {
+    if (session?.user) {
+      setUser({ id: session.user.id, name: session.user.name, email: session.user.email, roles: session.user.roles });
+    }
+  }, [session]);
+
   // ── WebSocket ───────────────────────────────────────────────────────────────
 
   const connect = useCallback(() => {
-    const token   = sessionStorage.getItem('director_token');
-    const userRaw = sessionStorage.getItem('director_user');
-
-    if (!token) { router.push('/login'); return; }
-    if (userRaw) {
-      try { setUser(JSON.parse(userRaw) as WsUser); } catch { /* ignore */ }
-    }
+    const token = session?.user?.authToken;
+    if (!token) return;
 
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
@@ -69,14 +70,12 @@ export default function ChatPage() {
       }
 
       if (msg.type === 'auth_ok') {
-        // User already loaded from sessionStorage; WS auth_ok only updates status
         setStatus('connected');
         return;
       }
 
       if (msg.type === 'auth_error') {
-        sessionStorage.clear();
-        router.push('/login');
+        setStatus('error');
         return;
       }
 
@@ -144,12 +143,13 @@ export default function ChatPage() {
 
     ws.onerror = () => setStatus('error');
     ws.onclose = () => setStatus('error');
-  }, [router]);
+  }, [session]);
 
   useEffect(() => {
+    if (!session?.user?.authToken) return;
     connect();
     return () => { wsRef.current?.close(); };
-  }, []); // eslint-disable-line
+  }, [connect]); // eslint-disable-line
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

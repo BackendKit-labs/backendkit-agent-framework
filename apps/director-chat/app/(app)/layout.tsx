@@ -1,33 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { Terminal, Kanban, MessageSquare, History, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type WsUser, primaryRole, roleBg } from '@/lib/ws';
+import { primaryRole, roleBg } from '@/lib/ws';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router   = useRouter();
-  const pathname = usePathname();
-  const [user, setUser] = useState<WsUser | null>(null);
+  const pathname         = usePathname();
+  const { data: session } = useSession();
 
-  useEffect(() => {
-    const token   = sessionStorage.getItem('director_token');
-    const userRaw = sessionStorage.getItem('director_user');
-    if (!token || !userRaw) { router.push('/login'); return; }
-    try { setUser(JSON.parse(userRaw) as WsUser); } catch { router.push('/login'); }
-  }, [router]);
-
-  function logout() {
-    sessionStorage.clear();
-    router.push('/login');
-  }
-
-  if (!user) return null;
-
-  const role = primaryRole(user);
-  const displayName = user.name ?? user.email ?? user.id;
+  const user        = session?.user ?? null;
+  const role        = user ? (user.roles?.[0] ?? 'viewer') : 'viewer';
+  const displayName = user?.name ?? user?.email ?? '';
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -82,16 +68,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', roleBg(role))}>
-              {role}
-            </span>
-            <span className="text-xs text-muted-foreground hidden sm:block truncate max-w-[140px]">
-              {displayName}
-            </span>
-          </div>
+          {user && (
+            <div className="flex items-center gap-2">
+              <span className={cn('px-2 py-0.5 rounded-md text-xs font-medium', roleBg(role))}>
+                {role}
+              </span>
+              <span className="text-xs text-muted-foreground hidden sm:block truncate max-w-[140px]">
+                {displayName}
+              </span>
+            </div>
+          )}
           <button
-            onClick={logout}
+            onClick={() => signOut({ callbackUrl: '/login' })}
             title="Cerrar sesión"
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           >

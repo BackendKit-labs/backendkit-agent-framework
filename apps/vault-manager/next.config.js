@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   experimental: {
     // codex-context-agent-v2's KnowledgeEngine pulls @xenova/transformers +
     // onnxruntime-node (a native .node binary). Keep them external so webpack

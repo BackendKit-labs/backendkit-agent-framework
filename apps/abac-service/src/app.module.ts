@@ -12,6 +12,7 @@ import { AuditModule, PolicyModule, OrganizationsModule } from './modules';
 
 import { AbacModule } from './abac/abac.module';
 import { ResourcesModule } from './resources/resources.module';
+import { HealthController } from './health.controller';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './abac/interceptors/audit.interceptor';
 import { TenantContextInterceptor } from './common/tenancy';
@@ -57,6 +58,7 @@ import { TenantContextInterceptor } from './common/tenancy';
     ResourcesModule,
     ObservabilityModule.forRoot({ serviceName: 'abac-service' }),
   ],
+  controllers: [HealthController],
   providers: [
     // Normaliza req.tenant antes que el resto de interceptors lo necesiten.
     {

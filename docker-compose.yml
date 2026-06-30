@@ -239,3 +239,23 @@ services:
         condition: service_healthy
     networks: [platform]
     restart: unless-stopped
+
+  abac-admin:
+    build:
+      context: ./apps/abac-admin
+      dockerfile: Dockerfile
+      args:
+        VITE_ABAC_API_URL: ${ABAC_ADMIN_API_URL:-http://localhost:3005}
+    ports:
+      - "3003:3003"
+    depends_on:
+      abac-service:
+        condition: service_healthy
+    networks: [platform]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3003/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped

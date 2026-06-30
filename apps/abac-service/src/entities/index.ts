@@ -11,3 +11,4 @@ export * from './role.entity';
 export * from './user-application.entity';
 export * from './user-role.entity';
 export * from './user.entity';
+export * from './department-resource.entity';

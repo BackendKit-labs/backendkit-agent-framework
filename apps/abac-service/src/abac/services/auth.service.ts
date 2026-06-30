@@ -144,6 +144,9 @@ export class AuthService {
             appId,
             roles: roleNames,
             permissions,
+            // MCP Resources — department define el ceiling; vaultResources es el override personal
+            department: user.department ?? null,
+            vaultResources: user.vaultResources ?? null,
         };
 
         const token = this.jwtService.sign(payload, { expiresIn: '8h' });

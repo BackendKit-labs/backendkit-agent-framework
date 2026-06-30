@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { AuditModule, PolicyModule, OrganizationsModule } from './modules';
 
 import { AbacModule } from './abac/abac.module';
+import { ResourcesModule } from './resources/resources.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditInterceptor } from './abac/interceptors/audit.interceptor';
 import { TenantContextInterceptor } from './common/tenancy';
@@ -53,6 +54,7 @@ import { TenantContextInterceptor } from './common/tenancy';
     PolicyModule,
     AuditModule,
     OrganizationsModule,
+    ResourcesModule,
     ObservabilityModule.forRoot({ serviceName: 'abac-service' }),
   ],
   providers: [

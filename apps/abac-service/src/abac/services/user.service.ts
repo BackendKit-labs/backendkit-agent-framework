@@ -162,6 +162,8 @@ export class UserService {
             phone?: string;
             profile?: Record<string, any>;
             entraId?: string | null;
+            department?: string | null;
+            vaultResources?: string[] | null;
             updatedBy: string;
         }
     ): Promise<User> {
@@ -186,6 +188,8 @@ export class UserService {
             if (updateDto.phone !== undefined) user.phone = updateDto.phone;
             if (updateDto.profile !== undefined) user.profile = updateDto.profile;
             if ('entraId' in updateDto) user.entraId = updateDto.entraId ?? null;
+            if ('department' in updateDto) user.department = updateDto.department ?? null;
+            if ('vaultResources' in updateDto) user.vaultResources = updateDto.vaultResources ?? null;
             user.updatedBy = updateDto.updatedBy;
 
             const updatedUser = await queryRunner.manager.save(user);

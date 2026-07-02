@@ -21,8 +21,15 @@ export interface GateResolution {
   pipeline: AgentPipelinePhase[];
   /** Si el commit está permitido en el estado actual */
   commitAllowed: boolean;
-  /** Reviews obligatorias detectadas (para trazabilidad) */
-  requiredReviews: Array<'security' | 'architecture' | 'qa'>;
+  /** Reviews obligatorias detectadas (para trazabilidad) — incluye nombres de customGates */
+  requiredReviews: string[];
+}
+
+/** Agent IDs para las fases review/verify. Default: roster de agent-coding. */
+export interface GateReviewAgentIds {
+  security?: string;
+  architecture?: string;
+  qa?: string;
 }
 
 /**
@@ -32,15 +39,24 @@ export interface GateResolution {
  * @param policyResult - Resultado del PolicyEngine con gates requeridos
  * @param config - Configuración del orquestador
  * @param selectedAgents - Agentes ya seleccionados por el router
+ * @param reviewAgents - Agent IDs para security/architecture/qa. Default: agent-coding
+ *   ('security'/'architecture'/'qa-engineer'). Verticales sin esos agentes pasan los suyos.
+ * @param customGateAgents - Mapa nombre-de-gate → agentId para los customGates de task.
+ *   Si un gate no tiene entrada acá, se usa su propio nombre como agentId.
  */
 export function resolveGates(
   task: TaskContext,
   policyResult: PolicyEngineResult,
   config: OrchestratorConfig,
-  selectedAgents: Array<{ agentId: string; score: number; reason: string }>
+  selectedAgents: Array<{ agentId: string; score: number; reason: string }>,
+  reviewAgents?: GateReviewAgentIds,
+  customGateAgents?: Record<string, string>,
 ): GateResolution {
   const pipeline: AgentPipelinePhase[] = [];
-  const requiredReviews: Array<'security' | 'architecture' | 'qa'> = [];
+  const requiredReviews: string[] = [];
+  const securityAgentId     = reviewAgents?.security ?? 'security';
+  const architectureAgentId = reviewAgents?.architecture ?? 'architecture';
+  const qaAgentId           = reviewAgents?.qa ?? 'qa-engineer';
 
   const isHighRisk = task.riskLevel === 'high' || task.riskLevel === 'critical';
   const hasSecurityDomain = task.domains.includes('security');
@@ -51,7 +67,7 @@ export function resolveGates(
   if (task.requiresSecurityReview || (isHighRisk && hasSecurityDomain)) {
     pipeline.push({
       phase: 'review',
-      agentId: 'security',
+      agentId: securityAgentId,
       purpose: 'Review security implications',
       optional: false,
     });
@@ -62,11 +78,26 @@ export function resolveGates(
   if (task.requiresArchitectureReview || (isHighRisk && hasArchitectureDomain)) {
     pipeline.push({
       phase: 'review',
-      agentId: 'architecture',
+      agentId: architectureAgentId,
       purpose: 'Review architecture for high-risk change',
       optional: false,
     });
     requiredReviews.push('architecture');
+  }
+
+  // Reviews de gates con nombre abierto (ej. 'compliance' para un vertical de finance).
+  // No tienen orden ni estado propio en la FSM — se satisfacen marcando su nombre en
+  // task.completedCustomGates, típicamente desde fuera del flujo LLM (aprobación humana,
+  // webhook de negocio), igual que el gate_criteria de orchestrator-agent.
+  for (const [gateName, required] of Object.entries(task.customGates)) {
+    if (!required || task.completedCustomGates.includes(gateName)) continue;
+    pipeline.push({
+      phase: 'review',
+      agentId: customGateAgents?.[gateName] ?? gateName,
+      purpose: `Custom review: ${gateName}`,
+      optional: false,
+    });
+    requiredReviews.push(gateName);
   }
 
   // Fase de implementación: mejor agente seleccionado
@@ -85,7 +116,7 @@ export function resolveGates(
   if (hasImplementPhase && task.requiresQaApproval) {
     pipeline.push({
       phase: 'verify',
-      agentId: 'qa-engineer',
+      agentId: qaAgentId,
       purpose: 'Verify implementation quality and best practices',
       optional: false,
     });
@@ -111,6 +142,10 @@ export function resolveCommitAllowed(
   if (task.requiresQaApproval && task.status !== 'approved' && task.status !== 'qa_review') return false;
   if (task.requiresSecurityReview && task.status !== 'approved' && task.status !== 'security_review') return false;
   if (task.requiresArchitectureReview && task.status !== 'approved' && task.status !== 'design_review') return false;
+
+  const pendingCustomGates = Object.entries(task.customGates)
+    .some(([name, required]) => required && !task.completedCustomGates.includes(name));
+  if (pendingCustomGates) return false;
 
   if (!task.requiresQaApproval && !task.requiresSecurityReview && !task.requiresArchitectureReview) {
     return true;

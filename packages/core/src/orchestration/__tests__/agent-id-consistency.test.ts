@@ -32,7 +32,7 @@ function taskWith(overrides: Partial<TaskContext>): TaskContext {
 }
 
 function emptyPolicy(): PolicyEngineResult {
-    return { mustInclude: [], requiredGates: [], mustExecute: [], appliedRules: [] };
+    return { mustInclude: [], requiredGates: [], mustExecute: [], customGates: [], appliedRules: [] };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

@@ -73,6 +73,7 @@ export type { ResilientLLMClientOptions } from './shared/llm/resilient-client';
 export { Orchestrator } from './orchestration/orchestrator';
 export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
 export type { LLMChatClient } from './orchestration/intent-detector';
+export type { ReviewAgentIds } from './orchestration/orchestrator';
 export type {
     OrchestratorConfig,
     OrchestrationResult,

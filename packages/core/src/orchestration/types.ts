@@ -98,8 +98,8 @@ export interface OrchestrationResult {
     rule: string;
     reason: string;
   }>;
-  /** Gates que deben pasar */
-  requiredGates: Array<'qa' | 'security' | 'architecture'>;
+  /** Gates que deben pasar — incluye 'qa'/'security'/'architecture' y nombres de customGates */
+  requiredGates: string[];
   /** Si el commit está permitido */
   commitAllowed: boolean;
   /** Pipeline secuencial de agentes (fases: review → implement → verify) */

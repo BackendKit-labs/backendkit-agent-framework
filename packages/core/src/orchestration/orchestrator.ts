@@ -31,14 +31,13 @@ import { enrichTaskWithIntent, LLMChatClient } from './intent-detector';
 import { enrichTaskWithDomains } from './domain-detector';
 import { enrichTaskWithRisk } from './risk-scorer';
 import { applyPolicies, PolicyEngineResult } from './policy-engine';
+import { resolveGates } from './gate-resolver';
 import { TaskFSM, FSMTransitionResult } from './fsm';
 import {
   OrchestratorConfig,
   OrchestrationResult,
   PolicyRule,
   CapabilityMatrix,
-  AgentPipelinePhase,
-  AgentPipelinePhaseType,
   defaultOrchestratorConfig,
 } from './types';
 import { AuditReporter } from './audit-reporter';
@@ -55,6 +54,7 @@ const EMPTY_POLICY_RESULT: PolicyEngineResult = {
   mustInclude: [],
   requiredGates: [],
   mustExecute: [],
+  customGates: [],
   appliedRules: [],
 };
 
@@ -93,18 +93,37 @@ class PolicyStep implements PipelineStep<OrchestratorCtx, Error> {
     private customRules: PolicyRule[] | undefined,
     private loadManifest: () => Promise<PolicyRule[]>,
     private input: string,
+    private includeDefaultRules: boolean,
   ) {}
   async handle(ctx: OrchestratorCtx): Promise<StepResult<OrchestratorCtx, Error>> {
     try {
       const manifestRules = await this.loadManifest();
       const mergedRules = [...(this.customRules ?? []), ...manifestRules];
-      const result = applyPolicies(ctx.task, mergedRules.length > 0 ? mergedRules : undefined, this.input);
+      const result = applyPolicies(
+        ctx.task,
+        mergedRules.length > 0 ? mergedRules : undefined,
+        this.input,
+        this.includeDefaultRules,
+      );
       return Ok({ task: result.task, policyResult: result.result });
     } catch (e) {
       return Err(e instanceof Error ? e : new Error(String(e)));
     }
   }
 }
+
+/** Agent IDs used for the review/verify phases of the auto-built pipeline. Defaults match agent-coding's builtin roster. */
+export interface ReviewAgentIds {
+  security?: string;
+  architecture?: string;
+  qa?: string;
+}
+
+const DEFAULT_REVIEW_AGENTS: Required<ReviewAgentIds> = {
+  security: 'security',
+  architecture: 'architecture',
+  qa: 'qa-engineer',
+};
 
 // ── Public re-exports ─────────────────────────────────────────────────────────
 
@@ -145,6 +164,9 @@ export class Orchestrator {
   private config: OrchestratorConfig;
   private customRules?: PolicyRule[];
   private capabilityMatrix?: CapabilityMatrix;
+  private includeDefaultRules: boolean;
+  private reviewAgents: Required<ReviewAgentIds>;
+  private customGateAgents?: Record<string, string>;
   private fsm: TaskFSM;
   private auditReporter: AuditReporter;
   private appName: string;
@@ -154,6 +176,21 @@ export class Orchestrator {
     config?: OrchestratorConfig;
     customRules?: PolicyRule[];
     capabilityMatrix?: CapabilityMatrix;
+    /**
+     * Whether to include the built-in DEFAULT_RULES (policy-engine.ts), which assume
+     * agent-coding's roster (architecture/security/qa-engineer). Default true — no
+     * behavior change for existing callers. Verticals without those agents (e.g.
+     * agent-enterprise) should pass false and supply their own customRules.
+     */
+    includeDefaultRules?: boolean;
+    /** Agent IDs for the auto-built review/verify pipeline. Defaults to agent-coding's roster. */
+    reviewAgents?: ReviewAgentIds;
+    /**
+     * Mapa nombre-de-customGate → agentId, para task.customGates (gates con nombre abierto,
+     * más allá de architecture/security/qa). Si un gate no tiene entrada acá, se usa su
+     * propio nombre como agentId.
+     */
+    customGateAgents?: Record<string, string>;
     /** Ruta raíz del proyecto para los informes de auditoría (default: process.cwd()) */
     projectRoot?: string;
     /** App name para derivar ~/.{appName}/projects/ (default: 'bk-agent') */
@@ -163,6 +200,9 @@ export class Orchestrator {
     this.config = options?.config ?? defaultOrchestratorConfig();
     this.customRules = options?.customRules;
     this.capabilityMatrix = options?.capabilityMatrix;
+    this.includeDefaultRules = options?.includeDefaultRules ?? true;
+    this.reviewAgents = { ...DEFAULT_REVIEW_AGENTS, ...options?.reviewAgents };
+    this.customGateAgents = options?.customGateAgents;
     this.appName = options?.appName ?? 'bk-agent';
     this.fsm = new TaskFSM();
     this.auditReporter = new AuditReporter({
@@ -187,6 +227,7 @@ export class Orchestrator {
         this.customRules,
         () => this.loadManifestPolicyRules(),
         input,
+        this.includeDefaultRules,
       ))
       .run({ task: createTaskContext(input), policyResult: EMPTY_POLICY_RESULT });
 
@@ -197,8 +238,19 @@ export class Orchestrator {
     const { task, policyResult } = enrichResult.value;
 
     const selectedAgents = this.selectAgents(task, policyResult);
-    const agentPipeline = this.buildAgentPipeline(selectedAgents, task);
-    const commitAllowed = this.isCommitAllowed(task, policyResult);
+    const gateResolution = resolveGates(
+      task, policyResult, this.config, selectedAgents,
+      this.reviewAgents, this.customGateAgents,
+    );
+    const agentPipeline = gateResolution.pipeline.length > 0 ? gateResolution.pipeline : undefined;
+    const commitAllowed = gateResolution.commitAllowed;
+
+    // Nombres de customGates pendientes, aparte de los 3 built-in (que ya vienen en
+    // policyResult.requiredGates) — se preserva el valor exacto de policyResult.requiredGates
+    // para no cambiar comportamiento existente de agent-coding.
+    const pendingCustomGateNames = Object.entries(task.customGates)
+      .filter(([name, required]) => required && !task.completedCustomGates.includes(name))
+      .map(([name]) => name);
 
     await this.recordOrchestrationGate(task, selectedAgents, policyResult);
 
@@ -207,7 +259,7 @@ export class Orchestrator {
       selectedAgents,
       agentPipeline,
       appliedPolicies: policyResult.appliedRules.map(r => ({ rule: r.rule, reason: r.reason })),
-      requiredGates: policyResult.requiredGates,
+      requiredGates: [...policyResult.requiredGates, ...pendingCustomGateNames],
       commitAllowed,
     };
   }
@@ -353,99 +405,9 @@ export class Orchestrator {
     return selected.sort((a, b) => b.score - a.score);
   }
 
-  /**
-   * Construye el pipeline secuencial de agentes en fases:
-   * review → implement → verify.
-   * 
-   * - review: architecture-agent o security-agent si hay dominios de alto riesgo
-   * - implement: el agente con mayor score en selectedAgents
-   * - verify: qa-engineer siempre al final si hay implementación
-   */
-  private buildAgentPipeline(
-    selectedAgents: Array<{ agentId: string; score: number; reason: string }>,
-    task: TaskContext
-  ): AgentPipelinePhase[] | undefined {
-    if (selectedAgents.length === 0) return undefined;
-
-    const pipeline: AgentPipelinePhase[] = [];
-
-    // Fase review: architecture o security según riesgo
-    const isHighRisk = task.riskLevel === 'high' || task.riskLevel === 'critical';
-    const hasSecurityDomain = task.domains.includes('security');
-    const hasArchitectureDomain = task.domains.includes('architecture') || task.domains.includes('resilience');
-
-    if (task.requiresSecurityReview || (isHighRisk && hasSecurityDomain)) {
-      pipeline.push({
-        phase: 'review',
-        agentId: 'security',
-        purpose: 'Review security implications',
-        optional: false,
-      });
-    }
-    if (task.requiresArchitectureReview || (isHighRisk && hasArchitectureDomain)) {
-      pipeline.push({
-        phase: 'review',
-        agentId: 'architecture',
-        purpose: 'Review architecture for high-risk change',
-        optional: false,
-      });
-    }
-
-    // Fase implement: el mejor agente seleccionado
-    const topAgent = selectedAgents[0];
-    if (topAgent && topAgent.agentId !== 'general') {
-      pipeline.push({
-        phase: 'implement',
-        agentId: topAgent.agentId,
-        purpose: topAgent.reason,
-        optional: false,
-      });
-    }
-
-    // Fase verify: QA siempre al final si hay implementación
-    const hasImplementPhase = pipeline.some(p => p.phase === 'implement');
-    if (hasImplementPhase && task.requiresQaApproval) {
-      pipeline.push({
-        phase: 'verify',
-        agentId: 'qa-engineer',
-        purpose: 'Verify implementation quality and best practices',
-        optional: false,
-      });
-    }
-
-    return pipeline.length > 0 ? pipeline : undefined;
-  }
-
-  /**
-   * Determina si el commit está permitido según políticas y gates.
-   * 
-   * Reglas:
-   * - Si commitGate está desactivado → siempre permitido
-   * - Si ya está en commit_allowed → permitido
-   * - Si requiere gates (QA, security, architecture) y no están resueltos → bloqueado
-   * - Si no requiere gates → permitido (se puede commitear directamente)
-   */
-  private isCommitAllowed(
-    task: TaskContext,
-    policyResult: PolicyEngineResult
-  ): boolean {
-    if (!this.config.features.commitGate) return true;
-
-    // Si ya está en commit_allowed → permitido
-    if (task.status === 'commit_allowed') return true;
-
-    // Si requiere gates específicos y no están resueltos → bloqueado
-    if (task.requiresQaApproval && task.status !== 'approved' && task.status !== 'qa_review') return false;
-    if (task.requiresSecurityReview && task.status !== 'approved' && task.status !== 'security_review') return false;
-    if (task.requiresArchitectureReview && task.status !== 'approved' && task.status !== 'design_review') return false;
-
-    // Si no requiere gates → permitido (tarea simple)
-    if (!task.requiresQaApproval && !task.requiresSecurityReview && !task.requiresArchitectureReview) {
-      return true;
-    }
-
-    return false;
-  }
+  // Nota: el pipeline de agentes (review → implement → verify) y la resolución de
+  // commitAllowed viven en gate-resolver.ts (resolveGates/resolveCommitAllowed) —
+  // única fuente de verdad, invocada desde orchestrate(). No duplicar acá.
 
   /**
    * @description Obtiene los estados destino válidos desde el estado actual.

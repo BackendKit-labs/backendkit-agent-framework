@@ -61,7 +61,16 @@ export class MCPRegistrar {
         for (const { name, toolCount } of this.opts.mcpManager.getServerInfo()) {
             if (toolCount > 0 && !this.mcpRegisteredServers.has(name)) {
                 const tools  = this.opts.mcpManager.getServerTools(name);
-                const config = this.opts.mcpManager.getConfig(name)!;
+                const config = this.opts.mcpManager.getConfig(name);
+                if (!config) {
+                    // Server disconnected between getServerInfo() and getConfig() — skip this
+                    // cycle, it will be picked up again once reconnected (or reported offline below).
+                    this.opts.transport.emit({
+                        type: 'system', level: 'warn',
+                        text: `MCP server "${name}" config unavailable during registration — will retry.`,
+                    });
+                    continue;
+                }
                 this.registerAgent(config, tools);
                 this.mcpRegisteredServers.add(name);
             }

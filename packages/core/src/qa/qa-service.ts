@@ -24,6 +24,8 @@ export interface QAServiceOptions {
     onQAReview?: (review: string) => void;
     /** Called after each QA evaluation so the caller can record routing outcomes. */
     onOutcome?: (agentId: string, approved: boolean) => void;
+    /** Agent ID used as the QA reviewer. Default 'qa-engineer' — agent-coding's roster. */
+    qaAgentId?: string;
 }
 
 export interface QAReviewResult {
@@ -58,9 +60,11 @@ const REJECTION_PATTERNS = [
 
 export class QAService {
     private opts: QAServiceOptions;
+    private qaAgentId: string;
 
     constructor(opts: QAServiceOptions) {
         this.opts = opts;
+        this.qaAgentId = opts.qaAgentId ?? 'qa-engineer';
     }
 
     countCodeLines(content: string): number {
@@ -73,10 +77,10 @@ export class QAService {
 
     async reviewResponse(workContent: string): Promise<string | null> {
         if (this.opts.noQA) return null;
-        if (this.opts.effectiveAgentId?.() === 'qa-engineer') return null;
+        if (this.opts.effectiveAgentId?.() === this.qaAgentId) return null;
         if (this.countCodeLines(workContent) < 8) return null;
 
-        const qaProfile = this.opts.allAgents?.find(a => a.id === 'qa-engineer');
+        const qaProfile = this.opts.allAgents?.find(a => a.id === this.qaAgentId);
         if (!qaProfile) return null;
 
         const systemPrompt = this.opts.basePrompt() + qaProfile.systemPromptAddition;
@@ -105,7 +109,7 @@ export class QAService {
         const gitDiff = getGitDiff();
         if (!gitDiff) return { approved: true, review: '' };
 
-        const qaProfile = this.opts.allAgents?.find(a => a.id === 'qa-engineer');
+        const qaProfile = this.opts.allAgents?.find(a => a.id === this.qaAgentId);
         const systemPrompt = qaProfile?.systemPromptAddition
             ? this.opts.basePrompt() + qaProfile.systemPromptAddition
             : this.opts.basePrompt() + '\n\nYou are an expert QA engineer. You review code changes before committing.';
@@ -161,13 +165,13 @@ export class QAService {
         }
         const review = result.value.content ?? '(QA could not generate a review)';
         const approved = this.evaluateReview(review);
-        this.opts.onOutcome?.('qa-engineer', approved);
+        this.opts.onOutcome?.(this.qaAgentId, approved);
         return { approved, review };
     }
 
     async diagnoseTestFailure(testOutput: string): Promise<string> {
         const gitDiff = getGitDiff();
-        const qaProfile = this.opts.allAgents?.find(a => a.id === 'qa-engineer');
+        const qaProfile = this.opts.allAgents?.find(a => a.id === this.qaAgentId);
         const systemPrompt = qaProfile?.systemPromptAddition
             ? this.opts.basePrompt() + qaProfile.systemPromptAddition
             : this.opts.basePrompt() + '\n\nYou are an expert QA engineer. You diagnose failing tests and propose solutions.';
@@ -269,7 +273,7 @@ export class QAService {
                     severidad,
                     evidencia: `QA review line: "${trimmed.slice(0, 150)}"`,
                     recomendacion: 'Review and fix the issue flagged in the QA review',
-                    agenteResponsable: 'qa-engineer',
+                    agenteResponsable: this.qaAgentId,
                 });
             }
         }
@@ -282,7 +286,7 @@ export class QAService {
                 severidad: 'medium',
                 evidencia: `Review text: "${review.slice(0, 300)}"`,
                 recomendacion: 'Review the full QA feedback and make the necessary changes',
-                agenteResponsable: 'qa-engineer',
+                agenteResponsable: this.qaAgentId,
             });
         }
 

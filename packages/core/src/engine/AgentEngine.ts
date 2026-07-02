@@ -348,7 +348,13 @@ export class AgentEngine {
                 if (toolDef) {
                     const required = (toolDef.parameters as { required?: string[] }).required;
                     const firstParam = required?.[0] ?? 'input';
-                    const mcpProfile = this.opts.agents.get(mcpRoute.agentId) ?? this.getCurrentProfile()!;
+                    const mcpProfile = this.opts.agents.get(mcpRoute.agentId) ?? this.getCurrentProfile();
+                    if (!mcpProfile) {
+                        throw new Error(
+                            `MCP route matched agent "${mcpRoute.agentId}", but it is not registered ` +
+                            `and no current agent profile is available.`
+                        );
+                    }
                     this.opts.transport.emit({
                         type: 'block_start',
                         agent_id: mcpRoute.agentId,

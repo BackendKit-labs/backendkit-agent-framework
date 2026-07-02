@@ -40,6 +40,8 @@ export interface QaContext {
     defaultAgentId?: string;
     /** Agent ID for the QA reviewer. Defaults to 'qa-engineer' when omitted. */
     qaAgentId?: string;
+    /** Agent IDs for the auto-pass review gates. Default to agent-coding's roster ('security'/'architecture'). */
+    reviewAgents?: { security?: string; architecture?: string };
     noQA?: boolean;
     onQAReview?: (review: string) => void;
     setEffectiveAgent: (agentId: string) => void;
@@ -67,11 +69,13 @@ export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
     if (isInformationalRequest(orchestrationResult.task.rawPrompt)) return;
 
     const { task } = orchestrationResult;
+    const architectureAgentId = ctx.reviewAgents?.architecture ?? 'architecture';
+    const securityAgentId     = ctx.reviewAgents?.security ?? 'security';
 
     // Gates auto-pasables: requeridos pero sin reviewer dedicado → GO silencioso.
     const autoPassGates: Array<{ status: TaskStatus; gateName: string; agentId: string; required: boolean }> = [
-        { status: 'design_review',   gateName: 'architecture', agentId: 'architecture', required: task.requiresArchitectureReview },
-        { status: 'security_review', gateName: 'security',     agentId: 'security',     required: task.requiresSecurityReview },
+        { status: 'design_review',   gateName: 'architecture', agentId: architectureAgentId, required: task.requiresArchitectureReview },
+        { status: 'security_review', gateName: 'security',     agentId: securityAgentId,     required: task.requiresSecurityReview },
     ];
 
     const reporter = orchestrator.getAuditReporter();

@@ -26,6 +26,18 @@ describe('ProviderRegistry', () => {
         expect(reg.ids()).toEqual(expect.arrayContaining(['a', 'b']));
     });
 
+    it('getAll returns a Record of all registered providers keyed by ID', () => {
+        const pA: LLMProvider = { chat: async () => undefined };
+        const pB: LLMProvider = { chat: async () => undefined };
+        reg.register('a', pA);
+        reg.register('b', pB);
+        expect(reg.getAll()).toEqual({ a: pA, b: pB });
+    });
+
+    it('getAll returns an empty object when nothing is registered', () => {
+        expect(reg.getAll()).toEqual({});
+    });
+
     it('resolve returns agent-specific provider when registered', () => {
         const pA: LLMProvider = { chat: async () => undefined };
         const pB: LLMProvider = { chat: async () => undefined };

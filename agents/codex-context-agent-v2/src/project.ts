@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { initBkHome, bkPaths } from '@backendkit-labs/infra';
@@ -78,7 +79,7 @@ export async function findNote(vaultPath: string, pathOrTitle: string): Promise<
 
 async function scanVaultForTitle(dir: string, searchTerm: string): Promise<string[]> {
     const results: string[] = [];
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
 
     try {
         entries = await fs.readdir(dir, { withFileTypes: true });

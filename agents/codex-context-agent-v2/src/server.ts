@@ -28,6 +28,7 @@
 import 'dotenv/config';
 import * as http   from 'node:http';
 import * as fs     from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as path   from 'node:path';
 import * as os     from 'node:os';
 import * as crypto from 'node:crypto';
@@ -908,7 +909,7 @@ function htmlToMarkdown(html: string): string {
 
 async function deleteManifests(dir: string): Promise<number> {
     let count = 0;
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
     try {
         entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

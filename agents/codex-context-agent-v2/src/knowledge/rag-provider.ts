@@ -30,12 +30,18 @@ export class CuratorRagProvider {
         this.embedder = new TransformersEmbedder(
             process.env.CODEX_EMBED_MODEL ?? 'Xenova/nomic-embed-text-v1'
         );
+        const envPacing = parseInt(process.env.CODEX_INDEX_PACING_MS ?? '', 10);
+        const envStageSize = parseInt(process.env.CODEX_INDEX_STAGE_SIZE ?? '', 10);
+        const envStagePacing = parseInt(process.env.CODEX_INDEX_STAGE_PACING_MS ?? '', 10);
         this.rag = new ObsidianRAGProvider({
             vaultPath,
             indexPath: this.getIndexPath(),
             embedder: this.embedder,
             topK: 5,
             minScore: 0.1,
+            batchPacingMs: Number.isFinite(envPacing) && envPacing >= 0 ? envPacing : undefined,
+            stageSize: Number.isFinite(envStageSize) && envStageSize > 0 ? envStageSize : undefined,
+            stagePacingMs: Number.isFinite(envStagePacing) && envStagePacing >= 0 ? envStagePacing : undefined,
         });
     }
 

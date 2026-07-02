@@ -82,10 +82,10 @@ export class KnowledgeEngine {
         };
     }
 
-    async reload(): Promise<ReloadResponse> {
+    async reload(onProgress?: (p: { processed: number; total: number }) => void): Promise<ReloadResponse> {
         return this.serialized(async () => {
             const start = Date.now();
-            const result = await this.rag.reload();
+            const result = await this.rag.reload(onProgress);
             this.isInitialized = true;
             return { indexed: result.indexed, updated: (result as any).updated ?? 0, durationMs: Date.now() - start };
         });

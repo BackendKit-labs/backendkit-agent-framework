@@ -53,14 +53,15 @@ export class CuratorRagProvider {
         return bkPaths.ragIndex(path.basename(this.vaultPath));
     }
 
-    async indexVault(): Promise<{ indexed: number; updated: number }> {
+    async indexVault(onProgress?: (p: { processed: number; total: number }) => void): Promise<{ indexed: number; updated: number }> {
         // ObsidianRAGProvider.index() is incremental (loads the persisted index from
         // disk and re-embeds only changed files). Coalesce concurrent callers onto a
-        // single in-flight pass.
+        // single in-flight pass. A caller joining an already-running pass does not get
+        // its own onProgress wired in — only the pass that started it does.
         if (this.indexing) return this.indexing;
         this.indexing = (async () => {
             try {
-                const result = await this.rag.index({ verbose: false });
+                const result = await this.rag.index({ verbose: false, onProgress });
                 this.isIndexed = true;
                 return { indexed: result.indexed, updated: result.removed };
             } catch (err) {
@@ -100,11 +101,11 @@ export class CuratorRagProvider {
         }
     }
 
-    async reload(): Promise<{ indexed: number; updated: number }> {
+    async reload(onProgress?: (p: { processed: number; total: number }) => void): Promise<{ indexed: number; updated: number }> {
         // Do NOT drop isIndexed here: index() is incremental and reloads from disk on
         // its own, so keeping the flag true lets concurrent searches keep serving the
         // current in-memory index instead of blocking on (or spawning) a reindex.
-        return await this.indexVault();
+        return await this.indexVault(onProgress);
     }
 
     async getStats(): Promise<{ indexed: boolean; vaultPath: string; indexPath: string }> {

@@ -103,7 +103,9 @@ export class ObsidianRAGProvider {
      * Indexa el vault de forma incremental.
      * Solo re-embede archivos nuevos o modificados desde la última indexación.
      */
-    async index(opts: { verbose?: boolean } = {}): Promise<{ indexed: number; removed: number }> {
+    async index(
+        opts: { verbose?: boolean; onProgress?: (p: { processed: number; total: number }) => void } = {},
+    ): Promise<{ indexed: number; removed: number }> {
         await this.store.load();
         const knownMtimes = this.store.getKnownMtimes();
         const { toIndex, toRemove } = await this.indexer.getChangedFiles(knownMtimes);
@@ -115,12 +117,16 @@ export class ObsidianRAGProvider {
         let indexed = 0;
         for (let i = 0; i < toIndex.length; i += BATCH_SIZE) {
             const batch = toIndex.slice(i, i + BATCH_SIZE);
+            const processedSoFar = Math.min(i + BATCH_SIZE, toIndex.length);
             const rawChunksBatch = await Promise.all(
                 batch.map(f => this.indexer.buildChunks(f.filePath, f.mtime))
             );
 
             const allRaw = rawChunksBatch.flat();
-            if (allRaw.length === 0) continue;
+            if (allRaw.length === 0) {
+                opts.onProgress?.({ processed: processedSoFar, total: toIndex.length });
+                continue;
+            }
 
             const embeddings = await this.embedder.embed(allRaw.map(c => c.text));
 
@@ -137,9 +143,10 @@ export class ObsidianRAGProvider {
             // everything from scratch. Mirrors the manifest-per-batch pattern already used
             // for curate_path.
             await this.store.save();
+            opts.onProgress?.({ processed: processedSoFar, total: toIndex.length });
 
             if (opts.verbose) {
-                console.log(`[RAG] Indexados ${Math.min(i + BATCH_SIZE, toIndex.length)}/${toIndex.length} archivos`);
+                console.log(`[RAG] Indexados ${processedSoFar}/${toIndex.length} archivos`);
             }
 
             // Pace between batches so a large reindex doesn't hold the CPU/memory

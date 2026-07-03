@@ -1,0 +1,12 @@
+# ============================================================
+# Finance Agent — Kubernetes Namespace
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finance
+  labels:
+    app: finance-agent
+    team: finance
+    environment: production
+    cost-center: fin-ops

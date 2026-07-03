@@ -1,0 +1,49 @@
+# Config de empresa de DEMO — para probar la integración
+# finance-agent ↔ mock-erp-agent (vía MCP) desde el director.
+#
+# No es un config de producción: usa una ruta absoluta al mock-erp-agent
+# porque los mcp_servers de este archivo se resuelven relativos al cwd del
+# proceso de finance-agent en el momento en que arranca, no relativos a este
+# archivo — ajustá la ruta si tu checkout está en otro lado.
+
+company:
+  id: demo-corp
+  name: Demo Corp
+  country: CO
+  currency: COP
+  fiscal_year_start: "01-01"
+
+providers:
+  default:
+    model: deepseek-chat
+    temperature: 0.3
+
+tools:
+  enabled:
+    - balance_sheet
+    - income_statement
+    - cash_flow
+    - aging_report
+    - budget_vs_actual
+    - tax_summary
+    - payroll_summary
+
+gates:
+  email_report:
+    enabled: false
+    requires_approval: false
+  export_data:
+    enabled: false
+    requires_approval: false
+
+mcp_servers:
+  - name: erp
+    transport: stdio
+    command: node
+    args:
+      - "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents\\mock-erp-agent\\dist\\mcp-adapter\\server.js"
+    env:
+      ERP_API_URL: "http://localhost:4100"
+
+scheduler:
+  default_tasks: []

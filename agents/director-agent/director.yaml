@@ -110,6 +110,15 @@ agents:
       SMTP_PASS: ${SMTP_PASS}
       SCHEDULER_URL: ${SCHEDULER_URL}
 
+  - name: finance                # Finance Agent — CFO virtual, reportes financieros
+    command: node
+    args: ["../finance-agent/dist/entry-points/mcp-stdio.js"]
+    env:
+      # Config de empresa (schema, tools habilitadas, mcp_servers del ERP real).
+      # Sin esto arranca igual pero solo con las tools nativas (datos mock
+      # hardcodeados), sin conectar al ERP.
+      FINANCE_CONFIG_PATH: "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents\\finance-agent\\config\\empresa-demo.yaml"
+
 # ── Control de acceso (Capa 1 + 2) ───────────────────────────────────────────
 #
 # enforce: false  → bypass total (dev/REPL). Cambiar a true en producción.

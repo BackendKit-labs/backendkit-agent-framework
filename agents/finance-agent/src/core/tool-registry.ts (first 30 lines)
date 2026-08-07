@@ -1,0 +1,104 @@
+import { z, ZodSchema } from 'zod';
+
+/**
+ * Definición de una tool nativa registrada en el sistema.
+ */
+export interface NativeToolDefinition<TInput = unknown, TOutput = unknown> {
+  /** Nombre único de la tool (ej: "get_income_statement") */
+  name: string;
+  /** Descripción legible para el LLM */
+  description: string;
+  /** Esquema Zod de los parámetros de entrada */
+  inputSchema: ZodSchema<TInput>;
+  /** Función ejecutora */
+  handler: (input: TInput) => Promise<TOutput>;
+  /** Versión de la tool (para trazabilidad) */
+  version?: string;
+  /** Tags de categorización (ej: ["financial", "income-statement"]) */
+  tags?: string[];
+}
+
+/**
+ * Definición de una tool expuesta por un MCP Bridge externo.
+ */
+export interface MCPToolDefinition {
+  /** Nombre único de la tool en el MCP server */
+  name: string;
+  /** Descripción de la tool */
+  description: string;
+  /** Esquema de entrada (JSON Schema plano, sin Zod) */
+  inputSchema: Record<string, unknown>;
+  /** Identificador del MCP server que la expone */
+  serverId: string;
+  /** Versión reportada por el MCP server */
+  version?: string;
+  /** Tags de categorización */
+  tags?: string[];
+}
+
+/**
+ * Tool unificada que puede ser nativa o proveniente de un MCP Bridge.
+ */
+export type ToolDefinition = NativeToolDefinition | MCPToolDefinition;
+
+/**
+ * Resultado de la ejecución de una tool.
+ */
+export interface ToolResult<TOutput = unknown> {
+  success: boolean;
+  data?: TOutput;
+  error?: string;
+  /** Tiempo de ejecución en ms */
+  executionTimeMs: number;
+  /** Nombre de la tool ejecutada */
+  toolName: string;
+}
+
+/**
+ * Helper para crear una tool nativa con inferencia de tipos.
+ * @example
+ * const myTool = defineTool({
+ *   name: "get_balance",
+ *   description: "Obtiene el balance general",
+ *   inputSchema: z.object({ period: z.string() }),
+ *   handler: async ({ period }) => ({ balance: 1000 }),
+ * });
+ */
+export function defineTool<TInput, TOutput>(
+  definition: NativeToolDefinition<TInput, TOutput>
+): NativeToolDefinition<TInput, TOutput> {
+  return {
+    ...definition,
+    version: definition.version ?? '1.0.0',
+    tags: definition.tags ?? [],
+  };
+}
+
+/**
+ * Registro central de tools.
+ * Permite registrar tools nativas (vía defineTool) y tools desde MCP Bridge.
+ * Provee búsqueda, ejecución y listado unificado.
+ */
+export class ToolRegistry {
+  private nativeTools: Map<string, NativeToolDefinition> = new Map();
+  private mcpTools: Map<string, MCPToolDefinition> = new Map();
+
+  /**
+   * Registra una tool nativa creada con defineTool.
+   * @throws Si ya existe una tool con el mismo nombre.
+   */
+  registerNativeTool<TInput, TOutput>(
+    tool: NativeToolDefinition<TInput, TOutput>
+  ): void {
+    if (this.nativeTools.has(tool.name)) {
+      throw new Error(
+        `Native tool "${tool.name}" ya está registrada. Use un nombre único.`
+      );
+    }
+    this.nativeTools.set(tool.name, tool as NativeToolDefinition);
+  }
+
+  /**
+   * Registra múltiples tools nativas de una vez.
+   */
+  registerN

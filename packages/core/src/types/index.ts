@@ -31,6 +31,18 @@ export interface AgentProfile {
      * instead of running docker commands directly.
      */
     blockedCommands?: string[];
+    /**
+     * Credentials scoped to this agent, keyed by name (e.g. "AVAL_KEY",
+     * "STRIPE_KEY"). Injected into ExecutionContext.secrets at call time so a
+     * tool reads the caller's own credential instead of a process-wide
+     * environment variable — the difference between "this agent can spend"
+     * and "every agent shares one key that any of them could exceed or leak".
+     *
+     * Values are read from disk on load like any other profile field; they are
+     * not encrypted here. Treat the profile file itself as sensitive, the same
+     * way you would an .env file.
+     */
+    secrets?: Record<string, string>;
 }
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────
@@ -70,6 +82,12 @@ export interface ExecutionContext {
      * the project data directory (store.projectDir).
      */
     additionalRoots?: string[];
+    /**
+     * This agent's own credentials, from AgentProfile.secrets. Absent for
+     * agents that don't declare any — a tool that needs one should check for
+     * it explicitly and return a clear error rather than assume it's there.
+     */
+    secrets?: Record<string, string>;
 }
 
 export interface SessionMemoryData {

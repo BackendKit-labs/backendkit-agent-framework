@@ -1,5 +1,6 @@
 // Main orchestrator
 export { Orchestrator } from './orchestrator';
+export type { ReviewAgentIds } from './orchestrator';
 export type { LLMChatClient } from './intent-detector';
 
 // Pipeline components

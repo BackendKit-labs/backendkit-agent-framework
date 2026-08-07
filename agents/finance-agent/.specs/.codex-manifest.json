@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "created": "2026-07-02T21:45:04.419Z",
+  "lastUpdated": "2026-07-02T21:45:25.321Z",
+  "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents\\finance-agent\\.specs",
+  "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
+  "files": {
+    "design.md": {
+      "relativePath": "design.md",
+      "hash": "65284e329bd649e6d3d412ac40e9258c523ffbe402d26de5afb70c985e15421f",
+      "size": 16938,
+      "modified": "2026-07-02T20:14:53.255Z",
+      "analyzedAt": "2026-07-02T21:45:08.046Z",
+      "status": "success"
+    },
+    "ROADMAP.md": {
+      "relativePath": "ROADMAP.md",
+      "hash": "a0b54194f7b0dcea60d514879c5dddb447549051dc5fb0c9c15391922a7e7935",
+      "size": 13291,
+      "modified": "2026-07-02T20:21:32.890Z",
+      "analyzedAt": "2026-07-02T21:45:09.072Z",
+      "status": "success"
+    },
+    "specification.md": {
+      "relativePath": "specification.md",
+      "hash": "b55ab7f33937e4080a05ca7b8b7a29f89f0a123cc3f8df4c43ea954b2c37f12b",
+      "size": 5551,
+      "modified": "2026-07-02T20:14:08.516Z",
+      "analyzedAt": "2026-07-02T21:45:25.321Z",
+      "status": "success"
+    }
+  }
+}

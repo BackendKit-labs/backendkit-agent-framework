@@ -10,6 +10,8 @@
             },
     "scripts":  {
                     "build":  "tsc --noCheck",
+                    "build:ui": "cd ui && npm run build",
+                    "build:all": "npm run build && npm run build:ui",
                     "start":  "node dist/repl.js",
                     "repl":  "node dist/repl.js",
                     "serve":  "node dist/server.js",

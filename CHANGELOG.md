@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.24.0 (2026-08-07)
+
+### `@backendkit-labs/agent-core` — credenciales por agente
+
+`AgentProfile.secrets` (nuevo, opcional): credenciales propias del agente, inyectadas en
+`ExecutionContext.secrets` en cada llamada a herramienta. Antes de esto, una herramienta que
+necesitara una clave externa sólo podía leerla de una variable de entorno compartida por todo
+el proceso — cualquier agente con esa herramienta tenía la misma clave que todos los demás. Con
+`secrets`, la clave vive en el perfil de cada agente y una herramienta la lee de `ctx.secrets`,
+no del entorno.
+
+Cambio aditivo: campo opcional en `AgentProfile` y en `ExecutionContext`, propagado en
+`buildContext()` con el mismo patrón condicional que ya usa `blockedCommands`. No afecta a
+ningún agente existente que no lo declare.
+
+```typescript
+const profile: AgentProfile = {
+    // ...
+    allowedTools: ['pay', 'check_payment'],
+    secrets: { AVAL_KEY: process.env.EXPEDIENTES_BOT_AVAL_KEY! },
+};
+```
+
+### `@backendkit-labs/aval-tools` (paquete nuevo)
+
+Herramientas `pay` y `check_payment` para que un agente gaste dinero a través de una instancia
+de [AVAL](https://github.com/BackendKit-labs/aval) — presupuesto previo, decisión antes del
+gasto, registro encadenado. `pay` pide un techo de gasto y devuelve el resultado como texto
+(pagado, retenido o denegado); `check_payment` consulta el estado de un gasto retenido en una
+invocación posterior, sin que la sesión del agente tenga que quedarse esperando a que una
+persona lo apruebe.
+
+Usa `secrets` de arriba para la credencial: cada agente lleva su propia clave de AVAL, nunca
+una compartida.
+
 ## v0.23.0 (2026-06-11)
 
 ### `@backendkit-labs/agent-web` — `MonitorBus`

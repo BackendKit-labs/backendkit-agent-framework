@@ -122,30 +122,39 @@ export interface PolicyEngineResult {
   requiredGates: Array<'qa' | 'security' | 'architecture'>;
   /** Skills obligatorios */
   mustExecute: string[];
+  /** Nombres de customGates activados por reglas (más allá de qa/security/architecture) */
+  customGates: string[];
   /** Reglas que se activaron */
   appliedRules: Array<{ rule: string; reason: string }>;
 }
 
 /**
  * @description Evalúa todas las reglas contra un TaskContext.
- * 
+ *
  * Las reglas personalizadas (de ~/.deepseek-code/policy-rules.yaml)
  * tienen prioridad sobre las built-in. Si una regla personalizada
  * coincide, se aplica en lugar de la built-in equivalente.
- * 
+ *
  * @param task - TaskContext enriquecido con actionType, domains, riskLevel
  * @param customRules - Reglas personalizadas (opcional, desde config)
+ * @param userInput - Texto original del usuario, para matching de keywords
+ * @param includeDefaultRules - Si es false, omite DEFAULT_RULES (que asume agentes de
+ *   coding: architecture/security/qa-engineer). Default true — no cambia el comportamiento
+ *   de consumidores existentes. Verticales sin esos agentes (ej. agent-enterprise) deben
+ *   pasar false y aportar sus propias customRules.
  * @returns Políticas aplicadas: agentes, gates y skills obligatorios
  */
 export function evaluatePolicies(
   task: TaskContext,
   customRules?: PolicyRule[],
-  userInput = ''
+  userInput = '',
+  includeDefaultRules = true
 ): PolicyEngineResult {
-  const rules = [...DEFAULT_RULES, ...(customRules ?? [])];
+  const rules = [...(includeDefaultRules ? DEFAULT_RULES : []), ...(customRules ?? [])];
   const mustInclude = new Set<string>();
   const requiredGates = new Set<'qa' | 'security' | 'architecture'>();
   const mustExecute = new Set<string>();
+  const customGates = new Set<string>();
   const appliedRules: Array<{ rule: string; reason: string }> = [];
 
   for (const rule of rules) {
@@ -183,6 +192,12 @@ export function evaluatePolicies(
         requiredGates.add('qa');
       }
 
+      if (rule.then.requireCustomGates) {
+        for (const gate of rule.then.requireCustomGates) {
+          customGates.add(gate);
+        }
+      }
+
       // Registrar regla aplicada
       const reason = buildRuleReason(rule.if);
       appliedRules.push({ rule: reason, reason });
@@ -193,6 +208,7 @@ export function evaluatePolicies(
     mustInclude: [...mustInclude],
     requiredGates: [...requiredGates],
     mustExecute: [...mustExecute],
+    customGates: [...customGates],
     appliedRules,
   };
 }
@@ -286,9 +302,10 @@ function buildRuleReason(condition: PolicyCondition): string {
 export function applyPolicies(
   task: TaskContext,
   customRules?: PolicyRule[],
-  userInput = ''
+  userInput = '',
+  includeDefaultRules = true
 ): { task: TaskContext; result: PolicyEngineResult } {
-  const result = evaluatePolicies(task, customRules, userInput);
+  const result = evaluatePolicies(task, customRules, userInput, includeDefaultRules);
 
   // Enriquecer task con los resultados
   const enrichedTask: TaskContext = {
@@ -297,6 +314,10 @@ export function applyPolicies(
     requiresArchitectureReview: task.requiresArchitectureReview || result.requiredGates.includes('architecture'),
     requiresSecurityReview: task.requiresSecurityReview || result.requiredGates.includes('security'),
     requiresQaApproval: task.requiresQaApproval || result.requiredGates.includes('qa'),
+    customGates: {
+      ...task.customGates,
+      ...Object.fromEntries(result.customGates.map(g => [g, true])),
+    },
     updatedAt: new Date(),
   };
 

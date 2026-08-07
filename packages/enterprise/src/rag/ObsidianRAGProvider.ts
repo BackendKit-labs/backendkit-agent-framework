@@ -32,9 +32,31 @@ export interface ObsidianRAGOptions {
     minScore?: number;
     /** Tags del frontmatter a excluir de la indexación. Default: ['skill'] */
     excludeTags?: string[];
+    /**
+     * Milisegundos de pausa entre batches durante index(). Un reindex grande (cientos
+     * de archivos) corre CPU-bound sostenido a través de embed() sin dar respiro al
+     * resto de la máquina; esta pausa le da al SO/otros procesos una ventana entre
+     * batches. Default: 300ms. 0 desactiva el pacing.
+     */
+    batchPacingMs?: number;
+    /**
+     * Cantidad de archivos por etapa. Cada vez que el reindex completa una etapa,
+     * pausa stagePacingMs en vez del batchPacingMs normal — un respiro más largo y
+     * periódico además del pacing entre batches, para vaults muy grandes. Default: 50.
+     */
+    stageSize?: number;
+    /** Milisegundos de pausa al completar cada etapa (stageSize archivos). Default: 3000ms. */
+    stagePacingMs?: number;
 }
 
 const BATCH_SIZE = 10;
+const DEFAULT_BATCH_PACING_MS = 300;
+const DEFAULT_STAGE_SIZE = 50;
+const DEFAULT_STAGE_PACING_MS = 3000;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export class ObsidianRAGProvider {
     private readonly embedder: Embedder;
@@ -42,6 +64,9 @@ export class ObsidianRAGProvider {
     private readonly indexer: VaultIndexer;
     private readonly topK: number;
     private readonly minScore: number;
+    private readonly batchPacingMs: number;
+    private readonly stageSize: number;
+    private readonly stagePacingMs: number;
     private indexed = false;
 
     constructor(opts: ObsidianRAGOptions) {
@@ -69,13 +94,18 @@ export class ObsidianRAGProvider {
 
         this.topK = opts.topK ?? 5;
         this.minScore = opts.minScore ?? 0.3;
+        this.batchPacingMs = opts.batchPacingMs ?? DEFAULT_BATCH_PACING_MS;
+        this.stageSize = opts.stageSize ?? DEFAULT_STAGE_SIZE;
+        this.stagePacingMs = opts.stagePacingMs ?? DEFAULT_STAGE_PACING_MS;
     }
 
     /**
      * Indexa el vault de forma incremental.
      * Solo re-embede archivos nuevos o modificados desde la última indexación.
      */
-    async index(opts: { verbose?: boolean } = {}): Promise<{ indexed: number; removed: number }> {
+    async index(
+        opts: { verbose?: boolean; onProgress?: (p: { processed: number; total: number }) => void } = {},
+    ): Promise<{ indexed: number; removed: number }> {
         await this.store.load();
         const knownMtimes = this.store.getKnownMtimes();
         const { toIndex, toRemove } = await this.indexer.getChangedFiles(knownMtimes);
@@ -87,12 +117,16 @@ export class ObsidianRAGProvider {
         let indexed = 0;
         for (let i = 0; i < toIndex.length; i += BATCH_SIZE) {
             const batch = toIndex.slice(i, i + BATCH_SIZE);
+            const processedSoFar = Math.min(i + BATCH_SIZE, toIndex.length);
             const rawChunksBatch = await Promise.all(
                 batch.map(f => this.indexer.buildChunks(f.filePath, f.mtime))
             );
 
             const allRaw = rawChunksBatch.flat();
-            if (allRaw.length === 0) continue;
+            if (allRaw.length === 0) {
+                opts.onProgress?.({ processed: processedSoFar, total: toIndex.length });
+                continue;
+            }
 
             const embeddings = await this.embedder.embed(allRaw.map(c => c.text));
 
@@ -104,8 +138,28 @@ export class ObsidianRAGProvider {
             this.store.addChunks(vectorChunks);
             indexed += vectorChunks.length;
 
+            // Checkpoint per batch, not just at the end — a crash mid-index (e.g. a large
+            // first-time vault reindex) must resume from here instead of re-embedding
+            // everything from scratch. Mirrors the manifest-per-batch pattern already used
+            // for curate_path.
+            await this.store.save();
+            opts.onProgress?.({ processed: processedSoFar, total: toIndex.length });
+
             if (opts.verbose) {
-                console.log(`[RAG] Indexados ${Math.min(i + BATCH_SIZE, toIndex.length)}/${toIndex.length} archivos`);
+                console.log(`[RAG] Indexados ${processedSoFar}/${toIndex.length} archivos`);
+            }
+
+            // Pace between batches so a large reindex doesn't hold the CPU/memory
+            // sustained for its whole duration. Skipped after the last batch. Every
+            // stageSize files, take the longer stage pause instead of the regular one —
+            // a periodic deeper breather on top of the per-batch pacing, for large vaults.
+            const hasMoreBatches = i + BATCH_SIZE < toIndex.length;
+            if (hasMoreBatches) {
+                const processedSoFar = i + BATCH_SIZE;
+                const crossedStageBoundary = Math.floor(processedSoFar / this.stageSize) >
+                    Math.floor((processedSoFar - BATCH_SIZE) / this.stageSize);
+                const pauseMs = crossedStageBoundary ? this.stagePacingMs : this.batchPacingMs;
+                if (pauseMs > 0) await sleep(pauseMs);
             }
         }
 

@@ -26,6 +26,8 @@ export interface PolicyAction {
     requireArchitectureReview?: boolean;
     requireSecurityReview?: boolean;
     requireQaApproval?: boolean;
+    /** Named gates beyond the 3 built-ins — open set, e.g. ['compliance'] for a finance vertical. */
+    requireCustomGates?: string[];
     [key: string]: unknown;
 }
 

@@ -163,6 +163,16 @@ export interface TaskContext {
   /** Indica si requiere aprobación de QA */
   requiresQaApproval: boolean;
 
+  /**
+   * Gates con nombre abierto, más allá de architecture/security/qa — ej. { compliance: true }
+   * para un vertical de finance. No tienen estado propio en la FSM: son un checklist plano
+   * que bloquea commitAllowed hasta que su nombre aparezca en completedCustomGates.
+   */
+  customGates: Record<string, boolean>;
+
+  /** Nombres de customGates ya satisfechos. */
+  completedCustomGates: string[];
+
   /** Servicios objetivo (si se detectan) */
   targetServices: string[];
 
@@ -375,6 +385,8 @@ export function createTaskContext(rawPrompt: string): TaskContext {
     requiresArchitectureReview: false,
     requiresSecurityReview: false,
     requiresQaApproval: false,
+    customGates: {},
+    completedCustomGates: [],
     targetServices: [],
     relatedPatterns: [],
     status: 'new',

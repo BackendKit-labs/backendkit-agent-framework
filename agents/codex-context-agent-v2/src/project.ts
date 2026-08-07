@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { initBkHome, bkPaths } from '@backendkit-labs/infra';
@@ -13,16 +14,21 @@ export interface ProjectContext {
  * Resolve the current project context.
  *
  * Priority for project root:
- *   1. CODEX_PROJECT_PATH env var (explicit override)
- *   2. Git root detected from CWD
- *   3. CWD as fallback (non-git directories)
+ *   1. CODEX_PROJECT_PATH env var (explicit manual override)
+ *   2. CLAUDE_PROJECT_DIR env var — set by Claude Code itself on every spawned MCP
+ *      server (project-scoped or user/global-scoped alike) to the active session's
+ *      project root. This is what makes a single global mcpServers entry (registered
+ *      once, used across every project) resolve to the right vault per project instead
+ *      of needing a CODEX_PROJECT_PATH hardcoded per project.
+ *   3. Git root detected from CWD
+ *   4. CWD as fallback (non-git directories)
  *
  * Vault location: $BK_HOME/vaults/{project-name}/
  *   BK_HOME defaults to ~/.bk-agent/ — the unified platform infrastructure dir.
  *   Override with BK_HOME env var (e.g. for server deployments or rename).
  */
 export async function resolveProject(): Promise<ProjectContext> {
-    const startPath = process.env.CODEX_PROJECT_PATH ?? process.cwd();
+    const startPath = process.env.CODEX_PROJECT_PATH ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 
     let projectRoot: string;
     let projectName: string;
@@ -78,7 +84,7 @@ export async function findNote(vaultPath: string, pathOrTitle: string): Promise<
 
 async function scanVaultForTitle(dir: string, searchTerm: string): Promise<string[]> {
     const results: string[] = [];
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
 
     try {
         entries = await fs.readdir(dir, { withFileTypes: true });

@@ -503,7 +503,7 @@ export function UsersPage() {
                             </div>
 
                             {/* MCP Resources — department + vault override */}
-                            <DepartmentEditor user={detailUser} onUpdated={(u) => setDetailUser(u)} />
+                            <DepartmentEditor user={detailUser} onUpdated={(u) => setDetailUser(prev => prev ? { ...prev, ...u } : null)} />
 
                             <div>
                                 <h4 className="font-semibold mb-2">Roles asignados</h4>

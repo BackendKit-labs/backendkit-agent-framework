@@ -15,6 +15,7 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
             model: opts.model ?? 'deepseek-chat',
             maxTokens: opts.maxTokens,
             temperature: opts.temperature,
+            thinking: opts.thinking,
         });
     }
 }

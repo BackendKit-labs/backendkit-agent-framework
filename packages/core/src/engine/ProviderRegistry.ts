@@ -26,4 +26,13 @@ export class ProviderRegistry {
     ids(): string[] {
         return [...this.providers.keys()];
     }
+
+    /**
+     * All registered providers keyed by ID. Providers don't carry their own ID
+     * (unlike AgentProfile/ToolDefinition), so this returns a Record rather than
+     * an array — matches the shape createBaseEngine's `providers` option expects.
+     */
+    getAll(): Record<string, LLMProvider> {
+        return Object.fromEntries(this.providers);
+    }
 }

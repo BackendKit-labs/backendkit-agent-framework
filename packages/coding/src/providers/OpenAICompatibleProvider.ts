@@ -9,6 +9,14 @@ export interface OpenAICompatibleProviderOptions {
     temperature?: number;
     /** Max retry attempts on transient errors (429, 5xx). Default: 3. */
     maxRetries?: number;
+    /**
+     * Reasoning ("thinking") toggle for providers that support it (e.g. DeepSeek
+     * V4 defaults this to 'enabled'). When enabled, hidden reasoning tokens are
+     * generated before visible content and count against maxTokens — a small
+     * maxTokens budget can be exhausted entirely by reasoning, producing zero
+     * visible output with no error. Omit to use the API's own default.
+     */
+    thinking?: 'enabled' | 'disabled';
 }
 
 function isRetryable(err: unknown): boolean {
@@ -31,6 +39,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     private readonly maxTokens: number;
     private readonly temperature: number;
     private readonly maxRetries: number;
+    private readonly thinking?: 'enabled' | 'disabled';
 
     constructor(opts: OpenAICompatibleProviderOptions) {
         this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl, maxRetries: 0 });
@@ -38,6 +47,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         this.maxTokens = opts.maxTokens ?? 16384;
         this.temperature = opts.temperature ?? 0.0;
         this.maxRetries = opts.maxRetries ?? 3;
+        this.thinking = opts.thinking;
     }
 
     async chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void> {
@@ -84,7 +94,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
             temperature: this.temperature,
             stream: true,
             stream_options: { include_usage: true }, // Fix #16: enables usage in final chunk
-        }, { signal: callbacks.signal });
+            // Providers like DeepSeek V4 default reasoning to 'enabled'; hidden
+            // reasoning tokens are generated before content and count against
+            // max_tokens, so a small budget can be exhausted with zero visible
+            // output and no error. Not a standard OpenAI field — passed through
+            // as an extension property for OpenAI-compatible reasoning models.
+            ...(this.thinking ? { thinking: { type: this.thinking } } : {}),
+        } as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal: callbacks.signal });
 
         let contentBuffer = '';
         const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();

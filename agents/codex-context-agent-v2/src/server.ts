@@ -28,6 +28,7 @@
 import 'dotenv/config';
 import * as http   from 'node:http';
 import * as fs     from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as path   from 'node:path';
 import * as os     from 'node:os';
 import * as crypto from 'node:crypto';
@@ -73,11 +74,23 @@ function makeProvider() {
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 
+interface CurationProgress {
+    task: 'curate_path' | 'curate_link' | 'reindex';
+    target: string;
+    processed: number;
+    total: number;
+    startedAt: string;
+}
+
 interface CurationState {
     activeJobs: number;
     lastCompletedAt?: Date;
     reindexing?: boolean;
     reindexTimer?: ReturnType<typeof setTimeout>;
+    // Progress of whichever background job is currently running. A single field, not a
+    // per-job map — only one directory-level curate_path/curate_link/reindex runs at a
+    // time in practice, and the last one to start wins if that assumption is ever broken.
+    progress?: CurationProgress;
 }
 
 // Debounce window for coalesced reindexing. A director/coder loop curates files one by
@@ -87,15 +100,30 @@ const REINDEX_DEBOUNCE_MS = process.env.CODEX_REINDEX_DEBOUNCE_MS
     ? parseInt(process.env.CODEX_REINDEX_DEBOUNCE_MS)
     : 2_000;
 
+function startProgress(curation: CurationState, task: CurationProgress['task'], target: string, total = 0): void {
+    curation.progress = { task, target, processed: 0, total, startedAt: new Date().toISOString() };
+}
+
+// Clears progress only if it's still the job that set it — a faster job finishing after
+// a newer one started must not wipe out the newer one's progress.
+function clearProgress(curation: CurationState, task: CurationProgress['task']): void {
+    if (curation.progress?.task === task) curation.progress = undefined;
+}
+
 function scheduleReindex(engine: KnowledgeEngine, curation: CurationState): void {
     if (curation.reindexTimer) clearTimeout(curation.reindexTimer);
     curation.reindexTimer = setTimeout(() => {
         curation.reindexTimer = undefined;
         curation.reindexing = true;
-        engine.reload()
+        startProgress(curation, 'reindex', '(coalesced)');
+        engine.reload(p => { if (curation.progress) { curation.progress.processed = p.processed; curation.progress.total = p.total; } })
             .then(r => log(`✓ Vault reindexed (coalesced): ${r.indexed} notes`))
             .catch(err => log(`⚠ Auto-reindex failed: ${(err as Error).message}`))
-            .finally(() => { curation.reindexing = false; curation.lastCompletedAt = new Date(); });
+            .finally(() => {
+                curation.reindexing = false;
+                curation.lastCompletedAt = new Date();
+                clearProgress(curation, 'reindex');
+            });
     }, REINDEX_DEBOUNCE_MS);
 }
 
@@ -209,6 +237,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     extra: { totalFiles: files.length, changedFiles: changed.length, skippedFiles: files.length - changed.length, codeFiles: codeCount, docFiles: docCount },
                 });
                 curation.activeJobs++;
+                startProgress(curation, 'curate_path', targetPath, changed.length);
                 (async () => {
                     try {
                         const batchSize = 10;
@@ -231,9 +260,18 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             );
                             // Persist manifest progress per batch so a crash/restart resumes correctly.
                             await saveManifest(targetPath, manifest);
+                            if (curation.progress?.task === 'curate_path') {
+                                curation.progress.processed = Math.min(i + batchSize, changed.length);
+                            }
                         }
                         log(`✓ Curated ${changed.length} changed files from ${targetPath} (${files.length - changed.length} unchanged)`);
-                        await engine.reload();
+                        startProgress(curation, 'reindex', targetPath);
+                        await engine.reload(p => {
+                            if (curation.progress?.task === 'reindex') {
+                                curation.progress.processed = p.processed;
+                                curation.progress.total = p.total;
+                            }
+                        });
                         log('✓ Vault reindexed automatically');
                         audit?.write({
                             event: 'curate.dir.done', path: targetPath, status: 'done',
@@ -246,6 +284,8 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                     } finally {
                         curation.activeJobs--;
                         curation.lastCompletedAt = new Date();
+                        clearProgress(curation, 'curate_path');
+                        clearProgress(curation, 'reindex');
                     }
                 })();
 
@@ -335,6 +375,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             log(`→ Curating ${files.length} files from ${url}...`);
                             const analyzer = new CodeAnalyzer({ provider: makeProvider(), vaultPath: ctx.vaultPath });
                             const batchSize = 10;
+                            startProgress(curation, 'curate_link', url, files.length);
                             for (let i = 0; i < files.length; i += batchSize) {
                                 const batch = files.slice(i, i + batchSize);
                                 await Promise.all(batch.map(async file => {
@@ -344,9 +385,18 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                                         log(`✗ ${file.relativePath}: ${(err as Error).message}`);
                                     }
                                 }));
+                                if (curation.progress?.task === 'curate_link') {
+                                    curation.progress.processed = Math.min(i + batchSize, files.length);
+                                }
                             }
 
-                            await engine.reload();
+                            startProgress(curation, 'reindex', url);
+                            await engine.reload(p => {
+                                if (curation.progress?.task === 'reindex') {
+                                    curation.progress.processed = p.processed;
+                                    curation.progress.total = p.total;
+                                }
+                            });
                             log(`✓ curate_link complete: ${files.length} files from ${url}`);
                             audit?.write({ event: 'curate.git.done', url, status: 'done', durationMs: Date.now() - gitStart, extra: { filesProcessed: files.length } });
                         } catch (err) {
@@ -356,6 +406,8 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
                             curation.activeJobs--;
                             curation.lastCompletedAt = new Date();
+                            clearProgress(curation, 'curate_link');
+                            clearProgress(curation, 'reindex');
                         }
                     })();
 
@@ -518,6 +570,9 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
         'vault_status',
         'Show the current project context and vault status: project name, root directory, vault path, ' +
         'number of curated notes, and RAG index state. ' +
+        'If a curate_path, curate_link, or reindex is running in the background, the response includes ' +
+        'a progress field ({task, target, processed, total, percent}) — poll this tool periodically to ' +
+        'track a long-running curation/reindex. ' +
         'Also call vault_status after curate_path completes to trigger vault reindexing.',
         {
             reload: z.boolean().optional().describe('Reindex the vault after new files were curated (default: false)'),
@@ -526,9 +581,16 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
             try {
                 if (reload && !curation.reindexing) {
                     curation.reindexing = true;
-                    engine.reload()
+                    startProgress(curation, 'reindex', ctx.vaultPath);
+                    engine.reload(p => {
+                        if (curation.progress?.task === 'reindex') {
+                            curation.progress.processed = p.processed;
+                            curation.progress.total = p.total;
+                        }
+                    })
                         .then(() => { curation.reindexing = false; })
-                        .catch(() => { curation.reindexing = false; });
+                        .catch(() => { curation.reindexing = false; })
+                        .finally(() => clearProgress(curation, 'reindex'));
                 }
 
                 const engineStats = await engine.getStats();
@@ -576,6 +638,16 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             ...(curation.activeJobs > 0 ? { curatingJobs: curation.activeJobs } : {}),
                             ...(curation.lastCompletedAt ? { lastCuratedAt: curation.lastCompletedAt.toISOString() } : {}),
                             ...(curation.reindexing ? { reindexing: true } : {}),
+                            ...(curation.progress ? { progress: {
+                                task: curation.progress.task,
+                                target: curation.progress.target,
+                                processed: curation.progress.processed,
+                                total: curation.progress.total,
+                                percent: curation.progress.total > 0
+                                    ? Math.round((curation.progress.processed / curation.progress.total) * 100)
+                                    : 0,
+                                startedAt: curation.progress.startedAt,
+                            } } : {}),
                             engine: engineStats,
                             ...(claudeMdSuggestion ? { claudeMdSuggestion } : {}),
                         }),
@@ -721,8 +793,14 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
             const start = Date.now();
             log('Reindexing vault...');
             curation.activeJobs++;
+            startProgress(curation, 'reindex', ctx.vaultPath);
             try {
-                const result = await engine.reload();
+                const result = await engine.reload(p => {
+                    if (curation.progress?.task === 'reindex') {
+                        curation.progress.processed = p.processed;
+                        curation.progress.total = p.total;
+                    }
+                });
                 curation.lastCompletedAt = new Date();
                 const durationMs = Date.now() - start;
                 log(`✓ Vault reindexed: ${result.indexed} notes`);
@@ -747,6 +825,7 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                 };
             } finally {
                 curation.activeJobs--;
+                clearProgress(curation, 'reindex');
             }
         },
     );
@@ -908,7 +987,7 @@ function htmlToMarkdown(html: string): string {
 
 async function deleteManifests(dir: string): Promise<number> {
     let count = 0;
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
     try {
         entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

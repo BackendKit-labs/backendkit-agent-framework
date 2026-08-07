@@ -606,7 +606,14 @@ export class AgentEngine {
 
     private getToolsForAgent(profile: AgentProfile): ToolDefinition[] {
         const tools = this.opts.tools.getForAgent(profile.allowedTools);
-        if (profile.id === this.opts.defaultAgentId) {
+        // ask_agent solo tiene sentido si el agente por defecto tiene a quien
+        // delegar. En un engine de un solo agente, profile.id === defaultAgentId
+        // es trivialmente cierto y antes se le ofrecia la tool igual, sin ningun
+        // target valido en el roster — si el modelo la llamaba, el turno completo
+        // se perdia sin texto visible y sin error (ver bug del pulso de mercado,
+        // agente_bk, 2026-07-24).
+        const hasDelegationTarget = this.opts.agents.getAll().some(a => a.id !== profile.id);
+        if (profile.id === this.opts.defaultAgentId && hasDelegationTarget) {
             tools.push(ASK_AGENT_TOOL);
         }
         return tools;
@@ -974,6 +981,7 @@ export class AgentEngine {
             advancedMemory: this.opts.memorySystem,
             ...(additionalRoots.length ? { additionalRoots } : {}),
             ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
+            ...(profile?.secrets && Object.keys(profile.secrets).length ? { secrets: profile.secrets } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1 });
                 return result.content;

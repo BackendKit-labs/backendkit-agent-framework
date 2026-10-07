@@ -10,7 +10,12 @@ export interface Principal {
     department?: string;
     /** Workspace custom (auth-service legacy) — siempre undefined con abac-service. */
     tools?: string[];
+    /**
+     * Override personal de prefijos de vault (claim vaultResources de abac).
+     * undefined = sin override → VaultFilter usa vault_visibility por rol.
+     */
     vault?: string[];
+    /** Workspace custom (auth-service legacy) — siempre undefined con abac-service. */
     apps?:  string[];
 }
 

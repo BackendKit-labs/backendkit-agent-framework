@@ -34,6 +34,14 @@ export async function verifyToken(token: string): Promise<Principal> {
             roles,
             permissions: Array.isArray(payload['permissions']) ? payload['permissions'] as string[] : [],
             role:        roles[0] ?? 'viewer',
+            // abac emite department: null cuando no está asignado — null no es
+            // string, así que cae a undefined y las condiciones ABAC por
+            // department simplemente no matchean (antes evaluaban contra '').
+            department:  typeof payload['department'] === 'string' ? payload['department'] : undefined,
+            // vaultResources: null = "hereda el ceiling del department" → se
+            // mapea a undefined para que VaultFilter use los paths por rol;
+            // un array = override personal de prefijos de vault.
+            vault:       Array.isArray(payload['vaultResources']) ? payload['vaultResources'] as string[] : undefined,
         };
     } catch (cause) {
         throw new Error(`Token inválido: ${(cause as Error).message}`);

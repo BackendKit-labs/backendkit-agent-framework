@@ -15,7 +15,10 @@ export type WsIncoming =
   | { type: 'tool_call';   name: string; server: string; preview?: string }
   | { type: 'tool_result'; name: string; success: boolean; preview?: string }
   | { type: 'done' }
-  | { type: 'error';       message: string };
+  | { type: 'error';       message: string }
+  // Aviso proactivo (ej: un run del coder en background terminó) — puede llegar
+  // en cualquier momento, no es respuesta a un mensaje del usuario.
+  | { type: 'notification'; message: string };
 
 export type WsOutgoing =
   | { type: 'login';  email: string; password: string }

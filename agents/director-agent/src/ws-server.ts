@@ -5,6 +5,8 @@
  *   { type: "login", email, password }      → autenticar con credenciales (abac-service)
  *   { type: "auth",  token }                → autenticar con JWT existente
  *   { type: "chat",  message }              → enviar mensaje al Director
+ *                                              ("/pulse on|off|status" se maneja acá,
+ *                                              sin pasar por el LLM — modo proactivo)
  *   { type: "clear" }                       → limpiar historial de la sesión
  *
  * Protocolo (servidor → cliente):
@@ -14,6 +16,9 @@
  *   { type: "token",      content }         → streaming de respuesta
  *   { type: "done" }                        → respuesta completa
  *   { type: "error",      message }         → error en el procesamiento
+ *   { type: "notification", message }       → aviso proactivo (ej: un run del coder
+ *                                              terminó) — no es respuesta a un mensaje
+ *                                              del usuario, puede llegar en cualquier momento
  */
 
 import { createServer }  from 'node:http';
@@ -80,11 +85,38 @@ function send(ws: WebSocket, payload: Record<string, unknown>): void {
 // manager. El engine serializa sus propios run() internamente, así que no hace
 // falta un mutex global — usuarios distintos corren en paralelo.
 
-function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
+function handleConnection(
+    ws:                WebSocket,
+    manager:           SessionEngineManager,
+    connectionsByUser: Map<string, Set<WebSocket>>,
+): void {
     let principal: Principal | null = null;
+    let registeredKey: string | null = null;
 
     const enterpriseMode = isEnterpriseMode();
     send(ws, { type: 'ready', auth_required: enterpriseMode });
+
+    // Registra esta conexión para el principal activo, así el RunWatcher puede
+    // empujarle una notificación aunque no haya un mensaje de chat en curso.
+    // Idempotente — se llama en cada mensaje una vez autenticado.
+    const registerConnection = (p: Principal, manager: SessionEngineManager) => {
+        // Reactiva/refresca la suscripción de pulso en cada mensaje autenticado:
+        // es la única vía por la que una suscripción persistida vuelve a correr
+        // tras un reinicio (nunca se rehidrata un Principal de disco), y de paso
+        // renueva el TTL — "actividad reciente" mantiene el pulso vivo.
+        manager.pulse.reactivate(p);
+
+        const key = p.id || 'anon';
+        if (registeredKey === key) return;
+        registeredKey = key;
+        let set = connectionsByUser.get(key);
+        if (!set) { set = new Set(); connectionsByUser.set(key, set); }
+        set.add(ws);
+    };
+
+    ws.on('close', () => {
+        if (registeredKey) connectionsByUser.get(registeredKey)?.delete(ws);
+    });
 
     ws.on('message', async (raw) => {
         let msg: IncomingMsg;
@@ -127,6 +159,7 @@ function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
             send(ws, { type: 'error', message: 'No autenticado. Enviá { type: "login", email, password } primero.' });
             return;
         }
+        registerConnection(activePrincipal, manager);
 
         // ── Clear ──────────────────────────────────────────────────────────────
 
@@ -141,6 +174,18 @@ function handleConnection(ws: WebSocket, manager: SessionEngineManager): void {
         if (msg.type === 'chat') {
             if (!msg.message?.trim()) {
                 send(ws, { type: 'error', message: 'message no puede estar vacío' });
+                return;
+            }
+
+            // Comando de modo proactivo — se resuelve acá, sin gastar un turno LLM.
+            const pulseCmd = /^\/(?:pulse|proactivo)\s+(on|off|status)\s*$/i.exec(msg.message.trim());
+            if (pulseCmd) {
+                const action = pulseCmd[1]!.toLowerCase();
+                const reply  = action === 'on'  ? manager.pulse.subscribe(activePrincipal)
+                             : action === 'off' ? manager.pulse.unsubscribe(activePrincipal.id)
+                             :                    manager.pulse.statusFor(activePrincipal.id);
+                send(ws, { type: 'token', content: reply });
+                send(ws, { type: 'done' });
                 return;
             }
 
@@ -192,7 +237,32 @@ export function startWsServer(port: number, manager: SessionEngineManager): void
 
     const wss = new WebSocketServer({ server: http });
 
-    wss.on('connection', (ws) => handleConnection(ws, manager));
+    // Por-principal, no por-conexión: un usuario con varias pestañas recibe la
+    // notificación en todas. El RunWatcher (uno por engine de sesión) empuja acá
+    // cuando un run de orchestrator_run/orchestrator_sdd sale de "running".
+    const connectionsByUser = new Map<string, Set<WebSocket>>();
+    const pushToUser = (principalId: string, message: string) => {
+        for (const conn of connectionsByUser.get(principalId) ?? []) {
+            send(conn, { type: 'notification', message });
+        }
+    };
+    manager.runWatcher.setNotifier(pushToUser);
+    manager.pulse.setNotifier(pushToUser);
+
+    // El pulso corre como el usuario — en dev (sin ABAC_PUBLIC_KEY) "el usuario"
+    // es siempre ADMIN_PRINCIPAL, así que ahí exige el opt-in explícito allow_dev.
+    if (manager.pulse.isEnabled) {
+        if (isEnterpriseMode() || manager.pulse.allowsDev) {
+            manager.pulse.start();
+        } else {
+            process.stderr.write(
+                '[pulse] proactive.enabled=true pero el director corre en modo dev (sin ABAC_PUBLIC_KEY) ' +
+                'y allow_dev es false — el pulso queda apagado. Seteá proactive.allow_dev: true para probarlo en dev.\n',
+            );
+        }
+    }
+
+    wss.on('connection', (ws) => handleConnection(ws, manager, connectionsByUser));
 
     http.listen(port, () => {
         process.stderr.write(`[director-agent] WebSocket listo en ws://localhost:${port}\n`);

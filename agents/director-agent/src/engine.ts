@@ -21,6 +21,8 @@ import { AuditLogger, buildAuditPath }  from './auth/audit.js';
 import { requestContext, type RequestContext } from './auth/context.js';
 import { ADMIN_PRINCIPAL } from './auth/types.js';
 import type { Principal } from './auth/types.js';
+import { RunWatcher } from './run-watcher.js';
+import { PulseScheduler, type PulseTurnSpec } from './pulse-scheduler.js';
 
 // ── Director AgentProfile ─────────────────────────────────────────────────────
 
@@ -171,6 +173,61 @@ function applyVaultFilter(
     };
 }
 
+// ── Watcher: notifica proactivamente cuando un run del coder termina ─────────
+//
+// orchestrator_run/orchestrator_sdd devuelven un runId de inmediato y siguen
+// en background. Sin esto, el usuario tiene que preguntar "¿cómo va?" (o el
+// director sondear en loop, bloqueando la conversación — ver SOUL.md "Runs en
+// background"). Acá interceptamos el resultado YA COMPLETO (no el preview
+// truncado que ve el WS) apenas el tool call vuelve, extraemos el runId, y le
+// pedimos al RunWatcher que avise cuando salga de "running" — sin que el LLM
+// tenga que pedirlo ni quedarse esperando.
+//
+// orchestrator_approve también se vigila: un SDD de varias fases vuelve a
+// "running" después de aprobar/rework un gate, y sin re-armar el watch acá
+// solo el primer gate de todo el run dispara una notificación — las fases
+// siguientes quedarían mudas hasta que alguien pregunte.
+
+const RUN_START_TOOLS   = new Set(['orchestrator_run', 'orchestrator_sdd']);
+const RUN_RESUME_TOOLS  = new Set(['orchestrator_approve']);
+
+function watchRunStarts(
+    tool:        ToolDefinition,
+    watcher:     RunWatcher,
+    principalId: string,
+): ToolDefinition {
+    const short = shortToolName(tool.name);
+    const isStart  = RUN_START_TOOLS.has(short);
+    const isResume = RUN_RESUME_TOOLS.has(short);
+    if (!isStart && !isResume) return tool;
+
+    return {
+        ...tool,
+        execute: async (args, ctx) => {
+            const result = await tool.execute(args, ctx);
+            const a      = rawArgs(args);
+
+            // orchestrator_run/orchestrator_sdd: el runId viene en el texto de respuesta.
+            // orchestrator_approve: el runId ya lo tenemos en los args (run_id) — solo
+            // re-armamos si de verdad va a seguir corriendo (approved !== false).
+            const runId = isStart
+                ? /runId:\s*`([^`]+)`/.exec(result)?.[1]
+                : (a['approved'] !== false && typeof a['run_id'] === 'string' ? a['run_id'] : undefined);
+
+            if (runId) {
+                watcher.watch({
+                    principalId,
+                    runId,
+                    configPath: typeof a['config_path'] === 'string' ? a['config_path'] : undefined,
+                    label:      short,
+                    task:       typeof a['task'] === 'string' ? a['task'] : undefined,
+                });
+            }
+            return result;
+        },
+    };
+}
+
 // ── Infra compartida (cara de levantar, sin estado por-usuario) ───────────────
 //
 // MCP (procesos hijos), providers, policy/vault/audit y el system prompt se
@@ -191,6 +248,8 @@ export interface SharedInfra {
     /** Soul + connected-server topology used to rebuild systemPrompt after restart. */
     soul:          string;
     configDir:     string;
+    runWatcher:    RunWatcher;
+    pulse:         PulseScheduler;
 }
 
 export async function buildSharedInfra(
@@ -221,10 +280,11 @@ export async function buildSharedInfra(
             env['ORCHESTRATOR_CONFIG'] = bkPaths.orchestratorMcpConfig();
         }
         return {
-            name:    entry.name,
-            command: entry.command,
-            args:    resolveAgentArgs(entry, configDir),
+            name:      entry.name,
+            command:   entry.command,
+            args:      resolveAgentArgs(entry, configDir),
             env,
+            ...(entry.timeout_ms ? { timeoutMs: entry.timeout_ms } : {}),
         };
     });
 
@@ -270,12 +330,21 @@ export async function buildSharedInfra(
         baseUrl:  providerCfg.base_url,
     }));
 
-    return {
+    const runWatcher = new RunWatcher(mcp);
+    const pulse      = new PulseScheduler(config.proactive ?? null, auditLogger);
+
+    const shared: SharedInfra = {
         mcp, rawMcpTools, policyEngine, vaultFilter, auditLogger, systemPrompt,
         providers, providerName, providerModel: providerCfg.model,
         maxIterations: config.director.max_iterations,
-        soul, configDir,
+        soul, configDir, runWatcher, pulse,
     };
+
+    // El runner necesita `shared` completo — se cablea después de construirlo
+    // (mismo patrón lazy que RunWatcher.setNotifier).
+    pulse.setRunner((principal, spec) => runPulseTurn(shared, principal, spec));
+
+    return shared;
 }
 
 // ── MemorySystem por usuario ──────────────────────────────────────────────────
@@ -319,7 +388,8 @@ export function createSessionEngine(
 
     const mcpTools = shared.rawMcpTools
         .map(t => shared.policyEngine ? guardTool(t, shared.policyEngine, shared.auditLogger) : t)
-        .map(t => shared.vaultFilter  ? applyVaultFilter(t, shared.vaultFilter, shared.auditLogger) : t);
+        .map(t => shared.vaultFilter  ? applyVaultFilter(t, shared.vaultFilter, shared.auditLogger) : t)
+        .map(t => watchRunStarts(t, shared.runWatcher, principal.id));
 
     const tools = new ToolRegistry();
     for (const t of mcpTools)    tools.register(t);
@@ -349,6 +419,88 @@ export function createSessionEngine(
         iterationMode:   'auto',
         memorySystem:    memory,
     });
+}
+
+// ── Turno de pulso (modo proactivo — ver proposals/director-proactivo.md) ─────
+//
+// Un engine EFÍMERO por pulso, nunca el engine de chat del usuario: el prompt
+// del playbook no debe contaminar su historial de conversación. Diferencias
+// vs createSessionEngine:
+//   - allowlist: solo se registran las tools de spec.allowedTools (nombres
+//     cortos) — lo que no está en la lista no existe para el LLM. Encima de
+//     eso siguen aplicando guardTool (RBAC/ABAC) y el vault filter del usuario.
+//   - presupuesto corto (spec.maxIterations, default 6 vs 20 del chat).
+//   - sin memoria episódica ni memory tools — un digest no debería escribir
+//     recuerdos, y menos iteraciones disponibles = menos tentación de usarlas.
+//   - sin watchRunStarts — el pulso no puede iniciar runs (allowlist).
+
+const PULSE_MODE_SUFFIX = `
+
+## Modo pulso (turno proactivo)
+
+Este turno NO lo inició un usuario: es un chequeo periódico automático en su
+nombre. Reglas estrictas:
+- Solo tenés tools de lectura. No intentes acciones que las modifiquen.
+- Si no hay nada nuevo, relevante o accionable, respondé exactamente [SILENCIO]
+  (sin nada más). Publicar ruido destruye la confianza en este modo.
+- Si hay algo, sé breve: máximo ~6 líneas, lo urgente primero, sin preámbulos.
+- No hagas preguntas — nadie está mirando la conversación en este momento.`;
+
+export function createPulseEngine(
+    shared:    SharedInfra,
+    principal: Principal,
+    spec:      PulseTurnSpec,
+): AgentEngine {
+    const mcpTools = shared.rawMcpTools
+        .filter(t => spec.allowedTools.has(shortToolName(t.name)))
+        .map(t => shared.policyEngine ? guardTool(t, shared.policyEngine, shared.auditLogger) : t)
+        .map(t => shared.vaultFilter  ? applyVaultFilter(t, shared.vaultFilter, shared.auditLogger) : t);
+
+    const tools = new ToolRegistry();
+    for (const t of mcpTools) tools.register(t);
+
+    const agents = new AgentRegistry();
+    agents.register(buildDirectorProfile(shared.systemPrompt + PULSE_MODE_SUFFIX, mcpTools.map(t => t.name)));
+
+    const transport = new CallbackTransport((evt: AgentEvent) => {
+        requestContext.getStore()?.onEvent?.(evt);
+    });
+
+    return new AgentEngine({
+        model:           { provider: shared.providerName, id: shared.providerModel },
+        agents,
+        tools,
+        providers:       shared.providers,
+        defaultProvider: shared.providerName,
+        defaultAgentId:  'director',
+        transport,
+        maxIterations:   spec.maxIterations,
+        iterationMode:   'auto',
+    });
+}
+
+/**
+ * Ejecuta un turno de pulso como `principal` y devuelve el texto final.
+ * engine.run() no retorna el output — sale por el transport como eventos
+ * token, así que se acumulan acá vía el onEvent del requestContext.
+ */
+export async function runPulseTurn(
+    shared:    SharedInfra,
+    principal: Principal,
+    spec:      PulseTurnSpec,
+): Promise<string> {
+    const engine = createPulseEngine(shared, principal, spec);
+    let buffer = '';
+    await requestContext.run(
+        {
+            principal,
+            onEvent: (evt: AgentEvent) => {
+                if (evt.type === 'token') buffer += evt.content;
+            },
+        },
+        () => engine.run(spec.prompt),
+    );
+    return buffer;
 }
 
 // ── Manager de engines por usuario (caché con eviction LRU) ───────────────────
@@ -409,6 +561,8 @@ export class SessionEngineManager {
 
     get mcp(): MCPClientManager { return this.shared.mcp; }
     get policyEngine(): PolicyEngine | null { return this.shared.policyEngine; }
+    get runWatcher(): RunWatcher { return this.shared.runWatcher; }
+    get pulse(): PulseScheduler { return this.shared.pulse; }
 
     /** Desaloja el engine menos usado recientemente cuando se supera el cap. */
     private evict(): void {

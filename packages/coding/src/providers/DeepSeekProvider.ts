@@ -12,7 +12,7 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
         super({
             apiKey: opts.apiKey,
             baseUrl: opts.baseUrl ?? 'https://api.deepseek.com/v1',
-            model: opts.model ?? 'deepseek-chat',
+            model: opts.model ?? 'deepseek-v4-flash',
             maxTokens: opts.maxTokens,
             temperature: opts.temperature,
             thinking: opts.thinking,

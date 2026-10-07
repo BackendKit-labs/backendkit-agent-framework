@@ -16,6 +16,15 @@ const ORCHESTRATOR_TOOLS = [...MEMORY_TOOLS, 'list_directory', 'search_files'];
 const READ_ONLY_TOOLS    = ['read_file', 'list_directory', 'search_files', ...MEMORY_TOOLS];
 const EXEC_TOOLS         = [...READ_ONLY_TOOLS, 'run_command'];
 const WRITE_TOOLS        = [...EXEC_TOOLS, 'write_file', 'edit_file'];
+
+/**
+ * Irreversible filesystem deletion — no legitimate autonomous use case that
+ * write_file/edit_file can't already cover, and it's the one shell capability
+ * that can destroy work with no recovery path. Blocked by default on every
+ * profile with run_command; a project override can re-enable it explicitly
+ * if an operator decides a specific deployment needs it.
+ */
+const DESTRUCTIVE_COMMANDS = ['rm', 'del', 'rd'];
 export const CODING_AGENTS: AgentProfile[] = [
     {
         id: 'project-manager',
@@ -24,6 +33,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Init workflow coordinator — produces design.md, specification.md, security.md, roadmap.md and AGENT.md',
         systemPrompt: PROJECT_MANAGER_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['architecture', 'backend', 'security', 'qa-engineer', 'coder'],
         source: 'builtin',
     },
@@ -44,6 +54,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Pure implementation — writes files, runs commands, executes plans',
         systemPrompt: CODER_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         source: 'builtin',
     },
     {
@@ -53,6 +64,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'APIs, controllers, services, ORMs, migrations',
         systemPrompt: BACKEND_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },
@@ -63,6 +75,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'React, Vue, components, CSS, UI/UX',
         systemPrompt: FRONTEND_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },
@@ -73,6 +86,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Unit, integration and e2e tests — Jest, Playwright',
         systemPrompt: QA_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },
@@ -83,6 +97,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'OWASP, vulnerabilities, auth, hardening',
         systemPrompt: SECURITY_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },
@@ -93,6 +108,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'System design, DDD, microservices, ADRs',
         systemPrompt: ARCHITECTURE_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder', 'backend', 'frontend'],
         source: 'builtin',
     },
@@ -103,6 +119,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'Docker, Kubernetes, CI/CD, Terraform, cloud',
         systemPrompt: INFRASTRUCTURE_PROMPT,
         allowedTools: WRITE_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },
@@ -113,6 +130,7 @@ export const CODING_AGENTS: AgentProfile[] = [
         description: 'SQL, indexes, ETL, pipelines, ML',
         systemPrompt: DATA_PROMPT,
         allowedTools: EXEC_TOOLS,
+        blockedCommands: DESTRUCTIVE_COMMANDS,
         delegatesTo: ['coder'],
         source: 'builtin',
     },

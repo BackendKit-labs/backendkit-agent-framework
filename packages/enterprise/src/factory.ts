@@ -2,14 +2,13 @@ import * as path from 'path';
 import * as os from 'os';
 import {
     AgentEngine,
-    AgentRegistry,
-    ToolRegistry,
     ProviderRegistry,
+    createBaseEngine,
     createMemorySystem,
     defineTool,
     z,
 } from '@backendkit-labs/agent-core';
-import type { Transport, AgentProfile } from '@backendkit-labs/agent-core';
+import type { Transport, AgentProfile, ToolDefinition } from '@backendkit-labs/agent-core';
 import { ObsidianRAGProvider } from './rag/ObsidianRAGProvider';
 import type { Embedder } from './rag/ObsidianRAGProvider';
 import { VaultWriter } from './rag/VaultWriter';
@@ -126,15 +125,12 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
     // ── Engine factory ────────────────────────────────────────────────────────
 
     function engineFactory(sessionId: string, transport: Transport): AgentEngine {
-        const tools = new ToolRegistry();
-
-        // Global search (General agent)
-        tools.register(globalRAG.createTool());
+        const tools: ToolDefinition[] = [globalRAG.createTool()];
 
         // Department search tools
         for (const [toolName, rag] of deptRAGs) {
             const deptRag = rag;
-            tools.register(
+            tools.push(
                 defineTool({
                     name: toolName,
                     description: `Search the ${toolName.replace('search_', '').replace('_kb', '')} department knowledge base.`,
@@ -147,18 +143,18 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
         }
 
         // Write to vault
-        tools.register(writer.createTool('general'));
+        tools.push(writer.createTool('general'));
 
         // n8n integration (opt-in — only when a webhook URL is configured)
         const n8nUrl = opts.n8nWebhookUrl ?? process.env.N8N_WEBHOOK_URL;
         if (n8nUrl) {
-            tools.register(createN8nTriggerTool({ webhookUrl: n8nUrl }));
+            tools.push(createN8nTriggerTool({ webhookUrl: n8nUrl }));
         }
 
         // Agents
-        const agents = new AgentRegistry();
-        const profiles = [...ALL_ENTERPRISE_PROFILES, ...(opts.extraProfiles ?? [])];
-        for (const profile of profiles) agents.register(profile);
+        const agents = [...ALL_ENTERPRISE_PROFILES, ...(opts.extraProfiles ?? [])];
+
+        const providers = opts.providers.getAll();
 
         // Per-session memory
         const memory = createMemorySystem({
@@ -168,19 +164,20 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             retention:  { maxEpisodes: 100 },
         });
 
-        return new AgentEngine({
-            model:           { provider: opts.defaultProvider, id: '' },
+        const engine = createBaseEngine({
             agents,
             tools,
-            providers:       opts.providers,
+            providers,
             defaultProvider: opts.defaultProvider,
-            defaultAgentId:  'general',
+            defaultAgent:    'general',
             transport,
             maxIterations:   opts.maxIterations ?? 20,
-            iterationMode:   'auto',
             memorySystem:    memory,
             sessionId,
         });
+        // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.
+        engine.setIterationMode('auto');
+        return engine;
     }
 
     return { indexAll, engineFactory };

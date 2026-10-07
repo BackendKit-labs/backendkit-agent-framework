@@ -332,10 +332,16 @@ export class MCPClientManager {
                         timeoutMs,
                     );
                 });
-                const call = client.callTool({
-                    name:      mcpTool.name,
-                    arguments: args as Record<string, unknown>,
-                });
+                const call = client.callTool(
+                    { name: mcpTool.name, arguments: args as Record<string, unknown> },
+                    undefined,
+                    // Without this, the MCP SDK's own request-level timeout (DEFAULT_REQUEST_TIMEOUT_MSEC,
+                    // hardcoded 60s) fires before our own `timer` race ever gets a chance to matter for
+                    // any timeoutMs configured above 60s — a tool that legitimately blocks server-side
+                    // past 60s (e.g. a status-poll with a long wait_seconds) would error out at 60s
+                    // regardless of what timeoutMs says. Pass it through so both layers agree.
+                    { timeout: timeoutMs },
+                );
                 try {
                     const result = await Promise.race([call, timer]);
                     const textParts = (result.content as Array<{ type: string; text?: string }>)

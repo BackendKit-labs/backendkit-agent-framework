@@ -3,7 +3,7 @@ import {
     ReflectionEngine,
     DomainRegistry,
 } from '@backendkit-labs/agent-core';
-import type { FailureRecord, DetectedPattern, ManifestPolicyRule } from '@backendkit-labs/agent-core/dist/reflection/types';
+import type { FailureRecord, DetectedPattern, ManifestPolicyRule } from '@backendkit-labs/agent-core/reflection';
 import type { GateRecord } from '../flow/ComplianceGate.js';
 import { ENTERPRISE_DOMAINS, SEVERITY_THRESHOLD } from './domains.js';
 import { recordGateOutcome } from './GateReflectionBridge.js';

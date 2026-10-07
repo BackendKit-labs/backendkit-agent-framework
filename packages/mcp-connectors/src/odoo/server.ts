@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { runMcpServer, parseCliArgs } from '../shared/server-runner.js';
+import { fetchJson } from '../shared/http-client.js';
 
 // ── Auth / session ────────────────────────────────────────────────────────────
 //
@@ -17,6 +18,9 @@ interface OdooSession {
 }
 
 let _session: OdooSession | null = null;
+// Dedupe concurrent first-calls so two simultaneous tool invocations don't
+// both hit /web/session/authenticate before either has cached a session.
+let _authInFlight: Promise<OdooSession> | null = null;
 
 function cfg() {
     const url  = process.env.ODOO_URL?.replace(/\/$/, '');
@@ -29,10 +33,12 @@ function cfg() {
     return { url, db, user, pass };
 }
 
-async function authenticate(): Promise<OdooSession> {
-    if (_session) return _session;
+async function doAuthenticate(): Promise<OdooSession> {
     const { url, db, user, pass } = cfg();
-    const res = await fetch(`${url}/web/session/authenticate`, {
+    const data = await fetchJson<{
+        result?: { uid: number; session_id: string };
+        error?:  { message: string };
+    }>('Odoo', `${url}/web/session/authenticate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -40,26 +46,40 @@ async function authenticate(): Promise<OdooSession> {
             params: { db, login: user, password: pass },
         }),
     });
-    if (!res.ok) throw new Error(`Odoo auth HTTP ${res.status}`);
-    const data = await res.json() as {
-        result?: { uid: number; session_id: string };
-        error?:  { message: string };
-    };
     if (data.error)        throw new Error(`Odoo auth error: ${data.error.message}`);
     if (!data.result?.uid) throw new Error('Odoo auth failed — no uid returned (wrong credentials?)');
     _session = { uid: data.result.uid, sessionId: data.result.session_id };
     return _session;
 }
 
+async function authenticate(): Promise<OdooSession> {
+    if (_session) return _session;
+    if (!_authInFlight) {
+        _authInFlight = doAuthenticate().finally(() => { _authInFlight = null; });
+    }
+    return _authInFlight;
+}
+
+/** Odoo returns HTTP 200 with a JSON-RPC error when the cached session has expired server-side. */
+function isSessionExpiredError(error: { code?: number; message?: string } | undefined): boolean {
+    if (!error) return false;
+    if (error.code === 100) return true; // Odoo's "Session Expired" error code
+    return /session\s*expired/i.test(error.message ?? '');
+}
+
 async function odooCall<T>(
-    model:  string,
-    method: string,
-    args:   unknown[],
-    kwargs: Record<string, unknown> = {},
+    model:   string,
+    method:  string,
+    args:    unknown[],
+    kwargs:  Record<string, unknown> = {},
+    _retriedAfterReauth = false,
 ): Promise<T> {
     const sess = await authenticate();
     const { url } = cfg();
-    const res = await fetch(`${url}/web/dataset/call_kw`, {
+    const data = await fetchJson<{
+        result?: T;
+        error?:  { code?: number; message: string; data?: { message?: string } };
+    }>('Odoo', `${url}/web/dataset/call_kw`, {
         method:  'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -70,12 +90,11 @@ async function odooCall<T>(
             params: { model, method, args, kwargs },
         }),
     });
-    if (!res.ok) throw new Error(`Odoo ${model}.${method} HTTP ${res.status}`);
-    const data = await res.json() as {
-        result?: T;
-        error?:  { message: string; data?: { message?: string } };
-    };
     if (data.error) {
+        if (!_retriedAfterReauth && isSessionExpiredError(data.error)) {
+            _session = null;
+            return odooCall<T>(model, method, args, kwargs, true);
+        }
         throw new Error(`Odoo ${model}.${method}: ${data.error.data?.message ?? data.error.message}`);
     }
     return data.result as T;
@@ -118,7 +137,7 @@ function buildServer(): McpServer {
         {
             employee_id: z.number().optional().describe('Exact employee ID'),
             name:        z.string().optional().describe('Name filter (partial match)'),
-            limit:       z.number().optional().describe('Maximum records to return (default 5)'),
+            limit:       z.number().min(1).max(100).optional().describe('Maximum records to return (default 5, max 100)'),
         },
         async ({ employee_id, name, limit }: {
             employee_id?: number; name?: string; limit?: number;

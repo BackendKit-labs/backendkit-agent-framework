@@ -26,6 +26,7 @@ export type CodexEvent =
     | 'vault.clone.done'
     | 'vault.reindex'
     | 'vault.reset'
+    | 'vault.prune_orphans'
     // Infraestructura
     | 'embedder.init';
 

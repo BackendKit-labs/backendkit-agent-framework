@@ -13,6 +13,7 @@
  *   read_note        — read a curated note by title or path
  *   vault_status     — show vault location, project info, and index stats
  *   reset_vault      — delete all notes, index, and manifests; start fresh
+ *   prune_orphans    — find (and optionally delete) notes whose source file no longer exists
  *
  * Required env:
  *   CODEX_API_KEY    — LLM API key
@@ -45,6 +46,7 @@ import { KnowledgeEngine }      from './knowledge/engine.js';
 import { createProvider, type ProviderName } from './providers/index.js';
 import { findAllFiles, loadManifest, saveManifest, hasFileChanged, updateManifestEntry, createManifest } from './checksum.js';
 import { resolveProject, findNote } from './project.js';
+import { findOrphanedNotes, deleteNotes } from './vault-dedup.js';
 import { bkPaths } from '@backendkit-labs/infra';
 import type { ProjectContext } from './project.js';
 import { CodexAuditLogger, buildCodexAuditPath } from './audit.js';
@@ -265,27 +267,25 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             }
                         }
                         log(`✓ Curated ${changed.length} changed files from ${targetPath} (${files.length - changed.length} unchanged)`);
-                        startProgress(curation, 'reindex', targetPath);
-                        await engine.reload(p => {
-                            if (curation.progress?.task === 'reindex') {
-                                curation.progress.processed = p.processed;
-                                curation.progress.total = p.total;
-                            }
-                        });
-                        log('✓ Vault reindexed automatically');
                         audit?.write({
                             event: 'curate.dir.done', path: targetPath, status: 'done',
                             durationMs: Date.now() - dirStart,
                             extra: { filesProcessed: changed.length, filesSkipped: files.length - changed.length },
                         });
+                        // Coalesced reindex: many directory-level curate_path calls fired in a
+                        // burst (e.g. one per subfolder) now collapse into one debounced reindex
+                        // instead of a full reindex per directory job. Same mechanism as the
+                        // single-file path above — without it, concurrent directory jobs rarely
+                        // overlap in time (small dirs finish curating before big ones), so each
+                        // ends up running its own full reindex pass: O(N²) against vault size.
+                        scheduleReindex(engine, curation);
                     } catch (err) {
-                        log(`⚠ Curation/reindex failed: ${(err as Error).message}`);
+                        log(`⚠ Curation failed: ${(err as Error).message}`);
                         audit?.write({ event: 'curate.dir.failed', path: targetPath, status: 'failed', durationMs: Date.now() - dirStart, error: (err as Error).message });
                     } finally {
                         curation.activeJobs--;
                         curation.lastCompletedAt = new Date();
                         clearProgress(curation, 'curate_path');
-                        clearProgress(curation, 'reindex');
                     }
                 })();
 
@@ -888,6 +888,63 @@ function createMcpServer(ctx: ProjectContext, engine: KnowledgeEngine, curation:
                             indexDeleted,
                             manifestsDeleted,
                             message: `Vault reset. Run curate_path("${ctx.projectRoot}") to rebuild from scratch.`,
+                        }),
+                    }]
+                };
+            } catch (err) {
+                return {
+                    content: [{
+                        type: 'text' as const,
+                        text: JSON.stringify({ error: (err as Error).message }),
+                    }]
+                };
+            }
+        },
+    );
+
+    // ── prune_orphans ────────────────────────────────────────────────────────
+    // removeNotesForSource() (used by curate_path) only fires when a file gets
+    // re-curated — a file that's simply deleted from the repo is never re-curated
+    // again, so its old note never gets cleaned up automatically. This tool finds
+    // (and optionally deletes) exactly those orphaned notes.
+
+    t(
+        'prune_orphans',
+        'Find notes whose source_path points at a file that no longer exists on disk ' +
+        '(e.g. the source file was deleted or renamed after being curated). ' +
+        'Defaults to a dry run that only reports what it found — pass dryRun: false to actually delete them. ' +
+        'Does not detect notes that merely contradict each other; only notes whose source file is gone.',
+        {
+            dryRun: z.boolean().optional().describe('If true (default), only report orphaned notes without deleting them.'),
+        },
+        async ({ dryRun }: { dryRun?: boolean }) => {
+            const shouldDelete = dryRun === false;
+            try {
+                const orphans = await findOrphanedNotes(ctx.vaultPath);
+
+                let deleted = 0;
+                if (shouldDelete && orphans.length > 0) {
+                    deleted = await deleteNotes(orphans.map(o => o.notePath));
+                    await engine.reload();
+                    curation.lastCompletedAt = new Date();
+                }
+
+                log(shouldDelete
+                    ? `✓ Pruned ${deleted} orphaned note(s)`
+                    : `Found ${orphans.length} orphaned note(s) (dry run — nothing deleted)`);
+                audit?.write({ event: 'vault.prune_orphans', status: shouldDelete ? 'deleted' : 'dry_run', extra: { found: orphans.length, deleted } });
+
+                return {
+                    content: [{
+                        type: 'text' as const,
+                        text: JSON.stringify({
+                            dryRun: !shouldDelete,
+                            found: orphans.length,
+                            deleted,
+                            orphans: orphans.map(o => ({ note: o.notePath, missingSource: o.sourcePath })),
+                            message: shouldDelete
+                                ? `Deleted ${deleted} orphaned note(s).`
+                                : `${orphans.length} orphaned note(s) found. Call again with dryRun: false to delete them.`,
                         }),
                     }]
                 };

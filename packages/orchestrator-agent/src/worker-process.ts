@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 })();
 
 import { Worker }    from 'bullmq';
-import IORedis       from 'ioredis';
+import { Redis as IORedis } from 'ioredis';
 import * as path     from 'node:path';
 import { loadConfig, resolveDataDir } from './config.js';
 import { executeSubtask }             from './executor.js';

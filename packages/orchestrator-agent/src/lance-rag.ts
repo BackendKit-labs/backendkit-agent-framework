@@ -136,7 +136,7 @@ export class LanceRAGProvider {
             // Cosine distance: _distance ∈ [0, 2], 0 = identical.
             // cosine_sim = 1 - _distance   →   threshold = 1 - minScore
             rows = await this.table
-                .search(queryVec)
+                .vectorSearch(queryVec)
                 .distanceType('cosine')
                 .limit(this.opts.topK)
                 .select(['text', 'filePath', '_distance'])

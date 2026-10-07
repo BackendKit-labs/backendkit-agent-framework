@@ -1,5 +1,5 @@
 import { Queue, QueueEvents } from 'bullmq';
-import IORedis                from 'ioredis';
+import { Redis as IORedis } from 'ioredis';
 import type { SubTask }       from './planner.js';
 import type { ExecutionResult } from './executor.js';
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, RotateCcw, ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Send, RotateCcw, ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, Loader2, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { roleBg, primaryRole, type WsUser, type WsIncoming } from '../lib/ws';
 
@@ -14,11 +14,13 @@ interface ToolCall {
 }
 
 interface Message {
-  id:          string;
-  role:        'user' | 'assistant';
-  content:     string;
-  toolCalls:   ToolCall[];
-  isStreaming: boolean;
+  id:             string;
+  role:           'user' | 'assistant';
+  content:        string;
+  toolCalls:      ToolCall[];
+  isStreaming:    boolean;
+  /** Aviso proactivo (run en background que terminó) — no es respuesta a un turno del usuario. */
+  isNotification?: boolean;
 }
 
 interface Props {
@@ -88,6 +90,16 @@ export default function Chat({ ws, user }: Props) {
       });
       setSending(false);
       inputRef.current?.focus();
+      return;
+    }
+
+    if (msg.type === 'notification') {
+      // Siempre un mensaje nuevo e independiente — puede llegar en medio de un
+      // turno de chat en curso, así que nunca se pega al último mensaje.
+      setMessages(prev => [
+        ...prev,
+        { id: `notif-${Date.now()}`, role: 'assistant', content: msg.message, toolCalls: [], isStreaming: false, isNotification: true },
+      ]);
       return;
     }
 
@@ -161,8 +173,13 @@ export default function Chat({ ws, user }: Props) {
         {messages.map(msg => (
           <div key={msg.id} className={cn('flex gap-3 animate-fade-in', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
             {msg.role === 'assistant' && (
-              <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0 mt-0.5">
-                <Terminal className="w-4 h-4 text-zinc-400" />
+              <div className={cn(
+                'w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 mt-0.5',
+                msg.isNotification ? 'bg-amber-400/10 border-amber-400/30' : 'bg-zinc-800 border-zinc-700',
+              )}>
+                {msg.isNotification
+                  ? <Bell className="w-4 h-4 text-amber-400" />
+                  : <Terminal className="w-4 h-4 text-zinc-400" />}
               </div>
             )}
 
@@ -196,7 +213,9 @@ export default function Chat({ ws, user }: Props) {
                   'px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
                   msg.role === 'user'
                     ? 'bg-zinc-700 text-zinc-100 rounded-tr-sm'
-                    : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-sm'
+                    : msg.isNotification
+                      ? 'bg-amber-400/5 border border-amber-400/20 text-zinc-100 rounded-tl-sm'
+                      : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-sm'
                 )}>
                   {msg.content}
                   {msg.isStreaming && !msg.content && (

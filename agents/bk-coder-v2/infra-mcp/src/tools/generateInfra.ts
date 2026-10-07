@@ -19,7 +19,9 @@ Read the following to understand the project:
 - read_file("${projectRoot}/go.mod")           (Go)
 - read_file("${projectRoot}/requirements.txt") (Python)
 - read_file("${projectRoot}/Cargo.toml")       (Rust)
-Use list_directory on ${projectRoot}/src to understand the structure.
+- read_file("${projectRoot}/.specs/design.md") if it exists — check "## Project Structure";
+  a full-stack project may use separate \`backend/\`/\`frontend/\` trees instead of one \`src/\`
+Use list_directory on ${projectRoot} to understand the real structure (don't assume \`src/\`).
 
 ## Step 2 — Generate all infrastructure files using write_file
 

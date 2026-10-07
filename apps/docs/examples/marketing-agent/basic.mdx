@@ -1,0 +1,97 @@
+---
+title: "1. A Complete Agent"
+description: "One AgentProfile, two tools, createBaseEngine — a fully working marketing agent in under 40 lines."
+---
+
+This is the whole thing that makes an agent an agent: a profile, some tools it's allowed to call, a provider, and `createBaseEngine` to wire them together. Everything in the next four pages is additive on top of this file — nothing here gets thrown away.
+
+## The tools
+
+Two `defineTool` stubs — the same shape `create-bk-agent add tools` generates (see [First Agent § Give a specialist real tools](/getting-started/first-agent)):
+
+```ts src/tools/content.ts
+import { defineTool, z } from '@backendkit-labs/agent-core';
+
+export const draftSocialPost = defineTool({
+  name: 'draft_social_post',
+  description: 'Drafts a social media post for a given platform and topic',
+  input: z.object({
+    platform: z.enum(['twitter', 'linkedin', 'instagram']),
+    topic: z.string().describe('What the post should be about'),
+  }),
+  execute: async ({ platform, topic }) => {
+    // TODO: replace with a real copy-generation call
+    return `[${platform} draft] ${topic} — hook, value prop, CTA.`;
+  },
+});
+
+export const competitorLookup = defineTool({
+  name: 'competitor_lookup',
+  description: 'Looks up recent public campaign activity for a named competitor',
+  input: z.object({
+    competitor: z.string(),
+  }),
+  execute: async ({ competitor }) => {
+    // TODO: replace with a real data source
+    return `No recent campaign data indexed for "${competitor}" yet.`;
+  },
+});
+```
+
+## The agent
+
+One `AgentProfile` — see [AgentProfile](/concepts/agent-profile) for what every field means. `allowedTools` is the entire permission surface: this agent can call exactly these two tools and nothing else.
+
+```ts src/agents.ts
+import type { AgentProfile } from '@backendkit-labs/agent-core';
+
+export const marketingAgent: AgentProfile = {
+  id: 'marketing-agent',
+  name: 'Marketing Agent',
+  icon: '📣',
+  description: 'Drafts social content and checks competitor activity',
+  systemPrompt: `You are a marketing assistant. Draft social copy that's specific and
+concrete, never generic. Ask which platform before drafting if it isn't stated.`,
+  allowedTools: ['draft_social_post', 'competitor_lookup'],
+};
+```
+
+## The engine
+
+```ts src/engine.ts
+import { createBaseEngine, StdoutTransport } from '@backendkit-labs/agent-core';
+import type { LLMProvider, Transport } from '@backendkit-labs/agent-core';
+import { marketingAgent } from './agents';
+import { draftSocialPost, competitorLookup } from './tools/content';
+
+// create-bk-agent generates a real provider for whichever LLM you pick at scaffold time
+// (see Quickstart § 4. Pick a provider) — this is the interface it has to satisfy.
+const anthropicProvider: LLMProvider = {
+  chat: async (_messages, _tools, callbacks) => {
+    // TODO: call the Anthropic (or OpenAI/DeepSeek/Ollama) API here
+    callbacks.onDone({ role: 'assistant', content: '...' });
+  },
+};
+
+export function createEngine(transport: Transport = new StdoutTransport()) {
+  return createBaseEngine({
+    agents: [marketingAgent],
+    tools: [draftSocialPost, competitorLookup],
+    providers: { anthropic: anthropicProvider },
+    defaultProvider: 'anthropic',
+    defaultAgent: 'marketing-agent',
+    transport,
+  });
+}
+```
+
+```ts src/index.ts
+import { createEngine } from './engine';
+
+const engine = createEngine();
+await engine.run('Draft a LinkedIn post announcing our new pricing tier.');
+```
+
+That's a complete, runnable agent — see [Quickstart](/getting-started/quickstart) if you need the provider-wrapping boilerplate spelled out, or [Agent Types § Building Blocks](/getting-started/agent-types) for a deeper walkthrough of what `allowedTools` and `createBaseEngine`'s other options actually do.
+
+Next: [give it memory and a house style →](/examples/marketing-agent/advanced)

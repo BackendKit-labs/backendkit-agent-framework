@@ -1,0 +1,153 @@
+---
+title: "Option A: The Standalone Service"
+description: "Zero code — an orchestrator.yaml file, a static flow, and the orchestrator-agent binary. Employee onboarding across HR, IT, and Facilities."
+---
+
+This is the "run the binary as-is" path from [orchestrator-agent § What isn't in the library surface](/packages/orchestrator-agent#what-isnt-in-the-library-surface) — no `AgentEngine`, no `AgentProfile`, no TypeScript at all. You write one config file and a static flow, then `npx orchestrator-agent` gives you a full MCP server.
+
+The scenario: onboarding a new employee across three departments — HR creates the record, IT provisions accounts (behind an approval gate), Facilities assigns a desk. This isn't an arbitrary choice — it's the exact scenario the tool's own `orchestrator_run` schema uses as its `payload` example (`{"nombre": "Juan", "puesto": "Developer", "fecha_ingreso": "2026-07-01"}`).
+
+## `orchestrator.yaml`
+
+```yaml orchestrator.yaml
+version: 1
+
+orchestrator:
+  name: Onboarding Orchestrator
+  provider: default
+  data_dir: .orchestrator          # runs + RAG index stored here, relative to this file
+
+providers:
+  default:
+    model: gpt-4o-mini
+    api_key: ${OPENAI_API_KEY}     # ${VAR} is expanded from process.env at load time
+
+agents:
+  - id: hr
+    name: HR
+    description: Creates the employee record and sends the welcome packet
+    capabilities: [employee-records, welcome-packet]
+    provider: default
+    domain: rrhh
+
+  - id: it
+    name: IT
+    description: Provisions accounts and hardware
+    capabilities: [accounts, hardware]
+    provider: default
+    gate: true
+    gate_criteria:
+      - "Confirm the employee's start date before granting system access"
+
+  - id: facilities
+    name: Facilities
+    description: Assigns a desk and building badge
+    capabilities: [desk-assignment, badge]
+    provider: default
+
+flows:
+  - id: onboarding-flow
+    file: flows/onboarding.yaml
+    trigger: "onboard|onboarding"
+```
+
+`gate: true` on the `it` agent means every subtask it runs pauses for human approval — see the `orchestrator_approve` call below. `${OPENAI_API_KEY}` is expanded from the environment when the config loads; nothing here is a real secret.
+
+## `flows/onboarding.yaml` — the static shortcut
+
+A recurring task like this doesn't need the LLM to re-plan it from scratch every time — a static flow (see [orchestrator-agent § Static flows](/packages/orchestrator-agent#static-flows--a-fast-path-shortcut-before-calling-the-llm)) is matched by the `trigger` regex above before the planner ever runs:
+
+```yaml flows/onboarding.yaml
+version: 1
+id: onboarding-flow
+name: "Onboard {{payload.nombre}}"
+steps:
+  - id: t1
+    agent: hr
+    task: "Create the employee record for {{payload.nombre}}, starting {{payload.fecha_ingreso}} as {{payload.puesto}}"
+    depends_on: []
+
+  - id: t2
+    agent: it
+    task: "Provision accounts and hardware for {{payload.nombre}}"
+    depends_on: [t1]
+    gate: true
+    gate_criteria:
+      - "Confirm start date {{payload.fecha_ingreso}} before granting access"
+
+  - id: t3
+    agent: facilities
+    task: "Assign a desk and badge for {{payload.nombre}}"
+    depends_on: [t1]
+```
+
+`t2` and `t3` both depend only on `t1`, not on each other — IT and Facilities can run in parallel once the employee record exists.
+
+## Running it
+
+```bash
+npx @backendkit-labs/orchestrator-agent
+# [orchestrator-agent] MCP running
+```
+
+That's stdio mode — point an MCP client (Claude Desktop, Cursor, or your own via `mcpServers` on `createBaseEngine`, see [MCP Integration](/concepts/mcp-integration)) at this binary and it exposes five tools: `orchestrator_run`, `orchestrator_status`, `orchestrator_approve`, `orchestrator_list_agents`, plus a reflection tool over the optional vault. A full exchange looks like this:
+
+```
+→ orchestrator_list_agents({ config_path: "/abs/path/orchestrator.yaml" })
+← ## Onboarding Orchestrator
+   ### Configured agents (3)
+   **HR** (`hr`)  provider: default
+     Creates the employee record and sends the welcome packet
+   **IT** (`it`) [GATE]  provider: default
+     Provisions accounts and hardware
+     gate criteria: Confirm the employee's start date before granting system access
+   **Facilities** (`facilities`)  provider: default
+     Assigns a desk and building badge
+
+→ orchestrator_run({
+    config_path: "/abs/path/orchestrator.yaml",
+    task: "Onboard a new hire",
+    payload: { nombre: "Juan", puesto: "Developer", fecha_ingreso: "2026-07-01" }
+  })
+← ## Run iniciado  (flow estático)
+   runId: `run_a1b2c3`
+   status: running
+   ### Plan: Onboard Juan
+     • [hr] Create the employee record for Juan, starting 2026-07-01 as Developer
+     • [it] [GATE] Provision accounts and hardware for Juan
+     • [facilities] Assign a desk and badge for Juan
+   Poll con `orchestrator_status` para ver el progreso.
+   Si aparece un gate, usá `orchestrator_approve` para continuar o rechazar.
+
+→ orchestrator_status({ config_path: "...", run_id: "run_a1b2c3" })
+← status: waiting_gate    (t1 done, t2 paused on its gate, t3 already running — no dependency on t2)
+
+→ orchestrator_approve({ config_path: "...", run_id: "run_a1b2c3", approved: true })
+← Gate approved — run `run_a1b2c3` resuming.
+   Step: t2 (it)
+   Poll with `orchestrator_status` to see progress.
+```
+
+The `flow estático` (static flow) label in the response confirms the trigger regex matched — no LLM call happened for planning. Ask for something the flow doesn't cover and `planSource` switches to a dynamically LLM-generated plan instead, using the same three agents.
+
+## Scaling it: HTTP trigger + Redis workers
+
+Two independent env-var-driven upgrades, neither requiring a config change:
+
+```bash
+# Also expose an HTTP trigger endpoint alongside the stdio MCP connection
+ORCHESTRATOR_HTTP_PORT=8090 ORCHESTRATOR_CONFIG=/abs/path/orchestrator.yaml \
+ORCHESTRATOR_API_KEY=$(openssl rand -hex 16) \
+npx @backendkit-labs/orchestrator-agent
+```
+
+```bash
+# Move subtask execution out-of-process — one worker pool per agent, via BullMQ/Redis
+ORCHESTRATOR_CONFIG=/abs/path/orchestrator.yaml ORCHESTRATOR_REDIS_URL=redis://localhost:6379 \
+npx orchestrator-worker
+# [orchestrator-worker] Ready — 3 worker(s): hr, it, facilities
+```
+
+Setting `ORCHESTRATOR_REDIS_URL` on the server process too switches subtask dispatch from in-process execution to `SubtaskQueue` under the hood — the same class documented in [orchestrator-agent § Distributed subtask dispatch](/packages/orchestrator-agent#distributed-subtask-dispatch--subtaskqueue). Nothing about `orchestrator.yaml` or the MCP tool calls above changes; only where the actual `hr`/`it`/`facilities` work happens does.
+
+Next: [Option B — build your own loop instead of using the binary →](/examples/orchestrator-agent/custom-loop)

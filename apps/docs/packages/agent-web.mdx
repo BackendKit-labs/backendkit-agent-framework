@@ -1,0 +1,72 @@
+---
+title: "@backendkit-labs/agent-web"
+description: "HTTP/WebSocket server layer — sessions, monitoring, and autonomous triggers. Status: stable."
+---
+
+<Note>
+  **Status: `stable`.** `TriggerBus` (cron/webhook/BullMQ) is `experimental` and frozen during the pilot phase — everything else is maintained.
+</Note>
+
+```bash
+npm install @backendkit-labs/agent-web @backendkit-labs/agent-core
+```
+
+Wraps `AgentEngine` in a Fastify server: streaming WebSocket chat sessions, JWT auth, Prometheus metrics, rate limiting, and a real-time monitor bus — on top of `createBaseEngine`, not instead of it.
+
+## Quick start
+
+```ts
+import { AgentServer } from '@backendkit-labs/agent-web';
+import type { EngineFactory } from '@backendkit-labs/agent-web';
+import { AgentEngine } from '@backendkit-labs/agent-core';
+
+const engineFactory: EngineFactory = (sessionId, transport) =>
+  new AgentEngine({ transport, sessionId, /* ... */ });
+
+const server = new AgentServer({ port: 3000, engineFactory, cors: '*' });
+await server.start();
+// WS  /chat     — streaming chat sessions
+// WS  /monitor  — real-time read-only observer
+// GET /health   — { status, sessions, monitors }
+```
+
+`EngineFactory` runs once per WebSocket connection — each gets its own isolated `AgentEngine`, typically with its own [Memory](/concepts/memory) directory keyed by `sessionId`.
+
+## Sessions, auth, and metadata
+
+`SessionManager` owns session lifecycle (`getOrCreate`, `close`, `list`) and can be backed by `RedisSessionMetaStore` for metadata that survives restarts and horizontal scaling. `JwtAuth` validates Bearer tokens from the header or `?token=` query param (for browser WebSockets that can't set headers), and can pin `sessionIdClaim: 'sub'` so every authenticated user always lands on the same session.
+
+## MonitorBus
+
+Every session's events are broadcast to `/monitor` WebSocket observers — this is what `@backendkit-labs/agent-web-ui`'s Kanban board renders. Subscribe standalone for logging or alerting:
+
+```ts
+const monitor = new MonitorBus();
+monitor.subscribe((frame) => {
+  if (frame.type === 'error') alerting.notify(`Agent error in ${frame.sessionId}: ${frame.message}`);
+});
+```
+
+## TriggerBus — autonomous runs
+
+Fires an `AgentEngine` run with no WebSocket client attached — visible in the monitor like any other session:
+
+```ts
+const triggers = new TriggerBus(engineFactory)
+  .addCron({
+    name: 'daily-report',
+    schedule: '0 8 * * 1-5',
+    buildPrompt: () => 'Generate the daily engineering standup summary from recent commits.',
+    onResult: (out) => slack.send('#daily', out),
+  })
+  .addWebhook({
+    name: 'github-pr',
+    path: '/webhooks/github',
+    secret: process.env.GITHUB_SECRET,
+    buildPrompt: (body) => `Review PR #${body.pull_request.number}: "${body.pull_request.title}"`,
+  });
+
+const server = new AgentServer({ triggers, engineFactory, port: 3000 });
+```
+
+Each trigger run uses `HeadlessTransport` internally — it buffers `AgentEvent`s in memory instead of streaming them over a socket, then hands back the accumulated text. This is the same mechanism a fully [autonomous agent](/getting-started/agent-types) uses for its cron/webhook triggers, just running inside a shared server instead of its own process.

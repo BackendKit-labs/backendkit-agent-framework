@@ -23,12 +23,14 @@ import * as fs                                                         from 'nod
 import { stdin, stdout }                                               from 'node:process';
 import * as path                                                       from 'node:path';
 import { loadConfig, resolveDataDir, type OrchestratorConfig }        from './config.js';
-import { TaskPlanner, type TaskPlan }                                  from './planner.js';
 import { PlanExecutor, type ExecutionResult }                          from './executor.js';
-import { OpenAICompatibleProvider, callLLM }                          from './provider.js';
 import { RunStore, type RunState, type StepResult }                   from './run-store.js';
 import { buildRAG }                                                    from './rag.js';
-import { matchFlow, flowToTaskPlan, loadFlow }                        from './static-flow.js';
+import {
+    TaskPlanner, type TaskPlan,
+    OpenAICompatibleProvider, callLLM,
+    matchFlow, flowToTaskPlan, loadFlow,
+} from '@backendkit-labs/orchestrator-agent';
 import { WorkspaceManager }                                            from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { generateDesign }                                              from './design.js';
 import { PhaseRunner }                                                 from './phase-runner.js';
@@ -111,6 +113,7 @@ async function executeWithGates(
     store:        RunStore,
     priorResults: ExecutionResult[],
     rl:           PromptReader,
+    configDir:    string,
 ): Promise<void> {
     // Resolve project root from workspace-manager (best-effort)
     let projectRoot: string | undefined;
@@ -121,6 +124,7 @@ async function executeWithGates(
             config,
             ragSearchFn: rag?.search,
             projectRoot,
+            configDir,
             onProgress:  (msg) => process.stdout.write(`${msg}\n`),
         });
 
@@ -256,7 +260,7 @@ async function cmdRun(configPath: string, args: string[]): Promise<void> {
     console.log('');
 
     const rl = new PromptReader();
-    await executeWithGates(runId, plan, config, rag, store, [], rl);
+    await executeWithGates(runId, plan, config, rag, store, [], rl, configDir);
 }
 
 async function cmdStatus(configPath: string, args: string[]): Promise<void> {
@@ -366,7 +370,7 @@ async function cmdApprove(configPath: string, args: string[]): Promise<void> {
 
     const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
     const rl  = new PromptReader();
-    await executeWithGates(runId, state.plan as TaskPlan, config, rag, store, priorResults, rl);
+    await executeWithGates(runId, state.plan as TaskPlan, config, rag, store, priorResults, rl, path.dirname(path.resolve(configPath)));
 }
 
 async function cmdList(configPath: string, args: string[]): Promise<void> {

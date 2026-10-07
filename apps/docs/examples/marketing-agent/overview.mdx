@@ -1,0 +1,56 @@
+---
+title: "Overview"
+description: "One running example, built up in layers — a marketing agent, from a single AgentProfile to a deployed multi-agent system with memory, skills, and a knowledge base."
+---
+
+Every other page in these docs explains one building block at a time. This section does the opposite: it takes **one agent** and grows it, step by step, so you can see how the pieces actually combine in a real build — not just in isolation.
+
+The domain is marketing, but nothing here is marketing-specific under the hood. Swap the tools, the skills, and the vault folder, and the same five steps build a support agent, a finance agent, or anything else — that's the point of the framework being domain-agnostic in the first place (see [Why one engine, not one engine per use case](/#why-one-engine-not-one-engine-per-use-case)).
+
+## The five steps
+
+<CardGroup cols={2}>
+  <Card title="1. A complete agent" icon="1" href="/examples/marketing-agent/basic">
+    One `AgentProfile`, two tools, `createBaseEngine` — a fully working agent in under 40 lines.
+  </Card>
+  <Card title="2. Advanced: memory + skills" icon="2" href="/examples/marketing-agent/advanced">
+    The same agent, now remembering past campaigns and applying brand-voice rules automatically.
+  </Card>
+  <Card title="3. Multi-agent: specialists" icon="3" href="/examples/marketing-agent/multi-agent">
+    Split into a lead agent that delegates to a copywriter, an SEO analyst, and a scheduler.
+  </Card>
+  <Card title="4. A knowledge base (vault)" icon="4" href="/examples/marketing-agent/vault">
+    RAG over an Obsidian vault of brand guidelines and past campaign briefs, scoped to `marketing/`.
+  </Card>
+  <Card title="5. Deploy: REPL or server" icon="5" href="/examples/marketing-agent/deploy">
+    Run it as a terminal REPL for the team, or as an MCP server other agents can call.
+  </Card>
+</CardGroup>
+
+## Where the final code lives
+
+Each step is additive — step 3 imports everything step 2 built, step 4 adds to step 3, and so on. By the end, the project looks like this:
+
+```
+marketing-agent/
+├── src/
+│   ├── tools/
+│   │   ├── content.ts        ← draft_social_post, competitor_lookup (step 1)
+│   │   └── scheduling.ts      ← schedule_post (step 3)
+│   ├── skills/
+│   │   └── brand-voice.ts     ← in-code Skill objects (step 2)
+│   ├── memory.ts               ← createMemorySystem wiring (step 2)
+│   ├── agents.ts                ← AgentProfile roster: lead + specialists (step 3)
+│   ├── knowledge.ts             ← ObsidianRAGProvider + VaultWriter (step 4)
+│   ├── engine.ts                  ← createBaseEngine, composes everything above
+│   ├── repl.ts                     ← terminal entry point (step 5)
+│   └── server.ts                    ← MCP server entry point (step 5)
+├── .env
+└── package.json
+```
+
+If you'd rather generate this shape than write it by hand, `create-bk-agent` scaffolds the same layers — see [Agent Types](/getting-started/agent-types) for the equivalent generated output, and [create-bk-agent](/packages/create-bk-agent) for the CLI itself. This walkthrough writes the code directly so every wiring decision is visible.
+
+<Note>
+  Every code sample on these five pages uses real, currently-exported APIs — `createBaseEngine`, `createMemorySystem`, `SkillLoader`, `ObsidianRAGProvider`, `AgentMCPServer` — the same ones documented under [Concepts](/concepts/agent-engine) and [Packages](/packages/agent-core). Nothing here is pseudocode.
+</Note>

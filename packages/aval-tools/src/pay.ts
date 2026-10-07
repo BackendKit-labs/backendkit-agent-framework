@@ -25,6 +25,11 @@ interface AvalCapability {
     payment: AvalPayment;
 }
 
+interface AvalBudget {
+    remainingToday: number;
+    remainingTotal: number;
+}
+
 interface AvalSpendResponse {
     decision?: 'authorized' | 'denied' | 'held';
     authorizationId?: string;
@@ -33,6 +38,7 @@ interface AvalSpendResponse {
     rail?: string;
     capability?: AvalCapability;
     credential?: AvalCredentialNotice;
+    budget?: AvalBudget;
     error?: string;
     retryAfterSeconds?: number;
 }
@@ -56,6 +62,18 @@ function formatUsd(units: number): string {
 }
 
 /**
+ * AVAL returns a budget snapshot on every `/spend` response, authorized or
+ * not — without surfacing it, an agent placing several calls in the same
+ * turn (or the same run) has no way to know how much room it has left
+ * before the *next* call, so it can't prioritize when the day's spend won't
+ * cover everything it's about to ask for.
+ */
+function formatBudget(budget?: AvalBudget): string {
+    if (!budget) return '';
+    return `\nPresupuesto restante: ${formatUsd(budget.remainingToday)} hoy, ${formatUsd(budget.remainingTotal)} en total.`;
+}
+
+/**
  * Creates the `pay` tool: the amarrada path into AVAL. The agent asks for a
  * ceiling; AVAL decides and, if authorized, pays through its own rail — the
  * agent never sees a vendor credential to bypass.
@@ -67,7 +85,8 @@ export function createPayTool(config: AvalToolsConfig) {
             'Solicita un gasto a AVAL para pagar a una contraparte registrada. AVAL decide si se ' +
             'autoriza, se retiene para aprobación humana, o se deniega, y si autoriza, paga él mismo ' +
             'por el carril que corresponda. Nunca gastes por tu cuenta: si la respuesta no es ' +
-            '"authorized", no hay pago que hacer.',
+            '"authorized", no hay pago que hacer. La respuesta incluye el presupuesto restante — ' +
+            'útil para priorizar si vas a pedir varios gastos en el mismo turno y no van a entrar todos.',
         input: z.object({
             counterparty: z.string().describe('Identificador de la contraparte registrada en AVAL, p. ej. "ocr.docs".'),
             ceilingUsd: z.number().positive().describe('Techo del gasto en dólares, p. ej. 0.42 para 42 centavos. El coste real puede ser menor.'),
@@ -107,16 +126,17 @@ export function createPayTool(config: AvalToolsConfig) {
 
             const warning = body.credential?.warning ? `\nAviso de credencial: ${body.credential.warning}` : '';
             const reasons = body.reasons?.length ? `\nMotivo: ${body.reasons.join(' ')}` : '';
+            const budget = formatBudget(body.budget);
 
             if (body.decision === 'denied') {
-                return `Denegado.${reasons}${warning}`;
+                return `Denegado.${reasons}${warning}${budget}`;
             }
 
             if (body.decision === 'held') {
                 return (
                     `Retenido para aprobación humana. authorizationId="${body.authorizationId}".` +
                     `${reasons}\nUsa check_payment con este authorizationId más tarde para saber si ya se resolvió — ` +
-                    `no se ha gastado nada todavía.${warning}`
+                    `no se ha gastado nada todavía.${warning}${budget}`
                 );
             }
 
@@ -127,7 +147,7 @@ export function createPayTool(config: AvalToolsConfig) {
             return (
                 `Pagado. authorizationId="${body.authorizationId}", carril=${body.rail ?? cap?.rail}, ` +
                 `coste real=${actual}${nativo ? ` (${nativo})` : ''}, ref=${cap?.payment.ref ?? '—'}.` +
-                `${reasons}${warning}`
+                `${reasons}${warning}${budget}`
             );
         },
     });

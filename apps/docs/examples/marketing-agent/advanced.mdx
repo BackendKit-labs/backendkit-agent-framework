@@ -1,0 +1,86 @@
+---
+title: "2. Advanced: Memory + Skills"
+description: "The same agent, now remembering past campaigns and applying brand-voice rules automatically — no new agent, no new tools, two engine options."
+---
+
+Nothing from [step 1](/examples/marketing-agent/basic) changes shape — `marketingAgent`, `draftSocialPost`, `competitorLookup` are untouched. Memory and skills are both options on `createBaseEngine` itself, not something you configure per agent (see [Skills § In a multi-agent roster](/concepts/skills#in-a-multi-agent-roster-shared-by-default-not-per-agent) for why that matters once step 3 adds more agents).
+
+## Memory — remembering past campaigns
+
+`createMemorySystem` takes three tiers — see [Memory](/concepts/memory) for what each is for. For a marketing agent specifically:
+
+```ts src/memory.ts
+import { createMemorySystem } from '@backendkit-labs/agent-core';
+import * as path from 'path';
+import * as os from 'os';
+
+const home = path.join(os.homedir(), '.marketing-agent');
+
+export const memory = createMemorySystem({
+  episodic:   { provider: 'json', path: path.join(home, 'memory', 'campaigns.json') },   // "Ran the Q3 launch post, engagement was 2x baseline"
+  semantic:   { provider: 'json', path: path.join(home, 'memory', 'brand-facts.json') }, // "Our target audience skews 25-34, mobile-first"
+  procedural: { provider: 'json', path: path.join(home, 'memory', 'patterns.json') },    // "LinkedIn posts under 150 words outperform longer ones"
+  retention:  { maxEpisodes: 200, summarizeAfter: 50 },
+});
+```
+
+`~/.marketing-agent/` here is a self-chosen convention, not a framework default — see [Skills § Worked example](/examples/marketing-agent/advanced#skills--brand-voice-and-platform-rules) below for the matching skills path, and [Skills § A custom path](/concepts/skills#a-custom-path--for-one-agent-or-a-group-of-them-sharing-a-route) if you'd rather point this at a shared team directory instead of `~/.marketing-agent/`.
+
+## Skills — brand voice and platform rules
+
+This is Usage 2 from [Skills](/concepts/skills) — domain knowledge, not dev tooling, so no `language` field and no stack detection. Two skills, defined in code (the simplest option — no file, no directory, no `appName` decision required):
+
+```ts src/skills/brand-voice.ts
+import type { Skill } from '@backendkit-labs/agent-core';
+
+export const brandVoiceSkill: Skill = {
+  name: 'brand-voice',
+  version: '1.0.0',
+  description: 'House tone and phrases to avoid',
+  triggers: ['draft', 'post', 'copy', 'caption'],
+  systemPromptAddition: `Keep the tone direct and a little irreverent — never "synergy",
+never "revolutionary", never three exclamation points in one post. Say what the thing
+does before saying why it's exciting.`,
+};
+
+export const platformLimitsSkill: Skill = {
+  name: 'platform-limits',
+  version: '1.0.0',
+  description: 'Character/format constraints per platform',
+  triggers: ['twitter', 'linkedin', 'instagram', 'character limit'],
+  systemPromptAddition: `Twitter: 280 characters, one idea per post. LinkedIn: under 150
+words outperforms longer posts (see procedural memory for why). Instagram: caption is
+secondary to the image — lead with a hook in the first line, it's the only part shown
+before "more".`,
+};
+```
+
+## Wiring both into the engine
+
+```ts src/engine.ts {1,5,13-14}
+import { createBaseEngine, StdoutTransport } from '@backendkit-labs/agent-core';
+import type { LLMProvider, Transport } from '@backendkit-labs/agent-core';
+import { marketingAgent } from './agents';
+import { draftSocialPost, competitorLookup } from './tools/content';
+import { memory } from './memory';
+import { brandVoiceSkill, platformLimitsSkill } from './skills/brand-voice';
+
+const anthropicProvider: LLMProvider = { /* ...same as step 1 */ };
+
+export function createEngine(transport: Transport = new StdoutTransport()) {
+  return createBaseEngine({
+    agents: [marketingAgent],
+    tools: [draftSocialPost, competitorLookup],
+    skills: [brandVoiceSkill, platformLimitsSkill],
+    memorySystem: memory,
+    providers: { anthropic: anthropicProvider },
+    defaultProvider: 'anthropic',
+    defaultAgent: 'marketing-agent',
+    transport,
+  });
+}
+```
+
+Ask it to draft a Twitter post now and two things happen that didn't in step 1: `platform-limits` fires (the input matched `twitter`) and gets injected into the system prompt alongside whatever `campaigns.json`/`brand-facts.json` recall turns up for this input — both computed once per `run()` call, both added automatically, no manual wiring per request.
+
+Next: [split this into specialists →](/examples/marketing-agent/multi-agent)

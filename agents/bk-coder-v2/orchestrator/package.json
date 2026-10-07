@@ -19,6 +19,7 @@
   "dependencies": {
     "@backendkit-labs/agent-core": "*",
     "@backendkit-labs/agent-enterprise": "*",
+    "@backendkit-labs/orchestrator-agent": "*",
     "@lancedb/lancedb": "^0.13.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "bullmq": "^5.0.0",

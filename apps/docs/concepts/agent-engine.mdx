@@ -1,0 +1,68 @@
+---
+title: "AgentEngine"
+description: "The runtime that assembles agents, tools, providers, and memory into a running session."
+---
+
+`AgentEngine` is the core runtime class in `@backendkit-labs/agent-core`. Every architecture — single agent, multi-agent, autonomous daemon, enterprise RAG — is the same `AgentEngine`, configured differently.
+
+## Assembling one: `createBaseEngine`
+
+Don't construct `AgentEngine` by hand unless you have a reason to. `createBaseEngine()` is the canonical factory — it wires providers, tools, memory, MCP, and observability with sane defaults:
+
+```ts
+import { createBaseEngine } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
+  providers: { anthropic: myAnthropicProvider },
+  defaultProvider: 'anthropic',
+  agents: [GENERAL_PROFILE, BACKEND_PROFILE],
+  tools: [readFileTool, writeFileTool],
+  defaultAgent: 'general',
+  transport: myTransport,
+});
+```
+
+<Note>
+  `createBaseEngine` has **no domain-specific assumptions** — it's the same factory whether you're building a coding assistant or a finance department agent. `createCodingEngine` (in `@backendkit-labs/agent-coding`) and `createEnterpriseSetup` (in `@backendkit-labs/agent-enterprise`) both delegate to it rather than reimplementing engine assembly.
+</Note>
+
+## What it gives you for free
+
+| Option | What it wires |
+|---|---|
+| `orchestrator` | Pre-LLM task classification — see [Orchestrator](/concepts/orchestrator) |
+| `qaService` | Automatic QA review after high-risk responses (requires `orchestrator`) |
+| `memorySystem` | Episodic/semantic/procedural memory tools, auto-registered — see [Memory](/concepts/memory) |
+| `mcpServers` | External MCP servers, connected lazily on first `run()` — see [MCP Integration](/concepts/mcp-integration) |
+| `observability` | Tracing, metrics, cost/budget tracking — wraps the transport transparently |
+| `agentDiscovery` | Load agents from `~/.{appName}/agents/` and project-local dirs at runtime |
+
+## The run loop
+
+`engine.run(input)`:
+
+1. Runs MCP direct-routing first — if the input matches a configured trigger for an MCP tool or agent, it bypasses the LLM entirely and calls the tool/agent directly.
+2. Otherwise, builds the system prompt for the current agent (system prompt + agent roster + working directory + project context + memory context + active skills), and starts the LLM loop.
+3. The default agent's roster is annotated so MCP-sourced agents are listed **first**, with an instruction to check them before local specialists — see [MCP Integration](/concepts/mcp-integration) for why.
+4. If an `orchestrator` is configured, its classification result (`OrchestrationResult`) is injected into the default agent's system prompt as a brief: intent, risk, recommended agents, and any required gates.
+
+## Delegation: `ask_agent`
+
+The default agent gets an `ask_agent` tool automatically. Any `AgentProfile` with `delegatesTo` set can hand off to those specific agent IDs (`delegatesTo: ['*']` allows delegating to everyone registered). This is how "multi-agent" architectures work — there's no separate delegation engine, it's a tool call like any other.
+
+## Workflows: the other execution mode
+
+`ask_agent`-driven delegation is conversational — the orchestrating LLM decides who to call, turn by turn. For a **predetermined plan** with real dependency ordering and blocking human-approval gates, use `engine.runWorkflow()`:
+
+```ts
+import { workflow, agent } from '@backendkit-labs/agent-core';
+
+const wf = workflow('deploy')
+  .step('build',  agent('coder'),  { input: 'Build the release artifact' })
+  .step('review', agent('security'), { input: 'Review before deploy', dependsOn: ['build'], requireApproval: true })
+  .step('deploy', agent('infra'),  { input: 'Deploy to prod', dependsOn: ['review'] });
+
+await engine.runWorkflow(wf);
+```
+
+`requireApproval: true` really blocks — `WorkflowRunner` awaits an `onApprovalRequired` callback before continuing, not just a hint in a prompt.

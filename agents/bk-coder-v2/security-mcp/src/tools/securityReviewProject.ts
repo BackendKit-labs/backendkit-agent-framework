@@ -14,7 +14,9 @@ export const securityReviewProjectTool: AgentToolDef<typeof securityReviewProjec
         return `You are a security expert conducting an OWASP Top 10 security review.
 
 ## Step 1 — Read the codebase
-Use list_directory on ${projectRoot}/src to find all source files.
+If ${projectRoot}/.specs/design.md exists, read its "## Project Structure" first — a full-stack
+project may use separate \`backend/\`/\`frontend/\` trees instead of one \`src/\`.
+Use list_directory on ${projectRoot} to find the real source tree(s), then find all source files.
 Read each file thoroughly using read_file.
 Also read ${projectRoot}/package.json (or go.mod / requirements.txt) for dependency info.
 
@@ -40,7 +42,7 @@ Report format:
 # Security Review
 
 **Fecha:** {date}
-**Scope:** ${projectRoot}/src/
+**Scope:** ${projectRoot} (source tree(s) per design.md)
 **Standard:** OWASP Top 10 (2021)
 **Veredicto:** ✅ PASS | ❌ FAIL | ⚠️ CONDITIONAL
 

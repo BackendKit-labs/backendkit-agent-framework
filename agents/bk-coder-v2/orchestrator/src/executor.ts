@@ -9,10 +9,12 @@ import {
 import type { AgentProfile, AgentEvent } from '@backendkit-labs/agent-core';
 import { z } from 'zod';
 import type { OrchestratorConfig, AgentConfig } from './config.js';
-import type { TaskPlan, SubTask } from './planner.js';
-import { OpenAICompatibleProvider, callLLM } from './provider.js';
+import type { TaskPlan, SubTask } from '@backendkit-labs/orchestrator-agent';
+import { OpenAICompatibleProvider, callLLM } from '@backendkit-labs/orchestrator-agent';
 import { extractAndWrite, buildProjectContext }       from './file-writer.js';
 import { buildAgentContext, type PhaseContext }        from './context-reader.js';
+import { callMcpTool }                                 from './mcp-client.js';
+import { snapshotFiles, diffSnapshots }                 from './scope-guard.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +93,11 @@ export interface ExecutorOptions {
      * agent LLM output are written to disk automatically.
      */
     projectRoot?:  string;
+    /**
+     * Directory of orchestrator.yaml — needed to resolve relative MCP transport paths
+     * (agentCfg.transport.args) when dispatching a subtask to a stdio MCP agent.
+     */
+    configDir?:    string;
 }
 
 // ── Executor ──────────────────────────────────────────────────────────────────
@@ -103,6 +110,7 @@ export class PlanExecutor {
     private readonly dispatchFn:  ((subtask: SubTask, priorResults: ExecutionResult[]) => Promise<ExecutionResult>) | undefined;
     private readonly episodicFn:  ((agentId: string, task: string) => Promise<string>) | undefined;
     private readonly projectRoot: string | undefined;
+    private readonly configDir:   string;
 
     constructor(opts: ExecutorOptions) {
         this.config      = opts.config;
@@ -112,6 +120,7 @@ export class PlanExecutor {
         this.dispatchFn  = opts.dispatchFn;
         this.episodicFn  = opts.episodicFn;
         this.projectRoot = opts.projectRoot;
+        this.configDir   = opts.configDir ?? process.cwd();
     }
 
     /**
@@ -221,9 +230,63 @@ export class PlanExecutor {
 
         const start = Date.now();
         try {
-            const result = agentCfg
-                ? await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn, this.projectRoot, this.onProgress)
-                : `No agent configured for id: ${subtask.agent_id}`;
+            // MCP mode: dispatch to the specialist's real agentic engine (read_file/write_file/
+            // list_directory/run_command) via execute_task — same mechanism SDD uses, so ad-hoc
+            // orchestrator_run tasks get the same discipline instead of a single blind LLM call.
+            const useMcp = agentCfg?.transport?.type === 'stdio' && !!this.projectRoot;
+
+            // Scope guard: ad-hoc tasks have no ROADMAP "Files to create" to compare against,
+            // so only deletions are flagged here (never expected regardless of declared scope) —
+            // see scope-guard.ts / phase-runner.ts for the fuller check used by SDD phases.
+            const filesBefore = useMcp ? snapshotFiles(this.projectRoot!) : undefined;
+
+            const result = useMcp
+                ? await callMcpTool(
+                      agentCfg!, 'execute_task',
+                      { projectRoot: this.projectRoot, task: subtask.task },
+                      this.configDir, this.onProgress,
+                  )
+                : agentCfg
+                    ? await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn, this.projectRoot, this.onProgress)
+                    : `No agent configured for id: ${subtask.agent_id}`;
+
+            if (filesBefore) {
+                const diff = diffSnapshots(filesBefore, snapshotFiles(this.projectRoot!));
+                if (diff.deleted.length > 0) {
+                    this.onProgress(`  ❗ [${subtask.id}] borró ${diff.deleted.length} archivo(s): ${diff.deleted.slice(0, 5).join(', ')}`);
+                    return {
+                        subtask_id:  subtask.id,
+                        agent_id:    subtask.agent_id,
+                        task:        subtask.task,
+                        result:      `${result}\n\n❗ SCOPE GUARD: esta tarea borró ${diff.deleted.length} archivo(s), nunca esperado: ${diff.deleted.join(', ')}`,
+                        success:     false,
+                        duration_ms: Date.now() - start,
+                    };
+                }
+            }
+
+            // Build+test gate: the ad-hoc path had no deterministic verification —
+            // the agent could report "done" while leaving the project broken (e.g.
+            // renaming a shared export without updating its consumers), and nothing
+            // caught it until a human happened to run tsc by hand. SDD phases already
+            // gate on this (command-runner.ts); ad-hoc tasks get the same check here,
+            // scoped to the same MCP-dispatched runs the scope guard above covers.
+            if (useMcp) {
+                this.onProgress(`  → [${subtask.id}] verificando build+test tras el cambio...`);
+                const { runProjectChecks } = await import('./command-runner.js');
+                const execReport = await runProjectChecks(this.projectRoot!, this.onProgress).catch(() => undefined);
+                if (execReport && !execReport.passed) {
+                    this.onProgress(`  ❌ [${subtask.id}] el proyecto no compila/testea después de este cambio`);
+                    return {
+                        subtask_id:  subtask.id,
+                        agent_id:    subtask.agent_id,
+                        task:        subtask.task,
+                        result:      `${result}\n\n❌ VERIFICACIÓN POST-CAMBIO FALLÓ (build/test):\n${execReport.summary}`,
+                        success:     false,
+                        duration_ms: Date.now() - start,
+                    };
+                }
+            }
 
             return {
                 subtask_id:  subtask.id,

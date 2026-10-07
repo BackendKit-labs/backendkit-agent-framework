@@ -1,0 +1,74 @@
+---
+title: "@backendkit-labs/agent-core"
+description: "The generic engine — model-agnostic, transport-agnostic. Status: core."
+---
+
+<Note>
+  **Status: `core`.** Required for every downstream package — reviewed before any change.
+</Note>
+
+```bash
+npm install @backendkit-labs/agent-core
+```
+
+`agent-core` has no domain-specific assumptions anywhere in it — it doesn't know what "coding" or "finance" means. Every other package (`agent-coding`, `agent-enterprise`, `agent-web`) is this engine, configured.
+
+## What's in it
+
+| Area | Exports | Docs |
+|---|---|---|
+| Engine | `AgentEngine`, `createBaseEngine`, `AgentRegistry`, `ToolRegistry`, `ProviderRegistry` | [AgentEngine](/concepts/agent-engine) |
+| Agents | `AgentProfile` type | [AgentProfile](/concepts/agent-profile) |
+| Orchestration | `Orchestrator`, `ReviewAgentIds`, `OrchestrationResult`, `CapabilityMatrix` (types) | [Orchestrator](/concepts/orchestrator) |
+| Memory | `createMemorySystem` | [Memory](/concepts/memory) |
+| Skills | `SkillLoader`, `SkillActivator`, `SkillManager`/`createSkillManager` | [Skills](/concepts/skills) |
+| MCP | `MCPClientManager` | [MCP Integration](/concepts/mcp-integration) |
+| Bootstrap | `runGlobalSeed` — idempotent `~/.{appName}/` directory + starter file scaffolding | [Skills § Who creates these directories](/concepts/skills) |
+| Workflow | `workflow`, `agent`, `WorkflowBuilder`, `WorkflowRunner` | [AgentEngine § Workflows](/concepts/agent-engine#workflows-the-other-execution-mode) |
+| Tools | `defineTool` (Zod-schema-backed, typed) | — |
+| QA | `QAService` | — |
+
+## Subpath exports — not everything is on the top-level import
+
+`package.json` defines 11 subpaths beyond the plain `.` entry: `./orchestration`, `./mcp`, `./workflow`, `./triggers`, `./observability`, `./memory`, `./discovery`, `./reflection`, `./context`, `./skills`. Most day-to-day imports (everything in the table above) come from the top-level `@backendkit-labs/agent-core` and that's the common case — but a few pieces are **only** reachable via their subpath, not re-exported at the top level:
+
+```ts
+import { AuditReporter } from '@backendkit-labs/agent-core/orchestration';
+import { PatternDetector, PolicyPromoter, HistoricalLoader, FailureCatalog } from '@backendkit-labs/agent-core/reflection';
+```
+
+`ReflectionEngine` and `DomainRegistry` are the exception — both live under `./reflection` too but are *also* re-exported at the top level, since `createCodingEngine` needs them directly. See [Learning & Self-Improvement](/concepts/learning-and-audits) for what the `/reflection` and `/orchestration` subpaths are actually for.
+
+## Minimal engine
+
+```ts
+import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
+  providers: { anthropic: myProvider },
+  defaultProvider: 'anthropic',
+  agents: [{
+    id: 'general', name: 'General', icon: '◆',
+    description: 'Answers questions',
+    systemPrompt: 'You are a helpful assistant.',
+    allowedTools: ['search'],
+  }],
+  tools: [defineTool({
+    name: 'search',
+    description: 'Search the knowledge base',
+    input: z.object({ query: z.string() }),
+    execute: async ({ query }) => `Results for "${query}"...`,
+  })],
+  defaultAgent: 'general',
+});
+
+await engine.run('What is our refund policy?');
+```
+
+## Registries have one asymmetry worth knowing
+
+`AgentRegistry` and `ToolRegistry` both expose `.getAll()` returning an array. `ProviderRegistry.getAll()` returns a `Record<string, LLMProvider>` instead — providers don't carry their own ID the way an `AgentProfile`/`ToolDefinition` does, so there's nothing to key an array by. If you're converting a `ProviderRegistry` into the plain object `createBaseEngine` expects, `.getAll()` already does that conversion for you.
+
+## Transport-agnostic
+
+`Transport` is an interface, not a concrete implementation tied to any I/O. `StdoutTransport`, `CallbackTransport`, and `agent-web`'s WebSocket transport all implement the same interface — swapping how events reach the outside world never touches engine logic.

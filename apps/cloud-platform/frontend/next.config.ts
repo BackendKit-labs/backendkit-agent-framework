@@ -4,6 +4,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const ABAC_URL = process.env.ABAC_URL || 'http://localhost:3005';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   images: {
     domains: [],
   },

@@ -4,11 +4,12 @@ import { AgentMCPServer } from '@backendkit-labs/mcp-server';
 import { CallbackTransport } from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { SECURITY_TOOLS } from './tools/index.js';
-import { loadSecuritySkills } from './load-skills.js';
+import { loadSecuritySkills, loadSoulSkill } from './load-skills.js';
 
 // Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
 // Complements the framework's builtin OWASP `security-checklist` skill.
-const SECURITY_SKILLS = loadSecuritySkills();
+const SOUL_SKILL      = loadSoulSkill();
+const SECURITY_SKILLS = [...loadSecuritySkills(), ...(SOUL_SKILL ? [SOUL_SKILL] : [])];
 if (SECURITY_SKILLS.length > 0) {
     process.stderr.write(
         `[security-mcp] ${SECURITY_SKILLS.length} skill(s) cargada(s): ${SECURITY_SKILLS.map(s => s.name).join(', ')}\n`,

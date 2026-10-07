@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/aval-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Payment tools for @backendkit-labs/agent-core agents to spend through an AVAL instance",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

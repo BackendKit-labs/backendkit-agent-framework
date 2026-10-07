@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,8 +13,10 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Set global prefix for all API routes
-  app.setGlobalPrefix('api');
+  // Set global prefix for all API routes, excluding root
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: '/', method: RequestMethod.GET }],
+  });
 
   // Enable global validation pipe with strict settings
   app.useGlobalPipes(

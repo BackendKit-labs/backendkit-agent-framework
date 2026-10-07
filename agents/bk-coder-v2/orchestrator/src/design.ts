@@ -1,7 +1,7 @@
 import * as fs   from 'node:fs';
 import * as path from 'node:path';
 import type { OrchestratorConfig } from './config.js';
-import { OpenAICompatibleProvider, callLLM } from './provider.js';
+import { OpenAICompatibleProvider, callLLM } from '@backendkit-labs/orchestrator-agent';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

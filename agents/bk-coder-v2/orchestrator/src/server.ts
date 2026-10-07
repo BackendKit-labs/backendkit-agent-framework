@@ -27,16 +27,18 @@ import * as http from 'node:http';
 import IORedis                                     from 'ioredis';
 import { VaultWriter }                            from '@backendkit-labs/agent-enterprise';
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
-import { TaskPlanner }                            from './planner.js';
 import { PlanExecutor, executeSubtask, type ExecutionResult, type ActiveRule, ruleToGateCriteria } from './executor.js';
-import { OpenAICompatibleProvider, callLLM }      from './provider.js';
 import { RunStore, type RunState, type IRunStore } from './run-store.js';
 import { RedisRunStore, redisPrefix }             from './run-store-redis.js';
-import { SubtaskQueue }                           from './subtask-queue.js';
 import { buildRAG }                               from './rag.js';
-import { matchFlow, flowToTaskPlan }              from './static-flow.js';
-import { consolidateRun }                         from './consolidate.js';
 import type { ReflectionAdapter }                 from './executor.js';
+import {
+    TaskPlanner,
+    OpenAICompatibleProvider, callLLM,
+    SubtaskQueue,
+    matchFlow, flowToTaskPlan,
+    consolidateRun,
+} from '@backendkit-labs/orchestrator-agent';
 import { WorkspaceManager }                       from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { PhaseRunner }                            from './phase-runner.js';
 import type { PhaseState, StepResult }            from './run-store.js';
@@ -262,7 +264,7 @@ async function planDynamic(
     rag:         { search: (q: string) => Promise<string> } | null,
     task:        string,
     reflection?: ReflectionFull,
-): Promise<import('./planner.js').TaskPlan & { error?: string }> {
+): Promise<import('@backendkit-labs/orchestrator-agent').TaskPlan & { error?: string }> {
     const orchProvCfg = config.providers[config.orchestrator.provider];
     if (!orchProvCfg) {
         return { summary: '', subtasks: [], error: `Provider "${config.orchestrator.provider}" not configured` };
@@ -330,6 +332,41 @@ function buildEpisodicFn(store: IRunStore): (agentId: string, task: string) => P
 // ── Background execution ──────────────────────────────────────────────────────
 
 /**
+ * Wraps a run/phase attempt with judgment about how to react to an unexpected
+ * exception — never called on the happy path. Decides: retry once (transient
+ * infra failure), or fail with an LLM-diagnosed message instead of a raw stack
+ * trace. See triage.ts for the policy; this is just the plumbing shared by both
+ * background executors (SDD and ad-hoc).
+ */
+async function withTriageRetry<T>(
+    config:     OrchestratorConfig,
+    onProgress: (msg: string) => void,
+    fn:         () => Promise<T>,
+): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        onProgress(`  🔎 [triage] el run falló — pidiendo diagnóstico...`);
+
+        const { triageFailure } = await import('./triage.js');
+        const triage = await triageFailure(config, { kind: 'run-failure', error: message, attemptsSoFar: 1 });
+
+        if (triage.action === 'retry') {
+            onProgress(`  🔁 [triage] reintentando una vez más — ${triage.message}`);
+            try {
+                return await fn();
+            } catch (err2) {
+                const message2 = err2 instanceof Error ? err2.message : String(err2);
+                throw new Error(`${triage.message}\n\nEl reintento también falló: ${message2}`);
+            }
+        }
+
+        throw new Error(triage.message);
+    }
+}
+
+/**
  * Run plan segments in the background (after orchestrator_run already returned
  * the runId). Updates the RunStore as steps complete or gates are hit.
  *
@@ -354,34 +391,39 @@ async function executeInBackground(
 
     const queue = getSubtaskQueue();
 
+    const onProgress = (msg: string) => {
+        const match = msg.match(/\[([^\]]+)\]/);
+        if (match) {
+            // fire-and-forget: currentStep update is best-effort progress tracking
+            store.load(runId).then(current => {
+                if (current && current.status === 'running') {
+                    return store.save({ ...current, currentStep: { stepId: match[1], agentId: match[1], startedAt: ts() } });
+                }
+            }).catch(() => {});
+        }
+    };
+
     const executor = new PlanExecutor({
         config,
         ragSearchFn:  rag?.search,
         reflection,
         episodicFn:   queue ? undefined : buildEpisodicFn(store),
         projectRoot:  state.projectRoot ?? resolveProjectRoot(),   // bound at run creation — no re-resolve race
+        configDir:    path.dirname(path.resolve(configPath)),
         // BullMQ: dispatch via Redis queue so external worker processes execute the step
         dispatchFn: queue
             ? (subtask, pr) => queue.dispatch(subtask, pr, configPath)
             : undefined,
-        onProgress: (msg) => {
-            const match = msg.match(/\[([^\]]+)\]/);
-            if (match) {
-                // fire-and-forget: currentStep update is best-effort progress tracking
-                store.load(runId).then(current => {
-                    if (current && current.status === 'running') {
-                        return store.save({ ...current, currentStep: { stepId: match[1], agentId: match[1], startedAt: ts() } });
-                    }
-                }).catch(() => {});
-            }
-        },
+        onProgress,
     });
 
     const audit    = getAuditLogger(configPath);
     const startedMs = new Date(state.startedAt).getTime();
 
     try {
-        const result = await executor.execute(plan as Parameters<typeof executor.execute>[0], priorResults);
+        const result = await withTriageRetry(config, onProgress, () =>
+            executor.execute(plan as Parameters<typeof executor.execute>[0], priorResults),
+        );
 
         if ('gateRequired' in result) {
             await store.save({
@@ -472,7 +514,7 @@ function toStepResult(r: ExecutionResult): import('./run-store.js').StepResult {
 interface StartRunOk {
     runId:      string;
     planSource: 'static' | 'dynamic';
-    plan:       import('./planner.js').TaskPlan;
+    plan:       import('@backendkit-labs/orchestrator-agent').TaskPlan;
     config:     OrchestratorConfig;
 }
 
@@ -495,14 +537,14 @@ async function startRun(
     const store      = await getStore(configPath, config);
     const configDir  = path.dirname(path.resolve(configPath));
 
-    let plan: import('./planner.js').TaskPlan;
+    let plan: import('@backendkit-labs/orchestrator-agent').TaskPlan;
     let planSource: 'static' | 'dynamic';
 
     if (flowId) {
         const entry = config.flows?.find(f => f.id === flowId);
         if (!entry) return { error: `Flow "${flowId}" not declared in orchestrator.yaml` };
         try {
-            const { loadFlow } = await import('./static-flow.js');
+            const { loadFlow } = await import('@backendkit-labs/orchestrator-agent');
             plan       = flowToTaskPlan(loadFlow(path.resolve(configDir, entry.file)), payload);
             planSource = 'static';
         } catch (err) {
@@ -553,24 +595,20 @@ async function executeSddInBackground(
     if (!run || !run.phaseState || !run.projectRoot) return;
 
     const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
-    const runner = new PhaseRunner({
-        config,
-        projectRoot: run.projectRoot,
-        ragSearchFn: rag?.search,
-        onProgress: (msg) => {
-            const m = msg.match(/\[([^\]]+)\]/);
-            if (m) store.load(runId).then(c => {
-                if (c && c.status === 'running') return store.save({ ...c, currentStep: { stepId: m[1], agentId: m[1], startedAt: ts() } });
-            }).catch(() => {});
-        },
-    });
+    const onProgress = (msg: string) => {
+        const m = msg.match(/\[([^\]]+)\]/);
+        if (m) store.load(runId).then(c => {
+            if (c && c.status === 'running') return store.save({ ...c, currentStep: { stepId: m[1], agentId: m[1], startedAt: ts() } });
+        }).catch(() => {});
+    };
+    const runner = new PhaseRunner({ config, projectRoot: run.projectRoot, ragSearchFn: rag?.search, onProgress });
 
     const state     = run.phaseState;
     const collected = [...run.completedSteps];
     const audit     = getAuditLogger(configPath);
 
     try {
-        const step = await runner.runCurrentPhase(state, (s: StepResult) => collected.push(s));
+        const step = await withTriageRetry(config, onProgress, () => runner.runCurrentPhase(state, (s: StepResult) => collected.push(s)));
         const cur  = await store.load(runId);
         if (!cur) return;
 
@@ -975,15 +1013,36 @@ srv.tool(
 // @ts-ignore
 srv.tool(
     'orchestrator_status',
-    'Get the status of a running or completed orchestration by runId.',
+    'Get the status of a running or completed orchestration by runId. Pass `wait_seconds` to block ' +
+    'server-side and return as soon as the run reaches a terminal state (complete/failed/waiting_gate) ' +
+    'or the wait elapses — use this instead of polling in a tight loop, it saves turns and keeps the ' +
+    'chat readable.',
     {
-        config_path: z.string().optional().describe('Path to orchestrator.yaml. Optional — auto-resolved if omitted; must match the value used when the run was started.'),
-        run_id:      z.string().describe('Run ID returned by orchestrator_run'),
+        config_path:  z.string().optional().describe('Path to orchestrator.yaml. Optional — auto-resolved if omitted; must match the value used when the run was started.'),
+        run_id:       z.string().describe('Run ID returned by orchestrator_run'),
+        wait_seconds: z.number().min(0).max(120).optional().describe(
+            'If set (0-120), block up to this many seconds, checking every ~1.5s, and return as soon ' +
+            'as the run leaves "running" (complete/failed/waiting_gate) or the timeout is hit. Omit or ' +
+            '0 for the old immediate, non-blocking check.',
+        ),
     },
-    async ({ config_path: cfgPathArg, run_id }) => {
+    async ({ config_path: cfgPathArg, run_id, wait_seconds }) => {
         const config_path = resolveConfigPath(cfgPathArg);
-        const state = await (await getStore(config_path)).load(run_id);
+        const store = await getStore(config_path);
+
+        let state = await store.load(run_id);
         if (!state) return ok(`Run not found: ${run_id}`);
+
+        if (wait_seconds && state.status === 'running') {
+            const deadline = Date.now() + wait_seconds * 1000;
+            while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 1500));
+                const next = await store.load(run_id);
+                if (!next) break;
+                state = next;
+                if (state.status !== 'running') break;
+            }
+        }
 
         const lines: string[] = [
             `## Run \`${state.runId}\``,

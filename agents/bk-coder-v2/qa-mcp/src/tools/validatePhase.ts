@@ -24,10 +24,12 @@ You did NOT write this code. Evaluate it objectively against the specification.
 ## Step 1 — Read the specification and design
 Use read_file to read:
 - ${specsDir}/specification.md  (acceptance criteria)
-- ${specsDir}/design.md         (ADRs to verify compliance)
+- ${specsDir}/design.md         (ADRs AND "## Project Structure" — the real source layout;
+  a full-stack project may use separate \`backend/\`/\`frontend/\` trees instead of one \`src/\`)
 
 ## Step 2 — Read the implementation
-Use list_directory on ${projectRoot}/src to see all files.
+Use list_directory on ${projectRoot} first to see the actual top-level layout, then drill into
+the source tree(s) declared in design.md's Project Structure.
 Read each source file thoroughly — you need to verify the actual code, not guess.
 
 ${execReport ? `## Execution results (build + tests already ran)\n${execReport}\n` : ''}

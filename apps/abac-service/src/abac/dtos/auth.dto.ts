@@ -1,6 +1,25 @@
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+// ===== LOGIN (usuarios no-admin) =====
+
+export class LoginDto {
+    @ApiProperty({ example: 'usuario@empresa.com', description: 'Email del usuario' })
+    @IsString()
+    @IsNotEmpty()
+    email!: string;
+
+    @ApiProperty({ example: '••••••••', description: 'Contraseña del usuario' })
+    @IsString()
+    @IsNotEmpty()
+    password!: string;
+
+    @ApiPropertyOptional({ description: 'ID de aplicación (se resuelve automáticamente si no se provee)' })
+    @IsString()
+    @IsOptional()
+    applicationId?: string;
+}
+
 // ===== ADMIN LOGIN =====
 
 export class AdminLoginDto {

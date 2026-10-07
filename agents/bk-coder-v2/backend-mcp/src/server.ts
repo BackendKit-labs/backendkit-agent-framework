@@ -4,11 +4,12 @@ import { AgentMCPServer }     from '@backendkit-labs/mcp-server';
 import { CallbackTransport }  from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { BACKEND_TOOLS }      from './tools/index.js';
-import { loadBackendSkills }  from './load-skills.js';
+import { loadBackendSkills, loadSoulSkill } from './load-skills.js';
 
 // Domain skills loaded once at startup from ./skills/*.md (Enfoque B: progressive
 // disclosure inside the agentic loop — trigger-matched, injected into the system prompt).
-const BACKEND_SKILLS = loadBackendSkills();
+const SOUL_SKILL      = loadSoulSkill();
+const BACKEND_SKILLS  = [...loadBackendSkills(), ...(SOUL_SKILL ? [SOUL_SKILL] : [])];
 if (BACKEND_SKILLS.length > 0) {
     process.stderr.write(
         `[backend-mcp] ${BACKEND_SKILLS.length} skill(s) cargada(s): ${BACKEND_SKILLS.map(s => s.name).join(', ')}\n`,

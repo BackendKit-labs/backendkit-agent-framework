@@ -59,6 +59,11 @@ agents:
   - name: coder                 # bk-coder-v2 — Orchestrator V2 (SDD: backend, QA, security, infra)
     command: node
     args: ["../bk-coder-v2/orchestrator/dist/server.js"]
+    # orchestrator_status acepta wait_seconds hasta 120s (bloquea server-side) —
+    # el timeout default de MCPClientManager es 30s, mucho más corto. Sin esto,
+    # cualquier wait_seconds > ~25s revienta con "MCP tool timed out after 30000ms"
+    # aunque el run siga corriendo bien del otro lado.
+    timeout_ms: 150000
     env:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -118,6 +123,58 @@ agents:
       # Sin esto arranca igual pero solo con las tools nativas (datos mock
       # hardcodeados), sin conectar al ERP.
       FINANCE_CONFIG_PATH: "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents\\finance-agent\\config\\empresa-demo.yaml"
+
+# ── Modo proactivo (pulso) — ver proposals/director-proactivo.md ─────────────
+#
+# El director se despierta solo cada N minutos por cada usuario suscripto
+# ("/pulse on" en el chat) y corre un playbook según su rol, CON la identidad
+# de ese usuario (mismas policies y vault filter). Solo lectura: las tools que
+# no están en la allowlist no existen para el turno. Si no hay nada nuevo,
+# no publica ([SILENCIO] + delta-hash + cooldown).
+proactive:
+  enabled: true
+  allow_dev: true            # dev corre como admin — poner false en producción
+  quiet_hours: { from: "21:00", to: "07:00" }
+  max_iterations: 6          # presupuesto LLM por pulso (chat usa 20)
+  subscription_ttl_hours: 72 # sin actividad del usuario en 72h → pulso pausado
+  repeat_cooldown_hours: 12  # mismo digest dentro de esta ventana → no se repite
+  # Allowlist global (nombres cortos) — fallback para playbooks sin la suya
+  allowed_tools: [search_vault, vault_status, system_health]
+  playbooks:
+    admin:
+      every: 4h
+      allowed_tools: [system_health, orchestrator_list_runs, orchestrator_status, list_scheduled]
+      prompt: |
+        Chequeo proactivo para un administrador del ecosistema. Revisá:
+        1. Salud general (system_health).
+        2. Runs del coder activos, fallidos o esperando gate (orchestrator_list_runs).
+        3. Tareas programadas próximas (list_scheduled).
+        Si todo está sano y sin novedades respondé exactamente [SILENCIO].
+        Si hay algo, resumen ejecutivo de máximo 6 líneas, lo urgente primero.
+    dev:
+      every: 30m
+      allowed_tools: [orchestrator_status, orchestrator_list_runs]
+      prompt: |
+        Chequeo proactivo para un dev. Revisá runs del coder en waiting_gate o
+        failed (orchestrator_list_runs). Sin novedades → respondé exactamente
+        [SILENCIO]. Si hay, máximo 5 líneas con run id y qué acción espera.
+    devops:
+      every: 15m
+      allowed_tools: [system_health, check_agent, check_environment, check_scheduler, check_vault]
+      prompt: |
+        Chequeo proactivo devops: snapshot de system_health. Servicios caídos o
+        degradados → alerta con detalle y qué chequear primero. Todo sano →
+        respondé exactamente [SILENCIO].
+    finance:
+      every: 4h
+      allowed_tools: [get_balance_sheet, get_income_statement, get_cash_flow, kpi_dashboard, budget_vs_actual, tax-summary, search_vault]
+      prompt: |
+        Chequeo proactivo para un usuario de finanzas. Revisá:
+        1. KPIs y flujo de caja del período actual.
+        2. Desviaciones presupuesto vs real mayores al 10% — eso es alerta.
+        3. Impuestos con vencimiento próximo (tax summary).
+        Sin nada nuevo ni accionable → respondé exactamente [SILENCIO].
+        Si hay algo, máximo 6 líneas, lo urgente primero, con números concretos.
 
 # ── Control de acceso (Capa 1 + 2) ───────────────────────────────────────────
 #

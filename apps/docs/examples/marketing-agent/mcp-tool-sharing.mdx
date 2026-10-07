@@ -1,0 +1,94 @@
+---
+title: "6. Sharing Multiple Tools via MCP"
+description: "Instead of one catch-all MCP tool, expose the marketing agent's real capabilities as separate, individually-callable MCP tools — then connect another engine to them."
+---
+
+[Step 5](/examples/marketing-agent/deploy) wrapped the whole agent behind a single MCP tool, `marketing_request` — any caller sends free text, the full roster (lead + specialists) figures out what to do with it. That's the simplest option, but it hides what the agent can actually do behind one generic name. This page exposes the real capabilities separately instead, so another agent connecting to this server sees `draft_post`, `research_competitor`, and `schedule_post` as three distinct, individually-documented tools it can pick between — this is what "sharing tools" over MCP actually means at the wire level.
+
+## How `AgentMCPServer` actually registers tools
+
+Each entry in `AgentMCPServerOptions.tools` becomes its own MCP tool — `AgentMCPServer` loops over the array and calls the underlying SDK's `srv.tool(name, description, schema, handler)` once per entry (`packages/mcp-server/src/agent-server.ts`). There's no requirement that they map to different specialists internally; each tool call just builds a prompt from its own args and runs it through a **fresh** `engine.run(prompt)` — the same engine, same roster, same delegation logic every time. The tool boundary is about what's discoverable and callable from *outside*, not a different code path per tool.
+
+```ts src/server.ts
+import 'dotenv/config';
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+import type { CallbackTransport } from '@backendkit-labs/agent-core';
+import { z } from 'zod';
+import { createEngine } from './engine';
+
+const server = new AgentMCPServer({
+  name:    'marketing-agent',
+  version: '1.0.0',
+  port:    parseInt(process.env.MCP_PORT ?? '3001'),
+
+  tools: [
+    {
+      name:        'draft_post',
+      description: 'Draft social copy for a given platform and topic.',
+      schema: {
+        platform: z.enum(['twitter', 'linkedin', 'instagram']),
+        topic:    z.string(),
+      },
+      buildPrompt: ({ platform, topic }) =>
+        `Draft a ${platform} post about: ${topic}`,
+    },
+    {
+      name:        'research_competitor',
+      description: 'Look up recent public campaign activity for a named competitor.',
+      schema: {
+        competitor: z.string(),
+      },
+      buildPrompt: ({ competitor }) =>
+        `Research recent campaign activity from ${competitor}.`,
+    },
+    {
+      name:        'schedule_post',
+      description: 'Schedule an already-drafted post for publishing.',
+      schema: {
+        content:   z.string(),
+        platform:  z.enum(['twitter', 'linkedin', 'instagram']),
+        publishAt: z.string().describe('ISO 8601 timestamp'),
+      },
+      buildPrompt: ({ content, platform, publishAt }) =>
+        `Schedule this ${platform} post for ${publishAt}: "${content}"`,
+    },
+  ],
+
+  engineFactory: (transport: CallbackTransport) => createEngine(transport),
+});
+
+await server.start();
+```
+
+Every call still goes through `marketing-lead` and its `ask_agent` delegation (see [step 3](/examples/marketing-agent/multi-agent)) — `research_competitor`'s prompt reads like a request for the SEO analyst, and the lead routes it there internally, exactly as it would if a human had typed the same sentence into the REPL. Splitting the MCP surface into three tools didn't bypass the roster; it just gave external callers three well-documented entry points into it instead of one.
+
+<Note>
+  On the connecting engine's side, `MCPClientManager` namespaces every discovered tool as `mcp__{safeName}__{tool}` (`packages/core/src/mcp/MCPClientManager.ts`, `safeName` = the config's `name` with non-alphanumeric characters replaced by `_`) — so another engine sees these as `mcp__marketing__draft_post`, `mcp__marketing__research_competitor`, `mcp__marketing__schedule_post`, not the bare names shown above. The bare names are what you write in `AgentMCPServerOptions.tools` on the server; the `mcp__` prefix is added by whoever connects to it, not by the server itself.
+</Note>
+
+## Connecting another engine to it
+
+This is the other half of [MCP Integration](/concepts/mcp-integration) — a *different* engine (say, a sales agent) treats the running marketing server as an external delegate:
+
+```ts sales-agent/src/engine.ts (excerpt)
+import { createBaseEngine } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
+  // ...sales agent's own agents/tools/providers
+  mcpServers: [
+    {
+      name:    'marketing',
+      command: 'npx',
+      args:    ['tsx', '../marketing-agent/src/server.ts'],
+      // or, for the already-running HTTP server from this page instead of a spawned subprocess:
+      // url: 'http://127.0.0.1:3001/mcp',
+    },
+  ],
+});
+```
+
+Once connected, `AgentEngine.buildAgentRoster()` lists `draft_post`, `research_competitor`, and `schedule_post` under **`## External Agents [MCP] — CHECK FIRST`** in the sales agent's own system prompt (verified in [MCP Integration § MCP agents are checked first](/concepts/mcp-integration#mcp-agents-are-checked-first)) — so if someone asks the sales agent to "draft a LinkedIn post about the renewal offer," it delegates to the marketing server's tool rather than trying to write copy itself, because a sales agent has no copywriting specialist of its own and this is exactly the case [MCP Integration](/concepts/mcp-integration#mcp-agents-are-checked-first)'s warning describes: an MCP agent adding a capability the local roster genuinely doesn't have.
+
+<Warning>
+  Connections are lazy (established on the sales agent's first `run()` call) and retry up to 3 times if the marketing server is offline — see [MCP Integration § Reconnection](/concepts/mcp-integration#reconnection). If it's still down after that, the sales agent gets a `system` warning event and keeps working with whatever's actually available, rather than blocking the whole session on one unreachable server.
+</Warning>

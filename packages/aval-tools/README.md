@@ -8,11 +8,19 @@ previo y bitácora encadenada.
 
 - **`pay`** — la vía amarrada: el agente pide un techo de gasto, AVAL decide y paga. Devuelve
   el resultado como texto: pagado (con el coste real y la referencia del carril), retenido
-  (con el `authorizationId` para consultar después) o denegado (con el motivo).
+  (con el `authorizationId` para consultar después) o denegado (con el motivo) — y en los tres
+  casos, el presupuesto que le queda al agente (`remainingToday`/`remainingTotal`), que AVAL ya
+  manda en cada respuesta. Sin verlo, un agente que pide varios gastos en el mismo turno no
+  tiene forma de saber si le va a alcanzar antes de pedir el siguiente.
 - **`check_payment`** — consulta el estado de una autorización propia por `authorizationId`.
   Es la pieza que le faltaba al framework para la vía "retenido": nada bloquea una sesión
   esperando a un humano, así que un gasto retenido se resuelve volviendo a preguntar más
   tarde — en otra invocación, disparada por un trigger o por el propio usuario.
+- **`list_own_history`** — el historial propio del agente en AVAL (`GET /api/v1/history`), en
+  texto legible. `pay`/`check_payment` sólo muestran UN gasto puntual; esto le da al agente
+  contexto de patrones (qué se pagó, a quién, con qué frecuencia) para priorizar cuando el
+  presupuesto no va a alcanzar para todo. De sólo lectura, y pensado para usarse cuando hace
+  falta, no en cada turno.
 
 Ninguna herramienta guarda dinero ni credenciales del proveedor: eso lo tiene AVAL.
 
@@ -36,7 +44,7 @@ for (const tool of createAvalTools({ baseUrl: 'https://aval.internal' })) {
 const profile = {
     id: 'expedientes-bot',
     // ...
-    allowedTools: ['pay', 'check_payment' /* ... */],
+    allowedTools: ['pay', 'check_payment', 'list_own_history' /* ... */],
     // La clave vive en el perfil de ESTE agente, no en una variable de entorno
     // compartida por todos. Cárgala desde donde guardes secretos (vault,
     // gestor de secretos del proveedor de nube, etc.), nunca en texto plano
@@ -82,7 +90,7 @@ obtiene una clave distinta por sí sola.
 
 ## Qué pasa si AVAL no responde
 
-`pay` y `check_payment` reintentan automáticamente ante errores de red o 5xx (backoff
+Las tres herramientas reintentan automáticamente ante errores de red o 5xx (backoff
 exponencial con `jitter`, tres intentos por defecto). Los 4xx —denegado, credencial revocada,
 límite superado— nunca se reintentan: son respuestas de negocio, no fallos de transporte, y
 se devuelven al agente como texto para que decida qué hacer.

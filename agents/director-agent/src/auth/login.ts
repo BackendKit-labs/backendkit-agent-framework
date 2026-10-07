@@ -7,14 +7,19 @@ export type LoginResult =
     | { ok: true;  token: string; user: Principal }
     | { ok: false; error: string };
 
-/** Autentica un usuario contra abac-service (POST /auth/admin/login). */
+/**
+ * Autentica un usuario contra abac-service (POST /auth/login).
+ * El endpoint acepta cualquier usuario activo con al menos un rol en la app
+ * (admin incluido) — el director no es una consola de administración, así que
+ * no corresponde exigir rol admin para chatear.
+ */
 export async function login(email: string, password: string): Promise<LoginResult> {
     if (!process.env['ABAC_PUBLIC_KEY']) {
         return { ok: false, error: 'ABAC_PUBLIC_KEY no configurado — modo empresa no habilitado' };
     }
 
     try {
-        const res = await fetch(`${ABAC_URL}/auth/admin/login`, {
+        const res = await fetch(`${ABAC_URL}/auth/login`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ email, password }),

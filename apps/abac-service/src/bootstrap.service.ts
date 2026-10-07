@@ -6,6 +6,7 @@ import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { Application } from './entities/application.entity';
 import { UserRole } from './entities/user-role.entity';
+import { UserApplication } from './entities/user-application.entity';
 import { Organization } from './entities/organization.entity';
 import { JwtEd25519Service } from './common/crypto/jwt-ed25519.service';
 import { SYSTEM_ORG_ID, SYSTEM_ORG_SLUG } from './common/tenancy/tenancy.constants';
@@ -28,8 +29,9 @@ export class BootstrapService implements OnApplicationBootstrap {
         @InjectRepository(User)         private users:    Repository<User>,
         @InjectRepository(Role)         private roles:    Repository<Role>,
         @InjectRepository(Application)  private apps:     Repository<Application>,
-        @InjectRepository(UserRole)     private userRoles: Repository<UserRole>,
-        @InjectRepository(Organization) private orgs:     Repository<Organization>,
+        @InjectRepository(UserRole)        private userRoles:    Repository<UserRole>,
+        @InjectRepository(UserApplication) private userApps:    Repository<UserApplication>,
+        @InjectRepository(Organization)    private orgs:         Repository<Organization>,
     ) {}
 
     async onApplicationBootstrap() {
@@ -92,6 +94,16 @@ export class BootstrapService implements OnApplicationBootstrap {
             applicationId: app.id,
             createdBy:     'bootstrap',
         }));
+
+        // UserApplication — requerido para que adminLogin resuelva el appId
+        const existingUa = await this.userApps.findOne({ where: { userId: savedUser.id, applicationId: app.id } as any });
+        if (!existingUa) {
+            await this.userApps.save(this.userApps.create({
+                userId:        savedUser.id,
+                applicationId: app.id,
+                createdBy:     'bootstrap',
+            } as any));
+        }
 
         this.logger.log(`Admin creado — ${email} (rol: ${BOOTSTRAP_ROLE_NAME})`);
     }

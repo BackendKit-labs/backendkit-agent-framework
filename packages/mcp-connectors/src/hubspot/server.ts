@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { runMcpServer, parseCliArgs } from '../shared/server-runner.js';
+import { fetchJson } from '../shared/http-client.js';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ if (!TOKEN) {
 const BASE = 'https://api.hubapi.com';
 
 async function hs<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${BASE}${path}`, {
+    return fetchJson<T>('HubSpot', `${BASE}${path}`, {
         method,
         headers: {
             'Authorization': `Bearer ${TOKEN}`,
@@ -22,10 +23,6 @@ async function hs<T>(method: string, path: string, body?: unknown): Promise<T> {
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) {
-        throw new Error(`HubSpot ${method} ${path.split('?')[0]} → ${res.status}: ${await res.text()}`);
-    }
-    return res.json() as Promise<T>;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -42,7 +39,7 @@ function buildServer(): McpServer {
         'Search HubSpot CRM contacts by name, email, or company.',
         {
             query: z.string().describe('Search term — name, email, or company'),
-            limit: z.number().optional().describe('Max results (default 10)'),
+            limit: z.number().min(1).max(100).optional().describe('Max results (default 10, max 100)'),
         },
         async ({ query, limit }: { query: string; limit?: number }) => {
             const data = await hs<{
@@ -109,7 +106,7 @@ function buildServer(): McpServer {
         {
             query: z.string().optional().describe('Deal name search term'),
             stage: z.string().optional().describe('Deal stage key (e.g. appointmentscheduled, closedwon)'),
-            limit: z.number().optional().describe('Max results (default 10)'),
+            limit: z.number().min(1).max(100).optional().describe('Max results (default 10, max 100)'),
         },
         async ({ query, stage, limit }: { query?: string; stage?: string; limit?: number }) => {
             const body: Record<string, unknown> = {

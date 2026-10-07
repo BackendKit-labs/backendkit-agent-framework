@@ -1,0 +1,59 @@
+---
+title: "@backendkit-labs/mcp-server"
+description: "Wrap any AgentEngine as a real MCP server — stdio or HTTP. Status: stable."
+---
+
+```bash
+npm install @backendkit-labs/mcp-server
+```
+
+One class: `AgentMCPServer`. It translates MCP tool calls into natural-language prompts, runs them through an `AgentEngine`, and returns the accumulated text response.
+
+```ts
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+import { CallbackTransport } from '@backendkit-labs/agent-core';
+import { createCodingEngineFromConfig } from '@backendkit-labs/agent-coding';
+
+const server = new AgentMCPServer({
+  name: 'git-analyst',
+  tools: [{
+    name: 'git_summarize',
+    description: 'Summarize recent git commits',
+    schema: { cwd: z.string().optional(), max: z.number().optional() },
+    buildPrompt: ({ cwd, max }) => `Summarize the last ${max ?? 20} commits in ${cwd}.`,
+  }],
+  engineFactory: (transport: CallbackTransport) => createCodingEngineFromConfig({ transport }),
+});
+
+await server.startStdio();   // or server.start() for HTTP (StreamableHTTPServerTransport)
+```
+
+`create-bk-agent` generates exactly this shape when you pick **MCP Server (stdio)** as your deploy mode — see [Build Your First Agent](/getting-started/first-agent) for the full walkthrough, or [Agent Types](/getting-started/agent-types) for the raw generated file.
+
+## Why `engineFactory`, not one shared engine
+
+`engineFactory` runs **once per tool invocation**, each getting a fresh `CallbackTransport` and a brand-new `AgentEngine`. This is deliberate isolation — no conversation state, no memory, no tool-call history leaks between calls, unless you explicitly wire persistence into whatever `engineFactory` returns.
+
+## Pinning to one specialist
+
+For a server that's always one particular agent — not a general-purpose assistant exposed over MCP — point `engineFactory` at a single `defaultAgent` and skip persistence you don't need:
+
+```ts
+function createEngine(transport: CallbackTransport) {
+  return createCodingEngine({
+    providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+    defaultProvider: 'anthropic',
+    defaultAgent: 'qa-engineer',
+    transport,
+    disablePersistence: true,
+  });
+}
+```
+
+## HTTP vs stdio
+
+`start()` runs `StreamableHTTPServerTransport` with stateful sessions — for network-reachable deployments. `startStdio()` is for subprocess/pipe-based MCP clients (Claude Desktop, Cursor, VS Code, or any other `AgentEngine` connecting via `mcpServers` — see [MCP Integration](/concepts/mcp-integration)).
+
+## When *not* to use this
+
+If a tool call doesn't need an LLM at all — pure deterministic logic, no reasoning step — `AgentMCPServer` is the wrong layer; every call routes through `buildPrompt` and an LLM completion. Use `@modelcontextprotocol/sdk`'s `McpServer` directly instead, with a plain function as the handler.

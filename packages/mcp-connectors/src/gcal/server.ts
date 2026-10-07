@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createSign } from 'node:crypto';
 import { z } from 'zod';
 import { runMcpServer, parseCliArgs } from '../shared/server-runner.js';
+import { fetchJson } from '../shared/http-client.js';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 //
@@ -78,7 +79,7 @@ async function exchangeServiceAccountToken(key: ServiceAccountKey): Promise<stri
 async function gcal<T>(method: string, path: string, body?: unknown): Promise<T> {
     const token = await getToken();
     const url   = path.startsWith('http') ? path : `https://www.googleapis.com/calendar/v3${path}`;
-    const res   = await fetch(url, {
+    return fetchJson<T>('Google Calendar', url, {
         method,
         headers: {
             'Authorization': `Bearer ${token}`,
@@ -86,10 +87,6 @@ async function gcal<T>(method: string, path: string, body?: unknown): Promise<T>
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) {
-        throw new Error(`Google Calendar ${method} ${path.split('?')[0]} → ${res.status}: ${await res.text()}`);
-    }
-    return res.json() as Promise<T>;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -121,7 +118,7 @@ function buildServer(): McpServer {
             calendar_id: z.string().optional().describe('Calendar ID (default: "primary")'),
             time_min:    z.string().optional().describe('Start of range, ISO 8601 (default: now)'),
             time_max:    z.string().optional().describe('End of range, ISO 8601 (default: 7 days from now)'),
-            limit:       z.number().optional().describe('Max events (default 10)'),
+            limit:       z.number().min(1).max(100).optional().describe('Max events (default 10, max 100)'),
         },
         async ({ calendar_id, time_min, time_max, limit }: {
             calendar_id?: string; time_min?: string; time_max?: string; limit?: number;

@@ -120,7 +120,7 @@ services:
     ports:
       - "4000:3000"
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3000
       DB_HOST: postgres-director
       DB_PORT: 5432
@@ -151,7 +151,7 @@ services:
     ports:
       - "3100:3000"
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3000
       DB_HOST: postgres-cloud
       DB_USER: cloud_user
@@ -181,6 +181,34 @@ services:
       retries: 3
     restart: unless-stopped
 
+  cloud-platform-ui:
+    build:
+      context: ./apps/cloud-platform/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3101:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: 3000
+      BACKEND_URL: http://cloud-platform:3000
+      ABAC_URL: http://abac-service:3005
+    depends_on:
+      cloud-platform:
+        condition: service_healthy
+      abac-service:
+        condition: service_healthy
+    networks: [platform]
+    extra_hosts:
+      - "localhost:127.0.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:3000/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
   # ── Frontend services ────────────────────────────────────────────────────────
 
   agent-studio:
@@ -191,6 +219,7 @@ services:
       - "3001:3001"
     environment:
       NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
       PORT: 3001
       GATEWAY_URL: http://director-api:3000
       DIRECTOR_URL: http://director-api:3000
@@ -203,6 +232,14 @@ services:
       abac-service:
         condition: service_healthy
     networks: [platform]
+    extra_hosts:
+      - "localhost:127.0.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:3001/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     restart: unless-stopped
 
   director-chat:
@@ -213,6 +250,7 @@ services:
       - "3002:3002"
     environment:
       NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
       PORT: 3002
       ABAC_URL: http://abac-service:3005
       DIRECTOR_URL: http://director-api:3000
@@ -225,6 +263,14 @@ services:
       abac-service:
         condition: service_healthy
     networks: [platform]
+    extra_hosts:
+      - "localhost:127.0.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:3002/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
 
   vault-manager:
@@ -235,6 +281,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
       PORT: 3000
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
@@ -246,6 +293,14 @@ services:
       abac-service:
         condition: service_healthy
     networks: [platform]
+    extra_hosts:
+      - "localhost:127.0.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:3000/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
 
   abac-admin:
@@ -260,8 +315,10 @@ services:
       abac-service:
         condition: service_healthy
     networks: [platform]
+    extra_hosts:
+      - "localhost:127.0.0.1"
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3003/ || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3003/ || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 5s

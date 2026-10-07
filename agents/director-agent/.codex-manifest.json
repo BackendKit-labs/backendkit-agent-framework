@@ -1,32 +1,32 @@
 {
   "version": "1.0",
   "created": "2026-06-17T23:35:45.151Z",
-  "lastUpdated": "2026-06-21T13:14:41.524Z",
+  "lastUpdated": "2026-07-02T16:26:04.156Z",
   "inputPath": "C:\\Users\\mairon.cuello\\development\\workspace-ia\\agent-framework\\agents/director-agent",
   "outputPath": "C:\\Users\\mairon.cuello\\.backendkit\\vaults\\agent-framework",
   "files": {
     "SOUL.md": {
       "relativePath": "SOUL.md",
-      "hash": "1a3cfe2c2cd5376c5151b2000750c223a2081f1e703e639e742c7e6c58300879",
-      "size": 13092,
-      "modified": "2026-06-20T23:46:34.161Z",
-      "analyzedAt": "2026-06-20T23:49:59.024Z",
+      "hash": "1b03609214152e169002493f3676534f68a6cd0cac2fc4af5123718dd9156314",
+      "size": 18262,
+      "modified": "2026-06-28T18:43:06.173Z",
+      "analyzedAt": "2026-07-02T16:25:27.785Z",
       "status": "success"
     },
     "director.yaml": {
       "relativePath": "director.yaml",
-      "hash": "2ce62475c47a7d1e45911f4bca990f5218a653778e55def4fd9ce53462876227",
-      "size": 2482,
-      "modified": "2026-06-18T00:21:26.415Z",
-      "analyzedAt": "2026-06-18T21:19:04.288Z",
+      "hash": "a0dbbc662305d5f9adc10192208e061228b721f555b2e7689b3a7996e5e63f46",
+      "size": 16508,
+      "modified": "2026-06-28T18:43:06.177Z",
+      "analyzedAt": "2026-07-02T16:25:36.202Z",
       "status": "success"
     },
     "ARCHITECTURE.md": {
       "relativePath": "ARCHITECTURE.md",
-      "hash": "15ea0bbeab2abd0445cb07e9a4535496608ebcbaa86c019d8e934e59e18f05a3",
-      "size": 31726,
-      "modified": "2026-06-20T23:46:57.901Z",
-      "analyzedAt": "2026-06-20T23:49:57.277Z",
+      "hash": "0d932cea0d6aee890ff5a038ba5b778f18b2b394765057ca5e06718a2f44e4cf",
+      "size": 37130,
+      "modified": "2026-06-28T20:00:25.810Z",
+      "analyzedAt": "2026-07-02T16:25:03.728Z",
       "status": "success"
     },
     "src\\config.ts": {
@@ -95,26 +95,26 @@
     },
     "src\\server.ts": {
       "relativePath": "src\\server.ts",
-      "hash": "44bdc383e5451316231f40880e35c5afa0713ed135aa137f2dff9e8e1af6f277",
-      "size": 7889,
-      "modified": "2026-06-21T01:45:41.102Z",
-      "analyzedAt": "2026-06-21T13:14:41.524Z",
+      "hash": "641c81001cb3fb510e274897d3a4e4e2840d4024ebd6ef955429c49c281d0394",
+      "size": 11507,
+      "modified": "2026-06-26T23:28:31.117Z",
+      "analyzedAt": "2026-07-02T16:25:53.911Z",
       "status": "success"
     },
     "src\\engine.ts": {
       "relativePath": "src\\engine.ts",
-      "hash": "4409a03afcaa02550489a9f57ea842007873a4cd0d002d176413f3dcef72cf9c",
-      "size": 14156,
-      "modified": "2026-06-21T01:44:40.431Z",
-      "analyzedAt": "2026-06-21T13:14:23.642Z",
+      "hash": "9dec40f1bf2857127cfbb7f29468af25c354c588e702190243e99e43f1356bd1",
+      "size": 20927,
+      "modified": "2026-06-26T23:27:21.085Z",
+      "analyzedAt": "2026-07-02T16:25:18.159Z",
       "status": "success"
     },
     "src\\repl.ts": {
       "relativePath": "src\\repl.ts",
-      "hash": "f08dc68723bc6bf662801d2467aeda6cc8cb300b96b0386101b7a32170f8ae63",
-      "size": 12930,
-      "modified": "2026-06-21T13:12:59.191Z",
-      "analyzedAt": "2026-06-21T13:14:16.614Z",
+      "hash": "cdeafbebbc8af268875381f7234b8241da31f17f890b02f92058d573507b7dec",
+      "size": 14666,
+      "modified": "2026-06-26T23:32:20.191Z",
+      "analyzedAt": "2026-07-02T16:25:52.263Z",
       "status": "success"
     },
     "proposals\\health-cheker.md": {
@@ -135,10 +135,10 @@
     },
     "src\\auth\\jwt.ts": {
       "relativePath": "src\\auth\\jwt.ts",
-      "hash": "569e7d08fe5d8920eec7ef74e707486a86ef440800b83c357133ca8852f9957d",
-      "size": 1710,
-      "modified": "2026-06-20T21:59:14.720Z",
-      "analyzedAt": "2026-06-20T22:42:19.056Z",
+      "hash": "9649306bbc6ce5c0b683df93db2a9751b330eabb9295a70733fa044ed2be586a",
+      "size": 1992,
+      "modified": "2026-06-30T10:11:58.238Z",
+      "analyzedAt": "2026-07-02T16:25:09.907Z",
       "status": "success"
     },
     "src\\auth\\context.ts": {
@@ -159,10 +159,10 @@
     },
     "src\\auth\\policy.ts": {
       "relativePath": "src\\auth\\policy.ts",
-      "hash": "89c735965bc2969149d7dba78b8f78ff5dc739981c27dcb52f67ebfecd0060f6",
-      "size": 3093,
-      "modified": "2026-06-20T22:34:02.076Z",
-      "analyzedAt": "2026-06-20T22:42:23.534Z",
+      "hash": "7195dc7a762fb7471e94863b41e34d85a6cd8fb81383352ad78a08a86e5e9378",
+      "size": 3609,
+      "modified": "2026-06-22T02:25:23.555Z",
+      "analyzedAt": "2026-07-02T16:25:12.601Z",
       "status": "success"
     },
     "src\\auth\\abac.ts": {
@@ -183,26 +183,26 @@
     },
     "src\\auth\\types.ts": {
       "relativePath": "src\\auth\\types.ts",
-      "hash": "203ba55a0cb66a1f01141c9c713d2784e6f5acbd9b12e2459f5716d0b3e45bd9",
-      "size": 260,
-      "modified": "2026-06-20T21:58:58.936Z",
-      "analyzedAt": "2026-06-20T22:42:53.573Z",
+      "hash": "579c999cfe348befe8392cd27058ed9ecc4aff20194371710f63a17531cb3b20",
+      "size": 754,
+      "modified": "2026-06-30T10:11:58.247Z",
+      "analyzedAt": "2026-07-02T16:25:10.191Z",
       "status": "success"
     },
     "src\\auth\\vault-filter.ts": {
       "relativePath": "src\\auth\\vault-filter.ts",
-      "hash": "2eed0db6c89eb777be19c8d5e5d34d5d7e5c0450ced794d9143e577cca533c46",
-      "size": 4324,
-      "modified": "2026-06-20T22:23:45.500Z",
-      "analyzedAt": "2026-06-20T22:42:54.315Z",
+      "hash": "4f7bfe9024b6baf215e9eee4f6b44ef9cb8d9553d79122acbebf192e59c8de63",
+      "size": 5220,
+      "modified": "2026-06-22T02:06:38.384Z",
+      "analyzedAt": "2026-07-02T16:25:21.119Z",
       "status": "success"
     },
     "src\\auth\\login.ts": {
       "relativePath": "src\\auth\\login.ts",
-      "hash": "61eab7a2fb0788c76abf079a821319119988feaaf1c3c5f5a4b31af857862bf8",
-      "size": 1338,
-      "modified": "2026-06-21T01:29:59.625Z",
-      "analyzedAt": "2026-06-21T01:33:10.271Z",
+      "hash": "57a0a82e98c2077f69ed74f8c54d38af0131382212d45af8abd1e674bfdd2ba8",
+      "size": 1593,
+      "modified": "2026-06-30T10:11:58.241Z",
+      "analyzedAt": "2026-07-02T16:25:09.526Z",
       "status": "success"
     },
     "src\\auth\\user-store.ts": {
@@ -215,10 +215,114 @@
     },
     "src\\ws-server.ts": {
       "relativePath": "src\\ws-server.ts",
-      "hash": "830551f3026f861c8e72f580c88af2aba8f487ae3421ed0755fa4bd65b132fb9",
-      "size": 7584,
-      "modified": "2026-06-21T01:45:11.293Z",
-      "analyzedAt": "2026-06-21T13:14:15.553Z",
+      "hash": "392ea6f86a92f38b352a7bc0bda431192973cf4828088cbd8eba2f0f61d35cc1",
+      "size": 9364,
+      "modified": "2026-06-30T18:24:56.545Z",
+      "analyzedAt": "2026-07-02T16:25:43.581Z",
+      "status": "success"
+    },
+    "err.txt": {
+      "relativePath": "err.txt",
+      "hash": "23d3fe52d3cb24778b0aa3b8170a8894f6ba4973b3ef539269f07a131a47fedf",
+      "size": 31,
+      "modified": "2026-06-28T18:43:06.179Z",
+      "analyzedAt": "2026-07-02T16:25:02.766Z",
+      "status": "success"
+    },
+    "ui\\README.md": {
+      "relativePath": "ui\\README.md",
+      "hash": "fa8aac78b8be1993010b57f41000a243ecba006f6731513fe4ec91e788bf2517",
+      "size": 1278,
+      "modified": "2026-06-30T18:04:45.221Z",
+      "analyzedAt": "2026-07-02T16:25:37.900Z",
+      "status": "success"
+    },
+    "ui\\src\\lib\\utils.ts": {
+      "relativePath": "ui\\src\\lib\\utils.ts",
+      "hash": "0c97f5ec0478867d5369a4369f811e1b779c7f2548f671ef252f1503a6392d9d",
+      "size": 166,
+      "modified": "2026-06-30T18:07:56.454Z",
+      "analyzedAt": "2026-07-02T16:25:40.195Z",
+      "status": "success"
+    },
+    "ui\\postcss.config.js": {
+      "relativePath": "ui\\postcss.config.js",
+      "hash": "190c877db466995bf1482f4a16abd06e04a89ede3119341e2a86ff96e1737b27",
+      "size": 80,
+      "modified": "2026-06-30T18:07:11.484Z",
+      "analyzedAt": "2026-07-02T16:25:42.368Z",
+      "status": "success"
+    },
+    "ui\\src\\main.tsx": {
+      "relativePath": "ui\\src\\main.tsx",
+      "hash": "6e9e5807fcbd48b75a96db5cbef36c996262196be42e6d4760dc86babbe61ad2",
+      "size": 230,
+      "modified": "2026-06-30T18:04:46.503Z",
+      "analyzedAt": "2026-07-02T16:25:42.726Z",
+      "status": "success"
+    },
+    "ui\\src\\App.tsx": {
+      "relativePath": "ui\\src\\App.tsx",
+      "hash": "a69210cefd0481f7dd991b405ab63371ba1fad2bac88734a8d11a5ddd1c78f5e",
+      "size": 1409,
+      "modified": "2026-06-30T18:11:49.334Z",
+      "analyzedAt": "2026-07-02T16:25:46.589Z",
+      "status": "success"
+    },
+    "ui\\src\\lib\\ws.ts": {
+      "relativePath": "ui\\src\\lib\\ws.ts",
+      "hash": "f177e8d6091ee743c2fc3e1a8698b1e399cabd1818939f02b64319954207fd71",
+      "size": 1568,
+      "modified": "2026-06-30T18:07:52.479Z",
+      "analyzedAt": "2026-07-02T16:25:47.033Z",
+      "status": "success"
+    },
+    "src\\registry.ts": {
+      "relativePath": "src\\registry.ts",
+      "hash": "22b409c29259a78c35b4ce355fb4348685e74ff0bdf1587adcb51ff80f3a32f7",
+      "size": 2507,
+      "modified": "2026-06-28T17:59:45.120Z",
+      "analyzedAt": "2026-07-02T16:25:52.212Z",
+      "status": "success"
+    },
+    "ui\\src\\pages\\Login.tsx": {
+      "relativePath": "ui\\src\\pages\\Login.tsx",
+      "hash": "ac4c56d2b26ebe508ab062796f9e903c8e239c5d38a3bc4ed4b3b6f557f91d6b",
+      "size": 4767,
+      "modified": "2026-06-30T18:08:14.905Z",
+      "analyzedAt": "2026-07-02T16:26:01.655Z",
+      "status": "success"
+    },
+    "ui\\tailwind.config.js": {
+      "relativePath": "ui\\tailwind.config.js",
+      "hash": "5d7771794a4659b1bcb3939cd6a199f924e3cb6adc66d39eb4e44ddcb5d8a737",
+      "size": 184,
+      "modified": "2026-06-30T18:07:18.231Z",
+      "analyzedAt": "2026-07-02T16:26:02.018Z",
+      "status": "success"
+    },
+    "ui\\vite.config.ts": {
+      "relativePath": "ui\\vite.config.ts",
+      "hash": "4d36db3522a7b2dd10e0936e1004373c7ee65f10f7cd7920cd76410459c15a45",
+      "size": 161,
+      "modified": "2026-06-30T18:04:46.406Z",
+      "analyzedAt": "2026-07-02T16:26:02.736Z",
+      "status": "success"
+    },
+    "ui\\src\\pages\\Layout.tsx": {
+      "relativePath": "ui\\src\\pages\\Layout.tsx",
+      "hash": "f1f03bb57d97a48a1bbfcaf4683ec606c8857e7a62402b7e3c3461eea5cf3bd4",
+      "size": 2321,
+      "modified": "2026-06-30T18:28:45.554Z",
+      "analyzedAt": "2026-07-02T16:26:03.228Z",
+      "status": "success"
+    },
+    "ui\\src\\pages\\Chat.tsx": {
+      "relativePath": "ui\\src\\pages\\Chat.tsx",
+      "hash": "0e17388b13d7b25b8b4f437ae84428b1de986cd6ef25efcee031e4867191c94a",
+      "size": 11427,
+      "modified": "2026-06-30T18:08:58.290Z",
+      "analyzedAt": "2026-07-02T16:26:04.156Z",
       "status": "success"
     }
   }

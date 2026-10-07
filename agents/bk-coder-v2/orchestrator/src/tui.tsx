@@ -23,11 +23,13 @@ import TextInput                                            from 'ink-text-input
 import * as path                                           from 'node:path';
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
 import { RunStore, type RunState, type StepResult }        from './run-store.js';
-import { TaskPlanner, type TaskPlan }                      from './planner.js';
 import { PlanExecutor, type ExecutionResult }              from './executor.js';
-import { OpenAICompatibleProvider, callLLM }               from './provider.js';
 import { buildRAG }                                        from './rag.js';
-import { matchFlow, flowToTaskPlan, loadFlow }             from './static-flow.js';
+import {
+    TaskPlanner, type TaskPlan,
+    OpenAICompatibleProvider, callLLM,
+    matchFlow, flowToTaskPlan, loadFlow,
+} from '@backendkit-labs/orchestrator-agent';
 import { WorkspaceManager }                                from '../../workspace-manager-project/dist/WorkspaceManager.js';
 import { PhaseRunner }                                     from './phase-runner.js';
 import { generateDesign }                                  from './design.js';
@@ -544,6 +546,7 @@ function App({ configPath, config, store, rag }: AppProps) {
             config,
             ragSearchFn:  rag?.search,
             projectRoot:  activeRootRef.current,   // ref: siempre el valor actual, sin closure estale
+            configDir:    path.dirname(path.resolve(configPath)),
             onProgress: (msg) => { progressBuf.current.push(msg); },
         });
 
@@ -585,7 +588,7 @@ function App({ configPath, config, store, rag }: AppProps) {
             setExecutingId(null);
             pollRuns();
         }
-    }, [config, rag, store, pollRuns]);
+    }, [config, configPath, rag, store, pollRuns]);
 
     // ── Start new run ─────────────────────────────────────────────────────────
     const startRun = useCallback(async (task: string, flowId: string) => {

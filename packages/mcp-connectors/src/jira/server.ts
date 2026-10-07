@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { runMcpServer, parseCliArgs } from '../shared/server-runner.js';
+import { fetchJson } from '../shared/http-client.js';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ const BASE = `https://${HOST}/rest/api/3`;
 const AUTH = Buffer.from(`${EMAIL}:${TOKEN}`).toString('base64');
 
 async function jira<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${BASE}${path}`, {
+    return fetchJson<T>('Jira', `${BASE}${path}`, {
         method,
         headers: {
             'Authorization': `Basic ${AUTH}`,
@@ -28,11 +29,6 @@ async function jira<T>(method: string, path: string, body?: unknown): Promise<T>
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 204) return undefined as T;
-    if (!res.ok) {
-        throw new Error(`Jira ${method} ${path.split('?')[0]} → ${res.status}: ${await res.text()}`);
-    }
-    return res.json() as Promise<T>;
 }
 
 // Atlassian Document Format (ADF) → plain text
@@ -63,7 +59,7 @@ function buildServer(): McpServer {
         'Search Jira issues using JQL (Jira Query Language). Returns key, summary, status, and assignee.',
         {
             jql:   z.string().describe('JQL query (e.g. "project=PROJ AND status=\\"In Progress\\"")'),
-            limit: z.number().optional().describe('Max results (default 20)'),
+            limit: z.number().min(1).max(100).optional().describe('Max results (default 20, max 100)'),
         },
         async ({ jql, limit }: { jql: string; limit?: number }) => {
             const data = await jira<{

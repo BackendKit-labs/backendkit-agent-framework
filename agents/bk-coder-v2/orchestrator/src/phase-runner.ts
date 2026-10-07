@@ -7,6 +7,7 @@ import type { PhaseState, QaVerdict, StepResult } from './run-store.js';
 import { runProjectChecks, type ExecutionReport } from './command-runner.js';
 import { updateProgressSummary, type PhaseContext } from './context-reader.js';
 import { callMcpTool }                             from './mcp-client.js';
+import { snapshotFiles, diffSnapshots, extractDeclaredFiles, buildScopeReport } from './scope-guard.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -216,6 +217,10 @@ export class PhaseRunner {
 
         const phaseCtx = { number: phase.number, title: phase.title, criteria: phase.criteria };
 
+        // Scope guard: snapshot before the agent touches anything, so we can tell
+        // afterward what it actually changed vs. what the phase declared.
+        const filesBefore = snapshotFiles(this.projectRoot);
+
         let implOutput = await this.callAgent(
             implementer.id,
             'implement_phase',
@@ -249,6 +254,51 @@ export class PhaseRunner {
             agentId: implementer.id, task: `Implementar Fase ${phase.number}: ${phase.title}`,
             output: implOutput, success: true, durationMs: 0,
         });
+
+        // ── 1.5 SCOPE GUARD (deterministic) ───────────────────────────────────
+        // Compares what actually changed on disk against "Files to create" in the
+        // ROADMAP. Deletions (any vector — write_file overwrite side effects, a
+        // shell command that slipped past the blocklist, etc.) are an automatic
+        // NO_GO: nothing about an SDD phase should ever remove existing files.
+        // Extra files touched (not declared, not deleted) don't block — they're
+        // folded into the QA context below so a human/QA judgment call decides.
+        const filesAfter   = snapshotFiles(this.projectRoot);
+        const scopeDiff     = diffSnapshots(filesBefore, filesAfter);
+        const declaredFiles = extractDeclaredFiles(phase.body);
+        const scopeReport   = buildScopeReport(scopeDiff, declaredFiles);
+
+        if (scopeReport.hasDeletions) {
+            const verdict: QaVerdict = 'NO_GO';
+            state.verdict    = verdict;
+            state.qaFindings = scopeReport.summary;
+
+            const autoReport = [
+                `# QA Report — Fase ${phase.number} (automático — scope guard)`,
+                `**Veredicto:** ❌ NO GO (archivos borrados durante la fase)`,
+                '',
+                scopeReport.summary ?? '',
+                '',
+                'VERDICT: NO_GO',
+            ].join('\n');
+
+            collectStep({
+                stepId:  `qa-p${phase.number}${state.reworkCount > 0 ? `-rw${state.reworkCount}` : ''}`,
+                agentId: 'scope-guard', task: `Scope check Fase ${phase.number}: ${phase.title}`,
+                output:  autoReport, success: false, durationMs: 0,
+            });
+
+            this.onProgress(`  ❌ NO GO — el agente borró archivos (ver detalle en el gate)`);
+
+            return {
+                type: 'phase-gate', phase: phase.number, phaseTitle: phase.title,
+                verdict, qaOutput: autoReport, criteria: phase.criteria,
+                allowRework: true,
+            };
+        }
+
+        if (scopeReport.summary) {
+            this.onProgress(`  ⚠ scope: archivos fuera de lo declarado — se lo paso al QA`);
+        }
 
         // ── 2. BUILD + TEST (execution gate — deterministic) ─────────────────
         // The execution result IS the verdict. If build/tests fail → NO_GO.
@@ -290,7 +340,8 @@ export class PhaseRunner {
 
             return {
                 type: 'phase-gate', phase: phase.number, phaseTitle: phase.title,
-                verdict, qaOutput: autoReport, criteria: phase.criteria,
+                verdict, qaOutput: await this.maybeAnnotateWithTriage(state, phase.title, autoReport),
+                criteria: phase.criteria,
                 allowRework: true, executionReport: execReport,
             };
         }
@@ -303,10 +354,17 @@ export class PhaseRunner {
             ? `\n## Resultado de ejecución real (build + tests)\n${execReport.summary}\n`
             : '';
 
+        const scopeContext = scopeReport.summary
+            ? `\n## Scope guard — archivos tocados fuera de lo declarado\n${scopeReport.summary}\n` +
+              `Evaluá si esto está justificado (ej: un archivo compartido que realmente necesitaba cambiar) ` +
+              `o es un indicio de que el agente se salió de la tarea.\n`
+            : '';
+
         const qaTask =
             `Validá la implementación de la Fase ${phase.number}: "${phase.title}" contra la specification.md.\n\n` +
             `Criterios de esta fase a verificar:\n${phase.criteria.map(c => `- ${c}`).join('\n')}` +
             execContext +
+            scopeContext +
             `\nGenerá el reporte qa-phase${phase.number}.md.\n` +
             `Terminá SIEMPRE con una línea exacta: VERDICT: GO | VERDICT: NO_GO | VERDICT: CONDITIONAL`;
 
@@ -332,9 +390,34 @@ export class PhaseRunner {
         // ── 4. GATE ───────────────────────────────────────────────────────────
         return {
             type: 'phase-gate', phase: phase.number, phaseTitle: phase.title,
-            verdict, qaOutput, criteria: phase.criteria,
+            qaOutput: verdict === 'GO' ? qaOutput : await this.maybeAnnotateWithTriage(state, phase.title, qaOutput),
+            verdict, criteria: phase.criteria,
             allowRework: true, executionReport: execReport,
         };
+    }
+
+    /**
+     * Stuck-loop triage (advisory only). After 2+ reworks the phase already
+     * failed mechanically twice — before showing the human a 3rd near-identical
+     * gate (whether from build/test or QA), ask for a read on whether this looks
+     * like a resolvable detail or a mis-scoped phase. Purely informational:
+     * annotates the gate text, never changes the verdict or advances/rejects on
+     * its own — the human still decides via orchestrator_approve.
+     */
+    private async maybeAnnotateWithTriage(state: PhaseState, phaseTitle: string, gateText: string): Promise<string> {
+        const history = state.reworkHistory ?? [];
+        if (history.length < 2) return gateText;
+
+        this.onProgress(`  🔎 [triage] ${history.length} reworks seguidos NO_GO — pidiendo diagnóstico...`);
+        const { triageFailure } = await import('./triage.js');
+        const triage = await triageFailure(this.config, { kind: 'stuck-rework', phaseTitle, reworkHistory: history });
+
+        const suggestionLabel = triage.action === 'retry' ? 'intentar de nuevo'
+            : triage.action === 'fail' ? 'no seguir insistiendo'
+            : 'revisar con criterio humano';
+
+        return `${gateText}\n\n---\n### 🔎 Diagnóstico automático (${history.length} reworks seguidos)\n` +
+            `**Sugerencia:** ${suggestionLabel}\n\n${triage.message}`;
     }
 
     /**
@@ -346,6 +429,7 @@ export class PhaseRunner {
         if (decision === 'rework') {
             state.reworkCount += 1;
             state.qaFindings   = qaOutput;
+            state.reworkHistory = [...(state.reworkHistory ?? []), qaOutput];
             state.stage        = 'implement';
             return;
         }
@@ -360,9 +444,10 @@ export class PhaseRunner {
             );
         }
 
-        state.qaFindings  = undefined;
-        state.reworkCount = 0;
-        state.verdict     = undefined;
+        state.qaFindings    = undefined;
+        state.reworkCount   = 0;
+        state.reworkHistory = undefined;
+        state.verdict       = undefined;
         if (state.currentPhase < this.phases.length) {
             state.currentPhase += 1;
             state.phaseTitle = this.phases[state.currentPhase - 1].title;

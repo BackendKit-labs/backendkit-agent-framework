@@ -105,6 +105,43 @@ describe('pay', () => {
         expect(result).toMatch(/tope por operación/);
     });
 
+    it('surfaces the remaining budget on every decision, not just authorized', async () => {
+        (fetch as jest.Mock)
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    decision: 'denied',
+                    reasons: ['$0,90 supera el tope por operación de $0,80.'],
+                    budget: { remainingToday: 2_500_000, remainingTotal: 39_000_000 },
+                }),
+            )
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    decision: 'authorized',
+                    authorizationId: 'auth_9',
+                    rail: 'proxy',
+                    reasons: [],
+                    amount: 300000,
+                    budget: { remainingToday: 1_000_000, remainingTotal: 20_000_000 },
+                }),
+            );
+        const ctx = makeCtx({ secrets: { AVAL_KEY: 'k' } });
+
+        const denied = await pay.execute({ counterparty: 'tarifas.aduana', ceilingUsd: 0.9, purpose: 'x' }, ctx);
+        expect(denied).toMatch(/Presupuesto restante: \$2\.50 hoy, \$39\.00 en total\./);
+
+        const authorized = await pay.execute({ counterparty: 'ocr.docs', ceilingUsd: 0.3, purpose: 'y' }, ctx);
+        expect(authorized).toMatch(/Presupuesto restante: \$1\.00 hoy, \$20\.00 en total\./);
+    });
+
+    it('omits the budget line when AVAL does not send one', async () => {
+        (fetch as jest.Mock).mockResolvedValueOnce(jsonResponse(200, { decision: 'denied', reasons: ['x'] }));
+        const result = await pay.execute(
+            { counterparty: 'ocr.docs', ceilingUsd: 0.1, purpose: 'x' },
+            makeCtx({ secrets: { AVAL_KEY: 'k' } }),
+        );
+        expect(result).not.toMatch(/Presupuesto/);
+    });
+
     it('surfaces rate limiting with the retry window', async () => {
         (fetch as jest.Mock).mockResolvedValueOnce(
             jsonResponse(429, { error: 'Demasiados intentos.', retryAfterSeconds: 57 }),

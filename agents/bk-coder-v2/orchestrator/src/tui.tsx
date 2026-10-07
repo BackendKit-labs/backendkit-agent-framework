@@ -203,7 +203,7 @@ function RunDetail({ run, isExecuting, progressLines, qaAnalysis, qaAnalyzing, s
                     <Box marginTop={1} gap={3}>
                         <Text color="green" bold>[A] Aprobar{isPhaseGate ? ' y avanzar' : ''}</Text>
                         {isPhaseGate && gate.allowRework && <Text color="yellow" bold>[W] Rework</Text>}
-                        {isPhaseGate && <Text color="magenta" bold>[Q] Consultar QA</Text>}
+                        {isPhaseGate && <Text color="magenta" bold>[C] Consultar QA</Text>}
                         <Text color="red" bold>[X] Rechazar</Text>
                     </Box>
                 </Box>
@@ -942,7 +942,7 @@ function App({ configPath, config, store, rag }: AppProps) {
             const run = runs[selectedIdx];
             if (run?.status === 'waiting_gate' && run.phaseState) reworkGate(run);
         }
-        if ((input === 'q' || input === 'Q') && !executingId && !qaAnalyzing) {
+        if ((input === 'c' || input === 'C') && !key.ctrl && !executingId && !qaAnalyzing) {
             const run = runs[selectedIdx];
             if (run?.status === 'waiting_gate' && run.phaseState) {
                 setQaQuestion(''); setQaAnalysis(''); setView('qa-question');

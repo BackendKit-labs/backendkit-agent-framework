@@ -32,7 +32,7 @@
     "node-cron": "^3.0.0"
   },
   "devDependencies": {
-    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-core": "^0.24.0",
     "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^20.0.0",

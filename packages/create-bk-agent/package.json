@@ -23,7 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": "^0.22.0"
+    "@backendkit-labs/agent-core": "^0.24.0"
   },
   "peerDependenciesMeta": {
     "@backendkit-labs/agent-core": { "optional": true }

@@ -172,13 +172,13 @@ export class KubernetesRuntime implements AgentRuntime {
                             } : undefined,
                             // Liveness + readiness use the /health endpoint every agent exposes
                             livenessProbe: {
-                                httpGet: { path: '/health', port: containerPort as unknown as object },
+                                httpGet: { path: '/health', port: containerPort },
                                 initialDelaySeconds: 15,
                                 periodSeconds:       20,
                                 failureThreshold:    3,
                             },
                             readinessProbe: {
-                                httpGet: { path: '/health', port: containerPort as unknown as object },
+                                httpGet: { path: '/health', port: containerPort },
                                 initialDelaySeconds: 5,
                                 periodSeconds:       5,
                             },
@@ -215,7 +215,7 @@ export class KubernetesRuntime implements AgentRuntime {
             spec: {
                 type:     this.serviceType,
                 selector: { app: name },
-                ports:    [{ port: containerPort, targetPort: containerPort as unknown as object, protocol: 'TCP' }],
+                ports:    [{ port: containerPort, targetPort: containerPort, protocol: 'TCP' }],
             },
         };
 

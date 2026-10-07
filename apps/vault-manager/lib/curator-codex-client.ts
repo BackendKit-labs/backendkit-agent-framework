@@ -14,8 +14,13 @@ export interface CurateResult {
     durationMs:       number;
 }
 
+/**
+ * Forma de un resultado del buscador del curator: es la de RagSearchResult en
+ * packages/curator-codex-agent/src/knowledge/rag-provider.ts (lo que devuelve KnowledgeEngine.search), y la que
+ * consumen app/api/search/route.ts y vault-browser.tsx (relevance, sourcePath).
+ */
 export interface SearchResult {
-    results: { id: string; score: number; title: string; content: string; metadata?: Record<string, unknown> }[];
+    results: { title: string; content: string; relevance: number; sourcePath: string; sourceRef?: string }[];
     synthesized?: string | null;
 }
 

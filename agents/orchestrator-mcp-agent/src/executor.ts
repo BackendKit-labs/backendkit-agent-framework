@@ -84,7 +84,7 @@ export class FlowExecutor {
                 }
             }
 
-            this.onProgress(`[${flow.id}] step ${step.id} → agent ${step.agentId ?? step.agent}`);
+            this.onProgress(`[${flow.id}] step ${step.id} → agent ${step.agent}`);
             if (onStepStart) await onStepStart(step.id, step.agent, step.task ?? '');
 
             const result = await this.runStep(step, input, completed, context);

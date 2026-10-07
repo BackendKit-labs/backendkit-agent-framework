@@ -22,10 +22,10 @@ import { auditLogger }          from "./audit.js";
 const GATEWAY_URL = (process.env.GATEWAY_URL ?? "http://localhost:3400").replace(/\/$/, "");
 const API_KEY     = process.env.GATEWAY_API_KEY;
 
-const log = (msg) => process.stderr.write(`[fleet-agent] ${msg}\n`);
+const log = (msg: string) => process.stderr.write(`[fleet-agent] ${msg}\n`);
 
-async function gw(method, path, body, timeoutMs = 30_000) {
-    const headers = { "Content-Type": "application/json" };
+async function gw(method: string, path: string, body?: unknown, timeoutMs = 30_000) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
     const res = await fetch(`${GATEWAY_URL}${path}`, {
         method, headers,
@@ -36,18 +36,17 @@ async function gw(method, path, body, timeoutMs = 30_000) {
     try { return JSON.parse(text); } catch { return { raw: text, status: res.status }; }
 }
 
-const ok  = (data) => ({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
-const err = (e)    => ({ content: [{ type: "text", text: `Error: ${e?.message ?? String(e)}` }] });
+const ok  = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
+const err = (e: unknown) => ({ content: [{ type: "text" as const, text: `Error: ${(e as Error)?.message ?? String(e)}` }] });
 
 const srv = new McpServer({ name: "@backendkit-labs/fleet-agent", version: "0.1.0" });
-const t = srv.tool.bind(srv);
 
-t("list_deployments",
+srv.tool("list_deployments",
     "List all agent containers currently managed by Docker or Kubernetes.",
     {},
     async () => { try { return ok(await gw("GET", "/api/deploy")); } catch (e) { return err(e); } });
 
-t("deploy_agent",
+srv.tool("deploy_agent",
     "Deploy an agent as a Docker/Kubernetes container and register it in the orchestrator pool.",
     {
         id:          z.string(),
@@ -77,7 +76,7 @@ t("deploy_agent",
         }
     });
 
-t("stop_agent",
+srv.tool("stop_agent",
     "Stop all containers for an agent and remove it from the pool.",
     { agent_id: z.string() },
     async ({ agent_id }) => {
@@ -92,12 +91,12 @@ t("stop_agent",
         }
     });
 
-t("deploy_settings",
+srv.tool("deploy_settings",
     "Get fleet deployment settings: vault host path and runtime type (docker or kubernetes).",
     {},
     async () => { try { return ok(await gw("GET", "/api/deploy/settings")); } catch (e) { return err(e); } });
 
-t("fleet_health",
+srv.tool("fleet_health",
     "Check gateway connectivity and health status of all registered agents.",
     {},
     async () => { try { return ok(await gw("GET", "/api/health")); } catch (e) { return err(e); } });

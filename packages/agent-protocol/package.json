@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-protocol",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent HTTP Protocol v1 — server + client + resilience for backendkit agent infrastructure",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

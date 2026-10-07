@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-enterprise",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Business agents with local LLM and RAG knowledge base for agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

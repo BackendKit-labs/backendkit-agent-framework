@@ -1,0 +1,44 @@
+---
+title: "Welcome to BackendKit"
+description: "A model-agnostic, transport-agnostic multi-agent engine for coding assistants, autonomous agents, domain specialists, and MCP servers."
+---
+
+<Tip>
+  New here? Jump straight to the [Quickstart](/getting-started/quickstart) — `npx create-bk-agent my-project` gets you a running agent in under a minute.
+</Tip>
+
+BackendKit is a TypeScript monorepo built around one idea: **the engine that talks to an LLM, runs tools, and delegates to specialists should not know anything about your domain.** Whether you're building a coding assistant, an autonomous ops agent, or a finance department's specialist team, the same `AgentEngine` underneath assembles agents, tools, providers, memory, and orchestration the same way.
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="cube" href="/concepts/agent-engine">
+    How `AgentEngine`, `AgentProfile`, and the `Orchestrator` fit together.
+  </Card>
+  <Card title="Packages" icon="box-archive" href="/packages/agent-core">
+    Browse the SDK — `agent-core`, `agent-coding`, `agent-enterprise`, and more.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Scaffold a new agent with `create-bk-agent` in one command.
+  </Card>
+  <Card title="MCP Integration" icon="plug" href="/concepts/mcp-integration">
+    Connect external MCP servers as first-class delegatable agents.
+  </Card>
+</CardGroup>
+
+## The SDK, at a glance
+
+| Package | Status | What it does |
+|---|---|---|
+| [`@backendkit-labs/agent-core`](/packages/agent-core) | **core** | The generic engine — model-agnostic, transport-agnostic |
+| [`@backendkit-labs/agent-enterprise`](/packages/agent-enterprise) | **core** | RAG + vault writing for enterprise / department-scoped deployments |
+| [`@backendkit-labs/agent-coding`](/packages/agent-coding) | **stable** | 10 builtin coding specialists, file tools, git integration, LLM providers |
+| `@backendkit-labs/agent-web` | **stable** | HTTP/WebSocket server layer — sessions, triggers, monitoring |
+| [`@backendkit-labs/orchestrator-agent`](/packages/orchestrator-agent) | **stable** | Config-driven task decomposition — an LLM (or a static YAML shortcut) breaks one task into a DAG of subtasks |
+| `@backendkit-labs/mcp-connectors` | **stable** | HubSpot, Jira, Google Calendar, Odoo, and vault-search MCP connectors |
+
+<Note>
+  **Status matters.** `core` packages are reviewed before any change; `stable` packages work and are maintained but won't expand during the pilot phase; `experimental` packages are frozen and may change based on pilot usage. Check a package's guide for its current status before depending on it.
+</Note>
+
+## Why one engine, not one engine per use case
+
+A recurring theme in this codebase: **don't build a second orchestration engine when the first one just needs a small, additive extension.** The `Orchestrator`'s gate system was recently generalized to support open-ended, named gates (not just the three built-in `architecture`/`security`/`qa` reviews) — because a finance or HR vertical needs its own gate names, not a fork of the orchestrator. See [Orchestrator](/concepts/orchestrator) for how that works.

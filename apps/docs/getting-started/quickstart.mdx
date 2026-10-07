@@ -1,0 +1,78 @@
+---
+title: "Quickstart"
+description: "Scaffold and run your first BackendKit agent in under a minute."
+---
+
+```bash
+npx create-bk-agent my-project
+```
+
+The CLI walks you through a few prompts, then scaffolds a ready-to-run project.
+
+## 1. Pick an architecture
+
+<AccordionGroup>
+  <Accordion title="Multi-agent — orchestrator delegates to specialized sub-agents">
+    Best for complex domains (e.g. a git agent split into commit / branch / merge / recovery specialists).
+  </Accordion>
+  <Accordion title="Single agent — one agent handles all requests with tools">
+    Best for focused single-domain tasks and quick prototypes.
+  </Accordion>
+  <Accordion title="Coding assistant — 10 pre-built agents for software dev">
+    General, coder, backend, frontend, qa-engineer, security, architecture, infrastructure, data, project-manager. Just add an API key and run.
+  </Accordion>
+  <Accordion title="Autonomous daemon — cron / webhook triggers, no human input">
+    Best for background monitoring, alerts, and automated reports.
+  </Accordion>
+  <Accordion title="Minimal / embedded — bare engine factory, full control">
+    Best for embedding in an existing app or a custom architecture.
+  </Accordion>
+  <Accordion title="Enterprise — local LLM + Obsidian knowledge base">
+    RAG over your company docs, runs entirely on-premise — no cloud required.
+  </Accordion>
+  <Accordion title="Orchestrator — multi-step workflows with approval gates">
+    Static flows triggered by task patterns, with dynamic LLM planning as a fallback.
+  </Accordion>
+</AccordionGroup>
+
+## 2. Pick skill packs (optional)
+
+Node.js/TypeScript, Python, Go, and Docker/K8s skill packs are available — each adds domain-specific triggers and tool knowledge (e.g. `npm`/`jest`/`tsc` for Node, `pytest`/`ruff`/`mypy` for Python).
+
+## 3. Pick a deploy mode
+
+Terminal REPL for interactive use, MCP server (HTTP or stdio) so other agents can connect to yours, or library mode to embed the engine directly in your own process.
+
+## 4. Pick a provider
+
+`anthropic`, `openai`, `deepseek`, or `ollama` for a fully local setup.
+
+## Run it
+
+```bash
+cd my-project
+cp .env.example .env   # add your API key
+npm install
+npm run dev
+```
+
+<Tip>
+  Picked **Coding assistant**? You get all 10 builtin specialists immediately — try asking it to review a file or write a test without touching any config.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Build your first agent" icon="hammer" href="/getting-started/first-agent">
+    A full walkthrough — real prompts, running it, growing it with `add specialist`/`add tools`, deploying it.
+  </Card>
+  <Card title="See the real generated code" icon="code" href="/getting-started/agent-types">
+    What each architecture above actually writes to disk, file by file.
+  </Card>
+  <Card title="How the engine assembles" icon="cube" href="/concepts/agent-engine">
+    `AgentEngine`, `AgentProfile`, and `createBaseEngine` — the primitives every architecture above is built from.
+  </Card>
+  <Card title="Orchestrator gates" icon="shield-check" href="/concepts/orchestrator">
+    How review/approval gates work, and how to add your own beyond architecture/security/qa.
+  </Card>
+</CardGroup>

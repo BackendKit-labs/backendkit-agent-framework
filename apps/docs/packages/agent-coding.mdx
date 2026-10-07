@@ -1,0 +1,88 @@
+---
+title: "@backendkit-labs/agent-coding"
+description: "10 builtin coding specialists, file tools, git integration, LLM providers. Status: stable."
+---
+
+<Note>
+  **Status: `stable`.** Works and is maintained; won't be expanded during the pilot phase.
+</Note>
+
+```bash
+npm install @backendkit-labs/agent-core @backendkit-labs/agent-coding
+```
+
+## The 10 builtin agents
+
+| Agent | Role |
+|---|---|
+| `project-manager` | Coordinates the `/init` workflow — produces `design.md`, `specification.md`, `security.md`, `roadmap.md`, `AGENT.md` |
+| `general` | Orchestrator — analyzes requests and delegates |
+| `coder` | Pure implementation — writes files, runs commands, executes plans |
+| `backend` | APIs, controllers, services, ORMs, migrations |
+| `frontend` | React, Vue, components, CSS |
+| `qa-engineer` | Unit, integration, e2e tests |
+| `security` | OWASP, vulnerabilities, auth, hardening |
+| `architecture` | System design, DDD, microservices, ADRs |
+| `infrastructure` | Docker, Kubernetes, CI/CD, Terraform |
+| `data` | SQL, indexes, ETL, pipelines |
+
+All 10 are technology-agnostic prompts — no stack is hardcoded into them. Stack detection (`detectProjectStack`) injects the actual project's stack into every agent's context, so the same `backend` agent works on a Go project or a NestJS one.
+
+## `createCodingEngine`
+
+```ts
+import { createCodingEngine } from '@backendkit-labs/agent-coding';
+
+const engine = createCodingEngine({
+  providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+  defaultProvider: 'anthropic',
+  workingDir: process.cwd(),
+  transport: myTransport,
+});
+```
+
+This does considerably more than `createBaseEngine` — it also wires:
+
+- **`AgentLoader`** — merges builtin agents with `~/.{appName}/agents/` (global) and `{cwd}/.{appName}/agents/` (project) JSON+MD overrides.
+- **Provider instantiation** from plain config — pass API keys, get `LLMProvider` instances back (Anthropic, Ollama, or any OpenAI-compatible endpoint).
+- **Persistent memory + episodic summarization**, unless `disablePersistence: true`.
+- **Skills** — the 3-layer system, plus 4 language packs (Node, Go, Java/Kotlin, Python).
+- **`Orchestrator` + `CapabilityMatrix` + `QAService` + `ReflectionEngine`**, opt-in via `orchestration: true`.
+
+## Tool tiers
+
+```ts
+const READ_ONLY_TOOLS = ['read_file', 'list_directory', 'search_files', ...MEMORY_TOOLS];
+const EXEC_TOOLS       = [...READ_ONLY_TOOLS, 'run_command'];
+const WRITE_TOOLS      = [...EXEC_TOOLS, 'write_file', 'edit_file'];
+```
+
+Most specialists get `WRITE_TOOLS`. `data` gets `EXEC_TOOLS` only (no direct file writes). `general` gets `ORCHESTRATOR_TOOLS` — memory + navigation, no file/exec access, since it should be delegating rather than doing.
+
+## Activating the orchestration pipeline
+
+```ts
+createCodingEngine({
+  ...opts,
+  orchestration: {
+    enableQA: true,             // auto-review after high-risk responses
+    capabilityMatrix: CODING_CAPABILITY_MATRIX,
+  },
+});
+```
+
+Reflection defaults to `true` once orchestration is on — the feedback loop (findings → catalog → patterns → promoted policy rules) runs automatically, connected to the `ReflectionEngine`.
+
+## Running headless
+
+For MCP servers or CI, disable everything that touches disk state outside the working directory:
+
+```ts
+createCodingEngine({
+  ...opts,
+  defaultAgent: 'qa-engineer',
+  disablePersistence: true,
+});
+```
+
+This is the exact pattern `packages/mcp-server`-based specialist servers use — one `createCodingEngine` call per isolated process, pinned to a single specialist agent.

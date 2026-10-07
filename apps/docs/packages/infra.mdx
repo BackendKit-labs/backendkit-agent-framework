@@ -1,0 +1,44 @@
+---
+title: "@backendkit-labs/infra"
+description: "One root directory, one resolver function — where every platform component's state lives."
+---
+
+```bash
+npm install @backendkit-labs/infra
+```
+
+Two functions and a well-known-paths map. That's the whole package.
+
+## `getBkHome()` — one root for everything
+
+```ts
+import { getBkHome, bkPaths } from '@backendkit-labs/infra';
+
+getBkHome();  // BK_HOME env var, or ~/.backendkit/ by default
+```
+
+Every platform component derives its paths from this single root instead of hardcoding `~/.something/` locally. `bkPaths` covers the well-known ones so nobody hand-builds a path string:
+
+```ts
+bkPaths.vault('my-project')        // ~/.backendkit/vaults/my-project
+bkPaths.sharedVault()               // ~/.backendkit/vaults/shared
+bkPaths.data('orchestrator')        // ~/.backendkit/data/orchestrator
+bkPaths.memoryEpisodic()            // ~/.backendkit/memory/episodic.json
+bkPaths.orchestratorMcpConfig()     // ~/.backendkit/config/orchestrator-mcp.yaml
+```
+
+<Note>
+  `~/.bk-agent/` (used by `agent-coding`'s `createCodingEngine` for its own agents/skills/sessions) is a **separate** directory, not unified with `BK_HOME` yet. The two coexist until `bk-agent` migrates — don't assume one implies the other.
+</Note>
+
+## `initBkHome()` — first-run setup
+
+Whatever component starts first calls this; every subsequent component can assume `~/.backendkit/` already exists. It's idempotent — safe to call from every component's startup, not just once globally.
+
+```ts
+import { initBkHome, isBkHomeInitialized } from '@backendkit-labs/infra';
+
+if (!(await isBkHomeInitialized())) {
+  await initBkHome();
+}
+```

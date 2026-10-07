@@ -1,0 +1,92 @@
+---
+title: "5. Deploy: REPL or Server"
+description: "The same engine, two entry points — a terminal REPL for the team, or an MCP server other agents can call over HTTP or stdio."
+---
+
+Nothing from [step 4](/examples/marketing-agent/vault) changes — `createEngine(transport)` from `src/engine.ts` already takes a `Transport` as its only parameter, which is exactly the seam both deploy modes below plug into. See [create-bk-agent § How it assembles a project](/packages/create-bk-agent) for how the CLI generates the same two files when you pick these deploy modes yourself instead of writing them by hand.
+
+## REPL — for the marketing team to use directly
+
+```ts src/repl.ts
+import * as readline from 'readline';
+import { CallbackTransport } from '@backendkit-labs/agent-core';
+import { createEngine } from './engine';
+
+const transport = new CallbackTransport((event) => {
+  if (event.type === 'token')        process.stdout.write(event.content);
+  if (event.type === 'tool_call')    console.log(`\n⚙  ${event.name}`);
+  if (event.type === 'agent_switch') console.log(`\n→ ${event.to_name ?? event.to}`);
+  if (event.type === 'block_end')    console.log();
+  if (event.type === 'error')        console.error(`\nError: ${event.message}`);
+});
+
+const engine = createEngine(transport);
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+function prompt() {
+  rl.question('\n> ', async (input) => {
+    const trimmed = input.trim();
+    if (!trimmed || trimmed === '/exit') { rl.close(); return; }
+    await engine.run(trimmed);
+    prompt();
+  });
+}
+
+console.log('Marketing agent ready. Type your request or /exit to quit.\n');
+prompt();
+```
+
+```bash
+npx tsx src/repl.ts
+> Draft a LinkedIn post about the Q3 pricing change and check what our competitors are doing this week
+```
+
+`agent_switch` events print here because `marketing-lead` delegating to a specialist is visible in the transcript — you'll see `→ Copywriter` and `→ SEO Analyst` print as the lead fans work out via `ask_agent`.
+
+## MCP server — for other agents to call yours
+
+Wrap the same engine in [`AgentMCPServer`](/packages/mcp-server) instead, and the marketing agent becomes a tool any other MCP-aware agent (or Claude Desktop, Cursor, VS Code) can call:
+
+```ts src/server.ts
+import 'dotenv/config';
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+import type { CallbackTransport } from '@backendkit-labs/agent-core';
+import { z } from 'zod';
+import { createEngine } from './engine';
+
+const server = new AgentMCPServer({
+  name:    'marketing-agent',
+  version: '1.0.0',
+  port:    parseInt(process.env.MCP_PORT ?? '3001'),
+
+  tools: [
+    {
+      name:        'marketing_request',
+      description: 'Draft social copy, research competitors, or schedule posts.',
+      schema: {
+        request: z.string().describe('Natural-language marketing request'),
+      },
+      buildPrompt: ({ request }: { request: string }) => request,
+    },
+  ],
+
+  engineFactory: (transport: CallbackTransport) => createEngine(transport),
+});
+
+await server.start();
+```
+
+```bash
+npx tsx src/server.ts
+# → MCP server listening on :3001
+```
+
+Each call to `marketing_request` gets a fresh `AgentEngine` via `engineFactory` — state (in-flight tool calls, conversation history) never leaks between two different callers' requests. Swap `.start()` for `.startStdio()` if you want Claude Desktop/Cursor/VS Code to launch it as a local process instead of connecting over HTTP — see [mcp-server](/packages/mcp-server) for the difference.
+
+<Tip>
+  Want both entry points in the same project — `src/repl.ts` for humans, `src/server.ts` for other agents, both built from the same `createEngine` factory but run as two separate processes (`npm run dev` vs. `npm run server`)? That's the `hybrid` deploy mode. See [create-bk-agent](/packages/create-bk-agent) for the full list of deploy modes, including `web` (a full WebSocket chat + kanban UI via `agent-web`, if the marketing team wants a browser instead of a terminal) and `library` (no entry point at all — import `createEngine` directly into whatever process already exists).
+</Tip>
+
+## What you built
+
+Five additive steps, one running agent: [a complete single-tool agent](/examples/marketing-agent/basic) → [memory and brand-voice skills](/examples/marketing-agent/advanced) → [a lead delegating to three specialists](/examples/marketing-agent/multi-agent) → [a scoped knowledge base](/examples/marketing-agent/vault) → deployed here as either a REPL or an MCP server. Every option used along the way — `allowedTools`, `delegatesTo`, `skills`, `memorySystem`, `ObsidianRAGProvider`, `AgentMCPServer` — is documented on its own in [Concepts](/concepts/agent-engine) and [Packages](/packages/agent-core) if you want the full reference for any one piece.

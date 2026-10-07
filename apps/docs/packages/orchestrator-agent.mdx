@@ -1,0 +1,125 @@
+---
+title: "@backendkit-labs/orchestrator-agent"
+description: "Config-driven task decomposition — an LLM (or a static YAML shortcut) breaks one task into a DAG of subtasks, each assigned to a named agent ID. Status: stable."
+---
+
+```bash
+npm install @backendkit-labs/orchestrator-agent
+```
+
+Don't confuse this with the `Orchestrator` class covered in [Orchestrator](/concepts/orchestrator) — that one lives in `agent-core` and does intent/domain/risk/policy classification for a *single* `AgentEngine`'s own roster. This package solves a different problem: given one task description and a list of named agent IDs (each just an id/name/capabilities, not a real `AgentProfile`), decompose it into a dependency-ordered set of subtasks and dispatch each one. It doesn't run an `AgentEngine` itself — dispatching a subtask to `agent_id: "backend"` is somebody else's job; this package only decides *what* to dispatch and *in what order*.
+
+<Note>
+  Only the pieces below are part of the package's public library surface (`src/index.ts`) — `server.ts`, `executor.ts`, `audit.ts`, `config.ts`, and `run-store.ts` are deliberately not re-exported. Some have side effects on import (`server.ts` starts an MCP server the moment it's loaded); the rest are excluded because real consumers are known to fork them for their own divergent behavior, so depending on this package doesn't lock you into one implementation of "how a plan actually executes."
+</Note>
+
+## Planning — `TaskPlanner`
+
+Turns a task description plus a list of available agents into a `TaskPlan`: a `summary` and an array of `SubTask`s with `depends_on` edges between them.
+
+```ts
+import { TaskPlanner } from '@backendkit-labs/orchestrator-agent';
+import type { TaskPlan, SubTask } from '@backendkit-labs/orchestrator-agent';
+
+const planner = new TaskPlanner(myCallLLMFn);   // (system: string, user: string) => Promise<string>
+
+const plan: TaskPlan = await planner.plan(
+  'Add a refund endpoint and write tests for it',
+  [
+    { id: 'backend', name: 'Backend', capabilities: ['api', 'database'], provider: 'default' },
+    { id: 'qa',      name: 'QA',      capabilities: ['testing'],          provider: 'default' },
+  ],
+);
+// plan.subtasks: [{ id: 't1', agent_id: 'backend', task: '...', depends_on: [] },
+//                 { id: 't2', agent_id: 'qa',      task: '...', depends_on: ['t1'] }]
+```
+
+<Warning>
+  The second argument's element type (`AgentConfig`) comes from `config.ts`, which isn't re-exported — you can't `import type { AgentConfig }` from this package. Pass a plain object matching the shape shown above (`{ id, name, description, capabilities, provider, system_prompt?, transport?, gate?, gate_criteria?, domain? }`, all but `id`/`name`/`description`/`capabilities`/`provider` optional); TypeScript's structural typing accepts it without the import. `consolidateRun`'s `steps` parameter has the same situation with `ExecutionResult` from `executor.ts` — `{ subtask_id, agent_id, task, result, success, duration_ms }`.
+</Warning>
+
+`TaskPlanner` calls the LLM once, parses JSON out of the response (tolerates a fenced code block or bare JSON), and validates that every `depends_on` id actually exists in the plan — a malformed plan throws rather than silently producing a broken DAG.
+
+## LLM calls — `OpenAICompatibleProvider` / `callLLM`
+
+An `LLMProvider` implementation (the same interface documented in [Agent Types § Building Blocks](/getting-started/agent-types)) for anything that speaks the OpenAI chat-completions API — which covers OpenAI itself, DeepSeek, and Ollama:
+
+```ts
+import { OpenAICompatibleProvider, callLLM } from '@backendkit-labs/orchestrator-agent';
+
+const provider = new OpenAICompatibleProvider({ model: 'deepseek-chat', api_key: process.env.DEEPSEEK_KEY, base_url: 'https://api.deepseek.com' });
+
+const summary = await callLLM(provider, 'You summarize text.', 'Summarize: ...');
+```
+
+`callLLM` is the one-shot helper — no tools, no streaming exposed, just the accumulated text. Use `provider.chat(...)` directly (it implements `LLMProvider`) anywhere a real streaming/tool-calling provider is expected, e.g. as one of `createBaseEngine`'s `providers`.
+
+## Static flows — a fast-path shortcut before calling the LLM
+
+A YAML file can predefine the DAG for a known, recurring task pattern — matched by a trigger regex before `TaskPlanner` ever gets called:
+
+```yaml
+# flows/refund.yaml
+id: refund-flow
+name: Handle a refund request
+steps:
+  - id: t1
+    agent: backend
+    task: "Add a refund endpoint for {{payload.order_id}}"
+    depends_on: []
+  - id: t2
+    agent: qa
+    task: "Write tests for the refund endpoint"
+    depends_on: [t1]
+```
+
+```ts
+import { matchFlow, flowToTaskPlan, loadFlow } from '@backendkit-labs/orchestrator-agent';
+
+const matched = matchFlow(
+  [{ id: 'refund-flow', file: 'flows/refund.yaml', trigger: 'refund' }],
+  __dirname,
+  'Process a refund for order #4471',
+);
+
+const plan = matched
+  ? flowToTaskPlan(matched.flow, { order_id: '4471' })
+  : await planner.plan(task, agents);   // fall back to LLM planning
+```
+
+`flowToTaskPlan` interpolates `{{payload.key}}` placeholders in both `task` and `gate_criteria` strings — anything not present in `payload` is left as the literal `{{payload.key}}` rather than throwing.
+
+## Distributed subtask dispatch — `SubtaskQueue`
+
+Optional — only needed if subtasks should run out-of-process (e.g. one worker pool per agent, horizontally scaled). Backed by BullMQ and Redis:
+
+```ts
+import { SubtaskQueue } from '@backendkit-labs/orchestrator-agent';
+
+const queue = new SubtaskQueue(process.env.REDIS_URL!);
+const result = await queue.dispatch(subtask, priorResults, './orchestrator.yaml');
+// blocks until a worker consuming the `subtasks.{agentId}` queue finishes the job
+await queue.close();
+```
+
+Each agent ID gets its own named queue (`subtasks.{agentId}`) — `dispatch()` enqueues and waits on job completion via `QueueEvents`, retrying up to 3 times with exponential backoff on failure. This requires a separate worker process pulling from the same Redis instance; the package's `orchestrator-worker` bin (installed alongside the `orchestrator-agent` bin) is that worker, though writing your own is just consuming the same named queues with BullMQ directly.
+
+## Consolidation — `consolidateRun`
+
+Runs after a plan finishes executing — asks the LLM whether anything from the run is worth remembering, and if so, writes one note into an [`agent-enterprise`](/packages/agent-enterprise) vault via `VaultWriter`:
+
+```ts
+import { consolidateRun } from '@backendkit-labs/orchestrator-agent';
+import { VaultWriter } from '@backendkit-labs/agent-enterprise';
+
+const learned = await consolidateRun(
+  runId, task, executionResults,
+  (system, user) => callLLM(provider, system, user),
+  new VaultWriter({ vaultPath: '/shared/vault' }),
+);
+// undefined if the LLM decided there was nothing worth keeping (routine execution)
+```
+
+## What isn't in the library surface
+
+The `bin` entries (`orchestrator-agent`, `orchestrator-worker`) are the standalone deployable pieces — a full MCP server driven by an `orchestrator.yaml` config file, plus its Redis-backed worker. They're built from `server.ts`/`executor.ts`/`config.ts`/`run-store.ts`/`audit.ts`, none of which are part of `import ... from '@backendkit-labs/orchestrator-agent'`. If you want the config-driven service as-is, run the binary; if you want to compose your own execution loop around `TaskPlanner`/`SubtaskQueue`/`consolidateRun`, the library surface above is what you depend on directly.

@@ -1,0 +1,49 @@
+---
+title: "@backendkit-labs/agent-web-ui"
+description: "React chat and Kanban monitor components for @backendkit-labs/agent-web. Status: stable."
+---
+
+```bash
+npm install @backendkit-labs/agent-web-ui
+```
+
+```ts
+import '@backendkit-labs/agent-web-ui/style.css';
+import { ChatApp, KanbanApp, useAgentSession, useKanbanMonitor } from '@backendkit-labs/agent-web-ui';
+```
+
+Built specifically for [`@backendkit-labs/agent-web`](/packages/agent-web)'s WebSocket protocol — the two hooks are the actual client-side implementation of the `/chat` and `/monitor` wire formats.
+
+## Chat
+
+`ChatApp` takes **no props** — it reads its server URL from `VITE_AGENT_SERVER_URL` (falling back to `ws://localhost:4001/chat`) and has a built-in URL bar to change it at runtime, so drop it in as-is for a quick demo:
+
+```tsx
+import { ChatApp } from '@backendkit-labs/agent-web-ui';
+
+<ChatApp />
+```
+
+```bash
+# .env
+VITE_AGENT_SERVER_URL=ws://localhost:3000/chat
+```
+
+For anything beyond a demo, compose it yourself from the pieces `ChatApp` is built from — `useAgentSession({ url, autoConnect? })` (connection + message state), `ChatWindow`, `MessageBubble`, `InputBar`, `ToolCallBadge` (renders a tool call inline as it streams in).
+
+## Kanban monitor
+
+Same shape — `KanbanApp` takes no props, reads `VITE_MONITOR_URL` (falls back to `ws://localhost:4001/monitor`):
+
+```tsx
+import { KanbanApp } from '@backendkit-labs/agent-web-ui';
+
+<KanbanApp />
+```
+
+```bash
+# .env
+VITE_MONITOR_URL=ws://localhost:3000/monitor
+```
+
+`useKanbanMonitor` connects to `/monitor` and turns the live event stream into `KanbanColumn`s of `KanbanRun`s — this is the actual consumer of [`MonitorBus`](/packages/agent-web#monitorbus), rendering every active session (including [`TriggerBus`](/packages/agent-web) autonomous runs, which have no chat client attached) as a board you can watch in real time.

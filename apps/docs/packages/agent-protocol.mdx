@@ -1,0 +1,93 @@
+---
+title: "@backendkit-labs/agent-protocol"
+description: "A standard HTTP contract for agents deployed as separate services — server, client, and resilience baked in."
+---
+
+```bash
+npm install @backendkit-labs/agent-protocol
+```
+
+Where [`AgentMCPServer`](/packages/mcp-server) is for agents spoken to over MCP stdio, `agent-protocol` is for agents deployed as **independent HTTP services** — containers, separate processes, anything reachable over the network rather than spawned as a stdio subprocess.
+
+## The contract
+
+An agent describes itself once...
+
+```ts
+interface AgentInfo {
+  name: string;
+  version: string;
+  description: string;
+  capabilities: CapabilityDefinition[];   // { name, description, async, input, output }
+}
+```
+
+...and every call is one shape in, one shape out:
+
+```ts
+interface RunRequest  { capability: string; input: Record<string, unknown>; async?: boolean; }
+interface RunResponse { status: 'done' | 'running'; output?: unknown; taskId?: string; }
+```
+
+Every response — success or failure — is wrapped in the same envelope, so a caller never has to guess the shape of an error:
+
+```ts
+interface ProtocolResponse<T> {
+  ok: boolean;
+  data: T | null;
+  error: { code: ErrorCode; message: string; details?: unknown } | null;
+  meta: { traceId?: string; agentVersion?: string; durationMs?: number };
+}
+```
+
+`ErrorCode` is a closed set (`UNAUTHORIZED`, `FORBIDDEN`, `CAPABILITY_NOT_FOUND`, `INVALID_INPUT`, `TASK_NOT_FOUND`, `EXECUTION_FAILED`, `AGENT_UNAVAILABLE`, `TIMEOUT`) — a caller can branch on it without parsing a message string.
+
+## Server side
+
+An Express server under the hood — `.register()` adds one capability at a time, building `AgentInfo.capabilities` as you go:
+
+```ts
+import { AgentServer } from '@backendkit-labs/agent-protocol';
+
+const server = new AgentServer({
+  name: 'cashflow-agent',
+  version: '1.0.0',
+  description: 'Analyzes cash flow and forecasts short-term liquidity',
+  port: 3300,
+  apiKey: process.env.AGENT_API_KEY,
+});
+
+server.register({
+  definition: {
+    name: 'analyze_cashflow',
+    description: 'Analyze cash flow for a given month',
+    async: false,
+    input:  { month: { type: 'string', required: true } },
+    output: { summary: { type: 'string' } },
+  },
+  execute: async (input, ctx) => {
+    // input is already validated against `definition.input`
+    return { summary: '...' };
+  },
+});
+```
+
+<Warning>
+  This `AgentServer` is unrelated to [`@backendkit-labs/agent-web`'s `AgentServer`](/packages/agent-web) — same name, different package, different job. One serves a WebSocket chat session; this one serves a capability-based HTTP contract for service-to-service calls.
+</Warning>
+
+`TaskStore` backs the `async: true` path — a capability that returns `{ status: 'running', taskId }` immediately, with the caller polling `TaskRecord` (`pending` → `running` → `done`/`failed`/`cancelled`) until it resolves.
+
+## Client side, with resilience built in
+
+```ts
+import { AgentClient } from '@backendkit-labs/agent-protocol';
+
+const client = new AgentClient({ url: 'http://cashflow-agent:8080', apiKey, timeout: 30_000 });
+const result = await client.run('analyze_cashflow', { month: '2026-06' });
+
+// For async: true capabilities — polls until done instead of returning a taskId
+const output = await client.runAndWait('slow_report', { month: '2026-06' }, { pollInterval: 2_000, maxWait: 300_000 });
+```
+
+`AgentClient` wraps calls in a `CircuitBreaker` (per-agent, tracked in a `CircuitBreakerRegistry`) and retries transient errors (5xx, 429, network — 3 attempts by default) — a struggling downstream agent trips the breaker and fails fast instead of piling up retries against something that's already down.

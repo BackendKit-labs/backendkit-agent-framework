@@ -1,0 +1,62 @@
+---
+title: "@backendkit-labs/mcp-connectors"
+description: "HubSpot, Jira, Google Calendar, Odoo, and a vault-search connector as MCP servers. Status: stable."
+---
+
+```bash
+npm install @backendkit-labs/mcp-connectors
+```
+
+Five standalone MCP servers, one binary each — not libraries you import, tools you run:
+
+```bash
+bk-mcp-hubspot   # requires HUBSPOT_TOKEN
+bk-mcp-jira      # requires JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN
+bk-mcp-gcal      # requires GCAL_SERVICE_ACCOUNT_KEY or GCAL_ACCESS_TOKEN
+bk-mcp-odoo      # requires ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD
+bk-mcp-ai-vault  # requires AI_VAULT_PATH — no default; exposes search_ai_kb / list_ai_topics over an Obsidian vault
+```
+
+<Note>
+  `bk-mcp-ai-vault` is a different shape from the other four — it has no external API to call at all. It wraps [`ObsidianRAGProvider`](/packages/agent-enterprise#embedders) (`SimpleEmbedder` by default) directly over whatever local vault `AI_VAULT_PATH` points at, indexing it lazily on first tool call. It doesn't go through `fetchJson` below — there's no HTTP request to a third-party service to make.
+</Note>
+
+Wire one into any MCP client the same way — a `mcpServers` entry pointing at the binary:
+
+```json
+{
+  "mcpServers": {
+    "crm": {
+      "command": "npx",
+      "args": ["bk-mcp-hubspot"],
+      "env": { "HUBSPOT_TOKEN": "..." }
+    }
+  }
+}
+```
+
+Or connect one directly to your own `AgentEngine` via `createBaseEngine`'s [`mcpServers` option](/concepts/mcp-integration).
+
+## Shared transport: `fetchJson`
+
+All four connectors route their HTTP calls through one shared helper (`src/shared/http-client.ts`) instead of each hand-rolling `fetch()`:
+
+```ts
+async function hs<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return fetchJson<T>('HubSpot', `${BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+```
+
+`fetchJson` owns the transport concerns uniformly across all four: a hard timeout via `AbortController` (15s default), retry with exponential backoff on network errors and 5xx via `@backendkit-labs/retry`, `abortIf` on 401/403 (no point retrying an auth failure), and consistent `204 → undefined` handling. Each connector still builds its own request — different auth schemes (Bearer, Basic, dynamic OAuth token, session cookie) live entirely in the caller.
+
+## Odoo's session handling
+
+Odoo is the one connector with real session-lifecycle logic on top of `fetchJson`: it authenticates once and caches the session (deduping concurrent first-calls so two simultaneous tool invocations don't both hit `/web/session/authenticate`), and detects Odoo's own "session expired" JSON-RPC error (`error.code === 100`) to transparently re-authenticate and retry once — Odoo returns HTTP 200 even when the session inside the JSON-RPC envelope has expired, so `fetchJson`'s transport-level retry alone can't catch this.
+
+## Adding a fifth connector
+
+Follow the same shape: build the request with whatever auth the API needs, call `fetchJson(serviceName, url, init)` for the transport, bound any `limit`-style parameter with `.min(1).max(100)` in its Zod schema (every existing connector does this — it's not optional, unbounded limits are a real resource-exhaustion risk).

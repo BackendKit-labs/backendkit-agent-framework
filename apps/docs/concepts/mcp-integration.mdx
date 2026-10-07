@@ -1,0 +1,67 @@
+---
+title: "MCP Integration"
+description: "External MCP servers become first-class delegatable agents — checked before local specialists."
+---
+
+An `AgentEngine` can connect to external MCP servers and treat what they expose as full peers of your local `AgentProfile`s — not just flat tools.
+
+```ts
+const engine = createBaseEngine({
+  ...opts,
+  mcpServers: [
+    { name: 'github', command: 'npx', args: ['@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN } },
+  ],
+});
+```
+
+Connections are lazy — established on the engine's first `run()` call, not at construction.
+
+## MCP agents are checked first
+
+`AgentEngine.buildAgentRoster()` splits the roster the default agent sees into two sections, and the instruction is explicit:
+
+```
+## External Agents [MCP] — CHECK FIRST. If the task matches any of these,
+you MUST delegate to them via ask_agent before considering local agents.
+
+## Local Agents — use only when no [MCP] agent covers the task.
+```
+
+This is intentional priority, not an accident of ordering. It only stays correct under one condition:
+
+<Warning>
+  **MCP agents must add capabilities the local roster doesn't have** — access to external systems, live data, remote side-effects, proprietary logic. They should never compete or overlap with a local specialist. If an MCP agent's tools duplicate what `qa-engineer` or `security` already do locally, "check MCP first" stops being a good default and starts being a bias toward whatever happens to be registered.
+</Warning>
+
+The framework doesn't enforce this today — `MCPRegistrar.registerAgent()` (called automatically once a configured MCP server connects and exposes tools) has no check for overlap with the local roster; it registers whatever it's given. It's a discipline for whoever configures `mcpServers`, not a runtime guarantee. If you're building an MCP server to plug into a BackendKit-based agent, ask whether a local specialist could already do this before adding it.
+
+## Direct routing — bypassing the LLM
+
+If an input matches a configured trigger, `MCPRegistrar.findRoute()` can route straight to an MCP tool or agent **without an LLM call in between**:
+
+```
+User input → matches trigger → MCP tool called directly → result streamed back
+```
+
+This only applies to explicitly configured triggers — everything else still goes through the normal LLM loop with the MCP agent available via `ask_agent`.
+
+## Reconnection
+
+If an MCP server is offline when the engine starts, it retries automatically (up to 3 attempts) on subsequent `run()` calls, and reports which servers are still offline via a `system` warning event rather than failing the whole session. `engine.getMCPManager()?.reconnectFailed()` retries manually once the automatic attempts are exhausted.
+
+## Building your own: `AgentMCPServer`
+
+`@backendkit-labs/mcp-server` wraps any `AgentEngine` as a real MCP server — stdio or HTTP:
+
+```ts
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+
+const server = new AgentMCPServer({
+  name: 'finance-cashflow',
+  tools: [{ name: 'analyze_cashflow', description: '...', schema: {...}, buildPrompt: (args) => `...` }],
+  engineFactory: (transport) => createBaseEngine({ ...opts, transport }),
+});
+await server.startStdio();
+```
+
+Each tool call gets a fresh engine instance via `engineFactory`, so state never leaks between invocations.

@@ -1,0 +1,13 @@
+{
+  "name": "@backendkit-labs/docs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "BackendKit framework documentation (Mintlify)",
+  "scripts": {
+    "dev": "mintlify dev",
+    "broken-links": "mintlify broken-links"
+  },
+  "devDependencies": {
+    "mintlify": "^4.0.0"
+  }
+}

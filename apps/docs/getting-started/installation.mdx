@@ -1,0 +1,55 @@
+---
+title: "Installation"
+description: "Requirements and ways to add BackendKit to a project."
+---
+
+## Requirements
+
+- Node.js **20+**
+- An API key for at least one LLM provider (Anthropic, OpenAI, DeepSeek), or a local [Ollama](https://ollama.com) install for fully on-premise use.
+
+## Scaffold a new project
+
+The fastest path — see the [Quickstart](/getting-started/quickstart) for the full walkthrough:
+
+```bash
+npx create-bk-agent my-project
+```
+
+## Add the SDK to an existing project
+
+If you're embedding BackendKit into something you already have, install the packages you need directly:
+
+<CodeGroup>
+
+```bash npm
+npm install @backendkit-labs/agent-core
+```
+
+```bash pnpm
+pnpm add @backendkit-labs/agent-core
+```
+
+```bash yarn
+yarn add @backendkit-labs/agent-core
+```
+
+</CodeGroup>
+
+`@backendkit-labs/agent-core` is the only hard dependency — everything else (`agent-coding`'s 10 builtin specialists, `agent-enterprise`'s RAG, `agent-web`'s HTTP/WebSocket layer) is opt-in on top of it.
+
+<Note>
+  `create-bk-agent` declares `@backendkit-labs/agent-core` as a **peer dependency** (optional). `agent-coding` declares it as a regular dependency directly — either way, install both if you're not using the scaffolder.
+</Note>
+
+```bash
+npm install @backendkit-labs/agent-core @backendkit-labs/agent-coding
+```
+
+## Verify
+
+```bash
+node -e "console.log(require('@backendkit-labs/agent-core').AgentEngine)"
+```
+
+If that prints a class definition instead of throwing, you're set. Next: [Quickstart](/getting-started/quickstart) or jump straight into [Core Concepts](/concepts/agent-engine).

@@ -1,0 +1,51 @@
+---
+title: "Memory"
+description: "Three-tier memory — episodic, semantic, procedural — auto-registered as tools when configured."
+---
+
+`createMemorySystem` builds a three-tier memory store. Pass it to `createBaseEngine`'s `memorySystem` option and the engine auto-registers memory tools and injects a context block into every system prompt — no manual wiring per agent.
+
+```ts
+import { createMemorySystem } from '@backendkit-labs/agent-core';
+
+const memory = createMemorySystem({
+  episodic:   { provider: 'json', path: '~/.bk-agent/memory/episodes.json' },
+  semantic:   { provider: 'json', path: '~/.bk-agent/memory/knowledge.json' },
+  procedural: { provider: 'json', path: '~/.bk-agent/memory/patterns.json' },
+  retention:  { maxEpisodes: 500, summarizeAfter: 50, summarizeFn: myLLMSummarizer },
+});
+```
+
+## The three tiers
+
+| Tier | Holds | Example |
+|---|---|---|
+| **Episodic** | What happened, in order | "Ran the test suite, 3 failures in `auth.test.ts`" |
+| **Semantic** | Facts and learned knowledge | "This project uses Zod for all API input validation" |
+| **Procedural** | Reusable patterns | "When adding a migration, also update the seed script" |
+
+## Retention and summarization
+
+Episodic memory grows unbounded by default. `retention.maxEpisodes` caps it; `summarizeAfter` triggers an LLM-driven summarization pass once that many episodes pile up, so old detail compresses into a paragraph instead of being dropped outright or kept verbatim forever. Summarization runs fire-and-forget — it never blocks a tool call.
+
+## Per-session isolation
+
+Each engine session typically gets its own memory directory, keyed by session ID:
+
+```ts
+const sessDir = path.join(os.homedir(), '.bk-agent', 'sessions', sessionId);
+const memory = createMemorySystem({
+  episodic: { provider: 'json', path: path.join(sessDir, 'episodes.json') },
+  // ...
+});
+```
+
+This is how `agent-web`'s `AgentServer` and `agent-enterprise`'s `createEnterpriseSetup` isolate memory per WebSocket connection — every session's `engineFactory` call builds a fresh memory instance scoped to that session's directory.
+
+## Shared across the whole roster, not per-agent
+
+`memorySystem` is a single option on `createBaseEngine` — one store for the entire engine, not one per `AgentProfile`. If your roster has a default agent plus specialists reachable via `ask_agent`, they all read and write the *same* memory store; there's no built-in partitioning by which agent is currently active. See [Skills § In a multi-agent roster](/concepts/skills#in-a-multi-agent-roster-shared-by-default-not-per-agent) for the verified mechanism (both memory and skills are computed once per `run()` and injected into every profile's prompt unconditionally) and for the one mechanism that *is* genuinely per-agent (`agent-coding`'s `agent-notes/{agentId}.md`, a separate system from `memorySystem` entirely).
+
+## What gets injected into the prompt
+
+`memorySystem.buildContextBlock(input)` runs once per `run()` call and produces up to three sections injected into the system prompt — `## Relevant Past Experiences` (episodic, keyword/tag recall), `## Relevant Knowledge` (semantic, keyword or vector search if you pass an `embedFn`), and whatever the procedural tier's own context block returns — each only appears if that tier actually found something for the current input, not the entire memory store. If it fails, the run continues without it rather than blocking on a memory backend issue.

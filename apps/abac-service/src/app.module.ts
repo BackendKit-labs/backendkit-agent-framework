@@ -22,6 +22,7 @@ import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { Application } from './entities/application.entity';
 import { UserRole } from './entities/user-role.entity';
+import { UserApplication } from './entities/user-application.entity';
 import { Organization } from './entities/organization.entity';
 
 /**
@@ -64,7 +65,7 @@ import { Organization } from './entities/organization.entity';
     OrganizationsModule,
     ResourcesModule,
     ObservabilityModule.forRoot({ serviceName: 'abac-service' }),
-    TypeOrmFeature.forFeature([User, Role, Application, UserRole, Organization]),
+    TypeOrmFeature.forFeature([User, Role, Application, UserRole, UserApplication, Organization]),
   ],
   controllers: [HealthController],
   providers: [

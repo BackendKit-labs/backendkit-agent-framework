@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { EdDsaJwtStrategy } from './strategies/eddsa-jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -12,7 +12,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'eddsa-jwt' }),
-    forwardRef(() => ApiKeysModule),
+    ApiKeysModule,
   ],
   providers: [
     EdDsaJwtStrategy,
@@ -23,6 +23,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     PassportModule,
     JwtAuthGuard,
     FlexAuthGuard,
+    ApiKeysModule,
   ],
 })
 export class AuthModule {}

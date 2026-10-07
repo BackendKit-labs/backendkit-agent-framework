@@ -11,6 +11,7 @@ import { DepartmentsModule } from './departments/departments.module';
 import { DeployablesModule } from './deployables/deployables.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { WorkflowsModule } from './workflows/workflows.module';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
@@ -41,5 +42,6 @@ import { WorkflowsModule } from './workflows/workflows.module';
     ApiKeysModule,
     WorkflowsModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

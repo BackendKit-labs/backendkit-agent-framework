@@ -33,7 +33,7 @@ export class AuthService {
         private oauthService: OauthService,
     ) { }
 
-    // ==================== ADMIN LOGIN ====================
+    // ==================== LOGIN (email + password) ====================
 
     /**
      * Login para usuarios administradores (email + password).
@@ -41,6 +41,26 @@ export class AuthService {
      * en la aplicación, y retorna un JWT con roles y permisos.
      */
     async adminLogin(email: string, password: string, applicationId?: string): Promise<Result<any, string>> {
+        return this.passwordLogin(email, password, applicationId, { requireAdmin: true });
+    }
+
+    /**
+     * Login para usuarios NO administradores (email + password).
+     * Mismo flujo que adminLogin pero sin exigir rol admin — exige en cambio
+     * al menos un rol activo en la aplicación (una cuenta sin roles es un
+     * estado a medio configurar; emitir un token sin claims útiles solo
+     * posterga el error a un lugar peor).
+     */
+    async userLogin(email: string, password: string, applicationId?: string): Promise<Result<any, string>> {
+        return this.passwordLogin(email, password, applicationId, { requireAdmin: false });
+    }
+
+    private async passwordLogin(
+        email: string,
+        password: string,
+        applicationId: string | undefined,
+        opts: { requireAdmin: boolean },
+    ): Promise<Result<any, string>> {
         // 1. Buscar usuario por email
         const user = await this.userRepository.findOne({ where: { email, isActive: true } });
 
@@ -98,10 +118,13 @@ export class AuthService {
 
         const roleNames = userRoles.map(ur => ur.role?.name).filter(Boolean);
 
-        // 5. Verificar que tiene rol admin o super-admin
+        // 5. Verificación de rol según el flujo
         const isAdmin = roleNames.some(r => r === 'admin' || r === 'super-admin');
-        if (!isAdmin) {
+        if (opts.requireAdmin && !isAdmin) {
             return Result.err('Acceso denegado — se requiere rol de administrador');
+        }
+        if (!opts.requireAdmin && roleNames.length === 0) {
+            return Result.err('El usuario no tiene roles asignados en esta aplicación');
         }
 
         // 6. Cargar permisos (solo effect: 'allow' — los deny no otorgan acceso)
@@ -136,7 +159,9 @@ export class AuthService {
         const payload = {
             sub: user.id,
             email: user.email,
-            type: 'admin',
+            // Refleja el rol real, no el endpoint por el que entró: un admin
+            // que use /auth/login sigue siendo type: 'admin'.
+            type: isAdmin ? 'admin' : 'user',
             accountType: user.accountType,
             // Multi-tenancy: tenant del usuario (keystone del aislamiento).
             org: user.organizationId ?? null,
@@ -149,9 +174,23 @@ export class AuthService {
             vaultResources: user.vaultResources ?? null,
         };
 
-        const token = this.jwtService.sign(payload, { expiresIn: '8h' });
+        const privateKey = process.env.ED25519_PRIVATE_KEY;
+        const token = privateKey
+            ? JwtEd25519Service.signWithKey(
+                privateKey,
+                {
+                    payload: {
+                        ...payload,
+                        iss: process.env.JWT_ISSUER ?? 'abac-service',
+                        aud: process.env.JWT_AUDIENCE ?? 'abac-clients',
+                    },
+                    expiresIn: 8 * 60 * 60,
+                },
+                { kid: process.env.ED25519_KID ?? 'abac-m2m-v1' },
+              )
+            : this.jwtService.sign(payload, { expiresIn: '8h' });
 
-        this.logger.log(`Admin login: ${email}`, 'AUTH', {
+        this.logger.log(`${isAdmin ? 'Admin' : 'User'} login: ${email}`, 'AUTH', {
             userId: user.id,
             roles: roleNames,
             permissionsCount: permissions.length,

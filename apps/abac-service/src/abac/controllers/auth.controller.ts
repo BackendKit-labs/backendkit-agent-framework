@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, HttpCode, UnauthorizedException, BadRequestException, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from '../services/auth.service';
-import { AdminLoginDto, ServiceTokenDto, OAuthTokenDto, ValidateEntraTokenDto, SimulateEntraDto } from '../dtos/auth.dto';
+import { AdminLoginDto, LoginDto, ServiceTokenDto, OAuthTokenDto, ValidateEntraTokenDto, SimulateEntraDto } from '../dtos/auth.dto';
 import { ApiKeyGuard } from '../guards/api-key.guard';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
@@ -11,6 +11,23 @@ import { JwtEd25519Service } from '../../common/crypto/jwt-ed25519.service';
 @Controller('auth')
 export class AuthController {
     constructor(private authService: AuthService) { }
+
+    @Post('login')
+    @HttpCode(200)
+    @ApiOperation({
+        summary: 'Login de usuario (email + password → JWT)',
+        description:
+            'No exige rol admin — cualquier usuario activo con al menos un rol ' +
+            'en la aplicación puede autenticarse. Los usuarios de Entra ID deben ' +
+            'autenticarse vía Azure (validate-entra), no por acá.',
+    })
+    async login(@Body() body: LoginDto) {
+        const result = await this.authService.userLogin(body.email, body.password, body.applicationId);
+        if (result.isFailure) {
+            throw new UnauthorizedException(result.unwrapError());
+        }
+        return result.unwrap();
+    }
 
     @Post('admin/login')
     @HttpCode(200)

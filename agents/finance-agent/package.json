@@ -15,7 +15,7 @@
     "clean": "rm -rf dist/ coverage/"
   },
   "dependencies": {
-    "@backendkit-labs/agent-enterprise": "^1.0.0",
+    "@backendkit-labs/agent-enterprise": "^0.4.0",
     "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "yaml": "^2.3.4",

@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
-    "@backendkit-labs/agent-core": "*",
+    "@backendkit-labs/agent-core": "^0.24.0",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
     "openai": "^4.0.0"

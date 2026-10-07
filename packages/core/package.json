@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-core",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "description": "Generic multi-agent engine — model-agnostic, transport-agnostic",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "@backendkit-labs/bulkhead": "^0.2.1",
-    "@backendkit-labs/circuit-breaker": "^0.3.1",
+    "@backendkit-labs/circuit-breaker": "^0.4.0",
     "@backendkit-labs/pipeline": "^0.3.2",
     "@backendkit-labs/result": "^0.2.1",
     "@backendkit-labs/retry": "^0.1.2",

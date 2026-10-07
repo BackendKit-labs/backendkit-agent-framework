@@ -20,7 +20,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "*"
+    "@backendkit-labs/agent-core": "^0.24.0"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

@@ -24,7 +24,7 @@ import { z } from 'zod';
 import * as path from 'node:path';
 import * as fs   from 'node:fs';
 import * as http from 'node:http';
-import IORedis                                     from 'ioredis';
+import { Redis as IORedis } from 'ioredis';
 import { VaultWriter }                            from '@backendkit-labs/agent-enterprise';
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
 import { TaskPlanner }                            from './planner.js';

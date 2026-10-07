@@ -23,6 +23,12 @@ jobs:
         run: npm ci
 
       # ── Build (dependency order) ──────────────────────────────────────────────
+      - name: Build infra
+        run: npm run build -w packages/infra
+
+      - name: Build agent-protocol
+        run: npm run build -w packages/agent-protocol
+
       - name: Build agent-core
         run: npm run build -w packages/core
 

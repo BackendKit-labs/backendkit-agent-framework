@@ -12,7 +12,7 @@
     "test:watch": "jest --watch --passWithNoTests"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.22.3",
+    "@backendkit-labs/agent-core": "^0.24.0",
     "@backendkit-labs/mcp-server": "^0.16.1",
     "sql.js": "^1.11.0",
     "cron-parser": "^4.9.0",

@@ -153,17 +153,17 @@ describe('QAService.extractFindings', () => {
         expect(findings.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('classifies "bloqueante" as critical severity', () => {
+    it('classifies "blocker" as critical severity', () => {
         const svc = makeService();
-        const review = 'Problemas:\n- Bloqueante: error crítico en la autenticación que debe corregirse.';
+        const review = 'Problems:\n- Blocker: authentication error that must be fixed.';
         const findings = svc.extractFindings(review);
         const critical = findings.find(f => f.severidad === 'critical');
         expect(critical).toBeDefined();
     });
 
-    it('classifies "mejorable" as low severity', () => {
+    it('classifies "minor" as low severity', () => {
         const svc = makeService();
-        const review = 'Hay problemas:\n- Mejorable: el nombre de la variable podría ser más descriptivo.';
+        const review = 'There are issues:\n- Minor issue: the variable name should be more descriptive.';
         const findings = svc.extractFindings(review);
         const low = findings.find(f => f.severidad === 'low');
         expect(low).toBeDefined();

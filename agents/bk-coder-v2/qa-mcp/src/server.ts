@@ -4,10 +4,11 @@ import { AgentMCPServer }     from '@backendkit-labs/mcp-server';
 import { CallbackTransport }  from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { QA_TOOLS }           from './tools/index.js';
-import { loadQaSkills }       from './load-skills.js';
+import { loadQaSkills, loadSoulSkill } from './load-skills.js';
 
 // Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
-const QA_SKILLS = loadQaSkills();
+const SOUL_SKILL = loadSoulSkill();
+const QA_SKILLS  = [...loadQaSkills(), ...(SOUL_SKILL ? [SOUL_SKILL] : [])];
 if (QA_SKILLS.length > 0) {
     process.stderr.write(
         `[qa-mcp] ${QA_SKILLS.length} skill(s) cargada(s): ${QA_SKILLS.map(s => s.name).join(', ')}\n`,

@@ -51,3 +51,25 @@ export function loadBackendSkills(): Skill[] {
         for (const s of readSkillsFromDir(dir)) byName.set(s.name, s);
     return [...byName.values()];
 }
+
+/**
+ * Wraps the soul file the orchestrator passed via AGENT_SOUL_B64 (orchestrator.yaml's
+ * `soul_file`, forwarded by mcp-client.ts) as a Skill that's always active for this agent —
+ * without this, souls/*.md has no effect on MCP-mode agents.
+ */
+export function loadSoulSkill(): Skill | undefined {
+    const b64 = process.env['AGENT_SOUL_B64'];
+    if (!b64) return undefined;
+    let content: string;
+    try { content = Buffer.from(b64, 'base64').toString('utf-8').trim(); }
+    catch { return undefined; }
+    if (!content) return undefined;
+    return {
+        name: `${AGENT_ID}-soul`,
+        version: '1.0.0',
+        description: 'Soul file from orchestrator.yaml',
+        triggers: [],
+        agents: [AGENT_ID],
+        systemPromptAddition: content,
+    };
+}

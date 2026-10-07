@@ -19,14 +19,18 @@ export const implementPhaseTool: AgentToolDef<typeof implementPhaseSchema> = {
 
         return `You are a senior frontend developer implementing Phase ${phaseNumber}: "${phaseTitle}".
 
-## Step 1 — Read specification and roadmap
+## Step 1 — Read specification, design and roadmap
 Use read_file to read:
 - ${specsDir}/specification.md
-- ${specsDir}/ROADMAP.md
+- ${specsDir}/design.md — check "## Project Structure" for the REAL frontend root. A single-domain
+  (frontend-only) project uses one \`src/\` at ${projectRoot}; a full-stack project uses a SEPARATE
+  top-level \`frontend/\` tree next to \`backend/\` — never assume which one without checking.
+- ${specsDir}/ROADMAP.md — this phase's "Files to create" section gives the exact paths to use
 - ${specsDir}/progress.md (if it exists — shows what previous phases built)
 
 ## Step 2 — Understand the existing UI
-Use list_directory to see the current frontend structure (app/, components/, services/, lib/, hooks/).
+Use list_directory on ${projectRoot} first to confirm the top-level layout, then drill into the
+frontend root from design.md (app/, components/, services/, lib/, hooks/ live inside it).
 Read the most relevant files to understand the current state and the API contract you must consume.
 
 ## Step 3 — Implement the phase (FRONTEND ONLY)
@@ -42,8 +46,11 @@ Hard rules:
   The backend API already exists — consume it through a typed service layer (fetch/axios).
 - Keep concerns separated: components (presentational) / hooks / services (API) / lib (utils).
 - Strict TypeScript. No business logic in components. Reusable, typed components.
-- Paths are relative to the frontend root (e.g. src/components/AgentCard.tsx) — never write
-  .tsx files into a backend source tree.
+- Paths are relative to ${projectRoot}, using the frontend root from design.md's Project Structure
+  (e.g. src/components/AgentCard.tsx for single-domain, or frontend/src/components/AgentCard.tsx
+  for full-stack) — never write .tsx files into a backend source tree.
+- Before importing a symbol from another file, use read_file on that file FIRST to get its EXACT
+  exported name. Do NOT guess a name from a naming convention — a wrong import name fails the build.
 
 ## Step 4 — Verify your work
 If a build/lint command applies, run it with run_command and fix any errors.

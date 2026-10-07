@@ -4,10 +4,11 @@ import { AgentMCPServer } from '@backendkit-labs/mcp-server';
 import { CallbackTransport } from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { INFRA_TOOLS } from './tools/index.js';
-import { loadInfraSkills } from './load-skills.js';
+import { loadInfraSkills, loadSoulSkill } from './load-skills.js';
 
 // Domain skills loaded once at startup from ./skills/*.md (trigger-injected in the agentic loop).
-const INFRA_SKILLS = loadInfraSkills();
+const SOUL_SKILL   = loadSoulSkill();
+const INFRA_SKILLS = [...loadInfraSkills(), ...(SOUL_SKILL ? [SOUL_SKILL] : [])];
 if (INFRA_SKILLS.length > 0) {
     process.stderr.write(
         `[infra-mcp] ${INFRA_SKILLS.length} skill(s) cargada(s): ${INFRA_SKILLS.map(s => s.name).join(', ')}\n`,

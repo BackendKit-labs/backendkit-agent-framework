@@ -22,6 +22,10 @@ export interface PhaseState {
     verdict?:      QaVerdict;     // last QA verdict for the current phase
     qaFindings?:   string;        // QA findings injected into the next rework
     phaseTitles:   string[];      // all phase titles for display
+    /** QA findings from every rework of the CURRENT phase, oldest first — feeds the
+     *  stuck-loop triage once a phase has failed enough times in a row (see triage.ts).
+     *  Reset when the phase is approved and the pointer advances. */
+    reworkHistory?: string[];
 }
 
 export interface StepResult {

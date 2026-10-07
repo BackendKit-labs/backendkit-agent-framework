@@ -16,19 +16,22 @@ export const implementPhaseTool: AgentToolDef<typeof implementPhaseSchema> = {
     buildPrompt: (args: any) => {
         const { projectRoot, phaseNumber, phaseTitle, criteria, reworkFindings } = args;
         const specsDir = `${projectRoot}/.specs`;
-        const srcDir   = `${projectRoot}/src`;
 
         return `You are a senior backend developer implementing Phase ${phaseNumber}: "${phaseTitle}".
 
-## Step 1 — Read specification and roadmap
+## Step 1 — Read specification, design and roadmap
 Use read_file to read:
 - ${specsDir}/specification.md
-- ${specsDir}/ROADMAP.md
+- ${specsDir}/design.md — check "## Project Structure" for the REAL source layout. A single-domain
+  project uses one \`src/\`; a full-stack project uses SEPARATE top-level trees, typically
+  \`backend/\` and \`frontend/\` — never assume \`src/\` exists at the project root.
+- ${specsDir}/ROADMAP.md — this phase's "Files to create" section gives the exact paths to use
 - ${specsDir}/progress.md (if it exists — shows what previous phases built)
 
 ## Step 2 — Understand existing code
-Use list_directory on ${srcDir} to see what files already exist.
-Read the most relevant ones to understand the current state.
+Use list_directory on ${projectRoot} first to see the actual top-level layout, then drill into
+the backend source tree declared in design.md's Project Structure (may be \`src/\` or \`backend/src/\`).
+Read the most relevant existing files to understand the current state.
 
 ## Step 3 — Implement the phase
 Completion criteria to fulfill:
@@ -38,10 +41,15 @@ ${reworkFindings ? `⚠️  REWORK MODE — Fix these issues from the previous Q
 
 Rules:
 - Use write_file for EACH file you create or modify (full content, no placeholders)
-- Paths are relative to ${projectRoot} (e.g. src/auth/auth.service.ts)
+- Paths are relative to ${projectRoot} — use the layout from design.md's Project Structure
+  (e.g. src/auth/auth.service.ts for single-domain, or backend/src/auth/auth.service.ts for full-stack)
 - Write ALL files needed: models, services, controllers, tests, config files
 - TypeScript: strict types, proper error handling
 - Follow the architecture decisions in specification.md and design.md
+- Before importing a symbol from another file (e.g. wiring a barrel \`index.ts\`, or calling code
+  from a previous phase), use read_file on that file FIRST to get its EXACT exported name. Do NOT
+  guess a name from a naming convention (e.g. don't assume \`fooTool\` when the file might actually
+  export \`getFooTool\`) — a wrong import name fails the build.
 
 ## Step 4 — Verify your work
 After writing all files, run:

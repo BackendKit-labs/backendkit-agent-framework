@@ -23,7 +23,7 @@ import * as path     from 'node:path';
 import { loadConfig, resolveDataDir } from './config.js';
 import { executeSubtask }             from './executor.js';
 import { buildRAG }                   from './rag.js';
-import type { SubtaskJobData }        from './subtask-queue.js';
+import type { SubtaskJobData }        from '@backendkit-labs/orchestrator-agent';
 import type { ExecutionResult }       from './executor.js';
 
 const configPath = process.env['ORCHESTRATOR_CONFIG'];

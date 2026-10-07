@@ -4,10 +4,11 @@ import { AgentMCPServer }     from '@backendkit-labs/mcp-server';
 import { CallbackTransport }  from '@backendkit-labs/agent-core';
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
 import { FRONTEND_TOOLS }     from './tools/index.js';
-import { loadFrontendSkills } from './load-skills.js';
+import { loadFrontendSkills, loadSoulSkill } from './load-skills.js';
 
 // Domain skills loaded once at startup from the BK_HOME store (trigger-injected in the agentic loop).
-const FRONTEND_SKILLS = loadFrontendSkills();
+const SOUL_SKILL      = loadSoulSkill();
+const FRONTEND_SKILLS = [...loadFrontendSkills(), ...(SOUL_SKILL ? [SOUL_SKILL] : [])];
 if (FRONTEND_SKILLS.length > 0) {
     process.stderr.write(
         `[frontend-mcp] ${FRONTEND_SKILLS.length} skill(s) cargada(s): ${FRONTEND_SKILLS.map(s => s.name).join(', ')}\n`,

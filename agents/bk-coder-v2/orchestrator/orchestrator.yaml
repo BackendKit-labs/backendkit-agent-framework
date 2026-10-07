@@ -16,8 +16,8 @@ providers:
 agents:
   - id: backend-mcp
     name: Backend Specialist
-    description: Implements code phase by phase from the ROADMAP. Reads spec/roadmap, writes files directly via write_file tool.
-    capabilities: [implementation, coding, backend, typescript]
+    description: Implements code phase by phase from the ROADMAP, INCLUDING writing/authoring unit test files. Reads spec/roadmap, writes files directly via write_file tool.
+    capabilities: [implementation, coding, backend, typescript, unit-tests, test-authoring]
     provider: deepseek
     domain: backend
     soul_file: souls/backend.md
@@ -50,8 +50,8 @@ agents:
 
   - id: qa-mcp
     name: QA Specialist
-    description: Validates code against specification.md independently using deepseek-reasoner. Reads files directly, writes qa-phaseN.md report.
-    capabilities: [validation, testing, qa, code-review]
+    description: Validates and RUNS existing code/tests against specification.md independently using deepseek-reasoner (slower, reasoning-heavy — not for authoring new test files, use backend-mcp for that). Reads files directly, writes qa-phaseN.md report.
+    capabilities: [validation, test-verification, qa, code-review]
     provider: deepseek
     domain: qa
     soul_file: souls/qa.md

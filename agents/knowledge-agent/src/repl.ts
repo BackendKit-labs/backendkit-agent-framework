@@ -32,7 +32,7 @@ import {
 } from '@backendkit-labs/agent-core';
 import type { AgentEvent } from '@backendkit-labs/agent-core';
 import { ObsidianRAGProvider, VaultWriter, SimpleEmbedder } from '@backendkit-labs/agent-enterprise';
-import { CuratorClient }      from '@backendkit-labs/curator-agent';
+import { CuratorClient }      from './curator-client';
 import { KnowledgeProvider }  from './provider';
 import { PROFILES }           from './profiles';
 

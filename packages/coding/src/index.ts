@@ -16,6 +16,7 @@ import {
     type PolicyRule,
     type MCPServerConfig,
     getProjectDir,
+    type ToolDefinition,
 } from '@backendkit-labs/agent-core';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
@@ -334,6 +335,15 @@ export interface CodingEngineOptions {
      * system prompt when active. Skills with `agents: [<id>]` are always-on for those agents.
      */
     extraSkills?: Skill[];
+    /**
+     * Extra tool definitions appended to CODING_TOOLS.
+     *
+     * Tools with an existing name are **not** replaced here: to override a builtin,
+     * use `engine.getTools()` (`unregister(name)` + `register(definition)`), which is
+     * the supported path for adding guards (path containment, approval requirements)
+     * without forking the framework.
+     */
+    extraTools?: ToolDefinition[];
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -511,7 +521,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         providers,
         defaultProvider: opts.defaultProvider,
         agents: allAgents,
-        tools: CODING_TOOLS,
+        tools: [...CODING_TOOLS, ...(opts.extraTools ?? [])],
         defaultAgent: opts.defaultAgent ?? 'general',
         transport: opts.transport,
         workingDir: cwd,

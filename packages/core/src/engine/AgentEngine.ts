@@ -197,6 +197,17 @@ export class AgentEngine {
     }
 
     /**
+     * Access the tool registry.
+     *
+     * Lets a consumer inspect, wrap or replace tool definitions (for example to add
+     * containment checks or approval requirements) without forking the framework:
+     * `registry.unregister(name)` + `registry.register(guardedDefinition)`.
+     */
+    getTools(): ToolRegistry {
+        return this.opts.tools;
+    }
+
+    /**
      * Updates the working directory used by tools and the system prompt.
      * Call after a workspace/project switch so file operations target the new
      * project root without recreating the entire engine.

@@ -1,0 +1,5 @@
+{
+  "fileExtensions": ["ts"],
+  "excludeRegExp": ["node_modules", "dist", "__tests__", "mcp-server/src/indexer/languages/"],
+  "detectiveOptions": { "ts": { "skipTypeImports": true } }
+}

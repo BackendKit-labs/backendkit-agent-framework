@@ -75,6 +75,8 @@ export class RunStore implements IRunStore {
     }
 
     async load(runId: string): Promise<RunState | null> {
+        // runId reaches here from MCP tool args; never let it escape the store directory.
+        if (!/^[A-Za-z0-9_-]+$/.test(runId)) return null;
         try {
             return JSON.parse(
                 fs.readFileSync(path.join(this.dir, `${runId}.json`), 'utf-8'),

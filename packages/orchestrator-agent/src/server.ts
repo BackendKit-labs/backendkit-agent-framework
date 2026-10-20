@@ -27,6 +27,7 @@ import * as http from 'node:http';
 import { Redis as IORedis } from 'ioredis';
 import { VaultWriter }                            from '@backendkit-labs/agent-enterprise';
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
+import { isBearerAuthorized }                     from './auth.js';
 import { TaskPlanner }                            from './planner.js';
 import { PlanExecutor, executeSubtask, type ExecutionResult, type ActiveRule, ruleToGateCriteria } from './executor.js';
 import { OpenAICompatibleProvider, callLLM }      from './provider.js';
@@ -1040,7 +1041,7 @@ async function startHttpServer(
     const server = http.createServer(async (req, res) => {
         // Auth
         if (apiKey) {
-            if (req.headers['authorization'] !== `Bearer ${apiKey}`) {
+            if (!isBearerAuthorized(req.headers['authorization'], apiKey)) {
                 reply(res, 401, { error: 'Unauthorized — set Authorization: Bearer <ORCHESTRATOR_API_KEY>' });
                 return;
             }

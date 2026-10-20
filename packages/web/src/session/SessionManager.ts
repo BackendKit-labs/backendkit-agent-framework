@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import type { AgentEngine, AgentEvent } from '@backendkit-labs/agent-core';
 import { WebSocketTransport } from '../transport/WebSocketTransport';
 import type { MonitorBus } from '../monitor/MonitorBus';
@@ -62,7 +62,7 @@ export class SessionManager {
             throw new Error(`Max concurrent sessions (${this.maxSessions}) reached`);
         }
 
-        const id = uuidv4();
+        const id = randomUUID();
         const transport = new WebSocketTransport(socket);
 
         // Tap emit to fan out every AgentEvent to the monitor bus

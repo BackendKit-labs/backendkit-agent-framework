@@ -1,45 +1,48 @@
 {
-    "name": "@backendkit-labs/curator-codex-agent",
-    "version": "1.0.1",
-    "description": "Codex Curator — intelligent source code and documentation analysis, vault deduplication, and RAG knowledge extraction, as a reusable library.",
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
-    },
-    "files": [
-        "dist/"
-    ],
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/BackendKit-labs/backendkit-agents.git",
-        "directory": "packages/curator-codex-agent"
-    },
-    "publishConfig": {
-        "access": "public"
-    },
-    "license": "MIT",
-    "engines": {
-        "node": ">=20.0.0"
-    },
-    "scripts": {
-        "build": "tsc --noCheck",
-        "typecheck": "tsc --noEmit",
-        "prepublishOnly": "npm run build"
-    },
-    "dependencies": {
-        "@backendkit-labs/agent-enterprise": "^0.4.0",
-        "@backendkit-labs/infra": "^0.1.0",
-        "@anthropic-ai/sdk": "^0.55.0",
-        "@xenova/transformers": "^2.17.2",
-        "openai": "^4.0.0",
-        "pdf-parse": "^2.4.5",
-        "zod": "^3.25.0"
-    },
-    "devDependencies": {
-        "@types/node": "^20.0.0",
-        "@types/pdf-parse": "^1.1.5",
-        "typescript": "^5.4.0"
+  "name": "@backendkit-labs/curator-codex-agent",
+  "version": "1.0.1",
+  "description": "Codex Curator — intelligent source code and documentation analysis, vault deduplication, and RAG knowledge extraction, as a reusable library.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
+  },
+  "files": [
+    "dist/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BackendKit-labs/backendkit-agents.git",
+    "directory": "packages/curator-codex-agent"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-enterprise": "^0.4.0",
+    "@backendkit-labs/infra": "^0.1.0",
+    "@anthropic-ai/sdk": "^0.55.0",
+    "openai": "^4.0.0",
+    "pdf-parse": "^2.4.5",
+    "zod": "^3.25.0",
+    "@huggingface/transformers": "^4.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.5",
+    "typescript": "^5.4.0"
+  }
 }

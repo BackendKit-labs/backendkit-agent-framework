@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { AgentEngine, AgentEvent, Transport } from '@backendkit-labs/agent-core';
 import { HeadlessTransport } from '../transport/HeadlessTransport';
@@ -267,7 +267,7 @@ export class TriggerBus {
     }
 
     private async fire(def: TriggerDefinition, payload?: unknown): Promise<void> {
-        const sessionId = `trigger-${uuidv4()}`;
+        const sessionId = `trigger-${randomUUID()}`;
         const firedAt   = new Date();
         const startMs   = Date.now();
 

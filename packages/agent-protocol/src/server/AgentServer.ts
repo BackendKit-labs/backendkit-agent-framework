@@ -159,6 +159,17 @@ export class AgentServer {
                 `Route not found: ${req.method} ${req.path}`,
             ));
         });
+
+        // Error handler — body-parser failures (malformed JSON, payload too large) and
+        // anything thrown outside a capability handler must still use the protocol envelope.
+        this.app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, next: NextFunction) => {
+            if (res.headersSent) return next(err);
+            const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 500;
+            if (status === 500) {
+                return res.status(500).json(this.errEnvelope('EXECUTION_FAILED', err.message));
+            }
+            res.status(status).json(this.errEnvelope('INVALID_INPUT', err.message));
+        });
     }
 
     // ── Envelope helpers ────────────────────────────────────────────────────

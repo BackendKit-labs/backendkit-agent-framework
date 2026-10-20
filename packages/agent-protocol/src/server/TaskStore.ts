@@ -19,12 +19,12 @@ export class TaskStore {
 
     setRunning(taskId: string): void {
         const t = this.tasks.get(taskId);
-        if (t) t.status = 'running';
+        if (t && t.status === 'pending') t.status = 'running';
     }
 
     complete(taskId: string, output: unknown): void {
         const t = this.tasks.get(taskId);
-        if (!t) return;
+        if (!t || t.status === 'cancelled') return;
         t.status     = 'done';
         t.output     = output;
         t.finishedAt = new Date().toISOString();
@@ -33,7 +33,7 @@ export class TaskStore {
 
     fail(taskId: string, error: string): void {
         const t = this.tasks.get(taskId);
-        if (!t) return;
+        if (!t || t.status === 'cancelled') return;
         t.status     = 'failed';
         t.error      = error;
         t.finishedAt = new Date().toISOString();

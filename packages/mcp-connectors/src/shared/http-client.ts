@@ -32,7 +32,8 @@ export async function fetchJson<T>(
         try {
             res = await fetch(url, { ...init, signal: controller.signal });
         } catch (err) {
-            const aborted = err instanceof Error && err.name === 'AbortError';
+            // Duck-typed: the DOMException from an aborted fetch can come from another realm.
+            const aborted = (err as { name?: string } | null)?.name === 'AbortError';
             // eslint-disable-next-line @typescript-eslint/no-throw-literal
             throw {
                 type: 'network',
@@ -60,13 +61,16 @@ export async function fetchJson<T>(
         maxAttempts: opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
         backoff: { type: 'exponential', baseDelay: 500, maxDelay: 8_000, jitter: 'full' },
         retryIf: (e: { type: string; status?: number }) =>
-            e.type === 'network' || (e.type === 'http' && (e.status ?? 0) >= 500),
+            e.type === 'network' || (e.type === 'http' && ((e.status ?? 0) >= 500 || e.status === 429)),
         abortIf: (e: { type: string; status?: number }) =>
             e.type === 'http' && [401, 403].includes(e.status ?? 0),
     });
 
     if (!result.ok) {
-        throw new Error(result.error.message);
+        // The retry engine wraps what attempt() threw: its own `message` is generic
+        // ("HTTP 404", or "[object Object]" for network errors); ours is in `cause`.
+        const cause = result.error.cause as { message?: string; status?: number } | undefined;
+        throw Object.assign(new Error(cause?.message ?? result.error.message), { status: cause?.status ?? result.error.status });
     }
     return result.value;
 }

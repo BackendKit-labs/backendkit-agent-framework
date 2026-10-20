@@ -115,10 +115,10 @@ export async function initBkHome(): Promise<string> {
     for (const [rel, content] of Object.entries(SEED_FILES)) {
         const filePath = path.join(home, rel);
         try {
-            await fs.access(filePath);
-            // File exists — skip
-        } catch {
-            await fs.writeFile(filePath, content, 'utf-8');
+            // 'wx' fails atomically if the file exists: no check-then-write race between processes.
+            await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         }
     }
 

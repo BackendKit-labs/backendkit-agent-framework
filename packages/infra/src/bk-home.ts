@@ -13,7 +13,21 @@ import * as os   from 'node:os';
  * that directory is separate and will be unified in a future migration.
  */
 export function getBkHome(): string {
-    return process.env.BK_HOME ?? path.join(os.homedir(), '.backendkit');
+    // An empty/blank BK_HOME counts as unset (otherwise every path would be relative to the cwd);
+    // a relative one is resolved so it does not change meaning when the cwd changes.
+    const fromEnv = process.env.BK_HOME?.trim();
+    return fromEnv ? path.resolve(fromEnv) : path.join(os.homedir(), '.backendkit');
+}
+
+/**
+ * Names used as a single path segment (project, vault, component). Rejecting separators and
+ * dot segments keeps every derived path inside BK_HOME.
+ */
+function segment(name: string): string {
+    if (name === '' || name === '.' || name === '..' || /[\\/\u0000]/.test(name)) {
+        throw new Error(`Invalid name for a BK_HOME path: ${JSON.stringify(name)}`);
+    }
+    return name;
 }
 
 /**
@@ -26,7 +40,7 @@ export const bkPaths = {
 
     /** Per-project vault notes (codex-context-agent-v2) */
     vault: (projectName: string) =>
-        path.join(getBkHome(), 'vaults', projectName),
+        path.join(getBkHome(), 'vaults', segment(projectName)),
 
     /** All vault notes root */
     vaultsDir: () => path.join(getBkHome(), 'vaults'),
@@ -36,14 +50,14 @@ export const bkPaths = {
 
     /** RAG index for a named vault */
     ragIndex: (vaultName: string) =>
-        path.join(getBkHome(), 'rag', `${vaultName}.json`),
+        path.join(getBkHome(), 'rag', `${segment(vaultName)}.json`),
 
     /** All RAG indexes root */
     ragDir: () => path.join(getBkHome(), 'rag'),
 
     /** Runtime data for a specific component */
     data: (component: string) =>
-        path.join(getBkHome(), 'data', component),
+        path.join(getBkHome(), 'data', segment(component)),
 
     /** Director-agent memory directory */
     directorMemory: () => path.join(getBkHome(), 'director'),

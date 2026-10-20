@@ -3,28 +3,30 @@ import { OllamaEmbedder } from '@backendkit-labs/agent-enterprise';
 import { ClassifierAgent, DeciderAgent, ProviderLLM } from './agents';
 import { loadConfig } from './config';
 import { openDb } from './db';
+import { VaultKnowledge } from './knowledge';
 import { Orchestrator, type RunResult } from './orchestrator';
 import { SCENARIOS, buildAlert, customAlert } from './scenarios';
 import { SimilarIncidents } from './similar';
 import { createTools } from './tools';
 
-interface CliArgs { scenario?: string; alert?: string; list: boolean; help: boolean }
+interface CliArgs { scenario?: string; alert?: string; list: boolean; help: boolean; useVault: boolean }
 
 function parseArgs(argv: string[]): CliArgs {
-    const out: CliArgs = { list: false, help: false };
+    const out: CliArgs = { list: false, help: false, useVault: false };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--scenario') out.scenario = argv[++i];
         else if (a === '--alert') out.alert = argv[++i];
         else if (a === '--list') out.list = true;
+        else if (a === '--use-vault') out.useVault = true;
         else if (a === '--help' || a === '-h') out.help = true;
     }
     return out;
 }
 
-const USAGE = `Uso: npm start -- --scenario <nombre> | --alert "<texto>" | --list
+const USAGE = `Uso: npm start -- --scenario <nombre> | --alert "<texto>" | --list [--use-vault]
 Escenarios: ${Object.keys(SCENARIOS).join(', ')}
-Env: OLLAMA_BASE_URL, MODEL_NAME, EMBED_MODEL, DB_PATH, LOG_PATH`;
+Env: OLLAMA_BASE_URL, MODEL_NAME, EMBED_MODEL, DB_PATH, LOG_PATH, VAULT_PATH`;
 
 export function renderSummary(r: RunResult, logPath: string): string {
     const lines: string[] = [];
@@ -35,6 +37,7 @@ export function renderSummary(r: RunResult, logPath: string): string {
     if (r.server) lines.push(`Servidor: ${r.server.found ? `${r.server.name} (${r.server.env}, criticidad ${r.server.criticality}, cpu ${r.server.cpu_pct}%, ${r.server.status})` : `${r.server.name} NO encontrado`}`);
     lines.push(`Políticas: ${r.policyIds.join(', ') || 'ninguna'}`);
     if (r.similar) lines.push(`Similares (${r.similar.method}): ${r.similar.matches.map(m => `${m.id}@${m.score}`).join(', ') || 'ninguno'} | embed ${r.similar.embed_ms} ms, búsqueda ${r.similar.search_ms} ms`);
+    if (r.docs.length) lines.push(`Runbooks: ${r.docs.map(d => `${d.title} (${d.relevance})`).join('; ')}`);
     lines.push(`Evidencia: ${r.evidence.join(', ') || 'n/a'}`);
     if (r.justification.length) {
         lines.push('Justificación:');
@@ -76,6 +79,9 @@ async function main(): Promise<number> {
         db, tools: createTools({ db, similar }),
         classifier: new ClassifierAgent(llm), decider: new DeciderAgent(llm),
         logPath: cfg.logPath, maxAlertChars: cfg.maxAlertChars,
+        knowledge: args.useVault
+            ? new VaultKnowledge({ vaultPath: cfg.vaultPath, indexPath: cfg.vaultIndexPath, embedder })
+            : undefined,
     });
 
     const result = await orch.run(alert);

@@ -145,7 +145,7 @@ graph LR
 - Uses `ObsidianRAGProvider` as a library (no MCP stdio process); dedicated vault, separate from the repo's codex-context vault.
 - Curation without external LLM: hand-written notes + local reindex. Optional Ollama-based curation for raw docs, reviewed manually.
 - Advisory only: feeds `evidence` and decider context, never the policy guard. Latency (seconds) is reported separately from the <30 ms incident search.
-- Only network use: one-time embedding model download (~274 MB, cacheable/offline-copyable).
+- Embeddings via local Ollama (`nomic-embed-text`, same `OllamaEmbedder` as incident search); no network use beyond localhost. Model obtained once with `ollama pull nomic-embed-text` (~274 MB).
 - See ADR-010.
 
 ---

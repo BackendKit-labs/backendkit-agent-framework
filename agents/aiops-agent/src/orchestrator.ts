@@ -1,5 +1,6 @@
 import type { ToolDefinition } from '@backendkit-labs/agent-core';
 import type { ClassifierAgent, DeciderAgent } from './agents';
+import type { KnowledgeLookup, KnowledgeNote } from './knowledge';
 import { AuditLog, sanitize } from './audit';
 import { getPolicies, type Db } from './db';
 import { categoryHint, evaluatePolicies, guardDecision, severityFloor, WRITE_ACTIONS } from './policy';
@@ -17,6 +18,8 @@ export interface OrchestratorDeps {
     decider: DeciderAgent;
     logPath: string;
     maxAlertChars?: number;
+    /** Optional runbook lookup (--use-vault). Advisory only: never reaches the guard. */
+    knowledge?: KnowledgeLookup;
 }
 
 export interface RunResult {
@@ -26,6 +29,7 @@ export interface RunResult {
     classification: Classification | null;
     server: ServerStatus | null;
     similar: SimilarResult | null;
+    docs: KnowledgeNote[];
     decision: Decision | null;
     toolName: string | null;
     toolResult: Record<string, unknown> | null;
@@ -52,7 +56,7 @@ export class Orchestrator {
         const text = sanitize(alert.text, this.deps.maxAlertChars ?? 2000);
         const result: RunResult = {
             alertId: alert.id, finalAction: 'needs_human', requiresApproval: true, classification: null,
-            server: null, similar: null, decision: null, toolName: null, toolResult: null,
+            server: null, similar: null, docs: [], decision: null, toolName: null, toolResult: null,
             evidence: [], justification: [], policyIds: [], riskLevel: 'high', confidence: 0, events: log.events,
         };
         const finish = (reason: string): RunResult => {
@@ -140,6 +144,27 @@ export class Orchestrator {
             tool_result: sim as unknown as Record<string, unknown>,
         });
 
+        // 4b. optional runbook lookup (advisory only: feeds evidence + decider, NEVER the guard)
+        let docs: KnowledgeNote[] = [];
+        if (this.deps.knowledge) {
+            try {
+                const kr = await this.deps.knowledge.lookup(`${cls.summary} ${cls.category}`, 3);
+                docs = kr.notes;
+                evidence.push(...docs.map(d => `doc:${d.title}`));
+                log.record('knowledge_lookup', 'orchestrator', {
+                    input_summary: 'vault de runbooks (solo lectura, advisory)',
+                    analysis_summary: kr.skipped
+                        ? `omitido: ${kr.skipped}`
+                        : `${docs.length} notas (${kr.latency_ms} ms): ${docs.map(d => d.title).join('; ')}`,
+                    evidence: [...evidence],
+                    tool_result: { notes: docs.map(({ title, path, relevance }) => ({ title, path, relevance })), latency_ms: kr.latency_ms },
+                });
+            } catch (e) {
+                log.record('knowledge_lookup', 'orchestrator', { analysis_summary: `omitido: ${errMsg(e)}`, evidence: [...evidence] });
+            }
+        }
+        result.docs = docs;
+
         // 5. decide (LLM)
         let decision: Decision;
         try {
@@ -147,6 +172,7 @@ export class Orchestrator {
                 alertText: text, classification: cls, server,
                 policies: pctx.matched.map(p => ({ id: p.id, description: p.description })),
                 allowedActions: pctx.allowed, similar: sim,
+                docs: docs.map(d => ({ title: d.title, excerpt: d.excerpt })),
             });
         } catch (e) {
             log.record('decide', decider.name, { analysis_summary: `fallo: ${errMsg(e)}`, evidence: [...evidence] });

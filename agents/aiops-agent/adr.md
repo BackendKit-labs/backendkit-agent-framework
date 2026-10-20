@@ -114,10 +114,10 @@
 - **Decision**:
   1. Paso opcional `knowledge_lookup` (`--use-vault`), de solo lectura, usando `ObsidianRAGProvider` (`@backendkit-labs/agent-enterprise`) como librería, sin servidor MCP stdio.
   2. Vault propio del agente (`VAULT_PATH`, p. ej. `agents/aiops-agent/vault/`), aislado del vault del repo.
-  3. Curado sin LLM: notas `.md` escritas a mano con frontmatter (`title, area, tipo, resumen, tags, aplica_a, source_ref`) + reindex con embeddings locales (Transformers.js). Curado automático de docs crudos solo opcional con Ollama local (`provider: ollama`) y revisión manual.
+  3. Curado sin LLM: notas `.md` escritas a mano con frontmatter (`title, area, tipo, resumen, tags, aplica_a, source_ref`) + reindex con embeddings locales vía Ollama (`nomic-embed-text`, el mismo `OllamaEmbedder` que usa la búsqueda de incidentes similares). Curado automático de docs crudos solo opcional con Ollama local (`provider: ollama`) y revisión manual.
   4. El resultado es evidencia (`doc:<nota>`) citable en `evidence`/`justification`; **nunca** alimenta el policy guard (ADR-004).
   5. Si falta vault o modelo de embeddings, se omite el paso y se registra en el log.
-- **Consequences**: Más evidencia auditable, 100% local y versionable. El contenido del vault se trata como dato no confiable (T-01). Única salida de red: descarga única del modelo de embeddings (~274 MB), evitable precargándolo.
+- **Consequences**: Más evidencia auditable, 100% local y versionable. El contenido del vault se trata como dato no confiable (T-01). Sin salidas de red del agente: todo va a Ollama en localhost. El modelo de embeddings (~274 MB) se obtiene una vez con `ollama pull nomic-embed-text`. Una sola dependencia local (Ollama) para LLM y embeddings. Se evaluó Transformers.js (usado por codex-context-agent-v2) y se descartó: su embedder vive dentro de ese agente, no en una librería, y el LLM igual requiere Ollama.
 - **Alternatives**: Usar el MCP codex-context directo (dependencia de proceso, vault mezclado); curar con LLM cloud (viola "sin servicios externos"); no usar vault (menos contexto).
 
 ## ADR-011: Correcciones deterministas sobre la salida del modelo

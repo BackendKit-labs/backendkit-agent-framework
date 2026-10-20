@@ -122,7 +122,7 @@ received → classify → server_status → policy_check → similar_incidents
 
 ### 3.5 Knowledge lookup (optional, advisory)
 
-- Source: local Markdown vault (`VAULT_PATH`, default `./vault`), searched with `ObsidianRAGProvider` (local embeddings, Transformers.js). Read-only; never calls `curate_*` or any LLM.
+- Source: local Markdown vault (`VAULT_PATH`, default `./vault`), searched with `ObsidianRAGProvider` (local embeddings via Ollama `nomic-embed-text`). Read-only; never calls `curate_*` or any LLM.
 - Query: classification summary + category. `topK<=3`. Output `{notes:[{title,path,relevance}], latency_ms}`.
 - Results appear in `evidence` as `doc:<title>` and may be cited in `justification`; they are passed to the decider as untrusted context and **never** to the policy guard.
 - Missing vault / embedder / timeout → step skipped, event with `analysis_summary:"skipped: <reason>"`; flow continues.

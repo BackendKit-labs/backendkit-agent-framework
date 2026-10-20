@@ -2,7 +2,7 @@
 
 > **Status**: Active  
 > **Last Updated**: 2026-10-19  
-> **Current Phase**: Phase 4 done; 4b (vault) pending
+> **Current Phase**: Phase 4b done
 
 ---
 
@@ -52,14 +52,14 @@
 
 ## Phase 4b: Knowledge Vault (optional, ADR-010)
 ### Deliverables
-- [ ] `knowledge.ts` (`ObsidianRAGProvider`, read-only, `--use-vault`)
-- [ ] `vault/runbooks/` with 3–4 hand-written notes (frontmatter format in spec §3.5)
-- [ ] `VAULT_PATH` config; skip-and-log when vault/embedder missing
+- [x] `knowledge.ts` (`ObsidianRAGProvider`, read-only, `--use-vault`)
+- [x] `vault/runbooks/` with 4 hand-written notes (frontmatter format in spec §3.5)
+- [x] `VAULT_PATH` config; skip-and-log when vault/embedder missing
 
 ### Definition of Done
-- [ ] Lookup cites `doc:<title>` in evidence; policy guard unaffected (test)
-- [ ] Run without `--use-vault` or without vault behaves identically
-- [ ] No `curate_*`/LLM calls from the agent (test/static check)
+- [x] Lookup cites `doc:<title>` in evidence; policy guard unaffected (test: poisoned runbook)
+- [x] Run without `--use-vault` or without vault behaves identically
+- [x] No `curate_*`/LLM calls from the agent (knowledge.ts only indexes + searches)
 
 ## Phase 5: Hardening (post-MVP)
 - [ ] Hash-chained audit log (`prev_hash`)
@@ -81,4 +81,4 @@
 | 5 | Hardening | later |
 
 ## Current Status
-Phases 1-4 implemented (23 tests green; live run with llama3.2:3b on CPU). Phase 4b (vault) and 5 pending.
+Phases 1-4 and 4b implemented (23 tests green; live run with llama3.2:3b on CPU). Phase 5 pending.

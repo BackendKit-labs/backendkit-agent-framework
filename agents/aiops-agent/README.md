@@ -35,6 +35,7 @@ npm run build
 npm start -- --scenario cpu_99          # caso obligatorio
 npm start -- --list                     # escenarios disponibles
 npm start -- --alert "Disco al 97% en prod-02"
+npm start -- --scenario cpu_99 --use-vault   # añade runbooks del vault como evidencia
 npm test                                # no requiere Ollama
 ```
 
@@ -50,6 +51,8 @@ Durante el desarrollo: `npx tsx src/main.ts --scenario cpu_99`.
 | `DB_PATH` | `data/aiops.db` | SQLite (se crea y siembra solo) |
 | `LOG_PATH` | `logs/decisions.jsonl` | Log de auditoría |
 | `LLM_TIMEOUT_MS` | `120000` | Timeout por llamada |
+| `VAULT_PATH` | `vault/` | Vault de runbooks (solo con `--use-vault`) |
+| `VAULT_INDEX_PATH` | `data/vault-index.json` | Índice vectorial del vault |
 
 Sin secretos: no hay API keys.
 
@@ -69,7 +72,7 @@ Sin secretos: no hay API keys.
 
 | Campo | Significado |
 |---|---|
-| `step` | `received, classify, server_status, policy_check, similar_incidents, decide, policy_guard, tool_exec, final` |
+| `step` | `received, classify, server_status, policy_check, similar_incidents, knowledge_lookup (solo con --use-vault), decide, policy_guard, tool_exec, final` |
 | `agent` | quién actuó (`classifier`, `decider`, `policy-guard`, `orchestrator`) |
 | `evidence` | referencias verificadas: `server:`, `policy:`, `incident:` (las inventadas por el modelo se descartan) |
 | `policy_check` | políticas aplicadas, acciones permitidas, si pasó y por qué se degradó |
@@ -132,13 +135,14 @@ La decisión puede variar entre corridas (modelo 3B); el guard garantiza que sie
 - Datos de servidores, políticas e incidentes **sintéticos** (semilla en `src/db.ts`).
 - La búsqueda de similares usa embeddings (`nomic-embed-text`); si Ollama no los sirve, cae a keywords y lo indica en el log.
 - Latencia de búsqueda de similares medida en la corrida: ~1–3 ms (objetivo < 30 ms). El embedding de la consulta (~110–330 ms) se reporta aparte.
-- El paso opcional `knowledge_lookup` (vault de runbooks, ADR-010) **no está implementado** (Fase 4b).
+- `--use-vault` (ADR-010): consulta de **solo lectura** sobre `vault/runbooks/*.md` (notas escritas a mano, sin LLM para curar). Es evidencia advisory (`doc:<título>`): nunca llega al policy guard. Si falta el vault o el embedder, el paso se omite y queda registrado. Primera ejecución: indexa los runbooks (segundos); luego es incremental.
 - Las herramientas son mocks; conectar Jira/ServiceNow/K8s reales queda fuera del MVP.
 - Los docs `design.md`, `specification.md`, `security.md`, `roadmap.md` están en el `.gitignore` global del repo; usar `git add -f` si se quieren versionar.
 
 ## Estructura
 
 ```
-src/  main.ts config.ts types.ts db.ts tools.ts similar.ts policy.ts prompts.ts agents.ts orchestrator.ts audit.ts scenarios.ts
+vault/runbooks/  runbooks de ejemplo (frontmatter: title, description, tags, area, tipo, aplica_a, source_ref)
+src/  main.ts knowledge.ts config.ts types.ts db.ts tools.ts similar.ts policy.ts prompts.ts agents.ts orchestrator.ts audit.ts scenarios.ts
 tests/ cpu99 · guard · tools-similar   (stub de LLM y embedder: no requieren Ollama)
 ```

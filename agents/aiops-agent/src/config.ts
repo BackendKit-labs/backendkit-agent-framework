@@ -9,6 +9,9 @@ export interface Config {
     embedModel: string;
     dbPath: string;
     logPath: string;
+    /** Optional runbook vault (ADR-010) and its vector index file. */
+    vaultPath: string;
+    vaultIndexPath: string;
     /** Max chars of alert text forwarded to the LLM / logs. */
     maxAlertChars: number;
     llmTimeoutMs: number;
@@ -24,6 +27,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         embedModel: env['EMBED_MODEL'] ?? 'nomic-embed-text',
         dbPath: env['DB_PATH'] ?? path.join(PKG_ROOT, 'data', 'aiops.db'),
         logPath: env['LOG_PATH'] ?? path.join(PKG_ROOT, 'logs', 'decisions.jsonl'),
+        vaultPath: env['VAULT_PATH'] ?? path.join(PKG_ROOT, 'vault'),
+        vaultIndexPath: env['VAULT_INDEX_PATH'] ?? path.join(PKG_ROOT, 'data', 'vault-index.json'),
         maxAlertChars: 2000,
         llmTimeoutMs: Number(env['LLM_TIMEOUT_MS'] ?? 120_000),
     };

@@ -161,6 +161,20 @@ const whenWorkflowTemplate = (_prev: any, v: Record<string, any>) =>
 
 // ── Main question flow ────────────────────────────────────────────────────────
 
+/**
+ * The name becomes both the directory (resolved against cwd) and package.json `name`,
+ * so it must be a valid unscoped npm name: no path separators, no spaces, no uppercase.
+ */
+export function validateProjectName(name: string): true | string {
+    if (name.length === 0) return 'Name cannot be empty';
+    if (name.length > 214) return 'Name is too long (max 214 characters)';
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+        return 'Use lowercase letters, digits, "-", "_" or "." (no spaces, slashes or leading dot)';
+    }
+    if (name === 'node_modules') return 'Reserved name';
+    return true;
+}
+
 export async function askQuestions(defaultName: string): Promise<UserChoices | null> {
     const raw = await prompts(
         [
@@ -169,7 +183,7 @@ export async function askQuestions(defaultName: string): Promise<UserChoices | n
                 name: 'projectName',
                 message: 'Project name:',
                 initial: defaultName,
-                validate: (v: string) => v.trim().length > 0 || 'Name cannot be empty',
+                validate: validateProjectName,
             },
             {
                 type: 'select',

@@ -13,10 +13,10 @@ const LAYERED: ArchitectureId[] = ['multi-agent', 'single', 'enterprise'];
 
 // ── Provider env var hints ────────────────────────────────────────────────────
 
-const PROVIDER_ENV: Record<ProviderId, { varName: string; placeholder: string; model: string }> = {
+const PROVIDER_ENV: Record<ProviderId, { varName: string; placeholder: string; model: string; baseUrl?: string }> = {
     anthropic: { varName: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...',  model: 'claude-sonnet-4-6' },
-    openai:    { varName: 'OPENAI_API_KEY',    placeholder: 'sk-...',      model: 'gpt-4o' },
-    deepseek:  { varName: 'LLM_API_KEY',       placeholder: 'sk-...',      model: 'deepseek-chat' },
+    openai:    { varName: 'OPENAI_API_KEY',    placeholder: 'sk-...',      model: 'gpt-4o',         baseUrl: 'https://api.openai.com/v1' },
+    deepseek:  { varName: 'LLM_API_KEY',       placeholder: 'sk-...',      model: 'deepseek-chat',  baseUrl: 'https://api.deepseek.com/v1' },
     ollama:    { varName: 'OLLAMA_BASE_URL',   placeholder: 'http://localhost:11434', model: 'llama3.2' },
 };
 
@@ -31,6 +31,15 @@ function copyDir(src: string, dst: string): void {
         entry.isDirectory() ? copyDir(srcPath, dstPath) : fs.copyFileSync(srcPath, dstPath);
     }
 }
+
+/**
+ * Ranges injected into generated projects by patchPackageJson. In 0.x a caret only covers one
+ * minor, so these must follow the workspace versions (guarded by a test).
+ */
+export const GENERATED_DEP_RANGES = {
+    '@backendkit-labs/mcp-server': '^0.16.0',
+    '@backendkit-labs/agent-web':  '^0.4.0',
+} as const;
 
 // ── Patch package.json — name + scripts ──────────────────────────────────────
 
@@ -82,12 +91,12 @@ function patchPackageJson(
 
     if (deployMode && MCP_DEPLOY_MODES.includes(deployMode)) {
         pkg.dependencies ??= {};
-        pkg.dependencies['@backendkit-labs/mcp-server'] ??= '^0.15.0';
+        pkg.dependencies['@backendkit-labs/mcp-server'] ??= GENERATED_DEP_RANGES['@backendkit-labs/mcp-server'];
     }
 
     if (deployMode && WEB_DEPLOY_MODES.includes(deployMode)) {
         pkg.dependencies ??= {};
-        pkg.dependencies['@backendkit-labs/agent-web'] ??= '^0.1.0';
+        pkg.dependencies['@backendkit-labs/agent-web'] ??= GENERATED_DEP_RANGES['@backendkit-labs/agent-web'];
     }
 
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
@@ -119,9 +128,7 @@ function writeEnv(dir: string, provider: ProviderId, choices: UserChoices): void
         `${p.varName}=${p.placeholder}`,
         `LLM_PROVIDER=${provider}`,
         `LLM_MODEL=${p.model}`,
-        ...(provider !== 'anthropic' && provider !== 'ollama'
-            ? ['LLM_BASE_URL=https://api.openai.com/v1']
-            : []),
+        ...(p.baseUrl ? [`LLM_BASE_URL=${p.baseUrl}`] : []),
         '',
     ].join('\n');
 

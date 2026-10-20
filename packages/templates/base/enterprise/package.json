@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.20.0",
-    "@backendkit-labs/agent-coding": "^0.19.2",
-    "@backendkit-labs/agent-enterprise": "^0.2.0",
+    "@backendkit-labs/agent-core": "^0.24.0",
+    "@backendkit-labs/agent-coding": "^0.20.0",
+    "@backendkit-labs/agent-enterprise": "^0.4.0",
     "dotenv": "^16.0.0",
     "zod": "^3.25.0"
   },

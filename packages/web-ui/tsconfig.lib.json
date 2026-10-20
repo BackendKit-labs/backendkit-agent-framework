@@ -8,5 +8,8 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "exclude": ["src/main.tsx"]
+  "exclude": [
+    "src/main.tsx",
+    "src/**/__tests__"
+  ]
 }

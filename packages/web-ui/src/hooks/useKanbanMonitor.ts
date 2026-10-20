@@ -127,6 +127,9 @@ export function useKanbanMonitor({
         tokens: 0,
         startedAt: new Date(),
       };
+      // A run that never reported done/error (dropped frame, aborted turn) must not stay "running" forever
+      const previous = getActiveRun(sessionId);
+      if (previous) updateRun(previous, r => ({ ...r, column: 'error', completedAt: new Date() }));
       setActiveRun(sessionId, runId);
       setRuns(prev => [newRun, ...prev]);
       return;
@@ -172,9 +175,12 @@ export function useKanbanMonitor({
 
     if (type === 'tool_result') {
       const success = frame.success as boolean;
-      // Update the last pending tool call
+      const name = frame.name as string | undefined;
+      // Resolve the most recent pending call with the same name (calls can overlap);
+      // fall back to the last pending one when the frame carries no name.
       updateRun(runId, r => {
-        const lastPending = [...r.toolCalls].reverse().find(tc => tc.status === 'pending');
+        const pending = [...r.toolCalls].reverse().filter(tc => tc.status === 'pending');
+        const lastPending = pending.find(tc => tc.name === name) ?? (name === undefined ? pending[0] : undefined);
         if (!lastPending) return r;
         return {
           ...r,

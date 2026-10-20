@@ -76,8 +76,20 @@ export function useAgentSession({
   const wsRef = useRef<WebSocket | null>(null);
   // Track the ID of the assistant message currently being streamed
   const streamingIdRef = useRef<string | null>(null);
-  // Track the ID of the last pending tool_call badge
-  const lastToolCallIdRef = useRef<string | null>(null);
+  // Tool calls still waiting for their result, oldest first (several can be in flight at once)
+  const pendingToolsRef = useRef<Array<{ id: string; name: string }>>([]);
+  // Latest active agent, readable from socket callbacks that were created earlier
+  const activeAgentRef = useRef<{ id: string; name?: string; icon?: string } | null>(null);
+
+  /**
+   * Stop the streaming flag on the open assistant message. The id must be captured BEFORE the
+   * ref is cleared: setMessages updaters run later, and would otherwise compare against null.
+   */
+  const closeStreaming = useCallback(() => {
+    const id = streamingIdRef.current;
+    streamingIdRef.current = null;
+    if (id) setMessages(prev => prev.map(m => (m.id === id ? { ...m, isStreaming: false } : m)));
+  }, []);
 
   const handleEvent = useCallback((evt: AgentEventType) => {
     switch (evt.type) {
@@ -86,22 +98,24 @@ export function useAgentSession({
         break;
 
       case 'token': {
-        if (!streamingIdRef.current) {
+        const openId = streamingIdRef.current;
+        if (!openId) {
           // Start a new streaming assistant message
           const id = uid();
+          const agent = activeAgentRef.current;
           streamingIdRef.current = id;
           setMessages(prev => [...prev, {
             id,
             role: 'assistant',
             content: evt.content,
-            agentId: activeAgent?.id,
-            agentName: activeAgent?.name,
-            agentIcon: activeAgent?.icon,
+            agentId: agent?.id,
+            agentName: agent?.name,
+            agentIcon: agent?.icon,
             isStreaming: true,
           }]);
         } else {
           setMessages(prev => prev.map(m =>
-            m.id === streamingIdRef.current
+            m.id === openId
               ? { ...m, content: m.content + evt.content }
               : m
           ));
@@ -110,29 +124,26 @@ export function useAgentSession({
       }
 
       case 'tool_call': {
-        // Close streaming message if open
-        if (streamingIdRef.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === streamingIdRef.current ? { ...m, isStreaming: false } : m
-          ));
-          streamingIdRef.current = null;
-        }
+        closeStreaming();
         const id = uid();
-        lastToolCallIdRef.current = id;
+        const agent = activeAgentRef.current;
+        pendingToolsRef.current.push({ id, name: evt.name });
         setMessages(prev => [...prev, {
           id,
           role: 'assistant',
           content: '',
-          agentId: activeAgent?.id,
-          agentName: activeAgent?.name,
-          agentIcon: activeAgent?.icon,
+          agentId: agent?.id,
+          agentName: agent?.name,
+          agentIcon: agent?.icon,
           toolCalls: [{ id, name: evt.name, argsPreview: evt.args_preview, status: 'pending' }],
         }]);
         break;
       }
 
       case 'tool_result': {
-        const tcId = lastToolCallIdRef.current;
+        // Match the oldest in-flight call with the same name (results can arrive per call)
+        const idx = pendingToolsRef.current.findIndex(t => t.name === evt.name);
+        const tcId = idx >= 0 ? pendingToolsRef.current.splice(idx, 1)[0].id : null;
         if (tcId) {
           setMessages(prev => prev.map(m =>
             m.toolCalls?.some(tc => tc.id === tcId)
@@ -155,32 +166,23 @@ export function useAgentSession({
         const id = evt.type === 'agent_switch' ? evt.to : evt.agent_id;
         const name = evt.type === 'agent_switch' ? evt.to_name : evt.agent_name;
         const icon = evt.type === 'agent_switch' ? evt.to_icon : evt.agent_icon;
+        activeAgentRef.current = { id, name, icon };
         setActiveAgent({ id, name, icon });
         // Close current streaming message so next tokens open a fresh one
-        if (streamingIdRef.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === streamingIdRef.current ? { ...m, isStreaming: false } : m
-          ));
-          streamingIdRef.current = null;
-        }
+        closeStreaming();
         break;
       }
 
       case 'done':
       case 'ready':
-        if (streamingIdRef.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === streamingIdRef.current ? { ...m, isStreaming: false } : m
-          ));
-          streamingIdRef.current = null;
-        }
+        closeStreaming();
         setIsRunning(false);
         break;
 
       case 'error':
+        closeStreaming();
         setMessages(prev => [...prev, { id: uid(), role: 'system', content: `Error: ${evt.message}` }]);
         setIsRunning(false);
-        streamingIdRef.current = null;
         break;
 
       case 'system':
@@ -191,7 +193,7 @@ export function useAgentSession({
         // Could surface in UI — for now ignored
         break;
     }
-  }, [activeAgent]);
+  }, [closeStreaming]);
 
   const connect = useCallback(() => {
     if (wsRef.current) {
@@ -216,7 +218,8 @@ export function useAgentSession({
     ws.onclose = () => {
       setStatus('disconnected');
       setIsRunning(false);
-      streamingIdRef.current = null;
+      closeStreaming();
+      pendingToolsRef.current = [];
       wsRef.current = null;
     };
 
@@ -224,7 +227,7 @@ export function useAgentSession({
       setMessages(prev => [...prev, { id: uid(), role: 'system', content: 'WebSocket connection error.' }]);
       setStatus('disconnected');
     };
-  }, [url, handleEvent]);
+  }, [url, handleEvent, closeStreaming]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
@@ -247,6 +250,7 @@ export function useAgentSession({
   const clearMessages = useCallback(() => {
     setMessages([]);
     streamingIdRef.current = null;
+    pendingToolsRef.current = [];
   }, []);
 
   useEffect(() => {

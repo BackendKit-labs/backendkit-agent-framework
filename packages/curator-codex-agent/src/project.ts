@@ -59,9 +59,12 @@ export async function resolveProject(): Promise<ProjectContext> {
 export async function findNote(vaultPath: string, pathOrTitle: string): Promise<string> {
     // Treat as path if it looks like one
     if (pathOrTitle.includes('/') || pathOrTitle.includes('\\') || pathOrTitle.endsWith('.md')) {
-        const resolved = path.isAbsolute(pathOrTitle)
-            ? pathOrTitle
-            : path.join(vaultPath, pathOrTitle);
+        const resolved = path.resolve(vaultPath, pathOrTitle);
+        // pathOrTitle comes from an MCP tool argument: never read outside the vault.
+        const rel = path.relative(path.resolve(vaultPath), resolved);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            throw new Error(`Path is outside the vault: "${pathOrTitle}"`);
+        }
         return await fs.readFile(resolved, 'utf-8');
     }
 

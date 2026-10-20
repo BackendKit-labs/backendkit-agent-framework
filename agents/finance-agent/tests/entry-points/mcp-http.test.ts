@@ -10,6 +10,8 @@ describe('MCP HTTP Server', () => {
   let server: Server;
 
   beforeAll(async () => {
+    // createEngine() exige API key; el CI no la tiene
+    process.env.DEEPSEEK_API_KEY ??= 'test-key';
     app = createMCPServer(PORT);
     await new Promise<void>((resolve) => {
       server = app.listen(PORT, resolve);

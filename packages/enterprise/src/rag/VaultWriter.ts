@@ -3,6 +3,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import type { ToolDefinition } from '@backendkit-labs/agent-core';
+import { retry } from '@backendkit-labs/retry';
 
 export interface VaultWriterOptions {
     /** Absolute path to the shared vault directory. */
@@ -129,25 +130,20 @@ function buildNote(p: WriteNoteParams & { date: string }): string {
  * can hold the lock at a time. Retries with exponential backoff.
  */
 async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
-    const lockPath   = `${filePath}.lock`;
-    const maxRetries = 10;
-    const baseDelay  = 50;
+    const lockPath = `${filePath}.lock`;
+    const maxAttempts = 10;
 
-    let fd: fsSync.promises.FileHandle | null = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            // wx = O_WRONLY | O_CREAT | O_EXCL — fails atomically if lock exists
-            fd = await fs.open(lockPath, 'wx');
-            break;
-        } catch {
-            if (attempt < maxRetries - 1) {
-                await sleep(baseDelay * 2 ** attempt + Math.random() * baseDelay);
-            } else {
-                throw new Error(`Could not acquire lock for ${path.basename(filePath)} after ${maxRetries} attempts`);
-            }
-        }
+    // wx = O_WRONLY | O_CREAT | O_EXCL — fails atomically if lock exists
+    const acquired = await retry(() => fs.open(lockPath, 'wx'), {
+        maxAttempts,
+        backoff: { type: 'exponential', baseDelay: 50, jitter: 'full' },
+        // lock contention (EEXIST) is a plain Error, not an HTTP-like failure: always retry
+        retryIf: () => true,
+    });
+    if (!acquired.ok) {
+        throw new Error(`Could not acquire lock for ${path.basename(filePath)} after ${maxAttempts} attempts`);
     }
+    const fd: fsSync.promises.FileHandle | null = acquired.value;
 
     try {
         return await fn();
@@ -159,6 +155,3 @@ async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<
     }
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}

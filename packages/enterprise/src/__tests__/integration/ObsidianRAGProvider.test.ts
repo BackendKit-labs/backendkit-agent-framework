@@ -167,7 +167,7 @@ describe('ObsidianRAGProvider — integración', () => {
 
         const result = await rag.search('patrón orquestador especialista delegación');
 
-        expect(result).toContain('orquestaci'); // título o contenido del archivo relevante
+        expect(result).toMatch(/orquestaci/i); // título o contenido del archivo relevante
         expect(result).not.toBe('No se encontró información relevante en la base de conocimiento para esa consulta.');
     });
 

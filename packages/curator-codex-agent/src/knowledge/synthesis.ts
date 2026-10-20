@@ -44,9 +44,10 @@ export class KnowledgeSynthesizer {
             .map((r, i) => `## Document ${i + 1}: ${r.title}\n\n${r.content.slice(0, 1000)}`)
             .join('\n\n---\n\n');
 
-        const prompt = SYNTHESIS_PROMPT
-            .replace('{query}', query)
-            .replace('{documents}', documentsText);
+        // Single pass with a function replacer: user text may contain `$&`, `$'` or `{documents}`,
+        // which a chained string .replace() would interpret or substitute a second time.
+        const values: Record<string, string> = { query, documents: documentsText };
+        const prompt = SYNTHESIS_PROMPT.replace(/\{(query|documents)\}/g, (_m, key: string) => values[key]);
 
         try {
             const synthesizedContent = await this.provider.complete(
@@ -102,7 +103,7 @@ export class KnowledgeSynthesizer {
                 'tipo: synthesis',
                 'generated_by: knowledge-agent',
                 `synthesis_version: ${note.synthesisVersion}`,
-                `based_on: [${note.basedOn.map(b => `"${b}"`).join(', ')}]`,
+                `based_on: [${note.basedOn.map(b => `"${b.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(', ')}]`,
                 `date: ${new Date().toISOString().slice(0, 10)}`,
                 'author: "agent/codex"',
                 'tags: ["synthesis", "generated"]',

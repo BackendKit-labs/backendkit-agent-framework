@@ -73,7 +73,13 @@ export class CodexAuditLogger {
     async readAll(): Promise<CodexAuditEntry[]> {
         try {
             const raw = await fs.readFile(this.logPath, 'utf-8');
-            return raw.split('\n').filter(l => l.trim()).map(l => JSON.parse(l) as CodexAuditEntry);
+            const entries: CodexAuditEntry[] = [];
+            for (const line of raw.split('\n')) {
+                if (!line.trim()) continue;
+                // A crash mid-write leaves a truncated line: skip it, keep the rest of the log.
+                try { entries.push(JSON.parse(line) as CodexAuditEntry); } catch { /* skip */ }
+            }
+            return entries;
         } catch { return []; }
     }
 

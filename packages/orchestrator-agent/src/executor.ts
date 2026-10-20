@@ -194,7 +194,12 @@ export class PlanExecutor {
                 }
             }
 
-            if (gateHit) return gateHit;
+            if (gateHit) {
+                // Snapshot after the whole batch: results of parallel steps that ran in the same
+                // batch must be in completedSoFar, otherwise they would run again on resume.
+                gateHit.completedSoFar = [...results];
+                return gateHit;
+            }
         }
 
         const summary = this.consolidate(plan, results);

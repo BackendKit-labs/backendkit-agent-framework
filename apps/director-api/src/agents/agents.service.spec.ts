@@ -102,9 +102,20 @@ describe('AgentsService', () => {
   });
 
   describe('findAll', () => {
-    it('should return paginated agents with default pagination', async () => {
-      repository.findAndCount.mockResolvedValue([[mockAgent], 1]);
+    let qb: Record<string, jest.Mock>;
 
+    beforeEach(() => {
+      qb = {
+        andWhere: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[mockAgent], 1]),
+      };
+      (repository as any).createQueryBuilder = jest.fn().mockReturnValue(qb);
+    });
+
+    it('should return paginated agents with default pagination', async () => {
       const result = await service.findAll({});
 
       expect(result).toEqual({
@@ -114,71 +125,41 @@ describe('AgentsService', () => {
         limit: 10,
         totalPages: 1,
       });
-      expect(repository.findAndCount).toHaveBeenCalledWith({
-        where: {},
-        skip: 0,
-        take: 10,
-        order: { createdAt: 'DESC' },
-      });
+      expect(qb.skip).toHaveBeenCalledWith(0);
+      expect(qb.take).toHaveBeenCalledWith(10);
+      expect(qb.orderBy).toHaveBeenCalledWith('agent.createdAt', 'DESC');
+      expect(qb.andWhere).not.toHaveBeenCalled();
     });
 
     it('should apply search filter', async () => {
-      repository.findAndCount.mockResolvedValue([[mockAgent], 1]);
-
       await service.findAll({ search: 'test' });
 
-      expect(repository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            name: expect.any(Object),
-          }),
-        }),
-      );
+      expect(qb.andWhere).toHaveBeenCalledWith('agent.name ILIKE :search', { search: '%test%' });
     });
 
     it('should apply type filter', async () => {
-      repository.findAndCount.mockResolvedValue([[mockAgent], 1]);
-
       await service.findAll({ type: 'backend' });
 
-      expect(repository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            type: 'backend',
-          }),
-        }),
-      );
+      expect(qb.andWhere).toHaveBeenCalledWith('agent.type = :type', { type: 'backend' });
     });
 
     it('should apply status filter', async () => {
-      repository.findAndCount.mockResolvedValue([[mockAgent], 1]);
-
       await service.findAll({ status: 'active' });
 
-      expect(repository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            status: 'active',
-          }),
-        }),
-      );
+      expect(qb.andWhere).toHaveBeenCalledWith('agent.status = :status', { status: 'active' });
     });
 
     it('should apply custom pagination', async () => {
-      repository.findAndCount.mockResolvedValue([[], 0]);
+      qb.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll({ page: 2, limit: 5 });
 
-      expect(repository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          skip: 5,
-          take: 5,
-        }),
-      );
+      expect(qb.skip).toHaveBeenCalledWith(5);
+      expect(qb.take).toHaveBeenCalledWith(5);
     });
 
     it('should return empty result when no agents exist', async () => {
-      repository.findAndCount.mockResolvedValue([[], 0]);
+      qb.getManyAndCount.mockResolvedValue([[], 0]);
 
       const result = await service.findAll({});
 

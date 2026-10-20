@@ -68,7 +68,7 @@ describe('RuntimeReconciler', () => {
     await reconciler.onApplicationBootstrap();
 
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ status: AgentStatus.ACTIVE }),
+      expect.objectContaining({ status: 'running' }),
     );
   });
 

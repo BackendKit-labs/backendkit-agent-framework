@@ -7,23 +7,29 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { DirectorService } from './director.service';
-import { Agent, AgentStatus } from '../agents/entities/agent.entity';
+import { Deployable } from '../deployables/entities/deployable.entity';
 import { RuntimeRegistry } from '../runtime/runtime.registry';
 import type { RuntimeAdapter } from '../runtime/runtime.spi';
-import { AgentCatalog } from '../catalog/agent-catalog';
+import { CatalogService } from '../catalog/catalog.service';
+import { SecretsService } from '../departments/secrets.service';
 
-const baseAgent: Agent = {
+const baseAgent: Deployable = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   name: 'Test Agent',
   description: null,
-  type: 'backend',
-  status: AgentStatus.INACTIVE,
-  config: {},
-  projectId: '660e8400-e29b-41d4-a716-446655440001',
-  model: 'gpt-4',
-  runtime: 'docker',
+  kind: 'agent',
+  status: 'pending',
+  departmentId: null,
+  department: null,
+  catalogKey: null,
   image: null,
+  runtime: 'docker',
   runtimeHandle: null,
+  model: null,
+  mcpPort: null,
+  publicPort: null,
+  publicUrl: null,
+  framework: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
@@ -60,7 +66,7 @@ function makeAdapter(): jest.Mocked<RuntimeAdapter> {
 
 describe('DirectorService', () => {
   let service: DirectorService;
-  let repository: jest.Mocked<Repository<Agent>>;
+  let repository: jest.Mocked<Repository<Deployable>>;
   let registry: { require: jest.Mock; all: jest.Mock; get: jest.Mock; availableKinds: jest.Mock };
   let adapter: jest.Mocked<RuntimeAdapter>;
 
@@ -80,32 +86,38 @@ describe('DirectorService', () => {
       save: jest.fn(async (a) => a),
       createQueryBuilder: jest.fn(() => ({
         select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue([{ status: 'running', count: '3' }]),
         getRawOne: jest.fn().mockResolvedValue({ count: '2' }),
       })),
     };
 
     const catalog = {
-      list: jest.fn(() => []),
-      resolve: jest.fn(() => ({
+      findAll: jest.fn(() => []),
+      resolve: jest.fn(async () => ({
         key: 'backend',
-        displayName: 'Backend',
-        description: '',
         image: 'agent-runtime:latest',
-        runtime: 'docker',
+        command: undefined,
+        env: {},
+        requiredSecrets: [],
+        defaultModel: undefined,
       })),
     };
+    const secrets = { getEnvMap: jest.fn().mockResolvedValue({}) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DirectorService,
-        { provide: getRepositoryToken(Agent), useValue: mockRepository },
+        { provide: getRepositoryToken(Deployable), useValue: mockRepository },
         { provide: RuntimeRegistry, useValue: registry },
-        { provide: AgentCatalog, useValue: catalog },
+        { provide: CatalogService, useValue: catalog },
+        { provide: SecretsService, useValue: secrets },
       ],
     }).compile();
 
     service = module.get(DirectorService);
-    repository = module.get(getRepositoryToken(Agent));
+    repository = module.get(getRepositoryToken(Deployable));
   });
 
   it('is defined', () => expect(service).toBeDefined());
@@ -114,7 +126,7 @@ describe('DirectorService', () => {
     it('reports running when there are active agents', async () => {
       repository.count.mockResolvedValueOnce(3).mockResolvedValueOnce(1);
       const result = await service.getStatus();
-      expect(result).toEqual({ status: 'running', agents: 3 });
+      expect(result).toEqual({ status: 'running', deployables: 3 });
     });
   });
 
@@ -151,7 +163,7 @@ describe('DirectorService', () => {
       );
       expect(result).toMatchObject({ status: 'running', handle: 'container-1' });
       expect(repository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AgentStatus.ACTIVE, runtimeHandle: 'container-1' }),
+        expect.objectContaining({ status: 'running', runtimeHandle: 'container-1' }),
       );
     });
 
@@ -178,19 +190,19 @@ describe('DirectorService', () => {
         BadRequestException,
       );
       expect(repository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AgentStatus.ERROR }),
+        expect.objectContaining({ status: 'error' }),
       );
     });
   });
 
   describe('stopAgent', () => {
     it('stops the running instance and marks the agent stopped', async () => {
-      repository.findOne.mockResolvedValue({ ...baseAgent, status: AgentStatus.ACTIVE, runtimeHandle: 'container-1' });
+      repository.findOne.mockResolvedValue({ ...baseAgent, status: 'running', runtimeHandle: 'container-1' });
       const result = await service.stopAgent(baseAgent.id);
       expect(adapter.stop).toHaveBeenCalledWith('container-1');
       expect(result.status).toBe('stopped');
       expect(repository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AgentStatus.STOPPED }),
+        expect.objectContaining({ status: 'stopped' }),
       );
     });
 
@@ -202,21 +214,21 @@ describe('DirectorService', () => {
 
   describe('executeAgent', () => {
     it('execs a command in the running instance', async () => {
-      repository.findOne.mockResolvedValue({ ...baseAgent, status: AgentStatus.ACTIVE, runtimeHandle: 'container-1' });
+      repository.findOne.mockResolvedValue({ ...baseAgent, status: 'running', runtimeHandle: 'container-1' });
       const result = await service.executeAgent(baseAgent.id, { action: 'echo hi' });
       expect(adapter.exec).toHaveBeenCalledWith('container-1', 'echo hi');
       expect(result.result.exitCode).toBe(0);
     });
 
     it('rejects when the agent is not active', async () => {
-      repository.findOne.mockResolvedValue({ ...baseAgent, status: AgentStatus.STOPPED });
+      repository.findOne.mockResolvedValue({ ...baseAgent, status: 'stopped' });
       await expect(service.executeAgent(baseAgent.id, { action: 'x' })).rejects.toThrow(
         BadRequestException,
       );
     });
 
     it('rejects when there is no running instance', async () => {
-      repository.findOne.mockResolvedValue({ ...baseAgent, status: AgentStatus.ACTIVE, runtimeHandle: null });
+      repository.findOne.mockResolvedValue({ ...baseAgent, status: 'running', runtimeHandle: null });
       await expect(service.executeAgent(baseAgent.id, { action: 'x' })).rejects.toThrow(
         BadRequestException,
       );
@@ -241,11 +253,17 @@ describe('DirectorService', () => {
 
   describe('getMetrics', () => {
     it('aggregates counts', async () => {
-      repository.count.mockResolvedValueOnce(5).mockResolvedValueOnce(3);
+      repository.count
+        .mockResolvedValueOnce(5) // total
+        .mockResolvedValueOnce(3) // running
+        .mockResolvedValueOnce(4) // kind=agent
+        .mockResolvedValueOnce(1); // kind=app
       const result = await service.getMetrics();
-      expect(result.totalAgents).toBe(5);
-      expect(result.activeAgents).toBe(3);
-      expect(result.totalProjects).toBe(2);
+      expect(result.totalDeployables).toBe(5);
+      expect(result.activeDeployables).toBe(3);
+      expect(result.byKind).toEqual({ agent: 4, app: 1 });
+      expect(result.byStatus).toEqual({ running: 3 });
+      expect(result.totalDepartments).toBe(2);
     });
   });
 });

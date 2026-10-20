@@ -1,10 +1,8 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { K8sRuntimeAdapter } from './k8s.adapter';
 import { ProcessRuntimeAdapter } from './process.adapter';
 import type { RuntimeAdapter } from '../runtime.spi';
 
 describe.each<[string, () => RuntimeAdapter]>([
-  ['k8s', () => new K8sRuntimeAdapter()],
   ['process', () => new ProcessRuntimeAdapter()],
 ])('ComingSoonAdapter: %s', (kind, make) => {
   const adapter = make();

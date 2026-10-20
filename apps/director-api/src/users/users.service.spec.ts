@@ -5,6 +5,8 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 
+jest.mock('bcrypt');
+
 describe('UsersService', () => {
   let service: UsersService;
   let repository: jest.Mocked<Repository<User>>;
@@ -51,7 +53,7 @@ describe('UsersService', () => {
         name: 'New User',
       };
 
-      const bcryptHashSpy = jest.spyOn(bcrypt, 'hash').mockResolvedValue('$2b$10$hashedpassword' as never);
+      const bcryptHashSpy = (bcrypt.hash as jest.Mock).mockResolvedValue('$2b$10$hashedpassword');
 
       const createdUser = {
         ...mockUser,

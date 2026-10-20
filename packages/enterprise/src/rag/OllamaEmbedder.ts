@@ -1,3 +1,5 @@
+import { retry } from '@backendkit-labs/retry';
+
 export const OLLAMA_EMBED_DEFAULT_MODEL = 'nomic-embed-text';
 export const OLLAMA_EMBED_DEFAULT_HOST  = 'http://localhost:11434';
 
@@ -102,25 +104,15 @@ export class OllamaEmbedder {
     }
 
     private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
-        let lastErr: Error = new Error('unknown');
-        for (let attempt = 0; attempt < this.maxRetries; attempt++) {
-            try {
-                return await fn();
-            } catch (err) {
-                lastErr = err instanceof Error ? err : new Error(String(err));
-                const code = (lastErr as NodeJS.ErrnoException).code;
-                // Non-retryable errors (bad model name, 4xx) bubble immediately
-                if (code === 'FATAL') throw lastErr;
-                if (attempt < this.maxRetries - 1) {
-                    const delay = BACKOFF_BASE_MS * 2 ** attempt;
-                    await sleep(delay);
-                }
-            }
-        }
-        throw lastErr;
+        const result = await retry(fn, {
+            maxAttempts: this.maxRetries,
+            backoff: { type: 'exponential', baseDelay: BACKOFF_BASE_MS, jitter: 'full' },
+            // Non-retryable errors (bad model name, 4xx) bubble immediately
+            retryIf: (e: { cause?: unknown }) =>
+                (e.cause as NodeJS.ErrnoException | undefined)?.code !== 'FATAL',
+        });
+        if (result.ok) return result.value;
+        const cause = result.error.cause;
+        throw cause instanceof Error ? cause : new Error(result.error.message);
     }
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
 }

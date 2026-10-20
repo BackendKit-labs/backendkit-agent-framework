@@ -26,6 +26,18 @@ describe('run_command — allowlist enforcement', () => {
         expect(result).toMatch(/not in the allowed list/);
     });
 
+    it.each([
+        ['LF',   'git status\nbash -c id'],
+        ['CRLF', 'git status\r\nbash -c id'],
+        ['CR',   'git status\rbash -c id'],
+        ['&',    'git status & bash -c id'],
+        ['$()',  'echo $(bash -c id)'],
+        ['`',    'echo `bash -c id`'],
+    ])('blocks non-allowlisted binary chained via %s', async (_label, command) => {
+        const result = await runCommandTool.execute({ command }, mockCtx);
+        expect(result).toMatch(/"bash" is not in the allowed list/);
+    });
+
     it('allows npm commands', async () => {
         // Just verify it doesn't block — actual execution may fail in test env
         const result = await runCommandTool.execute({ command: 'npm --version' }, mockCtx);

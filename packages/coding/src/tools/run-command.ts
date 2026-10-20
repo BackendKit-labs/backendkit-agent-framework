@@ -61,7 +61,7 @@ function extractAllBins(command: string): string[] {
     // splitting so that the target filename is never treated as a command binary.
     // \s* after >>? consumes optional whitespace before the filename/target.
     const noRedirects = noQuotes.replace(/[0-9]*>>?\s*(?:&[0-9]*|\S*)/g, '');
-    const segments = noRedirects.split(/&&|\|\||[|;`]|\$\(|(?<!>)&(?!&)/).map(s => s.trim()).filter(Boolean);
+    const segments = noRedirects.split(/&&|\|\||[|;`\r\n]|\$\(|(?<!>)&(?!&)/).map(s => s.trim()).filter(Boolean);
     return segments.map(extractBin).filter(Boolean);
 }
 

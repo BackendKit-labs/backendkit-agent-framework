@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@backendkit-labs/agent-core": "^0.24.0",
+    "@backendkit-labs/retry": "^0.1.2",
     "yaml": "^2.4.0"
   },
   "optionalDependencies": {

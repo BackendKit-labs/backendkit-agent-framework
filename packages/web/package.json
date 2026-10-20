@@ -17,7 +17,7 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.21.0"
+    "@backendkit-labs/agent-core": "^0.24.0"
   },
   "dependencies": {
     "@fastify/websocket": "^11.0.0",

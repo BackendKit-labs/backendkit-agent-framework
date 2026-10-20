@@ -27,10 +27,10 @@ async function getExtractor(
 ): Promise<(texts: string[], opts: Record<string, unknown>) => Promise<{ tolist(): number[][] }>> {
     if (!extractorPromise) {
         extractorPromise = (async () => {
-            const { pipeline, env } = await import('@xenova/transformers');
+            const { pipeline, env } = await import('@huggingface/transformers');
             env.cacheDir = path.join(os.homedir(), '.cache', 'codex-context', 'models');
             env.allowRemoteModels = true;
-            return pipeline('feature-extraction', model, { quantized, progress_callback: onProgress });
+            return pipeline('feature-extraction', model, { dtype: quantized ? 'q8' : 'fp32', progress_callback: onProgress });
         })();
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

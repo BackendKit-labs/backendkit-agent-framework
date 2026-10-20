@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { CallbackTransport, type AgentEngine } from '@backendkit-labs/agent-core';
 
@@ -42,6 +42,14 @@ export interface AgentToolDef<S extends ZodRawShape = ZodRawShape> {
  */
 export type AgentEngineFactory = (transport: CallbackTransport) => AgentEngine;
 
+/** Constant-time check of an `Authorization: Bearer <token>` header. */
+export function isAuthorized(header: string | undefined, token: string): boolean {
+    if (!header?.startsWith('Bearer ')) return false;
+    const given = Buffer.from(header.slice(7));
+    const expected = Buffer.from(token);
+    return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
 export interface AgentMCPServerOptions {
     /** Name shown in MCP tool namespaces: mcp:{name}:{tool} */
     name: string;
@@ -50,6 +58,11 @@ export interface AgentMCPServerOptions {
     port?: number;
     /** Host to bind. Default: 127.0.0.1 */
     host?: string;
+    /**
+     * Static bearer token required on every HTTP request (`Authorization: Bearer <token>`).
+     * Required when `host` is not a loopback address.
+     */
+    authToken?: string;
     tools: AgentToolDef<any>[];
     /**
      * Factory called for every tool invocation.
@@ -94,7 +107,23 @@ export class AgentMCPServer {
             return raw ? JSON.parse(raw) : undefined;
         };
 
+        const host = this.opts.host ?? '127.0.0.1';
+        const port = this.opts.port ?? 3001;
+        const token = this.opts.authToken;
+
+        if (!token && !['127.0.0.1', 'localhost', '::1'].includes(host)) {
+            throw new Error(
+                `[${this.opts.name}] refusing to listen on ${host} without authToken`,
+            );
+        }
+
         this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+            if (token && !isAuthorized(req.headers.authorization, token)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+            }
+
             if (req.url !== '/mcp') {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Use POST /mcp' }));
@@ -130,9 +159,6 @@ export class AgentMCPServer {
                 if (!res.headersSent) { res.writeHead(500); res.end(String(err)); }
             }
         });
-
-        const host = this.opts.host ?? '127.0.0.1';
-        const port = this.opts.port ?? 3001;
 
         await new Promise<void>((resolve, reject) => {
             this.httpServer!.once('error', reject);

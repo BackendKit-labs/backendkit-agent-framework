@@ -818,6 +818,12 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             const npmPkg = known?.npm ?? id;
             const name   = known ? id.toLowerCase() : (npmPkg.split('/').pop() ?? npmPkg);
 
+            // npmPkg is spawned through a shell below — accept only valid npm package names.
+            if (!/^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:@[\w.^~-]+)?$/i.test(npmPkg)) {
+                emit(`Nombre de paquete npm inválido: "${npmPkg}".`);
+                return;
+            }
+
             const cfg = await readConfig();
             const servers = cfg.mcpServers ?? [];
             if (servers.some(s => s.name === name)) {

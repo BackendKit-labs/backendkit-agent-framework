@@ -79,3 +79,24 @@ describe('run_command — arg validation', () => {
         expect(result).toMatch(/Invalid arguments/);
     });
 });
+
+describe('run_command — docker sandbox opt-in', () => {
+    const saved = { mode: process.env.BK_RUN_COMMAND_SANDBOX };
+    afterEach(() => {
+        if (saved.mode === undefined) delete process.env.BK_RUN_COMMAND_SANDBOX;
+        else process.env.BK_RUN_COMMAND_SANDBOX = saved.mode;
+    });
+
+    it('rejects an invalid sandbox mode', async () => {
+        process.env.BK_RUN_COMMAND_SANDBOX = 'chroot';
+        const result = await runCommandTool.execute({ command: 'echo hi' }, mockCtx);
+        expect(result).toContain('invalid BK_RUN_COMMAND_SANDBOX');
+    });
+
+    it('fails closed when docker is requested but unavailable or fails', async () => {
+        process.env.BK_RUN_COMMAND_SANDBOX = 'docker';
+        const result = await runCommandTool.execute({ command: 'echo hi' }, mockCtx);
+        expect(result).toMatch(/^Error:/);
+        expect(result).not.toContain('hi\n');
+    });
+});

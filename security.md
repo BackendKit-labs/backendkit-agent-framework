@@ -23,6 +23,8 @@ The `run_command` tool passes user-controlled input directly to `execSync()` wit
 
 **Current state (2026-10)**: a binary allowlist (`COMMAND_ALLOWLIST`) validates every segment of a chain split on `&&`, `||`, `|`, `;`, `&`, backtick, `$(`, `\r` and `\n`. Newline was missing from that split and let `git status\nbash` through; fixed, with regression tests. **Accepted residual risk**: the allowlist includes interpreters and tools that run arbitrary code (`node`, `npx`, `python`, `curl`, `docker`, `rm`, ...). The allowlist limits which binaries are named, not what they do — it is not a sandbox. Run coding agents in an isolated environment (container/VM) when the prompt source is untrusted.
 
+**Opt-in sandbox**: set `BK_RUN_COMMAND_SANDBOX=docker` to run each command in a throwaway container (`--network none`, `--cap-drop ALL`, `no-new-privileges`, memory/pids limits, only the working directory mounted at `/workspace`). Image: `BK_SANDBOX_IMAGE` (default `node:22`; must ship the tools the agent needs). Network: `BK_SANDBOX_NETWORK` (default `none`). Memory: `BK_SANDBOX_MEMORY` (default `2g`). Fails closed: if Docker is unavailable the command errors, it never falls back to the host. Default is `none` (host execution, allowlist only).
+
 ---
 
 #### 2. Path Traversal in all file tools (no sandbox)

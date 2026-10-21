@@ -1,5 +1,7 @@
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
+    collectCoverageFrom: ['src/**/*.ts', '!src/**/__tests__/**', '!src/**/*.d.ts'],
+    coverageThreshold: { global: { lines: 88 } },
     preset: 'ts-jest',
     testEnvironment: 'node',
     testMatch: ['<rootDir>/src/__tests__/**/*.test.ts'],

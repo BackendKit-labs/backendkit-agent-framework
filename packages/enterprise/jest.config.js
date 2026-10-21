@@ -13,4 +13,5 @@ module.exports = {
         '!src/**/__tests__/**',
         '!src/**/index.ts',
     ],
+    coverageThreshold: { global: { lines: 65 } },
 };

@@ -4,6 +4,7 @@ import { resolveAndCheck } from './path-sandbox';
 
 export const readFileTool = defineTool({
     name: 'read_file',
+    concurrencySafe: true,
     description: [
         'Read the contents of a file.',
         'Allowed roots: the active working directory and the agent memory directory (~/.{appName}/projects/{key}/).',

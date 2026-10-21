@@ -255,6 +255,8 @@ export interface CodingEngineOptions {
     workingDir?: string;
     maxIterations?: number;
     maxParallelAgents?: number;
+    /** Max concurrencySafe tool calls of one turn run at once. Default 1. */
+    maxParallelTools?: number;
     transport?: Transport;
     /**
      * App name used to derive the home config directory (~/.{appName}/).
@@ -517,6 +519,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         workingDir: cwd,
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
+        ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
         store,
         projectContext,
         skills: builtinSkills,

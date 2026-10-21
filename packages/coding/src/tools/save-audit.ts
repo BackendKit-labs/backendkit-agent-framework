@@ -16,6 +16,7 @@ export const saveAuditTool = defineTool({
 
 export const getLatestAuditTool = defineTool({
     name: 'get_latest_audit',
+    concurrencySafe: true,
     description: 'Retrieve the most recent audit report for a given agent type.',
     input: z.object({
         agent_id: z.string().min(1).describe('Agent ID to retrieve audit for (e.g. security, qa-engineer)'),
@@ -28,6 +29,7 @@ export const getLatestAuditTool = defineTool({
 
 export const listAuditsTool = defineTool({
     name: 'list_audits',
+    concurrencySafe: true,
     description: 'List all saved audit files for this project.',
     input: z.object({}),
     execute: async (_args, ctx) => {

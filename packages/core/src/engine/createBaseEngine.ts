@@ -67,6 +67,8 @@ export interface BaseEngineOptions {
 
     /** Iteration mode. Default: 'interactive' (see IterationManager). */
     iterationMode?: IterationMode;
+    /** Max concurrencySafe tool calls of one turn run at once. Default 1 (sequential). */
+    maxParallelTools?: number;
 
     /**
      * Called when maxIterations is reached in 'interactive' mode.
@@ -293,6 +295,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
+        ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),

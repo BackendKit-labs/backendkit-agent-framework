@@ -308,7 +308,7 @@ export class MCPClientManager {
     private wrapTool(
         config: MCPServerConfig,
         client: Client,
-        mcpTool: { name: string; description?: string; inputSchema: unknown },
+        mcpTool: { name: string; description?: string; inputSchema: unknown; annotations?: { readOnlyHint?: boolean } },
     ): ToolDefinition {
         // Function names must match ^[a-zA-Z0-9_-]+$ — replace ':' and use '__' as separator
         const safeName   = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -324,6 +324,7 @@ export class MCPClientManager {
                 type: 'object',
                 properties: {},
             },
+            ...(config.trustAnnotations && mcpTool.annotations?.readOnlyHint === true ? { concurrencySafe: true } : {}),
             execute: async (args) => {
                 let timerId: ReturnType<typeof setTimeout> | undefined;
                 const timer = new Promise<never>((_, reject) => {

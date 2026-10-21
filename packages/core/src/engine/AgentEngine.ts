@@ -74,6 +74,10 @@ export interface AgentEngineOptions extends EngineOptions {
      */
     iterationMode?: IterationMode;
     /**
+     * Max concurrencySafe tool calls of one turn run at once. Default 1 (sequential).
+     */
+    maxParallelTools?: number;
+    /**
      * Called when maxIterations is reached in interactive mode.
      * Return true to continue (+25 iterations), false to stop.
      */
@@ -740,11 +744,35 @@ export class AgentEngine {
             }
 
             // ── other tools: sequential ───────────────────────────────────────
-            for (const call of otherCalls) {
+            const maxParallel = Math.max(1, this.opts.maxParallelTools ?? 1);
+            let idx = 0;
+            while (idx < otherCalls.length) {
                 if (this.aborted) break;
-                iterManager.recordToolCall();
-                const result = await this.executeToolCall(call, currentProfile, 0);
-                toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
+                const first = otherCalls[idx];
+                const wave = [first];
+                idx++;
+                if (maxParallel > 1 && this.opts.tools.get(first.name)?.concurrencySafe) {
+                    while (
+                        idx < otherCalls.length &&
+                        wave.length < maxParallel &&
+                        this.opts.tools.get(otherCalls[idx].name)?.concurrencySafe
+                    ) wave.push(otherCalls[idx++]);
+                }
+                for (let i = 0; i < wave.length; i++) iterManager.recordToolCall();
+                if (wave.length === 1) {
+                    const result = await this.executeToolCall(first, currentProfile, 0);
+                    toolResults.push({ role: 'tool', tool_call_id: first.id, content: result });
+                    continue;
+                }
+                // Parallel wave: events buffered per call, flushed in call order.
+                const buffers: Array<Array<import('../types').AgentEvent>> = wave.map(() => []);
+                const results = await Promise.all(wave.map((call, i) =>
+                    this.executeToolCall(call, currentProfile, 0, e => buffers[i].push(e)),
+                ));
+                wave.forEach((call, i) => {
+                    for (const e of buffers[i]) this.opts.transport.emit(e);
+                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: results[i] });
+                });
             }
 
             // ── QA orchestration: runs when response is final (no tool calls) ─
@@ -913,7 +941,7 @@ export class AgentEngine {
                       `Use ask_agent to delegate to a specialist.`;
             success = false;
         } else {
-            const gateDecision = await this.approvalGate.check(call, profile.id);
+            const gateDecision = await this.checkGateSerial(call, profile.id);
             if (gateDecision === 'rejected') {
                 result = `Tool call "${call.name}" was rejected by the user.`; success = false;
             } else {
@@ -927,6 +955,14 @@ export class AgentEngine {
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
         emitEvent({ type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120) });
         return result;
+    }
+
+    /** Approval checks never overlap and run in call order, even inside a parallel wave. */
+    private gateQueue: Promise<unknown> = Promise.resolve();
+    private checkGateSerial(call: { name: string; args: string }, agentId: string) {
+        const next = this.gateQueue.then(() => this.approvalGate.check(call, agentId));
+        this.gateQueue = next.catch(() => undefined);
+        return next;
     }
 
     private async runToolDef(

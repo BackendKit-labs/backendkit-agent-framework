@@ -27,6 +27,10 @@ jobs:
         run: npm run build
         working-directory: packages/core
 
+      - name: Build @backendkit-labs/agent-providers
+        run: npm run build
+        working-directory: packages/providers
+
       - name: Build @backendkit-labs/agent-coding
         run: npm run build
         working-directory: packages/coding

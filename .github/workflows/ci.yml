@@ -63,6 +63,10 @@ jobs:
       # ── Test ──────────────────────────────────────────────────────────────────
       # Jest packages run with --coverage so each coverageThreshold gates the build.
       - name: Test (jest, coverage thresholds)
+        env:
+          # The coverage report transforms every src file, tested or not; orchestrator-agent
+          # hits the default ~2 GB heap on the runner.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           # Run every package and fail at the end, so one run reports all failing packages.
           failed=""

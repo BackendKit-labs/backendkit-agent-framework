@@ -1,5 +1,22 @@
 # Changelog
 
+## Sin publicar
+
+### `examples/` — refactor con las novedades de 0.27
+
+Los ejemplos dependen ahora de los paquetes **publicados** (`agent-core ^0.27.0`, `agent-coding ^0.23.0`,
+`agent-providers ^0.2.0`…) en vez de rutas `file:` que ya no resolvían dentro del monorepo.
+- `git-agent`: `createBaseEngine` + `agent-providers` (se borra su copia del provider y la dependencia
+  `openai`); presupuesto por ejecución con `abortOnBudget`; modo solo lectura (`GIT_AGENT_READONLY=1`);
+  `/report` con salida estructurada (`engine.generateObject`); la terminal muestra uso, avisos del
+  framework y tope de presupuesto; `npm run smoke` (prueba real contra un repo temporal).
+- `vault-pilot`: su `DeepSeekProvider` pasa a ser un adaptador fino sobre `agent-providers`.
+- `code-explainer` y `git-analyst`: tope de gasto opcional por llamada (`AGENT_BUDGET_USD` + precios).
+- `coding-assistant`: tope de gasto opcional, `maxParallelTools: 4`, muestra uso de caché y tope de
+  presupuesto; corrige tipos desfasados (`IterationMode`, `mcpAdd`) que ya no compilaban contra core.
+- Sin cambios (no usan un motor de agentes): `pg-dev-server`, `marketing-co`, `workflow.mcp-agents`.
+  `finance-managment` (NestJS con motor propio) queda fuera de este cambio.
+
 ## v0.27.0 (2026-10-21)
 
 Cierra la Ola 1 del SPEC-0001: salida estructurada (ADR-0003) y caché de prompt y razonamiento de

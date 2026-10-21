@@ -160,9 +160,39 @@ function printBanner(): void {
 }
 
 // ── Iteration mode ────────────────────────────────────────────────────────────
-let iterationMode: 'auto' | 'manual' = 'auto';
+// Same modes as the core's IterationMode; anything but 'auto' asks before each write.
+let iterationMode: 'interactive' | 'auto' | 'step-by-step' = 'auto';
 
 // ── Engine factory ────────────────────────────────────────────────────────────
+// ── Cost controls (optional) ──────────────────────────────────────────────────
+// AGENT_BUDGET_USD caps the spend of a single run: it is stopped once crossed. A cap and the cost
+// display need prices; use your model's price list (approximate numbers are fine).
+//   AGENT_BUDGET_USD=0.50  AGENT_PRICE_IN_PER_M=0.30  AGENT_PRICE_OUT_PER_M=1.20
+function envNumber(name: string): number | undefined {
+    const raw = process.env[name];
+    if (!raw) return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) { console.error(`  Error: ${name} must be a non-negative number, got "${raw}"`); process.exit(1); }
+    return n;
+}
+const BUDGET_USD = envNumber('AGENT_BUDGET_USD');
+const PRICE_IN   = envNumber('AGENT_PRICE_IN_PER_M');
+const PRICE_OUT  = envNumber('AGENT_PRICE_OUT_PER_M');
+
+function costOptions() {
+    if (BUDGET_USD === undefined && PRICE_IN === undefined && PRICE_OUT === undefined) return {};
+    return {
+        observability: {
+            costTracker: {
+                ...(PRICE_IN    !== undefined ? { inputPricePerMToken:  PRICE_IN }  : {}),
+                ...(PRICE_OUT   !== undefined ? { outputPricePerMToken: PRICE_OUT } : {}),
+                ...(BUDGET_USD  !== undefined ? { budget: { perRun: BUDGET_USD } }  : {}),
+            },
+        },
+        abortOnBudget: BUDGET_USD !== undefined,
+    };
+}
+
 function makeEngine(agentId: string, cwd: string, mcpServers?: MCPServerConfig[]) {
     const transport = new CallbackTransport(renderEvent);
     const engine = createCodingEngineFromConfig({
@@ -170,13 +200,17 @@ function makeEngine(agentId: string, cwd: string, mcpServers?: MCPServerConfig[]
         defaultAgent: agentId,
         workingDir:   cwd,
         transport,
+        // Read-only tool calls of one turn (read_file, search_files…) run together when the active agent
+        // runs tools itself (AGENT_ID=coder…). The default 'general' only delegates, and sub-agents stay sequential.
+        maxParallelTools: 4,
+        ...costOptions(),
         ...(mcpServers?.length ? { mcpServers } : {}),
         orchestration: {
             enableQA:   true,
             reflection: true,
         },
         onToolApproval: async (toolName, agentId, argsPreview) => {
-            if (iterationMode !== 'manual') return 'approve';
+            if (iterationMode === 'auto') return 'approve';
 
             return new Promise<import('@backendkit-labs/agent-core').ToolApprovalDecision>(resolve => {
                 const preview = argsPreview.length > 120 ? argsPreview.slice(0, 120) + '…' : argsPreview;
@@ -248,7 +282,9 @@ function buildCtx(
                 return { name: s.name, url: s.url, connected: !!live, toolCount: live?.toolCount ?? 0 };
             });
         },
-        mcpAdd: async (cfg: import('@backendkit-labs/agent-core').MCPServerConfig) => {
+        // The command context types the argument as unknown; it is an MCPServerConfig built by /mcp add.
+        mcpAdd: async (config: unknown) => {
+            const cfg = config as import('@backendkit-labs/agent-core').MCPServerConfig;
             const current = loader.load();
             const servers = current.mcpServers ?? [];
             if (!servers.find(s => s.name === cfg.name)) {
@@ -262,7 +298,7 @@ function buildCtx(
             emit(col(c.gray, `  Restart to disconnect "${name}".`));
         },
         getIterationMode: () => iterationMode,
-        setIterationMode: (mode: 'auto' | 'manual') => { iterationMode = mode; },
+        setIterationMode: (mode: 'interactive' | 'auto' | 'step-by-step') => { iterationMode = mode; },
     };
 }
 

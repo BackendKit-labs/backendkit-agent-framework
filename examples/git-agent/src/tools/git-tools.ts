@@ -3,7 +3,7 @@ import { defineTool, z } from '@backendkit-labs/agent-core';
 
 const MAX_OUTPUT = 10_000;
 
-function git(args: string, cwd: string): string {
+export function git(args: string, cwd: string): string {
     try {
         const out = execSync(`git ${args}`, {
             cwd,
@@ -353,6 +353,11 @@ export const gitTag = defineTool({
         }
     },
 });
+
+/** Tools that only read the repository: safe to hand to an agent that must never change it. */
+export const READ_ONLY_GIT_TOOLS = [
+    gitStatus, gitLog, gitDiff, gitShow, gitBlame, gitReflog,
+];
 
 export const ALL_GIT_TOOLS = [
     gitStatus, gitLog, gitDiff, gitShow, gitBlame, gitReflog,

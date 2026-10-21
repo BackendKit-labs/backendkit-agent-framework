@@ -8,7 +8,7 @@
     "test:flow": "node test-flow.mjs"
   },
   "dependencies": {
-    "@backendkit-labs/orchestrator-agent": "^0.3.0"
+    "@backendkit-labs/orchestrator-agent": "^0.4.0"
   },
   "engines": {
     "node": ">=20.0.0"

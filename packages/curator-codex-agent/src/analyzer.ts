@@ -5,6 +5,7 @@ import type { CuratorLLMProvider } from './providers/types.js';
 import type { CodeAnalysisNote, CodeAnalysisResult, FileAnalysisContext, AssociatedDocs } from './types.js';
 import { DocumentationCurator } from './documentation-curator.js';
 import { removeNotesForSource, normalizeSourcePath } from './vault-dedup.js';
+import { fitTitle, slugify, titleCoherenceWarning, MAX_TITLE, TARGET_TITLE } from './title.js';
 
 const CodeAnalysisNoteSchema = z.object({
     type: z.enum(['componente', 'api', 'patron', 'utilidad', 'arquitectura', 'integracion']),
@@ -54,6 +55,7 @@ Schema (return exactly this shape):
 }
 
 Rules:
+- "title" must be at most ${TARGET_TITLE} characters (hard limit ${MAX_TITLE}); "resumen" at most 500.
 - Extract PUBLIC APIs only (not private/internal implementation).
 - Include TypeScript interfaces, type definitions, main classes.
 - Focus on WHAT the code does, HOW to use it, what it exports.
@@ -79,17 +81,6 @@ function getLanguage(filePath: string): string {
         '.kt': 'kotlin', '.swift': 'swift',
     };
     return langMap[ext] || ext.slice(1);
-}
-
-function slugify(title: string): string {
-    return title
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9\s-]/g, '')
-        .trim()
-        .replace(/\s+/g, '-')
-        .slice(0, 60);
 }
 
 function buildFrontmatter(note: CodeAnalysisNote, source: string, date: string, sourcePath: string, sourcesCombined?: string[]): string {
@@ -248,6 +239,10 @@ export class CodeAnalyzer {
         }
 
         const date = new Date().toISOString().slice(0, 10);
+        for (const n of parsed.notes) {
+            const w = titleCoherenceWarning(n);
+            if (w) (result.warnings ??= []).push(w);
+        }
         const sourcesCombined = allFiles ? this.getSourcesCombined(filePath, allFiles) : [relativePath];
 
         // Borra las notas previas generadas desde este mismo archivo para no acumular
@@ -311,6 +306,9 @@ export class CodeAnalyzer {
             for (const note of parsed.notes) {
                 if (typeof note.resumen === 'string' && note.resumen.length > 500) {
                     note.resumen = note.resumen.slice(0, 497) + '…';
+                }
+                if (typeof note.title === 'string' && note.title.length > MAX_TITLE) {
+                    note.title = await fitTitle(note.title, this.provider);
                 }
                 for (const key of ['version', 'depends_on', 'exports', 'language', 'files']) {
                     if (note[key] === null) delete note[key];

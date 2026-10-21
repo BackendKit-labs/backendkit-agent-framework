@@ -5,6 +5,7 @@ import type { CuratorLLMProvider } from './providers/types.js';
 import type { CodeAnalysisResult } from './types.js';
 import { extractPdfText } from './pdf-reader.js';
 import { removeNotesForSource, normalizeSourcePath } from './vault-dedup.js';
+import { fitTitle, slugify, titleCoherenceWarning, MAX_TITLE, TARGET_TITLE } from './title.js';
 
 interface DocumentationNote {
     type: 'politica' | 'decision' | 'procedimiento' | 'leccion' | 'norma_externa';
@@ -66,23 +67,13 @@ Schema (return exactly this shape):
 }
 
 Rules:
+- "title" must be at most ${TARGET_TITLE} characters (hard limit ${MAX_TITLE}); "resumen" at most 500.
 - If the document covers multiple areas, create one note per area (max 5 total).
 - Each note must be self-contained.
 - "resumen" must contain all key searchable terms: amounts, dates, percentages, proper nouns.
 - "content" must use ## headings.
 - Documents in any language are valid. Output in the same language as the document.
 - If the document has no enterprise relevance, return { "notes": [] }.`;
-
-function slugify(title: string): string {
-    return title
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9\s-]/g, '')
-        .trim()
-        .replace(/\s+/g, '-')
-        .slice(0, 60);
-}
 
 function buildFrontmatter(note: DocumentationNote, source: string, date: string, sourcePath?: string): string {
     const tagsLine = `[${note.tags.map(t => `"${t}"`).join(', ')}]`;
@@ -153,6 +144,10 @@ export class DocumentationCurator {
         }
 
         const date = new Date().toISOString().slice(0, 10);
+        for (const n of parsed.notes) {
+            const w = titleCoherenceWarning(n);
+            if (w) (result.warnings ??= []).push(w);
+        }
 
         // Borra notas previas del mismo archivo de origen para no acumular duplicados.
         if (sourcePath) await removeNotesForSource(this.vaultPath, sourcePath);
@@ -220,6 +215,9 @@ export class DocumentationCurator {
             for (const note of parsed.notes) {
                 if (typeof note.resumen === 'string' && note.resumen.length > 500) {
                     note.resumen = note.resumen.slice(0, 497) + '…';
+                }
+                if (typeof note.title === 'string' && note.title.length > MAX_TITLE) {
+                    note.title = await fitTitle(note.title, this.provider);
                 }
                 for (const key of ['vigente_desde', 'version', 'expires_at', 'decidido_por', 'aplica_a']) {
                     if (note[key] === null) delete note[key];

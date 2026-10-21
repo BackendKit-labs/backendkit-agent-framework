@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-providers",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LLM providers for @backendkit-labs/agent-core: OpenAI-compatible (DeepSeek, Ollama), Anthropic — one retry/streaming implementation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,7 @@
     "openai": "^4.0.0"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.25.0 <0.27.0"
+    "@backendkit-labs/agent-core": ">=0.27.0 <0.29.0"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

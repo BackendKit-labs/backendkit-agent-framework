@@ -2,6 +2,22 @@
 
 ## Sin publicar
 
+### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-coding` — aborto automático por presupuesto (ADR-0002)
+
+`abortOnBudget` (default `false`) en `createBaseEngine` y `createCodingEngine`; este último expone
+además `observability`. Con él, al superar `costTracker.budget` el motor llama a `engine.abort()`,
+emite el evento nuevo `budget_exceeded` (con `BudgetUsage`) y luego invoca tu `onBudgetExceeded`.
+La llamada que cruza el límite termina (y se paga), pero su respuesta se descarta. Los
+sub-agentes (`ask_agent`) también se detienen. Si hay `budget` sin precios, o con `perDay`, el
+motor emite un aviso `system` de nivel `warn` al crearse (el gasto diario no se persiste).
+
+**Cambio de comportamiento:** `onBudgetExceeded` se disparaba en cada evento de métricas
+una vez superado el límite, y el límite diario quedaba oculto si el de ejecución también se
+superaba. Ahora se dispara **una vez por límite y por ejecución** (`perDay`: una vez por día) y se
+reportan ambos si se superan a la vez. El costo que entrega el provider (`cost_usd`) ahora se
+acumula entre llamadas en `getRunCost()` / `getDayCost()`. `AgentEvent` gana `budget_exceeded`:
+revisa los `switch` exhaustivos propios.
+
 ### `@backendkit-labs/agent-core` 0.25.0 / `@backendkit-labs/agent-coding` 0.21.0 — ejecución paralela de tool calls (ADR-0001)
 
 `ToolDefinition.concurrencySafe` (opt-in, default `false`) y `maxParallelTools` en `AgentEngine`,

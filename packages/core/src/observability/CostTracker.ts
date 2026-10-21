@@ -3,46 +3,51 @@ import type { BudgetUsage, CostTrackerConfig } from './types';
 export class CostTracker {
     private runInput = 0;
     private runOutput = 0;
+    private runCost = 0;
     private dayInput = 0;
     private dayOutput = 0;
+    private dayCost = 0;
     private dayStartMs = utcDayStart();
+    // onBudgetExceeded fires once per limit: perRun per run, perDay per UTC day.
+    private firedRun = false;
+    private firedDay = false;
 
     // Lightweight midnight-reset: unref'd so it doesn't keep the process alive
-    private readonly timer = setInterval(() => {
-        const now = utcDayStart();
-        if (now !== this.dayStartMs) {
-            this.dayInput = 0;
-            this.dayOutput = 0;
-            this.dayStartMs = now;
-        }
-    }, 60_000).unref();
+    private readonly timer = setInterval(() => this.rollDay(), 60_000).unref();
 
     constructor(private readonly config: CostTrackerConfig) {}
 
     onRunStart(): void {
         this.runInput = 0;
         this.runOutput = 0;
+        this.runCost = 0;
+        this.firedRun = false;
     }
 
     /** Called when the engine receives a metrics event. Returns estimated cost for this batch. */
     onTokens(inputTokens: number, outputTokens: number, providedCostUsd?: number): number {
+        this.rollDay();
+        const batchCost = providedCostUsd ?? this.compute(inputTokens, outputTokens);
         this.runInput += inputTokens;
         this.runOutput += outputTokens;
+        this.runCost += batchCost;
         this.dayInput += inputTokens;
         this.dayOutput += outputTokens;
+        this.dayCost += batchCost;
 
-        const runCost = providedCostUsd ?? this.compute(this.runInput, this.runOutput);
-        const dayCost = this.compute(this.dayInput, this.dayOutput);
-
-        if (this.config.budget?.perRun !== undefined && runCost >= this.config.budget.perRun) {
+        const budget = this.config.budget;
+        if (!this.firedRun && budget?.perRun !== undefined && this.runCost >= budget.perRun) {
+            this.firedRun = true;
             this.config.onBudgetExceeded?.({
-                runCostUsd: runCost, dayCostUsd: dayCost,
+                runCostUsd: this.runCost, dayCostUsd: this.dayCost,
                 inputTokens: this.runInput, outputTokens: this.runOutput,
                 budgetExceeded: 'perRun',
             });
-        } else if (this.config.budget?.perDay !== undefined && dayCost >= this.config.budget.perDay) {
+        }
+        if (!this.firedDay && budget?.perDay !== undefined && this.dayCost >= budget.perDay) {
+            this.firedDay = true;
             this.config.onBudgetExceeded?.({
-                runCostUsd: runCost, dayCostUsd: dayCost,
+                runCostUsd: this.runCost, dayCostUsd: this.dayCost,
                 inputTokens: this.dayInput, outputTokens: this.dayOutput,
                 budgetExceeded: 'perDay',
             });
@@ -51,8 +56,25 @@ export class CostTracker {
         return this.compute(inputTokens, outputTokens);
     }
 
-    getRunCost(): number { return this.compute(this.runInput, this.runOutput); }
-    getDayCost(): number { return this.compute(this.dayInput, this.dayOutput); }
+    getRunCost(): number { return this.runCost; }
+    getDayCost(): number { return this.dayCost; }
+
+    /** True once the current run's cost reached budget.perRun. */
+    isRunOverBudget(): boolean {
+        const perRun = this.config.budget?.perRun;
+        return perRun !== undefined && this.runCost >= perRun;
+    }
+
+    private rollDay(): void {
+        const now = utcDayStart();
+        if (now !== this.dayStartMs) {
+            this.dayInput = 0;
+            this.dayOutput = 0;
+            this.dayCost = 0;
+            this.firedDay = false;
+            this.dayStartMs = now;
+        }
+    }
 
     destroy(): void { clearInterval(this.timer); }
 

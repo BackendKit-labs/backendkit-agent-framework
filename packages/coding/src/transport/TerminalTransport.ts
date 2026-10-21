@@ -105,6 +105,15 @@ export class TerminalTransport implements Transport {
                 break;
             }
 
+            case 'budget_exceeded': {
+                const u = event.usage;
+                process.stderr.write(
+                    `${RED}[budget]${RESET} ${u.budgetExceeded} exceeded: run $${u.runCostUsd.toFixed(4)}, day $${u.dayCostUsd.toFixed(4)}. Run stopped.
+`
+                );
+                break;
+            }
+
             case 'error': {
                 process.stderr.write(`${RED}Error: ${event.message}${RESET}\n`);
                 break;

@@ -15,6 +15,7 @@ import {
     type CapabilityMatrix,
     type PolicyRule,
     type MCPServerConfig,
+    type ObservabilityConfig,
     getProjectDir,
 } from '@backendkit-labs/agent-core';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
@@ -257,6 +258,10 @@ export interface CodingEngineOptions {
     maxParallelAgents?: number;
     /** Max concurrencySafe tool calls of one turn run at once. Default 1. */
     maxParallelTools?: number;
+    /** Tracing, metrics and cost/budget tracking (see createBaseEngine). */
+    observability?: ObservabilityConfig;
+    /** Abort the run when observability.costTracker.budget is exceeded. Default false. */
+    abortOnBudget?: boolean;
     transport?: Transport;
     /**
      * App name used to derive the home config directory (~/.{appName}/).
@@ -520,6 +525,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
+        ...(opts.observability ? { observability: opts.observability } : {}),
+        ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         store,
         projectContext,
         skills: builtinSkills,

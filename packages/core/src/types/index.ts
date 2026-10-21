@@ -195,6 +195,7 @@ export type AgentEvent =
     | { type: 'done' }
     | { type: 'error'; message: string }
     | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }
+    | { type: 'budget_exceeded'; usage: BudgetUsage }
     | { type: 'workflow_start'; name: string }
     | { type: 'workflow_step_start'; step: string; agent: string }
     | { type: 'workflow_step_complete'; step: string; success: boolean }
@@ -205,6 +206,7 @@ export type AgentEvent =
 // ─── Engine Options ───────────────────────────────────────────────────────────
 
 import type { Skill } from '../skills/types';
+import type { BudgetUsage } from '../observability/types';
 export type { Skill };
 
 export interface EngineOptions {

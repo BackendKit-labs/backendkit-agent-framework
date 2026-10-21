@@ -84,4 +84,60 @@ describe('CostTracker', () => {
         expect(tracker.getRunCost()).toBe(0);
         tracker.destroy();
     });
+
+    describe('budget fires once per limit (ADR-0002)', () => {
+        const track = (cfg: ConstructorParameters<typeof CostTracker>[0]) => {
+            const seen: BudgetUsage[] = [];
+            return { t: new CostTracker({ ...cfg, onBudgetExceeded: u => seen.push(u) }), seen };
+        };
+
+        it('perRun fires once even if more metrics arrive', () => {
+            const { t, seen } = track({ ...pricing, budget: { perRun: 1 } });
+            t.onTokens(1_000_000, 0);
+            t.onTokens(1_000_000, 0);
+            t.onTokens(1_000_000, 0);
+            expect(seen.map(u => u.budgetExceeded)).toEqual(['perRun']);
+            t.destroy();
+        });
+
+        it('perRun fires again after onRunStart', () => {
+            const { t, seen } = track({ ...pricing, budget: { perRun: 1 } });
+            t.onTokens(1_000_000, 0);
+            t.onRunStart();
+            t.onTokens(1_000_000, 0);
+            expect(seen).toHaveLength(2);
+            t.destroy();
+        });
+
+        it('reports perRun and perDay when both are exceeded at once', () => {
+            const { t, seen } = track({ ...pricing, budget: { perRun: 1, perDay: 1 } });
+            t.onTokens(1_000_000, 0);
+            expect(seen.map(u => u.budgetExceeded)).toEqual(['perRun', 'perDay']);
+            t.destroy();
+        });
+
+        it('perDay fires once per day and again after the day rolls over', () => {
+            jest.useFakeTimers({ now: Date.UTC(2026, 9, 21, 12) });
+            const { t, seen } = track({ ...pricing, budget: { perDay: 1 } });
+            t.onTokens(1_000_000, 0);
+            t.onTokens(1_000_000, 0);
+            expect(seen).toHaveLength(1);
+            jest.setSystemTime(Date.UTC(2026, 9, 22, 1));
+            t.onTokens(1_000_000, 0);
+            expect(seen).toHaveLength(2);
+            expect(t.getDayCost()).toBeCloseTo(3, 5);
+            t.destroy();
+        });
+
+        it('provided cost accumulates across calls and drives getRunCost / isRunOverBudget', () => {
+            const { t, seen } = track({ budget: { perRun: 0.5 } });
+            t.onTokens(10, 10, 0.3);
+            expect(t.isRunOverBudget()).toBe(false);
+            t.onTokens(10, 10, 0.3);
+            expect(t.getRunCost()).toBeCloseTo(0.6, 5);
+            expect(t.isRunOverBudget()).toBe(true);
+            expect(seen).toHaveLength(1);
+            t.destroy();
+        });
+    });
 });

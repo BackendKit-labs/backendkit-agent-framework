@@ -86,6 +86,27 @@ const WIN_BIN_MAP: Record<string, string> = {
     touch: 'type nul >>',
 };
 
+/**
+ * Docker sandbox: no network (unless BK_SANDBOX_NETWORK overrides), all caps
+ * dropped, only the working directory mounted. The command runs via `sh -c`
+ * inside the image (default node:22), so the image must ship the needed tools.
+ */
+function buildDockerArgs(name: string, baseDir: string, workDir: string, command: string): string[] {
+    const rel = path.relative(baseDir, workDir).split(path.sep).join('/');
+    return [
+        'run', '--rm', '--name', name,
+        '--network', process.env.BK_SANDBOX_NETWORK ?? 'none',
+        '--cap-drop', 'ALL',
+        '--security-opt', 'no-new-privileges',
+        '--memory', process.env.BK_SANDBOX_MEMORY ?? '2g',
+        '--pids-limit', '512',
+        '-v', `${baseDir}:/workspace`,
+        '-w', rel ? `/workspace/${rel}` : '/workspace',
+        process.env.BK_SANDBOX_IMAGE ?? 'node:22',
+        'sh', '-c', command,
+    ];
+}
+
 export const runCommandTool = defineTool({
     name: 'run_command',
     description:
@@ -155,6 +176,16 @@ export const runCommandTool = defineTool({
             }
         }
 
+        // Opt-in container isolation (BK_RUN_COMMAND_SANDBOX=docker). Fail closed:
+        // if requested, never fall back to running on the host.
+        const sandboxMode = (process.env.BK_RUN_COMMAND_SANDBOX ?? 'none').toLowerCase();
+        if (sandboxMode !== 'none' && sandboxMode !== 'docker') {
+            return `Error: invalid BK_RUN_COMMAND_SANDBOX "${sandboxMode}" (expected "none" or "docker")`;
+        }
+        const containerName = sandboxMode === 'docker'
+            ? `bk-run-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+            : undefined;
+
         // Use async spawn — spawnSync blocks the entire main process thread,
         // which freezes Electron's IPC channel for the duration of the command.
         const output = await new Promise<string>((resolve) => {
@@ -162,11 +193,13 @@ export const runCommandTool = defineTool({
             let totalLen = 0;
             let timedOut = false;
 
-            const proc = spawn(effectiveCommand, {
-                shell: true,
-                cwd:   workDir,
-                timeout: timeout_ms,
-            });
+            const proc = containerName
+                ? spawn('docker', buildDockerArgs(containerName, baseDir, workDir, realCommand), { timeout: timeout_ms })
+                : spawn(effectiveCommand, {
+                    shell: true,
+                    cwd:   workDir,
+                    timeout: timeout_ms,
+                });
 
             const collect = (data: Buffer) => {
                 if (totalLen >= MAX_OUTPUT * 2) return;
@@ -181,6 +214,7 @@ export const runCommandTool = defineTool({
             const timer = setTimeout(() => {
                 timedOut = true;
                 proc.kill();
+                if (containerName) spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
                 resolve(`Error: Command timed out after ${timeout_ms}ms`);
             }, timeout_ms);
 
@@ -196,7 +230,10 @@ export const runCommandTool = defineTool({
                 const truncated = raw.length > MAX_OUTPUT
                     ? raw.slice(0, MAX_OUTPUT) + `\n[truncated — ${raw.length} total chars]`
                     : raw;
-                if (code !== 0 && !truncated) {
+                if (containerName && code !== 0) {
+                    resolve(`Error: sandboxed command exited with status ${code}
+${truncated}`.trim());
+                } else if (code !== 0 && !truncated) {
                     resolve(`Error: Command exited with status ${code}`);
                 } else {
                     resolve(truncated || '(no output)');

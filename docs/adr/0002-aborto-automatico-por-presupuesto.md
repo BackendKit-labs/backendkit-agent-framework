@@ -24,7 +24,7 @@ Añadir un aborto automático opcional, idempotente y que alcance a los sub-agen
 3. **Aborto:** `createBaseEngine` envuelve `onBudgetExceeded` con una referencia tardía al engine: llama `engine.abort()`, emite un evento nuevo `budget_exceeded` (con `BudgetUsage`) y después invoca el callback del usuario.
 4. **Comprobación previa:** al inicio de cada iteración del bucle, si el costo acumulado de la ejecución ya superó el límite, no se hace otra llamada al LLM.
 5. **Sub-agentes:** `runAgentInternal` comprueba `this.aborted` en cada iteración y recibe `signal`.
-6. **Aviso de configuración:** si hay `budget` y no hay precios ni el modelo está en `MODEL_PRICING`, el engine emite un evento `system` de nivel `warn` al crearse.
+6. **Avisos de configuración:** si hay `budget` y no hay precios ni el modelo está en `MODEL_PRICING`, el engine emite un evento `system` de nivel `warn` al crearse. Lo mismo si se configura `budget.perDay`: el gasto diario no se persiste y en procesos de vida corta (CLI) empieza en cero, así que el aviso lo dice explícitamente. La persistencia queda para una ola posterior.
 7. **Fuera de alcance:** persistir el gasto diario y cancelar herramientas en ejecución (requiere `ExecutionContext.signal`).
 
 ## Consecuencias

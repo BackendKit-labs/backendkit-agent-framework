@@ -1,7 +1,7 @@
 # SPEC-0001: Ola 1 de capacidades de agent-core
 
 **Fecha:** 2026-10-21
-**Estado:** Borrador
+**Estado:** En revisión (decisiones de la §10 aceptadas el 2026-10-21; pendiente de aprobación final)
 **Versión base:** `@backendkit-labs/agent-core` 0.24.1, `agent-coding` 0.20.1
 **ADR:** [0001](../adr/0001-ejecucion-paralela-de-tool-calls.md) · [0002](../adr/0002-aborto-automatico-por-presupuesto.md) · [0003](../adr/0003-salida-estructurada.md) · [0004](../adr/0004-cache-de-prompt-y-razonamiento-anthropic.md) · [0005](../adr/0005-unificacion-de-providers.md)
 
@@ -50,7 +50,10 @@ export interface ToolDefinition {
     execute(args: unknown, ctx: ExecutionContext): Promise<string>;
 }
 // EngineOptions / BaseEngineOptions / CodingEngineOptions
-maxParallelTools?: number; // por defecto 1 (comportamiento actual)
+maxParallelTools?: number; // 0.25: por defecto 1 (comportamiento actual); 0.26: 4 si se cumple §3.6
+
+// MCPServerConfig (core/src/mcp/types.ts)
+trustAnnotations?: boolean; // por defecto false: solo entonces se honra readOnlyHint
 ```
 `defineTool({ ..., concurrencySafe: true })` lo propaga.
 
@@ -64,7 +67,7 @@ maxParallelTools?: number; // por defecto 1 (comportamiento actual)
 7. Con `maxParallelTools === 1` el recorrido es idéntico al actual.
 
 ### 3.3 Herramientas marcadas `concurrencySafe: true`
-`read_file`, `list_directory`, `search_files`, `list_audits`, `get_latest_audit` (`packages/coding/src/tools`), `memory_recall`, `memory_search_knowledge` (`core/src/agent-memory/tools.ts`). Se deja en `false`: `write_file`, `edit_file`, `run_command`, `save_*`, `update_session`, `memory_remember`, `memory_save_knowledge`, `memory_learn_pattern`, `ask_agent` (tiene su propia ruta) y las herramientas MCP (salvo que su anotación `readOnlyHint` sea verdadera; decisión abierta, §10).
+`read_file`, `list_directory`, `search_files`, `list_audits`, `get_latest_audit` (`packages/coding/src/tools`), `memory_recall`, `memory_search_knowledge` (`core/src/agent-memory/tools.ts`). Se deja en `false`: `write_file`, `edit_file`, `run_command`, `save_*`, `update_session`, `memory_remember`, `memory_save_knowledge`, `memory_learn_pattern`, `ask_agent` (tiene su propia ruta) y las herramientas MCP. Una herramienta MCP solo se marca `concurrencySafe` si su servidor tiene `trustAnnotations: true` y la herramienta declara `readOnlyHint: true`; para ello `MCPClientManager` (`core/src/mcp/MCPClientManager.ts`, `listTools`) debe leer `annotations`.
 
 ### 3.4 Casos borde
 - Una herramienta lanza una excepción: `executeToolCall` ya devuelve el error como texto; no afecta al resto de la ola.
@@ -101,7 +104,7 @@ observability?: ObservabilityConfig; // también en CodingEngineOptions
 2. Con `abortOnBudget`, `createBaseEngine` envuelve `onBudgetExceeded`: llama `engine.abort()`, emite `budget_exceeded` y luego invoca el callback del usuario. La referencia al engine se asigna después de crearlo.
 3. Al inicio de cada iteración de `runLoop`, si el costo de la ejecución ya superó `budget.perRun`, no se llama al LLM.
 4. `runAgentInternal` comprueba `this.aborted` en cada iteración y recibe `signal`, de modo que los sub-agentes también se detienen.
-5. Si hay `budget` pero no hay precios (ni el modelo figura en `MODEL_PRICING`), el engine emite un evento `system` de nivel `warn` al crearse.
+5. Si hay `budget` pero no hay precios (ni el modelo figura en `MODEL_PRICING`), el engine emite un evento `system` de nivel `warn` al crearse. También avisa si se configura `budget.perDay`, porque el gasto diario no se persiste y en procesos de vida corta empieza en cero.
 
 ### 4.3 Límites conocidos
 El gasto puede exceder el límite en una llamada (las métricas llegan al final de la llamada). El gasto diario no sobrevive a un reinicio. Las herramientas en ejecución no se cancelan.
@@ -134,13 +137,15 @@ export interface LLMProvider {
     chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void>;
     capabilities?: { structuredOutput: 'native' | 'json_object' | 'none' };
 }
-// AgentEngine
+// core: función independiente (la usan intent-detector, planner y curadores)
+export function generateObject<T>(provider: LLMProvider, prompt: string, schema: ZodType<T>, opts?: { retries?: number; model?: string }): Promise<T>;
+// AgentEngine: atajo que usa el provider del agente y contabiliza el costo
 generateObject<T>(prompt: string, schema: ZodType<T>, opts?: { agentId?: string; retries?: number }): Promise<T>;
 export class StructuredOutputError extends Error { raw: string; issues: unknown }
 ```
 
 ### 5.2 Comportamiento
-1. `generateObject` convierte el esquema zod con el helper de `defineTool` (se extrae a una función exportada), llama al provider con `responseFormat`, valida con zod y devuelve el objeto.
+1. `generateObject` (función y método) convierte el esquema zod con el helper de `defineTool` (se extrae a una función exportada), llama al provider con `responseFormat`, valida con zod y devuelve el objeto.
 2. Si la validación falla, reintenta una vez añadiendo al diálogo el error de validación; si vuelve a fallar lanza `StructuredOutputError`.
 3. Mapeo por provider: Anthropic con `output_config.format` y, como respaldo, herramienta única `respond` con `tool_choice` forzado; OpenAI-compatible con `response_format: json_schema`; DeepSeek con `json_object` y esquema en el prompt; Ollama según soporte del servidor.
 4. Los providers que ignoran `options` siguen funcionando: la validación zod siempre se aplica.
@@ -174,7 +179,7 @@ cacheReadPricePerMToken?: number; cacheWritePricePerMToken?: number;
 
 ### 6.2 Comportamiento
 1. `toAnthropicMessages` (`AnthropicProvider.ts:17-76`) deja de unir el system en una cadena cuando `cache !== 'none'`: lo envía como bloques de texto con `cache_control: { type: 'ephemeral', ttl }` en el último bloque; con `system+tools`, también en la última definición de herramienta; con `auto`, además un punto móvil en el último mensaje.
-2. Con `thinking`, se envía `thinking: { type: 'enabled', budget_tokens }` y se **omite `temperature`**. Los deltas `thinking_delta` se entregan a `onReasoning`; los bloques `thinking`/`redacted_thinking` se acumulan, con su firma, en `LLMMessage.raw` del mensaje del asistente, y se reenvían intactos en el turno siguiente.
+2. Con `thinking`, se envía `thinking: { type: 'enabled', budget_tokens }` y se **omite `temperature`**. Los deltas `thinking_delta` se entregan a `onReasoning` (no se emite evento al transporte en esta ola); los bloques `thinking`/`redacted_thinking` se acumulan, con su firma, en `LLMMessage.raw` del mensaje del asistente, y se reenvían intactos en el turno siguiente.
 3. El uso se lee de `message_start`/`message_delta` (`cache_read_input_tokens`, `cache_creation_input_tokens`) y se pasa a `onMetrics`.
 4. `CostTracker.onTokens(input, output, providedCostUsd?, usage?)` suma lectura y escritura con sus precios; `MODEL_PRICING` incorpora los precios de caché (lectura ≈ 0,1×, escritura ≈ 1,25× a 5 minutos y ≈ 2× a 1 hora) y se actualiza contra la tarifa vigente antes de publicar.
 5. `HistoryManager` conserva `raw` al persistir y `sanitized()` no lo descarta.
@@ -192,7 +197,7 @@ En una conversación de prueba de varios turnos con herramientas, el segundo y s
 ## 7. Unificación de providers (ADR-0005)
 
 ### 7.1 Estructura
-Paquete nuevo `packages/providers` (`@backendkit-labs/agent-providers`, versión inicial 0.1.0) con `BaseStreamingProvider`, `OpenAICompatibleProvider`, `AnthropicProvider` y presets `OllamaProvider` y `DeepSeekProvider`. `agent-coding` los re-exporta bajo los mismos nombres; `orchestrator-agent` elimina `src/provider.ts` y los consume.
+Paquete nuevo `packages/providers` (`@backendkit-labs/agent-providers`, versión inicial 0.1.0; nombre libre en npm el 2026-10-21) con `BaseStreamingProvider`, `OpenAICompatibleProvider`, `AnthropicProvider` y presets `OllamaProvider` y `DeepSeekProvider`. `agent-coding` los re-exporta bajo los mismos nombres; `orchestrator-agent` elimina `src/provider.ts` y los consume.
 
 ### 7.2 Semántica unificada
 - Reintentos con `@backendkit-labs/retry`: `maxAttempts` explícito; reintenta 429, 5xx y errores de red; no reintenta si ya se emitió contenido.
@@ -223,7 +228,7 @@ Regla para agentes nuevos: construirlos sobre `createBaseEngine`.
 P0 → ADR-0001 → ADR-0002 → ADR-0005 → ADR-0003 → ADR-0004 (ADR-0004 puede avanzar en paralelo a ADR-0005, porque solo toca Anthropic).
 
 ### 9.2 Ramas y versiones
-Una rama y un PR por elemento, desde `master`; el spec y los ADR se mergean primero (esta rama de documentación). Versiones: `agent-core` 0.25.0 (minor), `agent-coding` minor, `agent-providers` 0.1.0, `orchestrator-agent` minor. CHANGELOG con la corrección de P0 y el cambio de §4.4.
+Una rama y un PR por elemento, desde `master`; el spec y los ADR se mergean primero (esta rama de documentación). Versiones: `agent-core` 0.25.0 (minor), `agent-coding` minor, `agent-providers` 0.1.0, `orchestrator-agent` minor. CHANGELOG con la corrección de P0 y el cambio de §4.4. La actualización de `packages/templates` y la regeneración de los `test-projects` van en un PR posterior, una vez publicado `agent-providers`.
 
 ### 9.3 Pruebas transversales
 Antes de cada PR: typecheck, build y pruebas de los paquetes afectados, y el guardrail de cobertura por paquete de CI (umbrales ya fijados en `jest.config`).
@@ -237,11 +242,16 @@ Antes de cada PR: typecheck, build y pruebas de los paquetes afectados, y el gua
 - La unificación puede cambiar el número real de reintentos; mitigación: pruebas de caracterización.
 - Los precios de `MODEL_PRICING` pueden estar desactualizados.
 
+### Decisiones tomadas (revisión del 2026-10-21)
+| # | Tema | Decisión |
+|---|---|---|
+| 1 | Default de `maxParallelTools` | `1` en la 0.25; pasa a `4` en la 0.26 como cambio explícito, solo si se cumple el criterio de §3.6 en nuestros agentes |
+| 2 | Herramientas MCP con `readOnlyHint` | Se respeta solo con `trustAnnotations: true` en el servidor (por defecto apagado) |
+| 3 | Paquete de providers | `packages/providers`, `@backendkit-labs/agent-providers` |
+| 4 | Evento `reasoning` | Solo el callback `onReasoning` en esta ola; el evento al transporte se difiere hasta que `web-ui` tenga un componente colapsable |
+| 5 | `generateObject` | Función independiente en `core` más atajo `engine.generateObject` que contabiliza el costo |
+| 6 | Gasto diario persistente | Siguiente ola; mientras tanto, aviso al configurar `perDay` y limitación documentada |
+| 7 | Templates y test-projects | PR posterior, tras publicar `agent-providers`; los test-projects se regeneran con el script |
+
 ### Preguntas abiertas
-1. ¿Cambiamos el default de `maxParallelTools` a 4 en la 0.26 o lo dejamos en 1 indefinidamente?
-2. ¿Las herramientas MCP con `readOnlyHint` se marcan `concurrencySafe` automáticamente?
-3. ¿Nombre y ubicación definitivos del paquete de providers (`agent-providers` en `packages/providers`)?
-4. ¿Se emite el razonamiento como evento `reasoning` al transporte, o solo a un callback?
-5. ¿`generateObject` vive en `AgentEngine` o como función independiente que recibe un provider?
-6. ¿Se persiste el gasto diario en esta ola o en la siguiente?
-7. ¿Se actualizan los templates y test-projects en la misma ola o después?
+Ninguna por ahora.

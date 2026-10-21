@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@backendkit-labs/agent-core';
+import type { LLMMessage, LLMStreamCallbacks, ToolDefinition, ChatOptions, StructuredOutputSupport } from '@backendkit-labs/agent-core';
 import { BaseStreamingProvider, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
 
 /** The slice of the OpenAI SDK the provider uses — inject a double in tests. */
@@ -41,8 +41,32 @@ export interface OpenAICompatibleProviderOptions extends RetryTuning {
      * exhausted with zero visible output and no error. Omit to use the API's own default.
      */
     thinking?: 'enabled' | 'disabled';
+    /**
+     * How the backend handles `ChatOptions.responseFormat`. `native`: `response_format: json_schema`
+     * (default). `json_object`: only valid JSON is guaranteed, the schema must travel in the prompt
+     * (`generateObject` does that). `none`: the option is ignored.
+     */
+    structuredOutput?: StructuredOutputSupport;
     /** Inject a client instead of building one from `apiKey`/`baseUrl`. */
     client?: OpenAIClientLike;
+}
+
+/** OpenAI strict mode needs every property required and no extra properties, at every level. */
+function isStrictCompatible(schema: unknown): boolean {
+    if (!schema || typeof schema !== 'object') return true;
+    const s = schema as { type?: string; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: unknown; items?: unknown };
+    if (s.type === 'object' && s.properties) {
+        const required = new Set(s.required ?? []);
+        if (s.additionalProperties !== false) return false;
+        if (!Object.keys(s.properties).every(k => required.has(k))) return false;
+        return Object.values(s.properties).every(isStrictCompatible);
+    }
+    if (s.type === 'array') return isStrictCompatible(s.items);
+    return true;
+}
+
+function toolChoiceFor(choice: NonNullable<ChatOptions['toolChoice']>): unknown {
+    return typeof choice === 'string' ? choice : { type: 'function', function: { name: choice.name } };
 }
 
 export class OpenAICompatibleProvider extends BaseStreamingProvider {
@@ -51,6 +75,7 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
     private readonly maxTokens: number | null;
     private readonly temperature: number | ((model: string) => number);
     private readonly thinking?: 'enabled' | 'disabled';
+    readonly capabilities: { structuredOutput: StructuredOutputSupport };
 
     constructor(opts: OpenAICompatibleProviderOptions, defaults = { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 16_000 }) {
         super({ ...opts, maxAttempts: opts.maxAttempts ?? opts.maxRetries }, defaults);
@@ -60,9 +85,10 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
         this.maxTokens = opts.maxTokens === undefined ? 16384 : opts.maxTokens;
         this.temperature = opts.temperature ?? 0;
         this.thinking = opts.thinking;
+        this.capabilities = { structuredOutput: opts.structuredOutput ?? 'native' };
     }
 
-    protected async stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void> {
+    protected async stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void> {
         const oaiTools = tools.map(t => ({
             type: 'function' as const,
             function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -75,7 +101,8 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
             // `raw` is another provider's payload (e.g. Anthropic thinking blocks): never send it.
             messages: messages.map(({ raw: _raw, ...m }) => m),
             tools: oaiTools.length > 0 ? oaiTools : undefined,
-            tool_choice: oaiTools.length > 0 ? 'auto' : undefined,
+            tool_choice: oaiTools.length > 0 ? (options?.toolChoice ? toolChoiceFor(options.toolChoice) : 'auto') : undefined,
+            ...this.responseFormat(options),
             ...(this.maxTokens !== null ? { max_tokens: this.maxTokens } : {}),
             temperature,
             stream: true,
@@ -109,5 +136,22 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
         }
 
         this.finish(callbacks, content, buffers);
+    }
+
+    private responseFormat(options?: ChatOptions): { response_format?: unknown } {
+        const rf = options?.responseFormat;
+        if (!rf) return {};
+        switch (this.capabilities.structuredOutput) {
+            case 'native':
+                return {
+                    response_format: {
+                        type: 'json_schema',
+                        // Optional fields cannot satisfy strict mode: relax it instead of getting a 400.
+                        json_schema: { name: rf.name, schema: rf.schema, strict: rf.strict !== false && isStrictCompatible(rf.schema) },
+                    },
+                };
+            case 'json_object': return { response_format: { type: 'json_object' } };
+            default: return {};
+        }
     }
 }

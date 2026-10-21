@@ -10,7 +10,7 @@ import type { LLMChatClient } from './intent-detector';
  */
 export function adaptProviderToLLMClient(provider: LLMProvider): LLMChatClient {
     return {
-        async chat(messages, _tools, _temperature) {
+        async chat(messages, _tools, _temperature, options) {
             let accumulated = '';
             let failure: Error | undefined;
 
@@ -25,6 +25,7 @@ export function adaptProviderToLLMClient(provider: LLMProvider): LLMChatClient {
                     onDone: () => { /* stream finished */ },
                     onError: (err) => { failure = err; },
                 },
+                options,
             );
 
             if (failure) throw failure;

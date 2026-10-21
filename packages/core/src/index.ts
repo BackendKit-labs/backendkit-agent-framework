@@ -22,7 +22,9 @@ export { StdoutTransport } from './transport/StdoutTransport';
 export { CallbackTransport } from './transport/CallbackTransport';
 
 // ── Typed tools ────────────────────────────────────────────────────────────────
-export { defineTool, z } from './tools/defineTool';
+export { defineTool, z, zodToParameters } from './tools/defineTool';
+export { generateObject, generateObjectWith, StructuredOutputError } from './structured/generateObject';
+export type { GenerateObjectOptions, StructuredChat } from './structured/generateObject';
 export type { TypedToolOptions } from './tools/defineTool';
 
 // ── Skills ─────────────────────────────────────────────────────────────────────
@@ -147,6 +149,8 @@ export type {
     LLMToolCall,
     LLMStreamCallbacks,
     LLMProvider,
+    ChatOptions,
+    StructuredOutputSupport,
     AgentEvent,
     EngineOptions,
     JSONSchema,

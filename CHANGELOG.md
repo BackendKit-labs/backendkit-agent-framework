@@ -2,6 +2,39 @@
 
 ## Sin publicar
 
+### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-providers` / `@backendkit-labs/agent-coding` — salida estructurada (ADR-0003)
+
+`generateObject(provider, prompt, zodSchema, opts?)` (nuevo, en `agent-core`) pide al modelo un
+objeto que cumpla el esquema, lo valida con zod y lo devuelve tipado. Una respuesta inválida se
+reintenta **una vez** diciéndole al modelo qué estaba mal; si vuelve a fallar lanza
+`StructuredOutputError` (con `raw` e `issues`). Los fallos del provider se relanzan tal cual.
+`engine.generateObject(prompt, schema, { agentId?, retries? })` usa el provider del agente y emite
+el uso de tokens como eventos `metrics` (sin tocar el historial). También `generateObjectWith`
+para clientes que no son un `LLMProvider`, y `zodToParameters` (el helper de esquemas que usaba
+`defineTool`, ahora exportado).
+
+Contrato (compatible hacia atrás, todo opcional): `LLMProvider.chat(..., options?: ChatOptions)`
+con `responseFormat` y `toolChoice`, y `LLMProvider.capabilities.structuredOutput`
+(`'native' | 'json_object' | 'none'`). Un provider que no conoce `options` sigue funcionando: la
+validación zod siempre se aplica, y si el provider no impone el esquema éste se añade al prompt.
+
+Mapeo por provider:
+- `OpenAICompatibleProvider`: `response_format: json_schema` (`structuredOutput: 'native'`, por
+  defecto). El modo estricto se relaja solo si el esquema tiene campos opcionales u objetos que
+  admiten propiedades extra (OpenAI respondería 400). `toolChoice` se traduce a `tool_choice`.
+- `DeepSeekProvider` y `OllamaProvider`: `json_object` (el esquema viaja en el prompt). Ollama
+  admite `structuredOutput: 'native'` si tu servidor soporta `json_schema`.
+- `AnthropicProvider`: `output_config.format` con el esquema (`structuredOutput: 'native'`) o, como
+  respaldo explícito, una herramienta `respond` forzada (`structuredOutput: 'tool'`; no se puede
+  combinar con `thinking`). `toolChoice` se traduce a `tool_choice`.
+- `createCodingEngine`: el provider `deepseek` usa `json_object` por defecto (no admite
+  `json_schema`); `structuredOutput` es configurable en cada provider.
+
+`intent-detector` deja de extraer la acción con una regex: usa `generateObjectWith` con un enum de
+acciones. Una respuesta no válida sigue acabando en `unknown`. `LLMChatClient.chat` y
+`adaptProviderToLLMClient` propagan las opciones. El planner de `orchestrator-agent` y los curadores
+migran a `generateObject` en cambios posteriores.
+
 ### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-providers` / `@backendkit-labs/agent-coding` — caché de prompt y razonamiento extendido de Anthropic (ADR-0004)
 
 `AnthropicProvider` (y `AnthropicConfig` de `createCodingEngine`) gana, todo opt-in:

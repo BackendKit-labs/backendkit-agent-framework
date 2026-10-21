@@ -43,6 +43,21 @@ describe('createCodingEngine option forwarding', () => {
         expect(provider.thinking).toEqual({ budgetTokens: 2000 });
     });
 
+    it('picks the structured-output mode per provider (ADR-0003)', () => {
+        const caps = (providers: unknown, defaultProvider: string) => {
+            createCodingEngine({ providers: providers as never, defaultProvider, disablePersistence: true });
+            const call = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0];
+            return (call.providers[defaultProvider] as { capabilities: { structuredOutput: string } }).capabilities.structuredOutput;
+        };
+        // DeepSeek has no json_schema: it must not inherit the generic provider's 'native'.
+        expect(caps({ deepseek: { apiKey: 'k' } }, 'deepseek')).toBe('json_object');
+        expect(caps({ openai: { apiKey: 'k' } }, 'openai')).toBe('native');
+        expect(caps({ deepseek: { apiKey: 'k', structuredOutput: 'native' } }, 'deepseek')).toBe('native');
+        expect(caps({ ollama: {} }, 'ollama')).toBe('json_object');
+        expect(caps({ ollama: { structuredOutput: 'native' } }, 'ollama')).toBe('native');
+        expect(caps({ anthropic: { apiKey: 'k' } }, 'anthropic')).toBe('native');
+    });
+
     it('fails fast on an invalid thinking budget', () => {
         expect(() => createCodingEngine({
             providers: { anthropic: { apiKey: 'k', thinking: { budgetTokens: 10 } } } as never,

@@ -11,6 +11,9 @@
  */
 
 import { retry } from '@backendkit-labs/retry';
+import { z } from 'zod';
+import { generateObjectWith } from '../structured/generateObject';
+import type { ChatOptions } from '../types';
 import { ActionType, createTaskContext, TaskContext } from './task-context';
 import { matchesKeyword } from './keyword-match';
 
@@ -24,7 +27,7 @@ const LLM_RETRY = {
 };
 
 export interface LLMChatClient {
-    chat(messages: Array<{ role: string; content: string }>, tools?: unknown, temperature?: number): Promise<{ content: string | null }>;
+    chat(messages: Array<{ role: string; content: string }>, tools?: unknown, temperature?: number, options?: ChatOptions): Promise<{ content: string | null }>;
 }
 
 // ── Keywords por acción ──────────────────────────────────────────────────────
@@ -218,24 +221,25 @@ async function classifyWithLLM(
   input: string,
   client: LLMChatClient
 ): Promise<IntentDetectionResult> {
-  const actions = Object.keys(INTENT_KEYWORDS)
-    .filter(a => a !== 'unknown')
-    .join(', ');
+  const actions = Object.keys(INTENT_KEYWORDS).filter(a => a !== 'unknown') as [ActionType, ...ActionType[]];
+  const schema = z.object({ action: z.enum(actions) });
 
-  const prompt = `Classify the following request into EXACTLY ONE of these action types: ${actions}.
-
-Respond ONLY with JSON: {"action":"<type>"}
+  const prompt = `Classify the following request into EXACTLY ONE of these action types: ${actions.join(', ')}.
 
 Request: "${input.slice(0, 500)}"`;
 
+  // The model answers with a schema-checked object (one corrective retry inside); any failure
+  // leaves the action as 'unknown' and the keyword scores decide.
   const result = await retry(
-    () => client.chat([{ role: 'user', content: prompt }], undefined, 0.0),
+    () => generateObjectWith(
+      async (messages, options) => (await client.chat(messages.map(m => ({ role: m.role, content: m.content ?? '' })), undefined, 0.0, options)).content ?? '',
+      prompt,
+      schema,
+    ),
     LLM_RETRY,
   );
 
-  const content = result.ok ? (result.value.content ?? '') : '';
-  const match = content.match(/"action"\s*:\s*"([\w-]+)"/);
-  const actionType = (match?.[1] as ActionType) ?? 'unknown';
+  const actionType: ActionType = result.ok ? result.value.action : 'unknown';
 
   // Recalcular scores con el LLM como desempate
   const scores = computeKeywordScores(input.toLowerCase());

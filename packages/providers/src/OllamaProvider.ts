@@ -31,6 +31,8 @@ export class OllamaProvider extends OpenAICompatibleProvider {
             maxTokens: opts.maxTokens === undefined ? 4096 : opts.maxTokens,
             maxAttempts: opts.maxAttempts ?? (opts.maxRetries !== undefined ? opts.maxRetries + 1 : undefined),
             maxRetries: undefined,
+            // Older servers reject json_schema: default to json_object, opt in to 'native' when yours supports it.
+            structuredOutput: opts.structuredOutput ?? 'json_object',
         }, { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 4000 });
         this.host = host;
     }

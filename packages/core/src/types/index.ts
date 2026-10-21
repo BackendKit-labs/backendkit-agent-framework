@@ -187,8 +187,24 @@ export interface LLMStreamCallbacks {
     model?: string;
 }
 
+/** Per-call options. Providers that do not know an option ignore it. */
+export interface ChatOptions {
+    /** Ask for a JSON answer matching `schema`. Validate the result anyway: not every provider enforces it. */
+    responseFormat?: { type: 'json_schema'; name: string; schema: JSONSchema; strict?: boolean };
+    /** Tool selection policy; only meaningful when tools are passed. */
+    toolChoice?: 'auto' | 'none' | 'required' | { name: string };
+}
+
+/** How firmly a provider enforces `ChatOptions.responseFormat`. */
+export type StructuredOutputSupport = 'native' | 'json_object' | 'none';
+
 export interface LLMProvider {
-    chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void>;
+    chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void>;
+    /**
+     * `native`: the API enforces the schema. `json_object`: the API only guarantees valid JSON, so
+     * the schema must also be in the prompt. `none` / absent: no guarantee.
+     */
+    capabilities?: { structuredOutput: StructuredOutputSupport };
 }
 
 // ─── Events (transport-agnostic) ─────────────────────────────────────────────

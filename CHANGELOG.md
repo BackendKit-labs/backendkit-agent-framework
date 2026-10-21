@@ -1,6 +1,22 @@
 # Changelog
 
-## Sin publicar
+## v0.26.0 (2026-10-21)
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.26.0 |
+| `agent-providers` | 0.1.0 (nuevo) |
+| `agent-coding` | 0.22.0 |
+| `orchestrator-agent` | 0.4.0 |
+| `agent-enterprise` | 0.4.2 |
+| `agent-web` | 0.4.8 |
+| `mcp-server` | 0.16.3 |
+| `aval-tools` | 0.1.3 |
+| `create-bk-agent` | 0.22.4 |
+
+`enterprise`, `web`, `mcp-server`, `aval-tools` y `create-bk-agent` solo ajustan sus rangos de
+`agent-core` (y los templates de `create-bk-agent` pasan a `agent-core ^0.26.0`, `agent-coding
+^0.22.0`, `orchestrator-agent ^0.4.0`).
 
 ### `@backendkit-labs/agent-providers` 0.1.0 (nuevo) — una sola implementación de providers (ADR-0005)
 
@@ -27,7 +43,7 @@ Cambios de comportamiento a tener en cuenta:
 Pendiente de este ADR: bump y publicación (providers → coding → orchestrator-agent) y actualizar
 los templates cuando `agent-providers` esté en npm.
 
-### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-coding` — aborto automático por presupuesto (ADR-0002)
+### `@backendkit-labs/agent-core` 0.26.0 / `@backendkit-labs/agent-coding` 0.22.0 — aborto automático por presupuesto (ADR-0002)
 
 `abortOnBudget` (default `false`) en `createBaseEngine` y `createCodingEngine`; este último expone
 además `observability`. Con él, al superar `costTracker.budget` el motor llama a `engine.abort()`,
@@ -42,6 +58,8 @@ superaba. Ahora se dispara **una vez por límite y por ejecución** (`perDay`: u
 reportan ambos si se superan a la vez. El costo que entrega el provider (`cost_usd`) ahora se
 acumula entre llamadas en `getRunCost()` / `getDayCost()`. `AgentEvent` gana `budget_exceeded`:
 revisa los `switch` exhaustivos propios.
+
+## v0.25.0 (2026-10-21)
 
 ### `@backendkit-labs/agent-core` 0.25.0 / `@backendkit-labs/agent-coding` 0.21.0 — ejecución paralela de tool calls (ADR-0001)
 

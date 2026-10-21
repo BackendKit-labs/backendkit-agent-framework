@@ -77,6 +77,8 @@ export interface AgentEngineOptions extends EngineOptions {
      * Max concurrencySafe tool calls of one turn run at once. Default 1 (sequential).
      */
     maxParallelTools?: number;
+    /** Stop before the next LLM call once the run cost reached observability budget.perRun. */
+    abortOnBudget?: boolean;
     /**
      * Called when maxIterations is reached in interactive mode.
      * Return true to continue (+25 iterations), false to stop.
@@ -651,6 +653,7 @@ export class AgentEngine {
         });
 
         while (!this.aborted) {
+            if (this.opts.abortOnBudget && this.opts.observabilityManager?.isRunOverBudget()) break;
             const shouldContinue = await iterManager.advance();
             if (!shouldContinue) break;
 
@@ -863,7 +866,7 @@ export class AgentEngine {
 
         emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
 
-        while (iter < maxIter) {
+        while (iter < maxIter && !this.aborted) {
             iter++;
 
             let streamContent = '';

@@ -15,7 +15,8 @@ export type AgentEventType =
   | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
-  | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string };
+  | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }
+  | { type: 'budget_exceeded'; usage: { runCostUsd: number; dayCostUsd: number; budgetExceeded: 'perRun' | 'perDay' } };
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -187,6 +188,13 @@ export function useAgentSession({
 
       case 'system':
         setMessages(prev => [...prev, { id: uid(), role: 'system', content: evt.text }]);
+        break;
+
+      case 'budget_exceeded':
+        setMessages(prev => [...prev, {
+          id: uid(), role: 'system',
+          content: `Budget exceeded (${evt.usage.budgetExceeded}): run $${evt.usage.runCostUsd.toFixed(4)}, day $${evt.usage.dayCostUsd.toFixed(4)}. Run stopped.`,
+        }]);
         break;
 
       case 'metrics':

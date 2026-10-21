@@ -105,7 +105,7 @@ export { ObservabilityManager } from './observability/ObservabilityManager';
 export { CostTracker } from './observability/CostTracker';
 export { MetricsCollector } from './observability/MetricsCollector';
 export { Tracer } from './observability/Tracer';
-export type { ObservabilityConfig, MetricsSnapshot, Span, SpanExporter } from './observability/types';
+export type { ObservabilityConfig, BudgetUsage, MetricsSnapshot, Span, SpanExporter } from './observability/types';
 export { MODEL_PRICING } from './observability/types';
 
 // ── Advanced memory — MemorySystem in AgentEngineOptions, createMemorySystem in coding ─

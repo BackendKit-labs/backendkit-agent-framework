@@ -60,6 +60,9 @@ export class ObservabilityManager {
     /** Cumulative USD cost since UTC midnight (0 if no pricing config). */
     getDayCost(): number { return this.cost?.getDayCost() ?? 0; }
 
+    /** True once the current run's cost reached budget.perRun (false without a budget). */
+    isRunOverBudget(): boolean { return this.cost?.isRunOverBudget() ?? false; }
+
     /** Clean up resources (interval timer in CostTracker). */
     destroy(): void { this.cost?.destroy(); }
 

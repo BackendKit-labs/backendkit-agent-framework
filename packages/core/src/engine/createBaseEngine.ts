@@ -158,6 +158,12 @@ export interface BaseEngineOptions {
      * }
      */
     observability?: ObservabilityConfig;
+    /**
+     * Abort the run when observability.costTracker.budget is exceeded: calls engine.abort(), emits
+     * a `budget_exceeded` event, then your onBudgetExceeded. The call that crosses the limit still
+     * completes (and is paid for) but its response is discarded. Default: false.
+     */
+    abortOnBudget?: boolean;
 
     /**
      * Agent discovery — load agents from local directories and/or a remote registry.
@@ -276,12 +282,46 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ?? opts.agents?.[0]?.id
         ?? 'general';
 
-    // Wrap transport with observability if configured
-    const obsManager = opts.observability ? new ObservabilityManager(opts.observability) : undefined;
     const baseTransport = opts.transport ?? new StdoutTransport();
+
+    // abortOnBudget: wrap onBudgetExceeded so it can abort the engine, which does not exist yet.
+    let engineRef: { abort(): void } | undefined;
+    const userCost = opts.observability?.costTracker;
+    const observability: ObservabilityConfig | undefined =
+        opts.abortOnBudget && opts.observability && userCost
+            ? {
+                ...opts.observability,
+                costTracker: {
+                    ...userCost,
+                    onBudgetExceeded: (usage) => {
+                        engineRef?.abort();
+                        baseTransport.emit({ type: 'budget_exceeded', usage });
+                        userCost.onBudgetExceeded?.(usage);
+                    },
+                },
+            }
+            : opts.observability;
+
+    // Wrap transport with observability if configured
+    const obsManager = observability ? new ObservabilityManager(observability) : undefined;
     const transport = obsManager ? obsManager.wrapTransport(baseTransport) : baseTransport;
 
-    return new AgentEngine({
+    if (userCost?.budget) {
+        if (userCost.inputPricePerMToken === undefined && userCost.outputPricePerMToken === undefined) {
+            baseTransport.emit({
+                type: 'system', level: 'warn',
+                text: 'observability.costTracker.budget is set but no token prices are configured (spread MODEL_PRICING[model] into costTracker): cost stays 0 and the budget never triggers.',
+            });
+        }
+        if (userCost.budget.perDay !== undefined) {
+            baseTransport.emit({
+                type: 'system', level: 'warn',
+                text: 'budget.perDay is tracked in memory only: it starts at zero on every process start.',
+            });
+        }
+    }
+
+    const engine = new AgentEngine({
         model: { provider: opts.defaultProvider, id: opts.defaultProvider },
         agents,
         tools,
@@ -296,6 +336,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
+        ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
@@ -328,4 +369,6 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             }
             : {}),
     });
+    engineRef = engine;
+    return engine;
 }

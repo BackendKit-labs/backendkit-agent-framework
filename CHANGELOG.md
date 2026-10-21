@@ -1,6 +1,26 @@
 # Changelog
 
-## Sin publicar
+## v0.27.0 (2026-10-21)
+
+Cierra la Ola 1 del SPEC-0001: salida estructurada (ADR-0003) y caché de prompt y razonamiento de
+Anthropic (ADR-0004).
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.27.0 |
+| `agent-providers` | 0.2.0 |
+| `agent-coding` | 0.23.0 |
+| `orchestrator-agent` | 0.4.1 |
+| `agent-enterprise` | 0.4.3 |
+| `agent-web` | 0.4.9 |
+| `mcp-server` | 0.16.4 |
+| `aval-tools` | 0.1.4 |
+| `create-bk-agent` | 0.22.5 |
+
+`agent-providers` 0.2.0 requiere `agent-core` `>=0.27.0 <0.29.0`. `orchestrator-agent`,
+`enterprise`, `web`, `mcp-server`, `aval-tools` y `create-bk-agent` solo ajustan sus rangos de
+`agent-core` / `agent-coding` / `agent-providers`; los templates pasan a `agent-core ^0.27.0` y
+`agent-coding ^0.23.0`. `maxParallelTools` sigue en 1 por defecto.
 
 ### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-providers` / `@backendkit-labs/agent-coding` — salida estructurada (ADR-0003)
 

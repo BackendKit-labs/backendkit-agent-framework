@@ -23,6 +23,7 @@ export interface CodeAnalysisResult {
   notesSkipped: string[];
   errors: string[];
   durationMs: number;
+  warnings?: string[];
   filesAnalyzed?: string[];
 }
 

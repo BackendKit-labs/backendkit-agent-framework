@@ -28,10 +28,13 @@ import {
     KOTLIN_PACK_SKILLS,
     PYTHON_PACK_SKILLS,
 } from './skills';
-import { DeepSeekProvider } from './providers/DeepSeekProvider';
-import { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
-import { AnthropicProvider } from './providers/AnthropicProvider';
-import { OllamaProvider, OLLAMA_DEFAULT_HOST, OLLAMA_DEFAULT_MODEL } from './providers/OllamaProvider';
+import {
+    OpenAICompatibleProvider,
+    AnthropicProvider,
+    OllamaProvider,
+    OLLAMA_DEFAULT_HOST,
+    OLLAMA_DEFAULT_MODEL,
+} from '@backendkit-labs/agent-providers';
 import { CODING_AGENTS } from './agents/profiles';
 import { AgentLoader } from './agents/AgentLoader';
 import { readFileTool } from './tools/read-file';
@@ -114,11 +117,21 @@ function buildProjectContext(cwd: string, appName: string, store?: ProjectStore)
 // ── Re-exports ────────────────────────────────────────────────────────────────
 export * from './skills';
 export { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
-export { DeepSeekProvider } from './providers/DeepSeekProvider';
-export { OpenAICompatibleProvider } from './providers/OpenAICompatibleProvider';
-export { AnthropicProvider } from './providers/AnthropicProvider';
-export { OllamaProvider, OLLAMA_DEFAULT_HOST, OLLAMA_DEFAULT_MODEL } from './providers/OllamaProvider';
-export type { OllamaProviderOptions } from './providers/OllamaProvider';
+// The providers live in @backendkit-labs/agent-providers; re-exported here under the same names.
+export {
+    DeepSeekProvider,
+    OpenAICompatibleProvider,
+    AnthropicProvider,
+    OllamaProvider,
+    OLLAMA_DEFAULT_HOST,
+    OLLAMA_DEFAULT_MODEL,
+} from '@backendkit-labs/agent-providers';
+export type {
+    OllamaProviderOptions,
+    OpenAICompatibleProviderOptions,
+    DeepSeekProviderOptions,
+    AnthropicProviderOptions,
+} from '@backendkit-labs/agent-providers';
 export { CODING_AGENTS } from './agents/profiles';
 export { AgentLoader } from './agents/AgentLoader';
 export type { AgentLoaderOptions } from './agents/AgentLoader';
@@ -166,6 +179,8 @@ export interface OpenAICompatibleConfig {
     baseUrl?: string;
     maxTokens?: number;
     temperature?: number;
+    /** Reasoning toggle for providers that support it (e.g. DeepSeek V4). Omit for the API default. */
+    thinking?: 'enabled' | 'disabled';
 }
 
 export interface AnthropicConfig {
@@ -382,6 +397,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 model: cfg.model ?? DEFAULT_MODELS[id] ?? 'gpt-4o',
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
+                thinking: cfg.thinking,
             });
         }
     }

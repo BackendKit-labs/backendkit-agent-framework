@@ -2,6 +2,31 @@
 
 ## Sin publicar
 
+### `@backendkit-labs/agent-providers` 0.1.0 (nuevo) — una sola implementación de providers (ADR-0005)
+
+Paquete nuevo con `BaseStreamingProvider`, `OpenAICompatibleProvider`, `AnthropicProvider` y los
+presets `OllamaProvider` y `DeepSeekProvider`. `agent-coding` los re-exporta con los mismos
+nombres y `orchestrator-agent` los consume (su `provider.ts` queda como adaptador de la config
+snake_case). Reintentos con `@backendkit-labs/retry`: 429, 5xx y errores de red; nunca tras
+emitir contenido ni tras un aborto. Cliente SDK inyectable (`client`) y primera suite de pruebas
+de providers.
+
+Cambios de comportamiento a tener en cuenta:
+- `maxAttempts` explícito; `maxRetries` queda como alias obsoleto con el mismo significado de
+  antes (intentos totales; en Ollama cuenta reintentos, 2 = 3 intentos).
+- **Ollama:** ahora pide `include_usage` (antes no reportaba tokens, así que el presupuesto no
+  veía sus llamadas) y también reintenta 429.
+- **DeepSeek:** `maxRetries` ya no se descarta.
+- **orchestrator-agent:** ahora respeta `model` y `signal` (se puede abortar); sigue sin enviar
+  `max_tokens` y conserva temperatura 1 para modelos "reasoner".
+- `createCodingEngine`: `OpenAICompatibleConfig` expone `thinking`.
+- `agent-coding` ya no depende de `openai` ni de `@anthropic-ai/sdk` (los trae `agent-providers`).
+- `agent-providers` declara `agent-core` como peer (`>=0.25.0 <0.27.0`); `orchestrator-agent`
+  sube su rango de `agent-core` a `^0.25.0`.
+
+Pendiente de este ADR: bump y publicación (providers → coding → orchestrator-agent) y actualizar
+los templates cuando `agent-providers` esté en npm.
+
 ### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-coding` — aborto automático por presupuesto (ADR-0002)
 
 `abortOnBudget` (default `false`) en `createBaseEngine` y `createCodingEngine`; este último expone

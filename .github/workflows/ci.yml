@@ -38,6 +38,9 @@ jobs:
       - name: Build agent-core
         run: npm run build -w packages/core
 
+      - name: Build agent-providers
+        run: npm run build -w packages/providers
+
       - name: Build agent-coding
         run: npm run build -w packages/coding
 

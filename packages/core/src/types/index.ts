@@ -53,6 +53,8 @@ export interface ToolDefinition {
     name: string;
     description: string;
     parameters: JSONSchema;
+    /** Safe to run alongside other concurrencySafe tools in the same turn (read-only, order-independent). Default false. */
+    concurrencySafe?: boolean;
     execute(args: unknown, ctx: ExecutionContext): Promise<string>;
 }
 

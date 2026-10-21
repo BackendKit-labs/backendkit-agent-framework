@@ -73,6 +73,7 @@ function walkAndSearch(
 
 export const searchFilesTool = defineTool({
     name: 'search_files',
+    concurrencySafe: true,
     description:
         'Search for text patterns across files. ' +
         'Returns matching lines with relative file paths and line numbers. ' +

@@ -25,6 +25,7 @@ export function buildMemoryTools(
 
         defineTool({
             name: 'memory_recall',
+            concurrencySafe: true,
             description: 'Search episodic memory for past experiences relevant to a query.',
             input: z.object({
                 query: z.string().describe('What to search for'),
@@ -54,6 +55,7 @@ export function buildMemoryTools(
 
         defineTool({
             name: 'memory_search_knowledge',
+            concurrencySafe: true,
             description: 'Search semantic memory for relevant knowledge or past decisions.',
             input: z.object({
                 query: z.string().describe('What to search for'),

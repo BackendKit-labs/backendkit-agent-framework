@@ -12,6 +12,8 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
     description: string;
     /** Zod schema for the tool's input. Used for validation and JSON Schema generation. */
     input: TInput;
+    /** Safe to run in parallel with other concurrencySafe tools. Default false. */
+    concurrencySafe?: boolean;
     /** Type-safe execute handler — args are already validated and typed. */
     execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
 }
@@ -55,6 +57,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
         name: opts.name,
         description: opts.description,
         parameters,
+        ...(opts.concurrencySafe ? { concurrencySafe: true } : {}),
         execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
             const result = opts.input.safeParse(rawArgs);
             if (!result.success) {

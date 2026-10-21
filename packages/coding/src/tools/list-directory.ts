@@ -21,6 +21,7 @@ function listRecursive(dir: string, depth: number, maxDepth: number): string[] {
 
 export const listDirectoryTool = defineTool({
     name: 'list_directory',
+    concurrencySafe: true,
     description: 'List files and directories inside the working directory, recursively.',
     input: z.object({
         path:      z.string().describe('Directory path to list'),

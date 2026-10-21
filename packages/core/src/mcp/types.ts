@@ -55,6 +55,12 @@ export interface MCPServerConfig {
 
     // ── Shared ────────────────────────────────────────────────────────────────
 
+    /**
+     * Honor `readOnlyHint` annotations from this server: tools declaring it become
+     * concurrencySafe. Off by default — annotations from an untrusted server must not be believed.
+     */
+    trustAnnotations?: boolean;
+
     /** Timeout for individual tool calls in ms. Default: 30 000 */
     timeoutMs?: number;
     /**

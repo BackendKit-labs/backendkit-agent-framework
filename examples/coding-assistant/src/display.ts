@@ -107,6 +107,8 @@ let blockStart   = 0;
 let runInput     = 0;
 let runOutput    = 0;
 let runCost      = 0;
+let runCacheRead = 0;
+let runCacheWrite = 0;
 
 // Orchestrator routing suppression
 let orchestratorMode = false;
@@ -133,7 +135,7 @@ export function renderEvent(event: AgentEvent, orchestratorId = 'general'): void
     switch (event.type) {
 
         case 'ready':
-            runInput = runOutput = runCost = 0;
+            runInput = runOutput = runCost = runCacheRead = runCacheWrite = 0;
             break;
 
         case 'block_start':
@@ -222,13 +224,22 @@ export function renderEvent(event: AgentEvent, orchestratorId = 'general'): void
             runInput  += event.input_tokens;
             runOutput += event.output_tokens;
             if (event.cost_usd) runCost += event.cost_usd;
+            runCacheRead  += event.cache_read_tokens  ?? 0;
+            runCacheWrite += event.cache_write_tokens ?? 0;
+            break;
+
+        case 'budget_exceeded':
+            flushStream();
+            print(`\n  ${col(c.red, '⛔')} Budget exceeded (${event.usage.budgetExceeded}): $${event.usage.runCostUsd.toFixed(4)} — run stopped.\n`);
             break;
 
         case 'done':
             flushStream();
             if (runInput + runOutput > 0) {
                 const costStr = runCost > 0 ? `  $${runCost.toFixed(4)}` : '';
-                print(col(c.gray, `  ↑${runInput.toLocaleString()} ↓${runOutput.toLocaleString()} tokens${costStr}`));
+                const cacheStr = runCacheRead + runCacheWrite > 0
+                    ? `  cache r${runCacheRead.toLocaleString()} w${runCacheWrite.toLocaleString()}` : '';
+                print(col(c.gray, `  ↑${runInput.toLocaleString()} ↓${runOutput.toLocaleString()} tokens${cacheStr}${costStr}`));
             }
             print(col(c.green, '\n  ✓ done\n'));
             break;

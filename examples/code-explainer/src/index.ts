@@ -6,6 +6,35 @@ import { z } from 'zod';
 
 const PORT = parseInt(process.env.PORT ?? '3011', 10);
 
+// Cost controls (optional). AGENT_BUDGET_USD caps the spend of ONE tool call: the run is stopped once
+// crossed. A cap and cost tracking need prices; use your model's price list (approximate is fine).
+//   AGENT_BUDGET_USD=0.10  AGENT_PRICE_IN_PER_M=0.30  AGENT_PRICE_OUT_PER_M=1.20
+function envNumber(name: string): number | undefined {
+    const raw = process.env[name];
+    if (!raw) return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) throw new Error(`${name} must be a non-negative number, got "${raw}"`);
+    return n;
+}
+
+function costOptions() {
+    const budget = envNumber('AGENT_BUDGET_USD');
+    const priceIn = envNumber('AGENT_PRICE_IN_PER_M');
+    const priceOut = envNumber('AGENT_PRICE_OUT_PER_M');
+    if (budget === undefined && priceIn === undefined && priceOut === undefined) return {};
+    return {
+        observability: {
+            costTracker: {
+                ...(priceIn  !== undefined ? { inputPricePerMToken:  priceIn }  : {}),
+                ...(priceOut !== undefined ? { outputPricePerMToken: priceOut } : {}),
+                ...(budget   !== undefined ? { budget: { perRun: budget } }     : {}),
+            },
+        },
+        abortOnBudget: budget !== undefined,
+    };
+}
+
+
 const server = new AgentMCPServer({
     name:    'code-explainer',
     version: '1.0.0',
@@ -52,7 +81,8 @@ const server = new AgentMCPServer({
         },
     ],
     engineFactory: (transport: CallbackTransport) =>
-        createCodingEngineFromConfig({ appName: 'code-explainer', transport }),
+        // costOptions() adds the optional per-call spending cap.
+        createCodingEngineFromConfig({ appName: 'code-explainer', transport, ...costOptions() }),
 });
 
 process.on('SIGINT', () => {

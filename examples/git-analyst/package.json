@@ -11,9 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@backendkit-labs/agent-coding": "file:../../agent-framework/packages/coding",
-    "@backendkit-labs/agent-core": "file:../../agent-framework/packages/core",
-    "@backendkit-labs/mcp-server": "file:../../agent-framework/packages/mcp-server",
+    "@backendkit-labs/agent-coding": "^0.23.0",
+    "@backendkit-labs/agent-core": "^0.27.0",
+    "@backendkit-labs/mcp-server": "^0.16.4",
     "zod": "^3.22.0"
   },
   "devDependencies": {

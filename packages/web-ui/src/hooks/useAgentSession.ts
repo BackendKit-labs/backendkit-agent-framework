@@ -12,7 +12,7 @@ export type AgentEventType =
   | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
   | { type: 'block_end'; status: 'ok' | 'error'; agent_id?: string }
   | { type: 'thinking'; label: string }
-  | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number }
+  | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number; cache_read_tokens?: number; cache_write_tokens?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }

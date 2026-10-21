@@ -30,6 +30,27 @@ describe('createCodingEngine option forwarding', () => {
         expect(call.abortOnBudget).toBe(true);
     });
 
+    it('forwards the Anthropic cache and thinking options to the provider (ADR-0004)', () => {
+        createCodingEngine({
+            providers: { anthropic: { apiKey: 'k', maxTokens: 4000, cache: 'auto', cacheTtl: '1h', thinking: { budgetTokens: 2000 } } } as never,
+            defaultProvider: 'anthropic',
+            disablePersistence: true,
+        });
+        const call = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0];
+        const provider = call.providers.anthropic as Record<string, unknown>;
+        expect(provider.cache).toBe('auto');
+        expect(provider.cacheTtl).toBe('1h');
+        expect(provider.thinking).toEqual({ budgetTokens: 2000 });
+    });
+
+    it('fails fast on an invalid thinking budget', () => {
+        expect(() => createCodingEngine({
+            providers: { anthropic: { apiKey: 'k', thinking: { budgetTokens: 10 } } } as never,
+            defaultProvider: 'anthropic',
+            disablePersistence: true,
+        })).toThrow(/budgetTokens/);
+    });
+
     it('omits them when not set', () => {
         createCodingEngine({ providers: { ollama: {} } as never, defaultProvider: 'ollama', disablePersistence: true });
         const call = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0];

@@ -65,6 +65,15 @@ export interface CostTrackerConfig {
     inputPricePerMToken?: number;
     /** USD per million output tokens. */
     outputPricePerMToken?: number;
+    /**
+     * USD per million tokens read from the prompt cache. Default: 0.1 x input price (Anthropic).
+     */
+    cacheReadPricePerMToken?: number;
+    /**
+     * USD per million tokens written to the prompt cache. Default: 1.25 x input price, which is
+     * the 5-minute TTL rate; the 1-hour TTL costs about 2 x, so set this explicitly for it.
+     */
+    cacheWritePricePerMToken?: number;
     budget?: {
         /** Call onBudgetExceeded when a single run exceeds this cost (USD). */
         perRun?: number;
@@ -84,10 +93,11 @@ export interface ObservabilityConfig {
 // ── Pricing presets ───────────────────────────────────────────────────────────
 
 /** Per-model pricing (USD / million tokens, mid-2025). Spread into CostTrackerConfig. */
-export const MODEL_PRICING: Record<string, Pick<CostTrackerConfig, 'inputPricePerMToken' | 'outputPricePerMToken'>> = {
-    'claude-opus-4-8':   { inputPricePerMToken: 15,   outputPricePerMToken: 75   },
-    'claude-sonnet-4-6': { inputPricePerMToken: 3,    outputPricePerMToken: 15   },
-    'claude-haiku-4-5':  { inputPricePerMToken: 0.80, outputPricePerMToken: 4    },
+export const MODEL_PRICING: Record<string, Pick<CostTrackerConfig, 'inputPricePerMToken' | 'outputPricePerMToken' | 'cacheReadPricePerMToken' | 'cacheWritePricePerMToken'>> = {
+    // Anthropic cache: read = 0.1 x input, write (5-minute TTL) = 1.25 x input.
+    'claude-opus-4-8':   { inputPricePerMToken: 15,   outputPricePerMToken: 75,   cacheReadPricePerMToken: 1.5,  cacheWritePricePerMToken: 18.75 },
+    'claude-sonnet-4-6': { inputPricePerMToken: 3,    outputPricePerMToken: 15,   cacheReadPricePerMToken: 0.3,  cacheWritePricePerMToken: 3.75  },
+    'claude-haiku-4-5':  { inputPricePerMToken: 0.80, outputPricePerMToken: 4,    cacheReadPricePerMToken: 0.08, cacheWritePricePerMToken: 1     },
     'gpt-4o':            { inputPricePerMToken: 5,    outputPricePerMToken: 15   },
     'gpt-4o-mini':       { inputPricePerMToken: 0.15, outputPricePerMToken: 0.60 },
     'deepseek-chat':     { inputPricePerMToken: 0.27, outputPricePerMToken: 1.10 },

@@ -1,5 +1,6 @@
 import type { LLMMessage, LLMStreamCallbacks } from '@backendkit-labs/agent-core';
 import type { OpenAIChunk, OpenAIClientLike } from '../OpenAICompatibleProvider';
+import type { AnthropicClientLike, AnthropicStreamEvent } from '../AnthropicProvider';
 
 export function httpError(status: number, message = `HTTP ${status}`): Error & { status: number } {
     return Object.assign(new Error(message), { status });
@@ -60,3 +61,19 @@ export function recorder(extra: Partial<LLMStreamCallbacks> = {}): Recorded {
 }
 
 export const userMsg = (content: string): LLMMessage => ({ role: 'user', content });
+
+// ── Anthropic double ──────────────────────────────────────────────────────────
+
+export const ev = (e: unknown) => e as AnthropicStreamEvent;
+
+/** Each `stream` call consumes the next script entry; an Error entry makes `stream` throw. */
+export function anthropicClient(script: Array<Error | Array<AnthropicStreamEvent | Error>>) {
+    let i = 0;
+    const stream = jest.fn((_params: unknown, _opts?: { signal?: AbortSignal }) => {
+        const step = script[Math.min(i++, script.length - 1)];
+        if (step instanceof Error) throw step;
+        return iterate(step);
+    });
+    const client: AnthropicClientLike = { messages: { stream } };
+    return { client, stream };
+}

@@ -28,6 +28,7 @@ import {
     KOTLIN_PACK_SKILLS,
     PYTHON_PACK_SKILLS,
 } from './skills';
+import type { AnthropicCacheMode } from '@backendkit-labs/agent-providers';
 import {
     OpenAICompatibleProvider,
     AnthropicProvider,
@@ -131,6 +132,7 @@ export type {
     OpenAICompatibleProviderOptions,
     DeepSeekProviderOptions,
     AnthropicProviderOptions,
+    AnthropicCacheMode,
 } from '@backendkit-labs/agent-providers';
 export { CODING_AGENTS } from './agents/profiles';
 export { AgentLoader } from './agents/AgentLoader';
@@ -188,6 +190,12 @@ export interface AnthropicConfig {
     model?: string;
     maxTokens?: number;
     temperature?: number;
+    /** Prompt caching: 'none' (default), 'system', 'system+tools' or 'auto'. */
+    cache?: AnthropicCacheMode;
+    /** Cache lifetime. Default '5m'. */
+    cacheTtl?: '5m' | '1h';
+    /** Extended thinking; budgetTokens >= 1024 and < maxTokens. */
+    thinking?: { budgetTokens: number };
 }
 
 export interface OllamaConfig {
@@ -378,6 +386,9 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 model: cfg.model ?? DEFAULT_MODELS.anthropic,
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
+                cache: cfg.cache,
+                cacheTtl: cfg.cacheTtl,
+                thinking: cfg.thinking,
             });
         } else if (id === 'ollama') {
             const cfg = config as OllamaConfig;

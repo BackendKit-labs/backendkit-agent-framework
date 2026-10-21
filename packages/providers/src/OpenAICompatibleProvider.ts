@@ -72,7 +72,8 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
 
         const stream = await this.client.chat.completions.create({
             model,
-            messages,
+            // `raw` is another provider's payload (e.g. Anthropic thinking blocks): never send it.
+            messages: messages.map(({ raw: _raw, ...m }) => m),
             tools: oaiTools.length > 0 ? oaiTools : undefined,
             tool_choice: oaiTools.length > 0 ? 'auto' : undefined,
             ...(this.maxTokens !== null ? { max_tokens: this.maxTokens } : {}),

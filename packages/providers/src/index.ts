@@ -7,6 +7,6 @@ export type { OllamaProviderOptions } from './OllamaProvider';
 export { DeepSeekProvider } from './DeepSeekProvider';
 export type { DeepSeekProviderOptions } from './DeepSeekProvider';
 export { AnthropicProvider } from './AnthropicProvider';
-export type { AnthropicProviderOptions, AnthropicClientLike, AnthropicStreamEvent } from './AnthropicProvider';
+export type { AnthropicProviderOptions, AnthropicClientLike, AnthropicStreamEvent, AnthropicCacheMode } from './AnthropicProvider';
 export { withRetry, isTransient, isNetworkError } from './retry';
 export type { RetryOptions } from './retry';

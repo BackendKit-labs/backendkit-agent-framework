@@ -1,4 +1,4 @@
-import type { LLMProvider, LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@backendkit-labs/agent-core';
+import type { LLMProvider, LLMMessage, LLMStreamCallbacks, ToolDefinition, ChatOptions } from '@backendkit-labs/agent-core';
 import { withRetry, isTransient } from './retry';
 
 export interface RetryTuning {
@@ -27,7 +27,7 @@ export abstract class BaseStreamingProvider implements LLMProvider {
         this.retryMaxDelayMs = tuning.retryMaxDelayMs ?? defaults.maxDelayMs;
     }
 
-    async chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void> {
+    async chat(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void> {
         let contentEmitted = false;
         try {
             await withRetry(
@@ -37,7 +37,7 @@ export abstract class BaseStreamingProvider implements LLMProvider {
                         contentEmitted = true;
                         callbacks.onChunk?.(delta);
                     },
-                }),
+                }, options),
                 {
                     maxAttempts: this.maxAttempts,
                     baseDelayMs: this.retryBaseDelayMs,
@@ -53,7 +53,7 @@ export abstract class BaseStreamingProvider implements LLMProvider {
     }
 
     /** One attempt. Throw to signal failure; the base decides whether to retry. */
-    protected abstract stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void>;
+    protected abstract stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void>;
 
     /** Default: 429, 5xx and network errors. */
     protected isRetryable(err: unknown): boolean { return isTransient(err); }

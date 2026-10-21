@@ -39,19 +39,21 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
  *   },
  * });
  */
+/**
+ * Converts a Zod schema to the plain JSON Schema sent to LLMs (tool parameters, structured output):
+ * OpenAPI 3 flavour, no `$ref`s, without the top-level `$schema` / `definitions` meta.
+ */
+export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
+    // Cast to bypass TypeScript's deep-instantiation limit on generic Zod schemas
+    const toSchema = zodToJsonSchema as unknown as (s: z.ZodTypeAny, opts: object) => Record<string, unknown>;
+    // zodToJsonSchema wraps the schema in a root object with $schema etc.
+    return stripTopLevelMeta(toSchema(schema, { target: 'openApi3', $refStrategy: 'none' }));
+}
+
 export function defineTool<TInput extends z.ZodTypeAny>(
     opts: TypedToolOptions<TInput>,
 ): ToolDefinition {
-    // Cast to bypass TypeScript's deep-instantiation limit on generic Zod schemas
-    const toSchema = zodToJsonSchema as unknown as (s: z.ZodTypeAny, opts: object) => Record<string, unknown>;
-    const jsonSchema = toSchema(opts.input, {
-        target: 'openApi3',
-        $refStrategy: 'none',
-    });
-
-    // zodToJsonSchema wraps the schema in a root object with $schema etc.
-    // Extract just the inner schema if it wrapped a single type.
-    const parameters = stripTopLevelMeta(jsonSchema);
+    const parameters = zodToParameters(opts.input);
 
     return {
         name: opts.name,

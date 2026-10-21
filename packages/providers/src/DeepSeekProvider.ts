@@ -12,6 +12,8 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
             ...opts,
             baseUrl: opts.baseUrl ?? 'https://api.deepseek.com/v1',
             model: opts.model ?? 'deepseek-v4-flash',
+            // DeepSeek only offers json_object: the schema travels in the prompt.
+            structuredOutput: opts.structuredOutput ?? 'json_object',
         });
     }
 }

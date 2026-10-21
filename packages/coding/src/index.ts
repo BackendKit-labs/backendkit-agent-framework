@@ -183,6 +183,12 @@ export interface OpenAICompatibleConfig {
     temperature?: number;
     /** Reasoning toggle for providers that support it (e.g. DeepSeek V4). Omit for the API default. */
     thinking?: 'enabled' | 'disabled';
+    /**
+     * How `generateObject` / structured output is requested: 'native' (json_schema), 'json_object'
+     * (valid JSON only; the schema goes in the prompt) or 'none'. Default: 'json_object' for
+     * `deepseek`, 'native' otherwise.
+     */
+    structuredOutput?: 'native' | 'json_object' | 'none';
 }
 
 export interface AnthropicConfig {
@@ -196,6 +202,8 @@ export interface AnthropicConfig {
     cacheTtl?: '5m' | '1h';
     /** Extended thinking; budgetTokens >= 1024 and < maxTokens. */
     thinking?: { budgetTokens: number };
+    /** Structured output: 'native' (output_config, default) or 'tool' (forced `respond` tool; not with thinking). */
+    structuredOutput?: 'native' | 'tool';
 }
 
 export interface OllamaConfig {
@@ -205,6 +213,8 @@ export interface OllamaConfig {
     model?: string;
     maxTokens?: number;
     temperature?: number;
+    /** 'json_object' (default) or 'native' when your Ollama server supports json_schema. */
+    structuredOutput?: 'native' | 'json_object' | 'none';
 }
 
 export type ProvidersConfig = {
@@ -389,6 +399,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 cache: cfg.cache,
                 cacheTtl: cfg.cacheTtl,
                 thinking: cfg.thinking,
+                structuredOutput: cfg.structuredOutput,
             });
         } else if (id === 'ollama') {
             const cfg = config as OllamaConfig;
@@ -397,6 +408,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 model: cfg.model ?? OLLAMA_DEFAULT_MODEL,
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
+                structuredOutput: cfg.structuredOutput,
             });
         } else {
             const cfg = config as OpenAICompatibleConfig;
@@ -409,6 +421,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 maxTokens: cfg.maxTokens,
                 temperature: cfg.temperature,
                 thinking: cfg.thinking,
+                structuredOutput: cfg.structuredOutput ?? (id === 'deepseek' ? 'json_object' : undefined),
             });
         }
     }

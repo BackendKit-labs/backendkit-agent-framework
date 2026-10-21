@@ -137,6 +137,9 @@ const ASK_AGENT_TOOL: ToolDefinition = {
     execute: async () => '',
 };
 
+import type { ZodType } from 'zod';
+import { generateObject } from '../structured/generateObject';
+
 /** `metrics` event; cache fields are included only when the provider reported them. */
 function metricsEvent(
     inputTokens: number,
@@ -204,6 +207,29 @@ export class AgentEngine {
             agents: opts.agents,
             transport: opts.transport,
             runAgent: (id, question, context, depth, buf) => this.runAgentInternal(id, question, context, depth, buf),
+        });
+    }
+
+    /**
+     * Asks the agent's provider for an object matching `schema` (validated with zod, one corrective
+     * retry) and reports the token usage as `metrics` events. It does not touch the conversation history.
+     * Throws `StructuredOutputError` when the model never produces a valid object.
+     */
+    async generateObject<T>(
+        prompt: string,
+        schema: ZodType<T>,
+        opts: { agentId?: string; retries?: number; name?: string } = {},
+    ): Promise<T> {
+        const agentId = opts.agentId ?? this.opts.defaultAgentId;
+        const profile = this.opts.agents.get(agentId);
+        if (!profile) throw new Error(`Agent "${agentId}" not registered`);
+        return generateObject(this.getProviderForProfile(profile), prompt, schema, {
+            retries: opts.retries,
+            name: opts.name,
+            model: profile.model,
+            onMetrics: (inputTokens, outputTokens, usage) => {
+                this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+            },
         });
     }
 

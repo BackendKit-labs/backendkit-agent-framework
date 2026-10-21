@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { LLMMessage, LLMStreamCallbacks, ToolDefinition } from '@backendkit-labs/agent-core';
+import type { LLMMessage, LLMStreamCallbacks, ToolDefinition, ChatOptions, StructuredOutputSupport } from '@backendkit-labs/agent-core';
 import { BaseStreamingProvider, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
 
 /** The slice of the Anthropic SDK the provider uses — inject a double in tests. */
@@ -38,8 +38,24 @@ export interface AnthropicProviderOptions extends RetryTuning {
      * which the API requires while a tool loop continues.
      */
     thinking?: { budgetTokens: number };
+    /**
+     * How `ChatOptions.responseFormat` is sent. `native` (default): `output_config.format` with the
+     * JSON schema. `tool`: a single forced `respond` tool whose input is the answer, for models
+     * without native structured output (not compatible with `thinking`, which forbids forced tools).
+     */
+    structuredOutput?: 'native' | 'tool';
     /** Inject a client instead of building one from `apiKey`. */
     client?: AnthropicClientLike;
+}
+
+/** Name of the forced tool used by the `tool` structured-output mode. */
+const RESPOND_TOOL = 'respond';
+
+function toolChoiceFor(choice: NonNullable<ChatOptions['toolChoice']>): Anthropic.ToolChoice {
+    if (choice === 'auto') return { type: 'auto' };
+    if (choice === 'none') return { type: 'none' };
+    if (choice === 'required') return { type: 'any' };
+    return { type: 'tool', name: choice.name };
 }
 
 type AnthropicMessage = Anthropic.MessageParam;
@@ -177,6 +193,8 @@ export class AnthropicProvider extends BaseStreamingProvider {
     private readonly cache: AnthropicCacheMode;
     private readonly cacheTtl: '5m' | '1h';
     private readonly thinking?: { budgetTokens: number };
+    private readonly structuredMode: 'native' | 'tool';
+    readonly capabilities: { structuredOutput: StructuredOutputSupport } = { structuredOutput: 'native' };
 
     constructor(opts: AnthropicProviderOptions) {
         super({ ...opts, maxAttempts: opts.maxAttempts ?? opts.maxRetries }, { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 16_000 });
@@ -188,7 +206,11 @@ export class AnthropicProvider extends BaseStreamingProvider {
         this.cache = opts.cache ?? 'none';
         this.cacheTtl = opts.cacheTtl ?? '5m';
         this.thinking = opts.thinking;
+        this.structuredMode = opts.structuredOutput ?? 'native';
 
+        if (this.thinking && this.structuredMode === 'tool') {
+            throw new Error("AnthropicProvider: structuredOutput 'tool' forces a tool and cannot be combined with thinking.");
+        }
         if (this.thinking) {
             const b = this.thinking.budgetTokens;
             if (!Number.isInteger(b) || b < MIN_THINKING_BUDGET || b >= this.maxTokens) {
@@ -200,7 +222,7 @@ export class AnthropicProvider extends BaseStreamingProvider {
         }
     }
 
-    protected async stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks): Promise<void> {
+    protected async stream(messages: LLMMessage[], tools: ToolDefinition[], callbacks: LLMStreamCallbacks, options?: ChatOptions): Promise<void> {
         const { system, messages: anthropicMessages } = toAnthropicMessages(messages, { cache: this.cache, ttl: this.cacheTtl });
         const anthropicTools: Anthropic.Tool[] = tools.map(t => ({
             name: t.name,
@@ -210,6 +232,20 @@ export class AnthropicProvider extends BaseStreamingProvider {
         if (anthropicTools.length > 0 && (this.cache === 'system+tools' || this.cache === 'auto')) {
             (anthropicTools[anthropicTools.length - 1] as { cache_control?: CacheControl }).cache_control = cacheControl(this.cacheTtl);
         }
+
+        // Structured output: native `output_config`, or one forced tool whose input is the answer.
+        const format = options?.responseFormat;
+        const viaTool = !!format && this.structuredMode === 'tool';
+        if (viaTool) {
+            anthropicTools.push({
+                name: RESPOND_TOOL,
+                description: 'Return the final answer in the required structure.',
+                input_schema: format!.schema as Anthropic.Tool['input_schema'],
+            });
+        }
+        const toolChoice = viaTool
+            ? ({ type: 'tool', name: RESPOND_TOOL } as Anthropic.ToolChoice)
+            : (anthropicTools.length > 0 && options?.toolChoice ? toolChoiceFor(options.toolChoice) : undefined);
 
         const stream = this.client.messages.stream({
             model: callbacks.model ?? this.model,
@@ -221,6 +257,8 @@ export class AnthropicProvider extends BaseStreamingProvider {
             ...(system ? { system } : {}),
             messages: anthropicMessages,
             ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+            ...(toolChoice ? { tool_choice: toolChoice } : {}),
+            ...(format && !viaTool ? { output_config: { format: { type: 'json_schema', schema: format.schema } } } : {}),
         }, { signal: callbacks.signal });
 
         let content = '';
@@ -277,6 +315,17 @@ export class AnthropicProvider extends BaseStreamingProvider {
                 ? { cacheReadTokens: cacheRead ?? 0, cacheWriteTokens: cacheWrite ?? 0 }
                 : undefined;
             callbacks.onMetrics?.(inputTokens, outputTokens, usage);
+        }
+
+        // Forced-tool mode: the tool input is the answer; hand it over as plain text.
+        if (viaTool) {
+            for (const [index, buf] of buffers) {
+                if (buf.name !== RESPOND_TOOL) continue;
+                content += buf.args;
+                callbacks.onChunk?.(buf.args);
+                buffers.delete(index);
+                blocks.delete(index);
+            }
         }
 
         const hasThinking = [...blocks.values()].some(b => b.type === 'thinking' || b.type === 'redacted_thinking');

@@ -123,6 +123,7 @@ export class ObservabilityManager {
                     event.input_tokens,
                     event.output_tokens,
                     event.cost_usd,
+                    { cacheReadTokens: event.cache_read_tokens, cacheWriteTokens: event.cache_write_tokens },
                 ) ?? 0;
                 this.metrics?.recordTokens(event.input_tokens, event.output_tokens, costUsd);
                 break;

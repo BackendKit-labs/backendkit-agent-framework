@@ -108,8 +108,7 @@ export class TerminalTransport implements Transport {
             case 'budget_exceeded': {
                 const u = event.usage;
                 process.stderr.write(
-                    `${RED}[budget]${RESET} ${u.budgetExceeded} exceeded: run $${u.runCostUsd.toFixed(4)}, day $${u.dayCostUsd.toFixed(4)}. Run stopped.
-`
+                    `${RED}[budget]${RESET} ${u.budgetExceeded} exceeded: run $${u.runCostUsd.toFixed(4)}, day $${u.dayCostUsd.toFixed(4)}. Run stopped.\n`
                 );
                 break;
             }
@@ -123,8 +122,11 @@ export class TerminalTransport implements Transport {
                 const cost = event.cost_usd != null
                     ? ` · $${event.cost_usd.toFixed(4)}`
                     : '';
+                const cache = event.cache_read_tokens || event.cache_write_tokens
+                    ? ` · cache r${event.cache_read_tokens ?? 0} w${event.cache_write_tokens ?? 0}`
+                    : '';
                 process.stderr.write(
-                    `${GRAY}↑ ${event.input_tokens} ↓ ${event.output_tokens}${cost}${RESET}\n`
+                    `${GRAY}↑ ${event.input_tokens} ↓ ${event.output_tokens}${cache}${cost}${RESET}\n`
                 );
                 break;
             }

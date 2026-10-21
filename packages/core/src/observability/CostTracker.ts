@@ -1,5 +1,12 @@
 import type { BudgetUsage, CostTrackerConfig } from './types';
 
+/** Prompt-cache tokens of one metrics event; they are not part of `inputTokens`. */
+export interface CacheUsage { cacheReadTokens?: number; cacheWriteTokens?: number }
+
+// Anthropic multipliers over the input price, used when no explicit cache price is configured.
+const CACHE_READ_FACTOR = 0.1;
+const CACHE_WRITE_FACTOR = 1.25;
+
 export class CostTracker {
     private runInput = 0;
     private runOutput = 0;
@@ -24,10 +31,13 @@ export class CostTracker {
         this.firedRun = false;
     }
 
-    /** Called when the engine receives a metrics event. Returns estimated cost for this batch. */
-    onTokens(inputTokens: number, outputTokens: number, providedCostUsd?: number): number {
+    /**
+     * Called when the engine receives a metrics event. Returns estimated cost for this batch.
+     * `usage` carries prompt-cache tokens, which providers report apart from `inputTokens`.
+     */
+    onTokens(inputTokens: number, outputTokens: number, providedCostUsd?: number, usage?: CacheUsage): number {
         this.rollDay();
-        const batchCost = providedCostUsd ?? this.compute(inputTokens, outputTokens);
+        const batchCost = providedCostUsd ?? this.compute(inputTokens, outputTokens, usage);
         this.runInput += inputTokens;
         this.runOutput += outputTokens;
         this.runCost += batchCost;
@@ -53,7 +63,7 @@ export class CostTracker {
             });
         }
 
-        return this.compute(inputTokens, outputTokens);
+        return this.compute(inputTokens, outputTokens, usage);
     }
 
     getRunCost(): number { return this.runCost; }
@@ -78,9 +88,14 @@ export class CostTracker {
 
     destroy(): void { clearInterval(this.timer); }
 
-    private compute(input: number, output: number): number {
-        return input  * ((this.config.inputPricePerMToken  ?? 0) / 1_000_000)
-             + output * ((this.config.outputPricePerMToken ?? 0) / 1_000_000);
+    private compute(input: number, output: number, usage?: CacheUsage): number {
+        const inPrice = this.config.inputPricePerMToken ?? 0;
+        const readPrice = this.config.cacheReadPricePerMToken ?? inPrice * CACHE_READ_FACTOR;
+        const writePrice = this.config.cacheWritePricePerMToken ?? inPrice * CACHE_WRITE_FACTOR;
+        return (input  * inPrice
+              + output * (this.config.outputPricePerMToken ?? 0)
+              + (usage?.cacheReadTokens ?? 0)  * readPrice
+              + (usage?.cacheWriteTokens ?? 0) * writePrice) / 1_000_000;
     }
 }
 

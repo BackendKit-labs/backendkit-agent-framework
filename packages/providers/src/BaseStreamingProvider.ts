@@ -61,8 +61,13 @@ export abstract class BaseStreamingProvider implements LLMProvider {
     /** Error handed to `onError`. Override to add provider-specific guidance. */
     protected toError(err: unknown): Error { return err instanceof Error ? err : new Error(String(err)); }
 
-    /** Emits the assembled tool calls and the final message. */
-    protected finish(callbacks: LLMStreamCallbacks, content: string, buffers: Map<number, ToolCallBuffer>): void {
+    /** Emits the assembled tool calls and the final message. `extra.raw` rides along on the message. */
+    protected finish(
+        callbacks: LLMStreamCallbacks,
+        content: string,
+        buffers: Map<number, ToolCallBuffer>,
+        extra?: { raw?: unknown },
+    ): void {
         const toolCalls = Array.from(buffers.entries())
             .sort(([a], [b]) => a - b)
             .map(([, buf]) => ({
@@ -77,6 +82,7 @@ export abstract class BaseStreamingProvider implements LLMProvider {
             role: 'assistant',
             content: content || null,
             tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+            ...(extra?.raw !== undefined ? { raw: extra.raw } : {}),
         });
     }
 }

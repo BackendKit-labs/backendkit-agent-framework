@@ -144,6 +144,18 @@ export interface LLMMessage {
     content: string | null;
     tool_calls?: LLMToolCall[];
     tool_call_id?: string;
+    /**
+     * Opaque provider payload that must survive the history round trip, e.g. Anthropic assistant
+     * blocks with `thinking` and their signature, which the API requires back intact while a
+     * tool loop continues. Only the provider that produced it reads it; others must ignore it.
+     */
+    raw?: unknown;
+}
+
+/** Token usage beyond plain input/output, reported by providers with prompt caching. */
+export interface LLMUsageDetails {
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
 }
 
 export interface LLMToolCall {
@@ -158,7 +170,9 @@ export interface LLMStreamCallbacks {
     onDone(message: LLMMessage): void;
     onError(err: Error): void;
     /** Optional — providers that know token usage should call this so cost tracking works. */
-    onMetrics?(inputTokens: number, outputTokens: number): void;
+    onMetrics?(inputTokens: number, outputTokens: number, usage?: LLMUsageDetails): void;
+    /** Optional — streamed reasoning ("thinking") text, for providers that expose it. */
+    onReasoning?(delta: string): void;
     /**
      * Optional AbortSignal. Pass to the underlying HTTP request so that
      * AgentEngine.abort() cancels the in-flight stream immediately.
@@ -191,7 +205,7 @@ export type AgentEvent =
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
     | { type: 'block_end'; status: 'ok' | 'error'; agent_id?: string }
     | { type: 'thinking'; label: string }
-    | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number }
+    | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number; cache_read_tokens?: number; cache_write_tokens?: number }
     | { type: 'done' }
     | { type: 'error'; message: string }
     | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }

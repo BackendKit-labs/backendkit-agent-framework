@@ -1,5 +1,32 @@
 # Changelog
 
+## Sin publicar
+
+### `@backendkit-labs/agent-core` / `@backendkit-labs/agent-providers` / `@backendkit-labs/agent-coding` — caché de prompt y razonamiento extendido de Anthropic (ADR-0004)
+
+`AnthropicProvider` (y `AnthropicConfig` de `createCodingEngine`) gana, todo opt-in:
+- `cache: 'none' | 'system' | 'system+tools' | 'auto'` (default `'none'`: la petición es idéntica a
+  la anterior) y `cacheTtl: '5m' | '1h'`. Con caché, el system prompt se envía como bloques con
+  `cache_control` en el último; `system+tools` marca también la última herramienta y `auto` añade
+  un punto móvil en el último mensaje (útil en bucles de herramientas).
+- `thinking: { budgetTokens }` (entero >= 1024 y < `maxTokens`; si no, error claro al crear el
+  provider). Con thinking se omite `temperature`. Los bloques `thinking`/`redacted_thinking` con su
+  firma se guardan en `LLMMessage.raw` y se reenvían intactos en el turno siguiente.
+
+Contrato de `agent-core`:
+- `LLMMessage.raw?: unknown` (payload opaco del provider; `HistoryManager` lo persiste).
+  `OpenAICompatibleProvider` lo descarta al enviar.
+- `LLMStreamCallbacks.onMetrics(input, output, usage?)` con `usage = { cacheReadTokens, cacheWriteTokens }`,
+  y `onReasoning?(delta)`. El evento `metrics` gana `cache_read_tokens` y `cache_write_tokens`
+  opcionales (visibles en la terminal de `coding`).
+- `CostTracker` suma lectura y escritura de caché con `cacheReadPricePerMToken` /
+  `cacheWritePricePerMToken` (por defecto 0,1x y 1,25x del precio de entrada; con TTL de 1 hora
+  la escritura cuesta ~2x: configúralo). `MODEL_PRICING` incluye esos precios para los modelos
+  Anthropic que ya listaba, **calculados con los multiplicadores y no contrastados con la tarifa
+  vigente**: revísalos antes de confiar en el costo.
+
+No se emite evento de razonamiento al transporte en esta ola (queda `onReasoning`).
+
 ## v0.26.0 (2026-10-21)
 
 | Paquete | Versión |

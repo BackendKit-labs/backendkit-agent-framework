@@ -137,6 +137,21 @@ const ASK_AGENT_TOOL: ToolDefinition = {
     execute: async () => '',
 };
 
+/** `metrics` event; cache fields are included only when the provider reported them. */
+function metricsEvent(
+    inputTokens: number,
+    outputTokens: number,
+    usage?: import('../types').LLMUsageDetails,
+): import('../types').AgentEvent {
+    return {
+        type: 'metrics',
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        ...(usage?.cacheReadTokens !== undefined ? { cache_read_tokens: usage.cacheReadTokens } : {}),
+        ...(usage?.cacheWriteTokens !== undefined ? { cache_write_tokens: usage.cacheWriteTokens } : {}),
+    };
+}
+
 export class AgentEngine {
     private readonly memory: SessionMemoryData;
     private readonly bus: DelegationBus;
@@ -696,8 +711,8 @@ export class AgentEngine {
                     onError: (err) => {
                         if (!this.aborted) this.opts.transport.emit({ type: 'error', message: err.message });
                     },
-                    onMetrics: (inputTokens, outputTokens) => {
-                        this.opts.transport.emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
+                    onMetrics: (inputTokens, outputTokens, usage) => {
+                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
                     },
                     signal,
                     model: currentProfile.model,
@@ -888,10 +903,10 @@ export class AgentEngine {
                 },
                 onDone: (msg) => { finalMessage = msg; },
                 onError: (err) => { throw err; },
-                onMetrics: (inputTokens, outputTokens) => {
+                onMetrics: (inputTokens, outputTokens, usage) => {
                     totalInputTokens += inputTokens;
                     totalOutputTokens += outputTokens;
-                    emit({ type: 'metrics', input_tokens: inputTokens, output_tokens: outputTokens });
+                    emit(metricsEvent(inputTokens, outputTokens, usage));
                 },
                 model: profile.model,
             });

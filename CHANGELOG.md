@@ -1,5 +1,19 @@
 # Changelog
 
+## Sin publicar
+
+### `@backendkit-labs/agent-core` — `createBaseEngine` reenvía los callbacks de aprobación e iteración (corrección)
+
+`createBaseEngine` no declaraba ni reenviaba `onToolApproval`, `onIterationLimit`, `onStep` ni
+`iterationMode` a `AgentEngine`. `createCodingEngine` los pasa con `spread` condicional, que
+TypeScript no revisa por propiedades sobrantes, así que se descartaban en silencio: **la
+aprobación de herramientas de escritura nunca se activaba** (un callback que devolvía `'reject'`
+no impedía que `write_file` se ejecutara) y los callbacks de iteración no se llamaban.
+
+Ahora `BaseEngineOptions` declara los cuatro y se pasan al motor. Quien use `createCodingEngine`
+con `onToolApproval` empezará a ver las confirmaciones que antes no aparecían. Detalle en
+`docs/specs/SPEC-0001-agent-core-ola-1.md` §2.
+
 ## v0.24.0 (2026-08-07)
 
 ### `@backendkit-labs/agent-core` — credenciales por agente

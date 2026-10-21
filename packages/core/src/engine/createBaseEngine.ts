@@ -7,6 +7,7 @@ import type {
     AgentProfile,
     LLMProvider,
     ToolDefinition,
+    ToolApprovalDecision,
     SessionMemoryData,
     ProjectStoreData,
     Skill,
@@ -21,6 +22,7 @@ import type { ObservabilityConfig } from '../observability/types';
 import type { MemorySystem } from '../agent-memory/MemorySystem';
 import { discoverAgents } from '../agent-discovery/discoverAgents';
 import type { AgentDiscoveryConfig } from '../agent-discovery/types';
+import type { IterationMode, IterationStats } from './IterationManager';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +57,25 @@ export interface BaseEngineOptions {
 
     /** Max parallel agent delegations via ask_agent. Default: 6. */
     maxParallelAgents?: number;
+
+    /**
+     * Called before write/execute tools (write_file, edit_file, run_command) and before
+     * package installs. Return 'approve', 'approve_all' (stop prompting for this session) or
+     * 'reject' to skip the tool call. Without it, no approval is requested.
+     */
+    onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<ToolApprovalDecision>;
+
+    /** Iteration mode. Default: 'interactive' (see IterationManager). */
+    iterationMode?: IterationMode;
+
+    /**
+     * Called when maxIterations is reached in 'interactive' mode.
+     * Return true to continue (+25 iterations), false to stop.
+     */
+    onIterationLimit?: (stats: IterationStats) => Promise<boolean>;
+
+    /** Called after every iteration in 'step-by-step' mode. Return true to continue. */
+    onStep?: (stats: IterationStats) => Promise<boolean>;
 
     /**
      * Maximum number of messages to keep in conversation history (sliding window).
@@ -270,6 +291,10 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.additionalRoots?.length ? { additionalRoots: opts.additionalRoots } : {}),
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
+        ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
+        ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
+        ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
+        ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(opts.historyPath ? { historyPath: opts.historyPath } : {}),

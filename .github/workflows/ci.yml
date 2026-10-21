@@ -64,11 +64,17 @@ jobs:
       # Jest packages run with --coverage so each coverageThreshold gates the build.
       - name: Test (jest, coverage thresholds)
         run: |
+          # Run every package and fail at the end, so one run reports all failing packages.
+          failed=""
           for d in packages/*/; do
             if [ -f "$d/jest.config.js" ] || [ -f "$d/jest.config.cjs" ]; then
-              npm test -w "$d" -- --coverage || exit 1
+              npm test -w "$d" -- --coverage || failed="$failed $d"
             fi
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Failing packages:$failed"
+            exit 1
+          fi
 
       - name: Test (web-ui)
         run: npm test -w packages/web-ui

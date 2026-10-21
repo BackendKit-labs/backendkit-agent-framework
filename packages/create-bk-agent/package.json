@@ -28,7 +28,7 @@
     "test": "jest"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": "^0.24.0"
+    "@backendkit-labs/agent-core": ">=0.24.0 <0.26.0"
   },
   "peerDependenciesMeta": {
     "@backendkit-labs/agent-core": {

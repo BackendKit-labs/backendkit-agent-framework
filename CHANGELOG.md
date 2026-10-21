@@ -2,6 +2,16 @@
 
 ## Sin publicar
 
+### `@backendkit-labs/agent-core` 0.25.0 / `@backendkit-labs/agent-coding` 0.21.0 — ejecución paralela de tool calls (ADR-0001)
+
+`ToolDefinition.concurrencySafe` (opt-in, default `false`) y `maxParallelTools` en `AgentEngine`,
+`createBaseEngine` y `createCodingEngine` (default `1`: comportamiento idéntico al anterior).
+Con `maxParallelTools > 1`, las tools seguras consecutivas de un turno corren en paralelo; una
+tool no segura es una barrera. Resultados y eventos conservan el orden de las llamadas y
+`onToolApproval` se invoca en serie. Marcadas seguras: `read_file`, `list_directory`,
+`search_files`, `list_audits`, `get_latest_audit`, `memory_recall`, `memory_search_knowledge`.
+Tools MCP: solo con `MCPServerConfig.trustAnnotations: true` y `readOnlyHint`.
+
 ### `@backendkit-labs/agent-core` — `createBaseEngine` reenvía los callbacks de aprobación e iteración (corrección)
 
 `createBaseEngine` no declaraba ni reenviaba `onToolApproval`, `onIterationLimit`, `onStep` ni

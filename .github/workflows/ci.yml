@@ -22,6 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # npm bug #4828: package-lock.json was generated on Windows and only records the win32
+      # rolldown binding, so `npm ci` on Linux leaves vite/vitest (web-ui) without its native
+      # binding. Install the Linux one at the locked rolldown version, without touching the lock.
+      - name: Install rolldown native binding (linux)
+        run: npm install --no-save --no-package-lock "@rolldown/binding-linux-x64-gnu@$(node -p "require('rolldown/package.json').version")"
+
       # ── Build (dependency order) ──────────────────────────────────────────────
       - name: Build infra
         run: npm run build -w packages/infra
@@ -57,12 +63,22 @@ jobs:
       # ── Test ──────────────────────────────────────────────────────────────────
       # Jest packages run with --coverage so each coverageThreshold gates the build.
       - name: Test (jest, coverage thresholds)
+        env:
+          # The coverage report transforms every src file, tested or not; orchestrator-agent
+          # hits the default ~2 GB heap on the runner.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
+          # Run every package and fail at the end, so one run reports all failing packages.
+          failed=""
           for d in packages/*/; do
             if [ -f "$d/jest.config.js" ] || [ -f "$d/jest.config.cjs" ]; then
-              npm test -w "$d" -- --coverage || exit 1
+              npm test -w "$d" -- --coverage || failed="$failed $d"
             fi
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Failing packages:$failed"
+            exit 1
+          fi
 
       - name: Test (web-ui)
         run: npm test -w packages/web-ui

@@ -231,8 +231,7 @@ export const runCommandTool = defineTool({
                     ? raw.slice(0, MAX_OUTPUT) + `\n[truncated — ${raw.length} total chars]`
                     : raw;
                 if (containerName && code !== 0) {
-                    resolve(`Error: sandboxed command exited with status ${code}
-${truncated}`.trim());
+                    resolve(`Error: sandboxed command exited with status ${code}\n${truncated}`.trim());
                 } else if (code !== 0 && !truncated) {
                     resolve(`Error: Command exited with status ${code}`);
                 } else {

@@ -1,4 +1,14 @@
+import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
 import { runCommandTool } from '../run-command';
+
+// Real spawn by default (other tests run real commands); docker tests queue fakes with mockImplementationOnce.
+jest.mock('child_process', () => {
+    const actual = jest.requireActual('child_process');
+    return { ...actual, spawn: jest.fn(actual.spawn) };
+});
+const spawnMock = spawn as unknown as jest.Mock;
 
 const mockCtx = {
     agentId: 'coder',
@@ -93,10 +103,49 @@ describe('run_command — docker sandbox opt-in', () => {
         expect(result).toContain('invalid BK_RUN_COMMAND_SANDBOX');
     });
 
-    it('fails closed when docker is requested but unavailable or fails', async () => {
+    // Hermetic: spawn is faked so the result does not depend on Docker being installed
+    // (it is on CI runners, not on every dev machine).
+    function fakeProc(script: (p: EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) => void) {
+        const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
+        setImmediate(() => script(proc));
+        return proc as unknown as ChildProcess;
+    }
+
+    it('fails closed when docker cannot be started: never falls back to the host shell', async () => {
         process.env.BK_RUN_COMMAND_SANDBOX = 'docker';
+        spawnMock.mockClear();
+        spawnMock.mockImplementationOnce(
+            () => fakeProc(p => p.emit('error', new Error('spawn docker ENOENT'))),
+        );
         const result = await runCommandTool.execute({ command: 'echo hi' }, mockCtx);
-        expect(result).toMatch(/^Error:/);
-        expect(result).not.toContain('hi\n');
+        expect(result).toBe('Error: spawn docker ENOENT');
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        expect(spawnMock.mock.calls[0][0]).toBe('docker');
+    });
+
+    it('runs the command inside a network-less, cap-less container with only the workspace mounted', async () => {
+        process.env.BK_RUN_COMMAND_SANDBOX = 'docker';
+        spawnMock.mockClear();
+        spawnMock.mockImplementationOnce(
+            () => fakeProc(p => { p.stdout.emit('data', Buffer.from('hi\n')); p.emit('close', 0); }),
+        );
+        const result = await runCommandTool.execute({ command: 'echo hi' }, mockCtx);
+        expect(result).toBe('hi');
+        const bin = spawnMock.mock.calls[0][0];
+        const args = spawnMock.mock.calls[0][1] as string[];
+        expect(bin).toBe('docker');
+        expect(args).toEqual(expect.arrayContaining(['run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges']));
+        expect(args.slice(-3)).toEqual(['sh', '-c', 'echo hi']);
+        expect(args[args.indexOf('-v') + 1]).toBe(`${mockCtx.workingDir}:/workspace`);
+        expect(args[args.indexOf('-w') + 1]).toBe('/workspace');
+    });
+
+    it('reports a non-zero exit of the sandboxed command as an error with its output', async () => {
+        process.env.BK_RUN_COMMAND_SANDBOX = 'docker';
+        spawnMock.mockImplementationOnce(
+            () => fakeProc(p => { p.stderr.emit('data', Buffer.from('boom')); p.emit('close', 2); }),
+        );
+        const result = await runCommandTool.execute({ command: 'node -e "process.exit(2)"' }, mockCtx);
+        expect(result).toBe('Error: sandboxed command exited with status 2\nboom');
     });
 });

@@ -54,6 +54,10 @@ export interface EnterpriseSetupOptions {
     guardrailOutputMode?: 'after' | 'buffer';
     /** Default time limit for one tool call in ms. Default: none. Needs agent-core >= 0.29. */
     toolTimeoutMs?: number;
+    /** Background jobs (see BaseEngineOptions.jobs). Add job_output/job_list/job_kill to the agents' allowedTools. Needs agent-core >= 0.29. */
+    jobs?: boolean | import('@backendkit-labs/agent-core').JobRegistryOptions;
+    /** Resolves `AgentProfile.secrets` references whose env var is unset. Needs agent-core >= 0.29. */
+    secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
     /** Token-aware context compaction for every session. Needs agent-core >= 0.28. */
     context?: import('@backendkit-labs/agent-core').ContextOptions;
 }
@@ -188,6 +192,8 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
             ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
             ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+            ...(opts.jobs ? { jobs: opts.jobs } : {}),
+            ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
             ...(opts.context ? { context: opts.context } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.

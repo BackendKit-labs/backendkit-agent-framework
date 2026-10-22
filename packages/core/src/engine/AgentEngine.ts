@@ -537,6 +537,7 @@ export class AgentEngine {
 
     abort(): void {
         this.aborted = true;
+        void this.opts.jobs?.cancelAll();
         this.abortController?.abort();
         this.abortController = null;
         // Tools already running get their signal too; each one winds down (or is given up on after
@@ -647,6 +648,17 @@ export class AgentEngine {
             }
         }
         this.trimHistory();
+    }
+
+    /** Tells the model about background jobs that ended since the last iteration, once each. */
+    private announceFinishedJobs(agentId: string): void {
+        const finished = this.opts.jobs?.drainFinished(agentId) ?? [];
+        for (const job of finished) {
+            this.history.push({
+                role: 'user',
+                content: `[Background job ${job.id} finished (${job.status}). Use job_output to read it.]`,
+            });
+        }
     }
 
     /**
@@ -896,6 +908,7 @@ export class AgentEngine {
             const shouldContinue = await iterManager.advance();
             if (!shouldContinue) break;
 
+            this.announceFinishedJobs(currentProfile.id);
             await this.prepareContext();
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
@@ -1324,6 +1337,7 @@ export class AgentEngine {
         const ctx = {
             ...this.buildContext(agentId, depth),
             ...(Object.keys(secrets).length ? { secrets } : {}),
+            ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
             signal: controller.signal,
         };
         const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;

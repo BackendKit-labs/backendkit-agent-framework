@@ -1,6 +1,16 @@
 # Changelog
 
-## Sin publicar
+## v0.27.1 (2026-10-22)
+
+Correcciones halladas probando con DeepSeek. Los rangos `^0.27.0`, `^0.2.0` y `^0.23.0` ya cubren estas versiones: sin barrido ni cambio en `create-bk-agent`.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.27.1 |
+| `agent-providers` | 0.2.1 |
+| `agent-coding` | 0.23.1 |
+
+### Detalle
 
 ### `@backendkit-labs/agent-core` / `agent-providers` / `agent-coding` — correcciones halladas probando con DeepSeek
 

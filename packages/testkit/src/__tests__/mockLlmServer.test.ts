@@ -115,12 +115,22 @@ describe('startMockLlmServer — provider failures against the real providers', 
         expect(s.requests).toHaveLength(2);
     });
 
-    it('a connection cut mid-stream fails without retrying (the caller already saw part of the answer)', async () => {
-        const s = await boot([{ kind: 'cut', content: 'half an answ', afterChunks: 2 }, { kind: 'text', content: 'would be a duplicate' }]);
+    it('an error event after the stream started fails without retrying (the caller already saw part of the answer)', async () => {
+        const s = await boot([{ kind: 'stream_error', message: 'upstream blew up', content: 'half an answ', afterChunks: 2 }, { kind: 'text', content: 'would be a duplicate' }]);
         const out = await ask(providerFor(s));
+        expect(out.text).toBe('half an answ');
+        expect(out.done).toBeUndefined();
+        expect(out.error?.message).toContain('upstream blew up');
+        expect(s.requests).toHaveLength(1);
+    });
+
+    it('a connection cut mid-stream is never retried and never completes (the abort is only a safety net)', async () => {
+        const s = await boot([{ kind: 'cut', content: 'half an answ', afterChunks: 2 }, { kind: 'text', content: 'would be a duplicate' }]);
+        const safety = new AbortController();
+        const timer = setTimeout(() => safety.abort(), 1500);
+        const out = await ask(providerFor(s), safety.signal).finally(() => clearTimeout(timer));
         expect(out.text.length).toBeGreaterThan(0);
         expect(out.done).toBeUndefined();
-        expect(out.error).toBeDefined();
         expect(s.requests).toHaveLength(1);
     });
 

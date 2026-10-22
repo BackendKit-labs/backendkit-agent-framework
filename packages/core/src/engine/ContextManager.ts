@@ -23,6 +23,11 @@ export interface ContextOptions {
     summarizer?: { provider?: string; model?: string };
     /** Custom token estimator for one message. Default: ~4 characters per token. */
     estimateTokens?: (message: LLMMessage) => number;
+    /**
+     * When the provider rejects a request for exceeding the context window, force a compaction and retry
+     * (at most twice per run) instead of failing. Default true.
+     */
+    overflowRetry?: boolean;
 }
 
 export interface CompactionReport {
@@ -51,6 +56,9 @@ const TRANSCRIPT_MESSAGE_MAX = 2000;
 const TRANSCRIPT_TOTAL_MAX = 120_000;
 const SCALE_MIN = 0.5;
 const SCALE_MAX = 2.5;
+const OVERFLOW_BUDGET_FACTOR = 0.7;
+const OVERFLOW_BUDGET_MIN = 0.3;
+const FORCED_TARGET_RATIO = 0.5;
 
 export function defaultEstimateTokens(message: LLMMessage): number {
     let chars = message.content?.length ?? 0;
@@ -101,6 +109,8 @@ function renderTranscript(messages: LLMMessage[]): string {
 
 export class ContextManager {
     private scale = 1;
+    /** Share of `maxTokens` still trusted after provider-reported overflows. */
+    private budgetFactor = 1;
     private readonly estimate: (m: LLMMessage) => number;
     private readonly keepTurns: number;
     private readonly toolMax: number;
@@ -149,13 +159,29 @@ export class ContextManager {
         return this.scale;
     }
 
-    /** Brings the history under budget. Never throws: a failing summarizer degrades to dropping. */
-    async compact(): Promise<CompactionReport | null> {
+    /** Token budget in force: `maxTokens` shrunk by every overflow the provider has reported. */
+    get effectiveMaxTokens(): number {
+        return Math.floor(this.opts.maxTokens * this.budgetFactor);
+    }
+
+    /** The provider rejected a request as too large: trust the budget less from now on (floor 30 %). */
+    noteOverflow(): void {
+        this.budgetFactor = Math.max(OVERFLOW_BUDGET_MIN, this.budgetFactor * OVERFLOW_BUDGET_FACTOR);
+    }
+
+    /**
+     * Brings the history under budget. Never throws: a failing summarizer degrades to dropping.
+     * `force` skips the threshold check (used after a provider overflow); its target is a share of the
+     * budget and also of the current estimate, so it still shrinks when the estimate was too low.
+     */
+    async compact(opts: { force?: boolean; targetRatio?: number } = {}): Promise<CompactionReport | null> {
         const { history } = this.deps;
         const before = this.tokens(history.getAll());
-        if (before <= this.opts.maxTokens * this.threshold) return null;
+        const max = this.effectiveMaxTokens;
+        if (!opts.force && before <= max * this.threshold) return null;
 
-        const target = this.opts.maxTokens * TARGET_RATIO;
+        const ratio = opts.targetRatio ?? (opts.force ? FORCED_TARGET_RATIO : TARGET_RATIO);
+        const target = opts.force ? Math.min(max * ratio, before * ratio) : max * ratio;
         const report: CompactionReport = {
             truncatedToolResults: 0, summarizedMessages: 0, droppedMessages: 0,
             tokensBefore: before, tokensAfter: before,
@@ -183,10 +209,10 @@ export class ContextManager {
         }
 
         report.tokensAfter = this.tokens(history.getAll());
-        if (report.tokensAfter > this.opts.maxTokens) {
+        if (report.tokensAfter > max) {
             this.deps.emit({
                 type: 'system', level: 'warn',
-                text: `[Context] History still above budget after compaction (~${report.tokensAfter} > ${this.opts.maxTokens} tokens): the most recent turns alone exceed it.`,
+                text: `[Context] History still above budget after compaction (~${report.tokensAfter} > ${max} tokens): the most recent turns alone exceed it.`,
             });
         }
         return report;

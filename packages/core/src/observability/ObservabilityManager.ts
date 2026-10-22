@@ -125,6 +125,20 @@ export class ObservabilityManager {
 
             case 'tool_result':
                 this.metrics?.recordToolCall(event.name, event.success);
+                if (this.tracer && event.started_at !== undefined && event.duration_ms !== undefined) {
+                    this.tracer.recordSpan({
+                        name: 'tool_call',
+                        parentSpanId: this.parentFor(event.agent_id),
+                        startedAt: event.started_at,
+                        endedAt: event.started_at + event.duration_ms,
+                        status: event.success ? 'ok' : 'error',
+                        tags: {
+                            'tool.name': event.name,
+                            success: event.success,
+                            ...(event.agent_id ? { agent_id: event.agent_id } : {}),
+                        },
+                    });
+                }
                 break;
 
             case 'guardrail':
@@ -148,8 +162,33 @@ export class ObservabilityManager {
                 ) ?? 0;
                 this.batchCostUsd = costUsd;
                 this.metrics?.recordTokens(event.input_tokens, event.output_tokens, costUsd);
+                if (this.tracer && event.started_at !== undefined && event.duration_ms !== undefined) {
+                    this.tracer.recordSpan({
+                        name: 'llm_call',
+                        parentSpanId: this.parentFor(event.agent_id),
+                        startedAt: event.started_at,
+                        endedAt: event.started_at + event.duration_ms,
+                        status: 'ok',
+                        tags: {
+                            input_tokens: event.input_tokens,
+                            output_tokens: event.output_tokens,
+                            ...(event.cache_read_tokens !== undefined ? { cache_read_tokens: event.cache_read_tokens } : {}),
+                            ...(event.cache_write_tokens !== undefined ? { cache_write_tokens: event.cache_write_tokens } : {}),
+                            ...(costUsd > 0 ? { cost_usd: costUsd } : {}),
+                            ...(event.agent_id ? { agent_id: event.agent_id } : {}),
+                            ...(event.provider ? { provider: event.provider } : {}),
+                            ...(event.model ? { model: event.model } : {}),
+                            ...(event.purpose ? { purpose: event.purpose } : {}),
+                        },
+                    });
+                }
                 break;
             }
         }
+    }
+
+    /** Span a call belongs under: its agent's block when open, otherwise the run. */
+    private parentFor(agentId?: string): string | undefined {
+        return (agentId ? this.blockSpans.get(agentId)?.span.spanId : undefined) ?? this.runSpan?.spanId;
     }
 }

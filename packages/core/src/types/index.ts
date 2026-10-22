@@ -205,6 +205,8 @@ export interface LLMProvider {
      * the schema must also be in the prompt. `none` / absent: no guarantee.
      */
     capabilities?: { structuredOutput: StructuredOutputSupport };
+    /** Default model this provider talks to; used to label traces when the agent profile sets no `model`. */
+    readonly modelId?: string;
 }
 
 // ─── Events (transport-agnostic) ─────────────────────────────────────────────
@@ -215,13 +217,19 @@ export type AgentEvent =
     | { type: 'ready' }
     | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
-    | { type: 'tool_result'; name: string; success: boolean; preview?: string }
+    /** `agent_id`, `started_at` (epoch ms) and `duration_ms` let tracing build an accurate span per tool call. */
+    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number }
     | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }
     | { type: 'agent_switch'; from: string; to: string; to_name?: string; to_icon?: string }
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
     | { type: 'block_end'; status: 'ok' | 'error'; agent_id?: string }
     | { type: 'thinking'; label: string }
-    | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number; cache_read_tokens?: number; cache_write_tokens?: number }
+    /**
+     * Usage of one LLM call. `agent_id`, `provider`, `model`, `started_at` (epoch ms) and `duration_ms` are
+     * present when the engine knows them and let tracing build an accurate `llm_call` span; `purpose` marks
+     * calls that are not the agent's own turn (e.g. `context_summary`, `structured_output`).
+     */
+    | { type: 'metrics'; input_tokens: number; output_tokens: number; cost_usd?: number; cache_read_tokens?: number; cache_write_tokens?: number; agent_id?: string; provider?: string; model?: string; started_at?: number; duration_ms?: number; purpose?: string }
     | { type: 'done' }
     | { type: 'error'; message: string }
     | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }

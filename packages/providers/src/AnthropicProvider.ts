@@ -196,6 +196,9 @@ export class AnthropicProvider extends BaseStreamingProvider {
     private readonly structuredMode: 'native' | 'tool';
     readonly capabilities: { structuredOutput: StructuredOutputSupport } = { structuredOutput: 'native' };
 
+    /** Default model; labels traces when the agent profile sets none. */
+    get modelId(): string { return this.model; }
+
     constructor(opts: AnthropicProviderOptions) {
         super({ ...opts, maxAttempts: opts.maxAttempts ?? opts.maxRetries }, { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 16_000 });
         this.client = opts.client

@@ -32,6 +32,33 @@ export class Tracer {
         return this.createSpan(name, traceId, parentSpanId, tags);
     }
 
+    /**
+     * Exports a span that already finished, with its real start and end (epoch ms). Used for calls whose
+     * events arrive after the fact, e.g. tools of a parallel wave, whose events are flushed in call order.
+     */
+    recordSpan(span: {
+        name: string;
+        parentSpanId?: string;
+        tags?: Record<string, string | number | boolean>;
+        startedAt: number;
+        endedAt: number;
+        status: 'ok' | 'error';
+    }): void {
+        const startedAt = new Date(span.startedAt);
+        const endedAt = new Date(Math.max(span.startedAt, span.endedAt));
+        this.exporter({
+            traceId: this.currentTraceId ?? randomUUID(),
+            spanId: randomUUID(),
+            parentSpanId: span.parentSpanId,
+            name: span.name,
+            startedAt,
+            endedAt,
+            durationMs: endedAt.getTime() - startedAt.getTime(),
+            status: span.status,
+            tags: { ...(span.tags ?? {}) },
+        });
+    }
+
     private createSpan(
         name: string,
         traceId: string,

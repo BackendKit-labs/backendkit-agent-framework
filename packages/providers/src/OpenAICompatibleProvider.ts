@@ -85,6 +85,9 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
     private readonly disableThinkingForForcedTools: boolean;
     readonly capabilities: { structuredOutput: StructuredOutputSupport };
 
+    /** Default model; labels traces when the agent profile sets none. */
+    get modelId(): string { return this.model; }
+
     constructor(opts: OpenAICompatibleProviderOptions, defaults = { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 16_000 }) {
         super({ ...opts, maxAttempts: opts.maxAttempts ?? opts.maxRetries }, defaults);
         this.client = opts.client

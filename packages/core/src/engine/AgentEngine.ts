@@ -143,16 +143,32 @@ const ASK_AGENT_TOOL: ToolDefinition = {
 import type { ZodType } from 'zod';
 import { generateObject } from '../structured/generateObject';
 
+/** What the engine knows about one LLM call, for tracing. */
+interface LlmCallInfo {
+    agentId?: string;
+    provider?: string;
+    model?: string;
+    purpose?: string;
+    /** Epoch ms when the call started; the duration is measured when the `metrics` event is built. */
+    startedAt?: number;
+}
+
 /** `metrics` event; cache fields are included only when the provider reported them. */
 function metricsEvent(
     inputTokens: number,
     outputTokens: number,
     usage?: import('../types').LLMUsageDetails,
+    extra?: LlmCallInfo,
 ): import('../types').AgentEvent {
     return {
         type: 'metrics',
         input_tokens: inputTokens,
         output_tokens: outputTokens,
+        ...(extra?.agentId ? { agent_id: extra.agentId } : {}),
+        ...(extra?.provider ? { provider: extra.provider } : {}),
+        ...(extra?.model ? { model: extra.model } : {}),
+        ...(extra?.purpose ? { purpose: extra.purpose } : {}),
+        ...(extra?.startedAt !== undefined ? { started_at: extra.startedAt, duration_ms: Math.max(0, Date.now() - extra.startedAt) } : {}),
         ...(usage?.cacheReadTokens !== undefined ? { cache_read_tokens: usage.cacheReadTokens } : {}),
         ...(usage?.cacheWriteTokens !== undefined ? { cache_write_tokens: usage.cacheWriteTokens } : {}),
     };
@@ -238,12 +254,18 @@ export class AgentEngine {
         const agentId = opts.agentId ?? this.opts.defaultAgentId;
         const profile = this.opts.agents.get(agentId);
         if (!profile) throw new Error(`Agent "${agentId}" not registered`);
-        return generateObject(this.getProviderForProfile(profile), prompt, schema, {
+        const provider = this.getProviderForProfile(profile);
+        let attemptStart = Date.now();
+        return generateObject(provider, prompt, schema, {
             retries: opts.retries,
             name: opts.name,
             model: profile.model,
             onMetrics: (inputTokens, outputTokens, usage) => {
-                this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+                this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                    agentId, provider: profile.provider ?? this.opts.defaultProvider,
+                    model: profile.model ?? provider.modelId, purpose: 'structured_output', startedAt: attemptStart,
+                }));
+                attemptStart = Date.now();
             },
         });
     }
@@ -621,6 +643,7 @@ export class AgentEngine {
     private summarizeForContext(transcript: string, previousSummary?: string): Promise<string> {
         const cfg = this.opts.context?.summarizer;
         const provider = this.opts.providers.resolve(cfg?.provider, this.opts.defaultProvider);
+        const startedAt = Date.now();
         return new Promise<string>((resolve, reject) => {
             const chunks: string[] = [];
             Promise.resolve(provider.chat(
@@ -634,7 +657,10 @@ export class AgentEngine {
                     onDone: (msg) => resolve(msg.content ?? chunks.join('')),
                     onError: reject,
                     onMetrics: (inputTokens, outputTokens, usage) => {
-                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                            provider: cfg?.provider ?? this.opts.defaultProvider,
+                            model: cfg?.model ?? provider.modelId, purpose: 'context_summary', startedAt,
+                        }));
                     },
                     ...(cfg?.model ? { model: cfg.model } : {}),
                 },
@@ -859,7 +885,9 @@ export class AgentEngine {
             this.abortController = new AbortController();
             const signal = this.abortController.signal;
 
-            await this.getProviderForProfile(currentProfile).chat(
+            const chatProvider = this.getProviderForProfile(currentProfile);
+            const llmStartedAt = Date.now();
+            await chatProvider.chat(
                 [systemMsg, ...safeHistory],
                 tools,
                 {
@@ -891,7 +919,12 @@ export class AgentEngine {
                             inputTokens + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0),
                             this.lastRequestEstimate,
                         );
-                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                            agentId: currentProfile.id,
+                            provider: currentProfile.provider ?? this.opts.defaultProvider,
+                            model: currentProfile.model ?? chatProvider.modelId,
+                            startedAt: llmStartedAt,
+                        }));
                     },
                     signal,
                     model: currentProfile.model,
@@ -1077,7 +1110,9 @@ export class AgentEngine {
             const toolCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
 
-            await this.getProviderForProfile(profile).chat(messages, this.getToolsForAgent(profile), {
+            const chatProvider = this.getProviderForProfile(profile);
+            const llmStartedAt = Date.now();
+            await chatProvider.chat(messages, this.getToolsForAgent(profile), {
                 onChunk: (delta) => {
                     streamContent += delta;
                     if (holdOutput) heldTokens.push(delta);
@@ -1096,7 +1131,12 @@ export class AgentEngine {
                 onMetrics: (inputTokens, outputTokens, usage) => {
                     totalInputTokens += inputTokens;
                     totalOutputTokens += outputTokens;
-                    emit(metricsEvent(inputTokens, outputTokens, usage));
+                    emit(metricsEvent(inputTokens, outputTokens, usage, {
+                        agentId: profile.id,
+                        provider: profile.provider ?? this.opts.defaultProvider,
+                        model: profile.model ?? chatProvider.modelId,
+                        startedAt: llmStartedAt,
+                    }));
                 },
                 model: profile.model,
             });
@@ -1205,7 +1245,10 @@ export class AgentEngine {
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-        emitEvent({ type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120) });
+        emitEvent({
+            type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120),
+            agent_id: profile.id, started_at: callStart, duration_ms: Date.now() - callStart,
+        });
         return result;
     }
 

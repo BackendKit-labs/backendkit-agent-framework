@@ -31,7 +31,7 @@ describe('AgentEngine.generateObject', () => {
         };
         const { engine, events } = build(provider);
         await expect(engine.generateObject('review it', schema)).resolves.toEqual({ verdict: 'ok' });
-        expect(events.filter(e => e.type === 'metrics')).toEqual([{ type: 'metrics', input_tokens: 40, output_tokens: 6 }]);
+        expect(events.filter(e => e.type === 'metrics')).toEqual([expect.objectContaining({ type: 'metrics', input_tokens: 40, output_tokens: 6, purpose: 'structured_output' })]);
     });
 
     it('uses the provider and model of the requested agent', async () => {

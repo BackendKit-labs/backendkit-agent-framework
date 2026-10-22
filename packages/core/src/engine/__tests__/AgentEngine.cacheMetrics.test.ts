@@ -34,7 +34,7 @@ describe('metrics event with cache usage', () => {
     it('carries cache_read_tokens and cache_write_tokens when the provider reports them', async () => {
         const { engine, events } = build(providerWithUsage({ cacheReadTokens: 100, cacheWriteTokens: 7 }));
         await engine.run('hi');
-        expect(events.find(e => e.type === 'metrics')).toEqual({
+        expect(events.find(e => e.type === 'metrics')).toMatchObject({
             type: 'metrics', input_tokens: 10, output_tokens: 5, cache_read_tokens: 100, cache_write_tokens: 7,
         });
     });
@@ -42,7 +42,10 @@ describe('metrics event with cache usage', () => {
     it('omits the cache fields when there is no usage detail', async () => {
         const { engine, events } = build(providerWithUsage());
         await engine.run('hi');
-        expect(events.find(e => e.type === 'metrics')).toEqual({ type: 'metrics', input_tokens: 10, output_tokens: 5 });
+        const metrics = events.find(e => e.type === 'metrics');
+        expect(metrics).toMatchObject({ type: 'metrics', input_tokens: 10, output_tokens: 5 });
+        expect(metrics).not.toHaveProperty('cache_read_tokens');
+        expect(metrics).not.toHaveProperty('cache_write_tokens');
     });
 
     it('feeds cache tokens into the cost tracker through createBaseEngine', async () => {

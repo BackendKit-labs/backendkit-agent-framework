@@ -13,6 +13,8 @@ export type MockBehavior =
     | { kind: 'reset'; delayMs?: number }
     /** The stream starts, `afterChunks` content chunks arrive, then the connection is cut. */
     | { kind: 'cut'; content?: string; afterChunks?: number; delayMs?: number }
+    /** The stream starts, `afterChunks` content chunks arrive, then the server sends an error event inside the stream (as OpenAI and DeepSeek do when something fails after the 200). */
+    | { kind: 'stream_error'; message?: string; content?: string; afterChunks?: number; delayMs?: number }
     /** A 200 SSE response whose first data line is not valid JSON. */
     | { kind: 'corrupt'; delayMs?: number }
     /** The request is accepted and never answered (until the client aborts or the server closes). */
@@ -32,7 +34,7 @@ export interface MockLlmServerOptions {
     /** Behaviours to play, one per request. When used up the server answers 500 "mock script exhausted". */
     script?: MockBehavior[];
     /** Instead of a script: pick a behaviour per request from a seeded generator (reproducible runs). */
-    random?: { seed: number; weights?: Partial<Record<Exclude<MockBehavior['kind'], 'stall' | 'tool_call'>, number>> };
+    random?: { seed: number; weights?: Partial<Record<Exclude<MockBehavior['kind'], 'stall' | 'tool_call' | 'stream_error'>, number>> };
     port?: number;
 }
 
@@ -163,6 +165,14 @@ function play(b: MockBehavior, req: IncomingMessage, res: ServerResponse, body: 
             for (const p of parts) sse(res, chunk({ content: p }));
             // Give the client a moment to read what was sent before the connection dies.
             setTimeout(() => dropConnection(req), 20);
+            return;
+        }
+        case 'stream_error': {
+            startStream(res);
+            sse(res, chunk({ role: 'assistant', content: '' }));
+            for (const p of splitText(b.content ?? 'partial answer that is about to fail', 6).slice(0, b.afterChunks ?? 2)) sse(res, chunk({ content: p }));
+            sse(res, { error: { message: b.message ?? 'upstream failure after the stream started', type: 'server_error', code: null } });
+            res.end();
             return;
         }
         case 'corrupt':

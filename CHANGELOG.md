@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.28.0 (2026-10-22)
+
+Ola 2 del SDK: contexto por tokens con resumen, guardrails genéricos y trazas OpenTelemetry (PRs #59 y #60).
+Todo es opt-in y aditivo: sin configurar `context`, `guardrails` ni un exportador de trazas el comportamiento no cambia.
+Los rangos 0.x se barren (`agent-core ^0.28.0`, `agent-coding ^0.24.0`, `agent-enterprise ^0.5.0`) y los templates de `create-bk-agent` se actualizan.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.28.0 |
+| `agent-providers` | 0.2.2 |
+| `agent-coding` | 0.24.0 |
+| `agent-enterprise` | 0.5.0 |
+| `agent-otel` | 0.1.0 (nuevo) |
+| `agent-web` | 0.4.10 |
+| `mcp-server` | 0.16.5 |
+| `mcp-connectors` | 0.1.4 |
+| `orchestrator-agent` | 0.4.2 |
+| `aval-tools` | 0.1.5 |
+| `curator-codex-agent` | 1.0.2 |
+| `create-bk-agent` | 0.22.6 |
+
+Orden de publicación: core → providers → coding → enterprise → otel → orchestrator-agent → (opcionales: web, mcp-server, mcp-connectors, aval-tools, curator-codex-agent) → create-bk-agent.
+`agent-web`, `mcp-server`, `mcp-connectors`, `aval-tools` y `curator-codex-agent` solo cambian rangos de dependencia/peer.
+
+### Detalle
+
+### `@backendkit-labs/agent-core` — contexto por tokens (`context`)
+- Mantiene el historial bajo `context.maxTokens`: trunca resultados de tools viejos, resume los turnos más antiguos
+  (el resumen nuevo extiende al anterior) y descarta como último recurso. Cortes en frontera de turno.
+- Un resumidor que falla degrada a descartar con aviso; la compactación nunca detiene el run.
+- El uso del resumidor se reporta como eventos `metrics` (lo ve el `CostTracker`). Estimador chars/4 calibrado con el
+  `input_tokens` real del provider. Disponible también en `createCodingEngine` y `createEnterpriseSetup`.
+
+### `@backendkit-labs/agent-core` — guardrails (`guardrails`, `guardrailOutputMode`)
+- Fases `input`, `tool_call` (antes de la aprobación), `tool_result` y `output`, sobre el agente principal y todos los sub-agentes.
+- Decisiones allow / redact / block, `failMode` cerrado por defecto, `dryRun`.
+- Ready-made: `piiGuardrail`, `secretLeakGuardrail`, `promptInjectionGuardrail` (heurístico), `maxLengthGuardrail`,
+  `denyListGuardrail`, `llmJudgeGuardrail`. Un bloqueo en `tool_call` borra los argumentos del historial.
+- Salida `after` (corrige el historial; el evento trae `replacement`) o `buffer` (nada sin revisar se muestra).
+- Evento `guardrail`, entradas `guardrail:<fase>:<nombre>` en `auditLog` y `MetricsSnapshot.guardrails`.
+- Coding y enterprise **no** activan guardrails por defecto.
+
+### `@backendkit-labs/agent-core` / `agent-providers` — spans de llamadas
+- `llm_call` (modelo, proveedor, tokens, caché, coste, `purpose`) y `tool_call` bajo el `agent_block`, con inicio y fin reales.
+- Los eventos `metrics` y `tool_result` ganan `agent_id`, `started_at` y `duration_ms` (opcionales); `metrics` también
+  `provider`, `model` y `purpose`. Quien compare esos eventos con igualdad exacta debe pasar a una comparación parcial.
+- `LLMProvider.modelId?` (lo implementan `OpenAICompatibleProvider` y `AnthropicProvider`).
+
+### `@backendkit-labs/agent-otel` 0.1.0 (nuevo)
+- `otlpHttpSpanExporter`: OTLP/JSON por HTTP sin SDK. `otelApiSpanExporter`: vía `@opentelemetry/api` (retiene el trace hasta
+  que termina `agent.run`). Convenciones semánticas GenAI; nunca exporta prompts, respuestas ni argumentos de tools.
+- Sin probar contra Jaeger/Langfuse reales. No está en `publish.yml`: publicación manual.
+
 ## v0.27.1 (2026-10-22)
 
 Correcciones halladas probando con DeepSeek. Los rangos `^0.27.0`, `^0.2.0` y `^0.23.0` ya cubren estas versiones: sin barrido ni cambio en `create-bk-agent`.

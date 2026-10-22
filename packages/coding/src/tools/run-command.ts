@@ -199,6 +199,8 @@ export const runCommandTool = defineTool({
                     shell: true,
                     cwd:   workDir,
                     timeout: timeout_ms,
+                    // Own process group on POSIX, so killTree can signal -pid and reach the whole tree.
+                    detached: process.platform !== 'win32',
                 });
 
             const collect = (data: Buffer) => {

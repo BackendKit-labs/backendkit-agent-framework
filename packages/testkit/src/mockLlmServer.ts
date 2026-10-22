@@ -74,6 +74,16 @@ function randomBehavior(rand: () => number, weights: Record<string, number>): Mo
     }
 }
 
+/**
+ * Drops the connection with a TCP reset. A plain `destroy()` ends it with a clean FIN on Linux, which
+ * some HTTP clients read as the end of the response; a reset is an error on every platform.
+ */
+function dropConnection(req: IncomingMessage): void {
+    const socket = req.socket as Socket & { resetAndDestroy?: () => void };
+    if (typeof socket.resetAndDestroy === 'function') socket.resetAndDestroy();
+    else socket.destroy();
+}
+
 const sse = (res: ServerResponse, data: unknown) => res.write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
 
 function chunk(delta: Record<string, unknown>, finish: string | null = null) {
@@ -144,7 +154,7 @@ function play(b: MockBehavior, req: IncomingMessage, res: ServerResponse, body: 
             sendError(res, b.status, b.message ?? `mock error ${b.status}`, b.headers);
             return;
         case 'reset':
-            req.socket.destroy();
+            dropConnection(req);
             return;
         case 'cut': {
             startStream(res);
@@ -152,7 +162,7 @@ function play(b: MockBehavior, req: IncomingMessage, res: ServerResponse, body: 
             const parts = splitText(b.content ?? 'partial answer that never finishes', 6).slice(0, b.afterChunks ?? 2);
             for (const p of parts) sse(res, chunk({ content: p }));
             // Give the client a moment to read what was sent before the connection dies.
-            setTimeout(() => req.socket.destroy(), 20);
+            setTimeout(() => dropConnection(req), 20);
             return;
         }
         case 'corrupt':

@@ -211,20 +211,53 @@ export const runCommandTool = defineTool({
             proc.stdout.on('data', collect);
             proc.stderr.on('data', collect);
 
+            // Stops the command and everything it started. A plain proc.kill() leaves the children of a
+            // shell running (and on Windows does not reach them at all).
+            const killTree = () => {
+                if (containerName) {
+                    spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
+                } else if (process.platform === 'win32' && proc.pid) {
+                    // taskkill must see the tree while the shell is alive (once cmd.exe dies Windows forgets its
+                    // children), so the shell is not killed here: /F ends it together with the rest.
+                    const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+                    tk.on('error', () => proc.kill());
+                    tk.on('close', (code) => { if (code !== 0) proc.kill(); });
+                    return;
+                } else if (proc.pid) {
+                    try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* not a process group leader */ }
+                }
+                proc.kill();
+            };
+
+            const signal = ctx.signal;
+            let aborted = false;
+            const onAbort = () => {
+                if (timedOut || aborted) return;
+                aborted = true;
+                clearTimeout(timer);
+                killTree();
+                resolve('Error: Command aborted');
+            };
+
             const timer = setTimeout(() => {
                 timedOut = true;
-                proc.kill();
-                if (containerName) spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
+                signal?.removeEventListener('abort', onAbort);
+                killTree();
                 resolve(`Error: Command timed out after ${timeout_ms}ms`);
             }, timeout_ms);
 
+            if (signal?.aborted) onAbort();
+            else signal?.addEventListener('abort', onAbort, { once: true });
+
             proc.on('error', (err) => {
                 clearTimeout(timer);
+                signal?.removeEventListener('abort', onAbort);
                 resolve(`Error: ${err.message}`);
             });
 
             proc.on('close', (code) => {
-                if (timedOut) return;
+                signal?.removeEventListener('abort', onAbort);
+                if (timedOut || aborted) return;
                 clearTimeout(timer);
                 const raw = chunks.join('').trim();
                 const truncated = raw.length > MAX_OUTPUT

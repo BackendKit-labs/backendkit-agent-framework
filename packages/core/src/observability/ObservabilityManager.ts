@@ -135,6 +135,7 @@ export class ObservabilityManager {
                         tags: {
                             'tool.name': event.name,
                             success: event.success,
+                            ...(event.outcome ? { outcome: event.outcome } : {}),
                             ...(event.agent_id ? { agent_id: event.agent_id } : {}),
                         },
                     });

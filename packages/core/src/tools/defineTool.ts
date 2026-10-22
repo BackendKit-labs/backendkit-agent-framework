@@ -14,6 +14,8 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
     input: TInput;
     /** Safe to run in parallel with other concurrencySafe tools. Default false. */
     concurrencySafe?: boolean;
+    /** Time limit for one call in ms (overrides the engine's `toolTimeoutMs`). Default: none. */
+    timeoutMs?: number;
     /** Type-safe execute handler — args are already validated and typed. */
     execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
 }
@@ -60,6 +62,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
         description: opts.description,
         parameters,
         ...(opts.concurrencySafe ? { concurrencySafe: true } : {}),
+        ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
             const result = opts.input.safeParse(rawArgs);
             if (!result.success) {

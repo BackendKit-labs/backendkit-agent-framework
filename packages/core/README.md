@@ -225,7 +225,7 @@ new AgentEngine({
 
   // Iteration control
   maxIterations: 50,
-  iterationMode: 'auto',   // 'auto' | 'manual' | 'step-by-step' | 'interactive'
+  iterationMode: 'auto',   // 'auto' | 'step-by-step' | 'interactive' (default)
 
   // Memory
   sessionMemory: mySessionMemory,
@@ -273,15 +273,15 @@ await engine.run('Analyze the database schema', {
 | Mode | Behavior |
 |------|----------|
 | `'auto'` | Runs until complete or `maxIterations` reached |
-| `'manual'` | Pauses before write/execute tool calls, calls `onToolApproval` |
 | `'step-by-step'` | Calls `onStep` after every iteration; return `false` to stop |
-| `'interactive'` | Calls `onIterationLimit` when cap is reached; return `true` to continue |
+| `'interactive'` | Calls `onIterationLimit` when cap is reached; return `true` to continue. Without that callback the run stops at the cap |
+
+Tool approval is independent of the mode: whenever `onToolApproval` is set, the engine asks before `write_file`, `edit_file`, `run_command` and package installs.
 
 ```typescript
-// Manual approval — user approves destructive tool calls
+// Approval — user approves destructive tool calls
 const engine = new AgentEngine({
   ...opts,
-  iterationMode:  'manual',
   onToolApproval: async (toolName, agentId, argsPreview) => {
     console.log(`[${agentId}] → ${toolName}:`, argsPreview);
     const answer = await prompt('Approve? (y/n/all) ');
@@ -429,6 +429,30 @@ until the answer is checked: nothing unchecked is ever shown, but there is no st
 
 Every redaction, block and error emits a `{ type: 'guardrail', name, phase, action, reason, ... }` event, is written to the
 `auditLog` as `guardrail:<phase>:<name>`, and is counted in `MetricsSnapshot.guardrails`.
+
+---
+
+## Tool cancellation and time limits
+
+Every tool call receives `ctx.signal`, an `AbortSignal` that fires when the engine is aborted (`engine.abort()`, or a budget stop with `abortOnBudget`) or when the call's time limit passes. Hand it to `fetch`, child processes and anything else cancellable:
+
+```typescript
+const fetchPage = defineTool({
+  name: 'fetch_page',
+  description: 'Fetch a URL',
+  input: z.object({ url: z.string().url() }),
+  timeoutMs: 15_000,                       // this tool's limit; overrides the engine default
+  execute: async ({ url }, ctx) => (await fetch(url, { signal: ctx.signal })).text(),
+});
+
+const engine = createBaseEngine({
+  // ...
+  toolTimeoutMs: 60_000,                   // default limit for tools without their own (default: none)
+  toolTimeoutGraceMs: 2000,                // wait for a tool to wind down after its signal fires
+});
+```
+
+When a limit passes, the signal is aborted and, after the grace period, the model receives `Error: TOOL_TIMEOUT: tool "fetch_page" exceeded 15000ms` (`tool_result.outcome = 'timeout'`); a result that arrives later is discarded. After `engine.abort()` a running tool reports `Error: aborted` (`outcome = 'aborted'`). Time spent waiting for approval does not count. A tool with side effects that times out may still have completed, so make such tools idempotent.
 
 ---
 
@@ -1223,7 +1247,7 @@ WorkflowResult            // { steps, total, failed }
 WorkflowRunOptions        // WorkflowRunner.run() options
 
 // Iteration
-IterationMode             // 'auto' | 'manual' | 'step-by-step' | 'interactive'
+IterationMode             // 'auto' | 'step-by-step' | 'interactive'
 IterationStats            // { count, max, agentId }
 ToolApprovalDecision      // 'approve' | 'approve_all' | 'reject'
 

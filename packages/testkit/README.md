@@ -6,6 +6,8 @@ Test doubles for agents built on `@backendkit-labs/agent-core`. Install it as a 
 npm i -D @backendkit-labs/agent-testkit
 ```
 
+In a project made with `create-bk-agent`, `npx create-bk-agent add testing` installs it together with jest and drops in an example test.
+
 It does not depend on a test runner: assertions throw plain `Error`s, so it works with jest, vitest or `node:test`.
 
 ## What is in it

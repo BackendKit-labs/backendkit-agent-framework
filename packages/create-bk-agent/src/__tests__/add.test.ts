@@ -2,7 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { detectProject } from '../add/detector';
-import { addImportLine, insertAfterPattern, insertBeforePattern, addPackageScript, addPackageDependency } from '../add/patcher';
+import { addImportLine, insertAfterPattern, insertBeforePattern, addPackageScript, addPackageDependency, addPackageDevDependency } from '../add/patcher';
+import { addTesting, EXAMPLE_TEST } from '../add/modules/testing';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bk-add-')); });
@@ -86,5 +87,54 @@ describe('patcher', () => {
         const p = JSON.parse(fs.readFileSync(f, 'utf-8'));
         expect(p.scripts).toEqual({ build: 'tsc', start: 'node .' });
         expect(p.dependencies).toEqual({ a: '1', b: '^2.0.0' });
+    });
+});
+
+describe('add testing', () => {
+    const project = () => {
+        const pkgFile = file('package.json', JSON.stringify({ name: 'my-agent', scripts: { build: 'tsc' }, dependencies: { '@backendkit-labs/agent-core': '^0.29.0' } }));
+        const info = detectProject(dir)!;
+        expect(info.pkgFile).toBe(pkgFile);
+        return info;
+    };
+    const quiet = () => jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    it('addPackageDevDependency adds once and respects what is already declared', () => {
+        const f = file('package.json', JSON.stringify({ name: 'x', dependencies: { a: '1' }, devDependencies: { b: '2' } }));
+        expect(addPackageDevDependency(f, 'c', '^3.0.0')).toBe(true);
+        expect(addPackageDevDependency(f, 'c', '^9.0.0')).toBe(false);
+        expect(addPackageDevDependency(f, 'a', '^9.0.0')).toBe(false);   // already a runtime dependency
+        expect(addPackageDevDependency(f, 'b', '^9.0.0')).toBe(false);
+        expect(JSON.parse(fs.readFileSync(f, 'utf-8')).devDependencies).toEqual({ b: '2', c: '^3.0.0' });
+    });
+
+    it('adds the dev dependencies, the test script, a jest config and the example test', () => {
+        const info = project();
+        const log = quiet();
+        addTesting(info, [], { install: false });
+        log.mockRestore();
+
+        const p = JSON.parse(fs.readFileSync(info.pkgFile, 'utf-8'));
+        expect(p.scripts).toEqual({ build: 'tsc', test: 'jest' });
+        expect(Object.keys(p.devDependencies).sort()).toEqual(['@backendkit-labs/agent-testkit', '@types/jest', 'jest', 'ts-jest']);
+        expect(p.devDependencies['@backendkit-labs/agent-testkit'].startsWith('^0.1.')).toBe(true);
+        expect(fs.readFileSync(path.join(dir, 'jest.config.js'), 'utf-8')).toContain("preset: 'ts-jest'");
+        expect(fs.readFileSync(path.join(dir, 'src', '__tests__', 'agent.example.test.ts'), 'utf-8')).toBe(EXAMPLE_TEST);
+    });
+
+    it('never overwrites an existing jest config, test file or testkit range', () => {
+        const info = project();
+        const pkgJson = JSON.parse(fs.readFileSync(info.pkgFile, 'utf-8'));
+        pkgJson.devDependencies = { '@backendkit-labs/agent-testkit': '^0.1.5' };
+        fs.writeFileSync(info.pkgFile, JSON.stringify(pkgJson));
+        file('jest.config.ts', 'export default {};');
+        file('src/__tests__/agent.example.test.ts', '// mine');
+        const log = quiet();
+        addTesting(info, [], { install: false });
+        log.mockRestore();
+
+        expect(fs.existsSync(path.join(dir, 'jest.config.js'))).toBe(false);
+        expect(fs.readFileSync(path.join(dir, 'src', '__tests__', 'agent.example.test.ts'), 'utf-8')).toBe('// mine');
+        expect(JSON.parse(fs.readFileSync(info.pkgFile, 'utf-8')).devDependencies['@backendkit-labs/agent-testkit']).toBe('^0.1.5');
     });
 });

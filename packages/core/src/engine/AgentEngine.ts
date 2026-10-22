@@ -2,6 +2,7 @@ import { ApprovalGate } from './ApprovalGate';
 import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
 import { ContextManager, SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from './ContextManager';
+import { resolveSecrets } from './secrets';
 import { isContextOverflowError } from './contextOverflow';
 import { GuardrailRunner } from '../guardrails/GuardrailRunner';
 import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
@@ -575,12 +576,13 @@ export class AgentEngine {
     ): Promise<GuardrailOutcome> {
         if (!this.guardrails?.has(phase)) return { content, changed: false, events: [] };
         const sessionId = this.opts.sessionId ?? 'default';
-        const secrets = this.opts.agents.get(agentId)?.secrets;
-        const secretValues = this.opts.agents.getAll().flatMap(a => Object.values(a.secrets ?? {}));
+        const resolved = await Promise.all(this.opts.agents.getAll().map(async a => [a.id, await resolveSecrets(a, this.opts.secretResolver)] as const));
+        const secrets = resolved.find(([id]) => id === agentId)?.[1];
+        const secretValues = resolved.flatMap(([, r]) => Object.values(r));
         const outcome = await this.guardrails.run({
             phase, agentId, sessionId, content,
             ...(toolName ? { toolName } : {}),
-            ...(secrets ? { secrets } : {}),
+            ...(secrets && Object.keys(secrets).length ? { secrets } : {}),
             secretValues,
         });
         const replaced = replacement?.(outcome);
@@ -1318,7 +1320,12 @@ export class AgentEngine {
     ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted' }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
-        const ctx = { ...this.buildContext(agentId, depth), signal: controller.signal };
+        const secrets = await resolveSecrets(this.opts.agents.get(agentId), this.opts.secretResolver);
+        const ctx = {
+            ...this.buildContext(agentId, depth),
+            ...(Object.keys(secrets).length ? { secrets } : {}),
+            signal: controller.signal,
+        };
         const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;
         const graceMs = this.opts.toolTimeoutGraceMs ?? 2000;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1401,7 +1408,6 @@ export class AgentEngine {
             advancedMemory: this.opts.memorySystem,
             ...(additionalRoots.length ? { additionalRoots } : {}),
             ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
-            ...(profile?.secrets && Object.keys(profile.secrets).length ? { secrets: profile.secrets } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1 });
                 return result.content;

@@ -154,6 +154,7 @@ export type { QAServiceOptions, QAReviewResult } from './qa/qa-service';
 // ── Core types ─────────────────────────────────────────────────────────────────
 export type {
     AgentProfile,
+    SecretRef,
     ToolDefinition,
     ExecutionContext,
     SessionMemoryData,

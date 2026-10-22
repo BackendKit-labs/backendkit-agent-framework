@@ -38,12 +38,16 @@ export interface AgentProfile {
      * environment variable — the difference between "this agent can spend"
      * and "every agent shares one key that any of them could exceed or leak".
      *
-     * Values are read from disk on load like any other profile field; they are
-     * not encrypted here. Treat the profile file itself as sensitive, the same
-     * way you would an .env file.
+     * A value is either the literal secret or a reference `{ env: "NAME" }` resolved on
+     * every call (so a rotated variable applies without a restart; unset falls back to
+     * the engine's `secretResolver`). Prefer references: literals live in the profile
+     * file, which is not encrypted — treat it as sensitive like an .env file.
      */
-    secrets?: Record<string, string>;
+    secrets?: Record<string, string | SecretRef>;
 }
+
+/** A credential read from the environment at call time instead of stored in the profile. */
+export type SecretRef = { env: string };
 
 // ─── Tool ─────────────────────────────────────────────────────────────────────
 
@@ -274,6 +278,11 @@ export interface EngineOptions {
      * later is discarded. Time spent waiting for approval does not count. Default: no limit.
      */
     toolTimeoutMs?: number;
+    /**
+     * Last resort for `AgentProfile.secrets` references whose environment variable is unset
+     * (e.g. a vault lookup). Called on every tool call; returning nothing omits the secret.
+     */
+    secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
     /** After a tool's signal is aborted, how long to wait for it to wind down before replying. Default 2000. */
     toolTimeoutGraceMs?: number;
     maxParallelAgents?: number;

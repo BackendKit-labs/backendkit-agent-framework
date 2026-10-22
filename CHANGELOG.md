@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.29.0 (2026-10-22)
+
+Ola 3a del SDK (SPEC-0002; PRs #63 a #66): herramientas con plazo y cancelación, recuperación ante desbordamiento de contexto, credenciales por referencia y jobs en segundo plano.
+Todo es opt-in y aditivo salvo lo indicado. Rangos 0.x barridos (`agent-core ^0.29.0`, `agent-coding ^0.25.0`, `agent-enterprise ^0.6.0`; peers `<0.30.0`) y templates de `create-bk-agent` actualizados.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.29.0 |
+| `agent-providers` | 0.2.3 |
+| `agent-coding` | 0.25.0 |
+| `agent-enterprise` | 0.6.0 |
+| `agent-otel` | 0.1.1 |
+| `agent-web` | 0.4.11 |
+| `mcp-server` | 0.16.6 |
+| `mcp-connectors` | 0.1.5 |
+| `orchestrator-agent` | 0.4.3 |
+| `aval-tools` | 0.1.6 |
+| `curator-codex-agent` | 1.0.3 |
+| `create-bk-agent` | 0.22.7 |
+
+Orden de publicación: core → providers → coding → enterprise → otel → orchestrator-agent → (opcionales: web, mcp-server, mcp-connectors, aval-tools, curator-codex-agent) → create-bk-agent.
+`agent-providers`, `agent-otel`, `agent-web`, `mcp-server`, `mcp-connectors`, `orchestrator-agent`, `aval-tools`, `curator-codex-agent` y `create-bk-agent` solo cambian rangos de dependencia/peer (templates en el caso de `create-bk-agent`).
+
+### Detalle
+
+### `@backendkit-labs/agent-core`
+- **Señal y plazo por herramienta:** `ExecutionContext.signal`; `timeoutMs` por herramienta y `toolTimeoutMs`/`toolTimeoutGraceMs` del engine. Al vencer o abortar, el modelo recibe `TOOL_TIMEOUT`/aborted y un resultado tardío se descarta. `tool_result` lleva `outcome` (`timeout` | `aborted`).
+- **Reintento tras desbordamiento de contexto:** `isContextOverflowError`, `ContextManager.compact({ force, targetRatio })`, `noteOverflow()` y `ContextOptions.overflowRetry` (por defecto activo con `context`). Hasta 2 reintentos por ejecución; si el historial no se puede reducir se emite el error original.
+- **Credenciales por referencia:** `AgentProfile.secrets` admite `{ env: "NOMBRE" }` (se resuelve en cada llamada) y `secretResolver` como respaldo; `secretLeakGuardrail` usa los valores resueltos. Los perfiles con valores literales siguen igual.
+- **Jobs en segundo plano:** `createBaseEngine({ jobs })`, `JobRegistry`, herramientas `job_output`/`job_list`/`job_kill`, `ExecutionContext.jobs`, aviso de finalización al inicio de cada iteración y cancelación en `abort()`.
+
+### `@backendkit-labs/agent-coding`
+- `run_command`: respeta `ctx.signal` y mata el árbol de procesos (Windows: `taskkill /T /F`; POSIX: grupo de procesos propio); nuevo parámetro `background` cuando hay `jobs`.
+- Opciones nuevas en `createCodingEngine`: `toolTimeoutMs`, `toolTimeoutGraceMs`, `jobs` (añade las herramientas `job_*` a los agentes con `run_command`) y `secretResolver`.
+
+### `@backendkit-labs/agent-enterprise`
+- Reenvía `toolTimeoutMs`, `jobs` y `secretResolver`.
+
+### `@backendkit-labs/agent-otel`
+- Los spans `execute_tool` exponen el `outcome` de la herramienta como `bk.outcome`.
+
 ## v0.28.0 (2026-10-22)
 
 Ola 2 del SDK: contexto por tokens con resumen, guardrails genéricos y trazas OpenTelemetry (PRs #59 y #60).

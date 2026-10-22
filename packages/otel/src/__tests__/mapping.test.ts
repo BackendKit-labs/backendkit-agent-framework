@@ -51,6 +51,11 @@ describe('mapSpan', () => {
         });
     });
 
+    it('exposes the tool outcome (timeout / aborted) as bk.outcome', () => {
+        const m = mapSpan(span({ name: 'tool_call', status: 'error', tags: { 'tool.name': 'run_command', success: false, outcome: 'timeout' } }));
+        expect(m.attributes).toMatchObject({ 'bk.outcome': 'timeout' });
+    });
+
     it('maps agent_block to invoke_agent, preferring the agent name', () => {
         const m = mapSpan(span({ name: 'agent_block', tags: { agent_id: 'qa', agent_name: 'QA Engineer' } }));
         expect(m.name).toBe('invoke_agent QA Engineer');

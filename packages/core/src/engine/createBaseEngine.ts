@@ -64,6 +64,9 @@ export interface BaseEngineOptions {
      */
     toolTimeoutMs?: number;
 
+    /** Resolves `AgentProfile.secrets` references whose env var is unset (see EngineOptions.secretResolver). */
+    secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
+
     /** Wait for a tool to wind down after its signal is aborted, before answering. Default 2000 ms. */
     toolTimeoutGraceMs?: number;
 
@@ -376,6 +379,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+        ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),

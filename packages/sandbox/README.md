@@ -2,7 +2,7 @@
 
 Confinement and permissions for what an agent runs. One policy decides, per call, how much of the host a command may touch; swappable backends enforce it; if the required confinement cannot be enforced on this host, the call **fails** instead of running unconfined.
 
-> **Status: first delivery (S1).** The library is complete and tested, but `run_command` and the engine do not use it yet; that wiring is the next PR. Until then `BK_RUN_COMMAND_SANDBOX=docker` keeps working as before.
+> **Wired into the coding engine.** `createCodingEngine({ sandbox: { preset: 'ask' } })` (agent-coding) or `createBaseEngine({ sandbox })` (agent-core) put every `run_command` behind this service. Without `sandbox`, `run_command` keeps its old behaviour: the host, or the deprecated `BK_RUN_COMMAND_SANDBOX=docker`, now translated to the equivalent policy of this package.
 
 ```bash
 npm i @backendkit-labs/agent-sandbox
@@ -73,6 +73,24 @@ policy.version;               // increments on every successful set
 parsePolicyConfig(untrusted); // validates a YAML/JSON object and names the path of the problem
 ```
 
+## In an engine
+
+```ts
+const engine = createCodingEngine({
+    providers, defaultProvider: 'deepseek', transport,
+    sandbox: { preset: 'ask' },            // or { preset: 'read-only' | 'auto-edit' | 'full', policy: {...}, backends: ['docker', 'none'], docker: { image: 'node:22' }, auditLog: 'logs/sandbox.ndjson' }
+    onToolApproval,                        // the preset says WHICH tools ask; this is who answers
+});
+(engine.sandbox as SandboxService).policy.set({ preset: 'read-only' });   // takes effect on the next call
+```
+
+- `run_command` goes through the service; an unmet confinement comes back as `Error: SANDBOX_UNAVAILABLE: …` and nothing runs.
+- In `read-only` the engine refuses the write tools by name (`write_file`, `edit_file`), whatever the approval gate says. The memory tools keep working: they write the agent's own store, outside the workspace.
+- The preset replaces the engine's built-in list of tools that ask. **If a tool needs approval and no `onToolApproval` is set, it is refused** (`SANDBOX_DENIED`): an unattended flow, trigger or fleet agent can never run what nobody approved.
+- Every decision is a `sandbox` event on the transport and a line in the engine's audit log.
+- File tools (`write_file`, `edit_file`) still enforce the workspace with their own path check; moving them behind the service is the next delivery.
+- Containers run as your uid:gid on Linux and macOS (not root), so the files they create are yours.
+
 ## Observability
 
 Every decision (allowed, denied, unavailable) is structured:
@@ -85,6 +103,13 @@ createSandboxService({ policy, backends, auditLog: 'logs/sandbox.ndjson' });   /
 ## Environment hygiene
 
 Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD` or `CREDENTIAL` (case-insensitive) are dropped. It is a denylist on purpose (Windows needs `SystemRoot`, `ComSpec`, `PATHEXT`). Let specific ones through with `env.allow` (`GH_TOKEN`, or `DEEPSEEK_*`), drop more with `env.deny`. Containers never inherit the host environment.
+
+## What it does not confine
+
+- **Tools that start processes on their own.** Only calls that go through `ctx.sandbox.run(...)` are confined (`run_command` does). A custom or MCP tool that spawns a process itself is outside the sandbox: write it against `ctx.sandbox`.
+- **`read-only` refuses tools by name.** It refuses exactly the tools listed in `writeTools` (the coding set lists `write_file` and `edit_file`). MCP tools and your own tools that write are not blocked unless you list them.
+- **File tools** still enforce the workspace with their own path check; they move behind the service in the next delivery.
+- **Several engines may share one service**: each engine reports only the decisions of its own calls on its transport and audit log. `sandbox.onDecision(...)` on the service sees all of them.
 
 ## Not here yet
 

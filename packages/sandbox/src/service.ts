@@ -1,11 +1,12 @@
-import { appendFile, mkdir } from 'node:fs/promises';
-import { dirname, resolve as resolvePath } from 'node:path';
+import { appendFile, mkdir } from 'fs/promises';
+import { dirname, resolve as resolvePath } from 'path';
 import type {
     SandboxCaller, SandboxDecision, SandboxDenyCode, SandboxExecRequest, SandboxOutcome, SandboxRunner,
 } from '@backendkit-labs/agent-core';
 import type { SandboxBackend } from './backends/types';
 import { scrubEnv } from './env';
 import type { SandboxPolicy } from './policy';
+import { needsApproval } from './presets';
 
 export type DecisionListener = (decision: SandboxDecision) => void;
 
@@ -17,6 +18,11 @@ export interface SandboxServiceOptions {
     baseEnv?: Record<string, string | undefined>;
     /** Appends every decision as one JSON line to this file. */
     auditLog?: string;
+    /**
+     * Hand the command a scrubbed environment (credential-looking variables removed). Default true.
+     * Only the legacy `BK_RUN_COMMAND_SANDBOX` path turns it off, to keep its old behaviour.
+     */
+    scrubEnvironment?: boolean;
 }
 
 export interface SandboxService extends SandboxRunner {
@@ -73,6 +79,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             return { ok: true };
         },
 
+        approvalFor(caller, tool) {
+            const r = policy.resolve(caller, tool);
+            const kind = policy.commandTools().includes(tool) ? 'command' : policy.writeTools().includes(tool) ? 'write' : 'read';
+            return needsApproval(r.approval, kind) ? 'ask' : 'none';
+        },
+
         async run(caller: SandboxCaller, req: SandboxExecRequest): Promise<SandboxOutcome> {
             const r = policy.resolve(caller, req.tool);
             const refuse = (code: SandboxDenyCode, reason: string, backend?: string): SandboxOutcome => {
@@ -108,7 +120,9 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
                     workspace,
                     mode: r.mode,
                     network: r.network,
-                    env: scrubEnv(options.baseEnv ?? process.env, r.env),
+                    env: options.scrubEnvironment === false
+                        ? Object.fromEntries(Object.entries(options.baseEnv ?? process.env).filter((e): e is [string, string] => e[1] !== undefined))
+                        : scrubEnv(options.baseEnv ?? process.env, r.env),
                     timeoutMs: req.timeoutMs,
                     signal: req.signal,
                     onOutput: req.onOutput,

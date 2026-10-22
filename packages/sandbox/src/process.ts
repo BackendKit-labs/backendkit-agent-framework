@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import type { SandboxExecResult } from '@backendkit-labs/agent-core';
 
 /** Stdout+stderr kept in `SandboxExecResult.output` (the callback still gets everything). */

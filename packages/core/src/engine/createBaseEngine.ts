@@ -6,6 +6,7 @@ import { StdoutTransport } from '../transport/StdoutTransport';
 import { createJobRegistry } from '../jobs/JobRegistry';
 import type { JobRegistryOptions } from '../jobs/JobRegistry';
 import { JOB_TOOLS } from '../jobs/tools';
+import type { SandboxRunner } from '../sandbox/types';
 import type {
     AgentProfile,
     LLMProvider,
@@ -73,6 +74,14 @@ export interface BaseEngineOptions {
      * 64 KB of output each, finished jobs kept 10 min). Each agent only sees its own jobs.
      */
     jobs?: boolean | JobRegistryOptions;
+
+    /**
+     * Confined execution, from `@backendkit-labs/agent-sandbox` (`createSandboxService`) or any `SandboxRunner`.
+     * Tools get `ctx.sandbox`; in read-only the policy's write tools are refused; the policy decides which
+     * tools ask for approval (with no `onToolApproval` configured, those are refused). Read the running
+     * service back with `engine.sandbox`.
+     */
+    sandbox?: SandboxRunner;
 
     /** Resolves `AgentProfile.secrets` references whose env var is unset (see EngineOptions.secretResolver). */
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
@@ -393,6 +402,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
         ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
         ...(jobs ? { jobs } : {}),
+        ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),

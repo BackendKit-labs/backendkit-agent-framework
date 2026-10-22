@@ -269,6 +269,8 @@ export type AgentEvent =
      * A guardrail changed, blocked or failed on a piece of text. `replacement` (output phase only) is the
      * text that replaces what was already streamed, so a UI can swap it. `dry_run` events changed nothing.
      */
+    /** A sandbox decision: the call was allowed, denied by policy, or could not be confined (nothing ran). */
+    | { type: 'sandbox'; outcome: 'allowed' | 'SANDBOX_DENIED' | 'SANDBOX_UNAVAILABLE'; tool: string; agent_id: string; mode?: import('../sandbox/types').SandboxMode; network?: import('../sandbox/types').SandboxNetwork; backend?: string; reason?: string }
     | { type: 'guardrail'; name: string; phase: 'input' | 'tool_call' | 'tool_result' | 'output'; action: 'redact' | 'block' | 'error'; reason: string; agent_id?: string; tool?: string; dry_run?: boolean; replacement?: string };
 
 // ─── Engine Options ───────────────────────────────────────────────────────────
@@ -295,6 +297,8 @@ export interface EngineOptions {
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
     /** Background job registry shared by the engine's tools (see BaseEngineOptions.jobs). */
     jobs?: import('../jobs/JobRegistry').JobRegistry;
+    /** Confined execution: gives tools `ctx.sandbox`, refuses write tools in read-only and decides which tools ask for approval. */
+    sandbox?: import('../sandbox/types').SandboxRunner;
     /** After a tool's signal is aborted, how long to wait for it to wind down before replying. Default 2000. */
     toolTimeoutGraceMs?: number;
     maxParallelAgents?: number;

@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import * as path from 'node:path';
+import { spawn, type ChildProcess } from 'child_process';
+import * as path from 'path';
 import type { SandboxMode, SandboxNetwork } from '@backendkit-labs/agent-core';
 import { killProcessTree, runProcess } from '../process';
 import type { BackendExecRequest, SandboxBackend } from './types';

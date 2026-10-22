@@ -37,6 +37,8 @@ import {
     OLLAMA_DEFAULT_MODEL,
 } from '@backendkit-labs/agent-providers';
 import { CODING_AGENTS } from './agents/profiles';
+import { buildCodingSandbox } from './sandbox';
+import type { CodingSandboxConfig } from './sandbox';
 import { AgentLoader } from './agents/AgentLoader';
 import { readFileTool } from './tools/read-file';
 import { writeFileTool } from './tools/write-file';
@@ -155,6 +157,8 @@ export * from './tools/save-learning';
 export * from './tools/save-audit';
 export * from './tools/save-user-preference';
 export * from './tools/update-session';
+export { CODING_WRITE_TOOLS, buildCodingSandbox } from './sandbox';
+export type { CodingSandboxConfig, CodingSandboxOptions } from './sandbox';
 
 // ── Tool sets ─────────────────────────────────────────────────────────────────
 export const CODING_TOOLS = [
@@ -302,6 +306,15 @@ export interface CodingEngineOptions {
     jobs?: boolean | import('@backendkit-labs/agent-core').JobRegistryOptions;
     /** Resolves `AgentProfile.secrets` references whose env var is unset. Needs agent-core >= 0.29. */
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
+    /**
+     * Confinement and permissions for what the agents run (SPEC-0006). A ready-made `SandboxRunner`, or a config:
+     * `{ preset: 'ask' | 'read-only' | 'auto-edit' | 'full', policy?, backends?, docker?, auditLog? }`.
+     * Without it, `run_command` keeps its old behaviour (the host, or `BK_RUN_COMMAND_SANDBOX=docker`, now deprecated).
+     * With it, `run_command` fails closed when the required confinement cannot be enforced, write tools are refused in
+     * `read-only`, and the preset decides which tools ask for approval (refused when no `onToolApproval` is set).
+     * Read the running policy back with `engine.sandbox`. Needs agent-core >= 0.30.
+     */
+    sandbox?: CodingSandboxConfig;
     /** Tracing, metrics and cost/budget tracking (see createBaseEngine). */
     observability?: ObservabilityConfig;
     /** Abort the run when observability.costTracker.budget is exceeded. Default false. */
@@ -620,6 +633,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
         ...(opts.jobs ? { jobs: opts.jobs } : {}),
+        ...(opts.sandbox ? { sandbox: buildCodingSandbox(opts.sandbox) } : {}),
         ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.context ? { context: opts.context } : {}),

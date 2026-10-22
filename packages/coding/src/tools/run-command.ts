@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
+import { legacySandbox } from './legacy-sandbox';
 
 const MAX_OUTPUT = 20_000;
 
@@ -86,47 +86,6 @@ const WIN_BIN_MAP: Record<string, string> = {
     touch: 'type nul >>',
 };
 
-/**
- * Docker sandbox: no network (unless BK_SANDBOX_NETWORK overrides), all caps
- * dropped, only the working directory mounted. The command runs via `sh -c`
- * inside the image (default node:22), so the image must ship the needed tools.
- */
-function buildDockerArgs(name: string, baseDir: string, workDir: string, command: string): string[] {
-    const rel = path.relative(baseDir, workDir).split(path.sep).join('/');
-    return [
-        'run', '--rm', '--name', name,
-        '--network', process.env.BK_SANDBOX_NETWORK ?? 'none',
-        '--cap-drop', 'ALL',
-        '--security-opt', 'no-new-privileges',
-        '--memory', process.env.BK_SANDBOX_MEMORY ?? '2g',
-        '--pids-limit', '512',
-        '-v', `${baseDir}:/workspace`,
-        '-w', rel ? `/workspace/${rel}` : '/workspace',
-        process.env.BK_SANDBOX_IMAGE ?? 'node:22',
-        'sh', '-c', command,
-    ];
-}
-
-/**
- * Stops the command and everything it started. A plain proc.kill() leaves the children of a shell
- * running (and on Windows does not reach them at all).
- */
-function killProcessTree(proc: ChildProcess, containerName?: string): void {
-    if (containerName) {
-        spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
-    } else if (process.platform === 'win32' && proc.pid) {
-        // taskkill must see the tree while the shell is alive (once cmd.exe dies Windows forgets its
-        // children), so the shell is not killed here: /F ends it together with the rest.
-        const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
-        tk.on('error', () => proc.kill());
-        tk.on('close', (code) => { if (code !== 0) proc.kill(); });
-        return;
-    } else if (proc.pid) {
-        try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* not a process group leader */ }
-    }
-    proc.kill();
-}
-
 export const runCommandTool = defineTool({
     name: 'run_command',
     description:
@@ -199,111 +158,50 @@ export const runCommandTool = defineTool({
             }
         }
 
-        // Opt-in container isolation (BK_RUN_COMMAND_SANDBOX=docker). Fail closed:
-        // if requested, never fall back to running on the host.
-        const sandboxMode = (process.env.BK_RUN_COMMAND_SANDBOX ?? 'none').toLowerCase();
-        if (sandboxMode !== 'none' && sandboxMode !== 'docker') {
-            return `Error: invalid BK_RUN_COMMAND_SANDBOX "${sandboxMode}" (expected "none" or "docker")`;
+        // Everything below runs through a sandbox: the engine's, or the legacy BK_RUN_COMMAND_SANDBOX switch
+        // translated to its equivalent policy. Fail closed in both: if confinement cannot be enforced, nothing runs.
+        let runner = ctx.sandbox;
+        if (!runner) {
+            const legacy = legacySandbox();
+            if ('error' in legacy) return legacy.error;
+            runner = legacy.runner;
         }
-        const containerName = sandboxMode === 'docker'
-            ? `bk-run-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-            : undefined;
+        const caller = { agentId: ctx.agentId, sessionId: ctx.sessionId };
+        // `command` is what a container runs; `hostCommand` has the Windows remap for the host shell.
+        const request = { tool: 'run_command', command: realCommand, hostCommand: effectiveCommand, cwd: workDir, workspace: baseDir };
 
         if (background && ctx.jobs) {
             const info = ctx.jobs.start({
                 kind: 'bash',
                 owner: ctx.agentId,
-                run: (signal, append) => new Promise<string>((resolve, reject) => {
-                    const proc = containerName
-                        ? spawn('docker', buildDockerArgs(containerName, baseDir, workDir, realCommand))
-                        : spawn(effectiveCommand, { shell: true, cwd: workDir, detached: process.platform !== 'win32' });
-                    proc.stdout?.on('data', (d: Buffer) => append(d.toString('utf-8')));
-                    proc.stderr?.on('data', (d: Buffer) => append(d.toString('utf-8')));
-                    const kill = () => killProcessTree(proc, containerName);
-                    if (signal.aborted) kill(); else signal.addEventListener('abort', kill, { once: true });
-                    proc.on('error', reject);
-                    proc.on('close', (code) => {
-                        signal.removeEventListener('abort', kill);
-                        if (code === 0) resolve('exit 0'); else reject(new Error(`exit ${code}`));
-                    });
-                }),
+                run: async (signal, append) => {
+                    const out = await runner.run(caller, { ...request, signal, onOutput: append });
+                    if (!out.ok) throw new Error(`${out.code}: ${out.reason}`);
+                    if (out.result.error) throw new Error(out.result.error);
+                    if (out.result.exitCode === 0) return 'exit 0';
+                    throw new Error(`exit ${out.result.exitCode}`);
+                },
             });
             return `Started background job ${info.id}. Read its output with job_output (id: "${info.id}"); stop it with job_kill.`;
         }
 
-        // Use async spawn — spawnSync blocks the entire main process thread,
-        // which freezes Electron's IPC channel for the duration of the command.
-        const output = await new Promise<string>((resolve) => {
-            const chunks: string[] = [];
-            let totalLen = 0;
-            let timedOut = false;
+        const out = await runner.run(caller, { ...request, timeoutMs: timeout_ms, signal: ctx.signal });
+        if (!out.ok) return `Error: ${out.code}: ${out.reason}`;
+        const r = out.result;
+        if (r.error) return `Error: ${r.error}`;
+        if (r.aborted) return 'Error: Command aborted';
+        if (r.timedOut) return `Error: Command timed out after ${timeout_ms}ms`;
 
-            const proc = containerName
-                ? spawn('docker', buildDockerArgs(containerName, baseDir, workDir, realCommand), { timeout: timeout_ms })
-                : spawn(effectiveCommand, {
-                    shell: true,
-                    cwd:   workDir,
-                    timeout: timeout_ms,
-                    // Own process group on POSIX, so killTree can signal -pid and reach the whole tree.
-                    detached: process.platform !== 'win32',
-                });
-
-            const collect = (data: Buffer) => {
-                if (totalLen >= MAX_OUTPUT * 2) return;
-                const s = data.toString('utf-8');
-                chunks.push(s);
-                totalLen += s.length;
-            };
-
-            proc.stdout.on('data', collect);
-            proc.stderr.on('data', collect);
-
-            const killTree = () => killProcessTree(proc, containerName);
-
-            const signal = ctx.signal;
-            let aborted = false;
-            const onAbort = () => {
-                if (timedOut || aborted) return;
-                aborted = true;
-                clearTimeout(timer);
-                killTree();
-                resolve('Error: Command aborted');
-            };
-
-            const timer = setTimeout(() => {
-                timedOut = true;
-                signal?.removeEventListener('abort', onAbort);
-                killTree();
-                resolve(`Error: Command timed out after ${timeout_ms}ms`);
-            }, timeout_ms);
-
-            if (signal?.aborted) onAbort();
-            else signal?.addEventListener('abort', onAbort, { once: true });
-
-            proc.on('error', (err) => {
-                clearTimeout(timer);
-                signal?.removeEventListener('abort', onAbort);
-                resolve(`Error: ${err.message}`);
-            });
-
-            proc.on('close', (code) => {
-                signal?.removeEventListener('abort', onAbort);
-                if (timedOut || aborted) return;
-                clearTimeout(timer);
-                const raw = chunks.join('').trim();
-                const truncated = raw.length > MAX_OUTPUT
-                    ? raw.slice(0, MAX_OUTPUT) + `\n[truncated — ${raw.length} total chars]`
-                    : raw;
-                if (containerName && code !== 0) {
-                    resolve(`Error: sandboxed command exited with status ${code}\n${truncated}`.trim());
-                } else if (code !== 0 && !truncated) {
-                    resolve(`Error: Command exited with status ${code}`);
-                } else {
-                    resolve(truncated || '(no output)');
-                }
-            });
-        });
-
-        return output;
+        const raw = r.output.trim();
+        const truncated = raw.length > MAX_OUTPUT
+            ? raw.slice(0, MAX_OUTPUT) + `
+[truncated — ${raw.length} total chars]`
+            : raw;
+        if (out.backend !== 'none' && r.exitCode !== 0) {
+            return `Error: sandboxed command exited with status ${r.exitCode}
+${truncated}`.trim();
+        }
+        if (r.exitCode !== 0 && !truncated) return `Error: Command exited with status ${r.exitCode}`;
+        return truncated || '(no output)';
     },
 });

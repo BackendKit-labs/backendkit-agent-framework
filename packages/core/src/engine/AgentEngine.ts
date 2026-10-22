@@ -1237,6 +1237,52 @@ export class AgentEngine {
 
     }
 
+    /** The sandbox this engine runs tools through, if any (e.g. to read or change its policy at runtime). */
+    get sandbox(): import('../sandbox/types').SandboxRunner | undefined { return this.opts.sandbox; }
+
+    /**
+     * The runner a tool sees: the real one (so `policy` and the rest stay reachable) with `run` wrapped so each
+     * outcome is reported on THIS engine's transport and audit log. A runner shared by several engines therefore
+     * never leaks one engine's decisions to another.
+     */
+    private sandboxFor(agentId: string): import('../sandbox/types').SandboxRunner {
+        const real = this.opts.sandbox!;
+        return Object.assign(Object.create(real), {
+            run: async (caller: import('../sandbox/types').SandboxCaller, req: import('../sandbox/types').SandboxExecRequest) => {
+                const out = await real.run(caller, req);
+                this.reportSandboxDecision(out.ok
+                    ? { outcome: 'allowed', tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend }
+                    : { outcome: out.code, tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend, reason: out.reason });
+                return out;
+            },
+        });
+    }
+
+    /** The message for the model when the sandbox policy refuses `tool` for `agentId`; undefined when allowed. */
+    private sandboxRefusal(tool: string, agentId: string): string | undefined {
+        const verdict = this.opts.sandbox?.authorizeTool?.({ agentId, sessionId: this.opts.sessionId ?? 'default' }, tool);
+        if (!verdict || verdict.ok) return undefined;
+        this.reportSandboxDecision({ outcome: verdict.code, tool, agentId, reason: verdict.reason });
+        return `Tool call "${tool}" refused by the sandbox policy (${verdict.code}): ${verdict.reason}`;
+    }
+
+    private reportSandboxDecision(d: {
+        outcome: 'allowed' | 'SANDBOX_DENIED' | 'SANDBOX_UNAVAILABLE'; tool: string;
+        mode?: import('../sandbox/types').SandboxMode; network?: import('../sandbox/types').SandboxNetwork;
+        agentId: string; backend?: string; reason?: string;
+    }): void {
+        this.opts.transport.emit({
+            type: 'sandbox', outcome: d.outcome, tool: d.tool, agent_id: d.agentId,
+            ...(d.mode ? { mode: d.mode } : {}), ...(d.network ? { network: d.network } : {}),
+            ...(d.backend ? { backend: d.backend } : {}), ...(d.reason ? { reason: d.reason } : {}),
+        });
+        void this.auditLogger.log({
+            agentId: d.agentId, tool: `sandbox:${d.tool}`,
+            inputPreview: `${d.outcome}${d.mode ? ` ${d.mode}/${d.network ?? '?'}` : ''}${d.backend ? ` via ${d.backend}` : ''}${d.reason ? `: ${d.reason}` : ''}`,
+            success: d.outcome === 'allowed', durationMs: 0, sessionId: this.opts.sessionId,
+        });
+    }
+
     /**
      * Unified tool execution used by both runLoop (primary agent) and
      * runAgentInternal (sub-agents via ask_agent).
@@ -1256,6 +1302,7 @@ export class AgentEngine {
         let result: string;
         let success: boolean;
         let outcome: 'timeout' | 'aborted' | undefined;
+        let sandboxRefusal: string | undefined;
 
         if (!toolDef) {
             result  = `Tool "${call.name}" not found`;
@@ -1266,6 +1313,10 @@ export class AgentEngine {
         ) {
             result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
                       `Use ask_agent to delegate to a specialist.`;
+            success = false;
+        } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id)) !== undefined) {
+            // The policy refuses this tool outright (e.g. a writer while read-only). Nobody is asked and nothing runs.
+            result  = sandboxRefusal;
             success = false;
         } else {
             // Guardrails on the arguments run before approval: nobody is asked to approve a blocked call.
@@ -1292,6 +1343,11 @@ export class AgentEngine {
                 const gateDecision = await this.checkGateSerial(effective, profile.id);
                 if (gateDecision === 'rejected') {
                     result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+                } else if (gateDecision === 'no-approver') {
+                    const reason = `tool "${call.name}" needs approval under the sandbox policy and no approver is configured`;
+                    this.reportSandboxDecision({ outcome: 'SANDBOX_DENIED', tool: call.name, agentId: profile.id, reason });
+                    result = `Tool call "${call.name}" refused (SANDBOX_DENIED): needs approval under the sandbox policy and no approver is configured.`;
+                    success = false;
                 } else {
                     ({ result, success, outcome } = await this.runToolDef(effective, toolDef, profile.id, depth));
                     if (this.guardrails?.has('tool_result')) {
@@ -1320,7 +1376,10 @@ export class AgentEngine {
     /** Approval checks never overlap and run in call order, even inside a parallel wave. */
     private gateQueue: Promise<unknown> = Promise.resolve();
     private checkGateSerial(call: { name: string; args: string }, agentId: string) {
-        const next = this.gateQueue.then(() => this.approvalGate.check(call, agentId));
+        const sandboxAsk = this.opts.sandbox?.approvalFor
+            ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name)
+            : undefined;
+        const next = this.gateQueue.then(() => this.approvalGate.check(call, agentId, sandboxAsk));
         this.gateQueue = next.catch(() => undefined);
         return next;
     }
@@ -1338,6 +1397,7 @@ export class AgentEngine {
             ...this.buildContext(agentId, depth),
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
+            ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId) } : {}),
             signal: controller.signal,
         };
         const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;

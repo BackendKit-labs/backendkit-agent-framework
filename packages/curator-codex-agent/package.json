@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/curator-codex-agent",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Codex Curator — intelligent source code and documentation analysis, vault deduplication, and RAG knowledge extraction, as a reusable library.",
   "type": "module",
   "main": "dist/index.js",
@@ -33,7 +33,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@backendkit-labs/agent-enterprise": "^0.6.0",
+    "@backendkit-labs/agent-enterprise": "^0.7.0",
     "@backendkit-labs/infra": "^0.1.0",
     "@anthropic-ai/sdk": "^0.55.0",
     "openai": "^4.0.0",

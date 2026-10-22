@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.29.1 (2026-10-22)
+
+Parche sobre la Ola 3a. Sin cambios de rangos: `^0.29.0` ya cubre 0.29.1.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.29.1 |
+| `create-bk-agent` | 0.22.8 |
+
+Orden de publicación: core → create-bk-agent.
+
+- **`agent-core`:** un job cancelado (`job_kill`, `engine.abort()`) queda `cancelled` sin conservar como summary el error de su proceso muerto (antes `exit 1`) (#68).
+- **`create-bk-agent`:** nuevo comando `npx create-bk-agent add testing`: instala `@backendkit-labs/agent-testkit`, jest y ts-jest como devDependencies, añade `jest.config.js`, el script `test` y un test de ejemplo sin clave de API; no sobrescribe archivos existentes (#71).
+- **`agent-testkit` 0.1.0** (publicado aparte, paquete nuevo): dobles de prueba (`scriptedProvider`, `mockTransport`), servidor LLM mock compatible con OpenAI con fallos inyectables, grabación y reproducción de ejecuciones y aserciones sobre el sistema real (#69, #70).
+
 ## v0.29.0 (2026-10-22)
 
 Ola 3a del SDK (SPEC-0002; PRs #63 a #66): herramientas con plazo y cancelación, recuperación ante desbordamiento de contexto, credenciales por referencia y jobs en segundo plano.

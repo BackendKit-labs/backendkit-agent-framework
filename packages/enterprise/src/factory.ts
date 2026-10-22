@@ -45,6 +45,15 @@ export interface EnterpriseSetupOptions {
      * Falls back to N8N_WEBHOOK_URL env var if omitted.
      */
     n8nWebhookUrl?: string;
+    /**
+     * Guardrails applied to every session (e.g. `[secretLeakGuardrail(), piiGuardrail()]` from
+     * @backendkit-labs/agent-core). None by default. Needs agent-core >= 0.28.
+     */
+    guardrails?: import('@backendkit-labs/agent-core').Guardrail[];
+    /** `after` (default) or `buffer`; see BaseEngineOptions.guardrailOutputMode. */
+    guardrailOutputMode?: 'after' | 'buffer';
+    /** Token-aware context compaction for every session. Needs agent-core >= 0.28. */
+    context?: import('@backendkit-labs/agent-core').ContextOptions;
 }
 
 export interface EnterpriseSetup {
@@ -174,6 +183,9 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             maxIterations:   opts.maxIterations ?? 20,
             memorySystem:    memory,
             sessionId,
+            ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
+            ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
+            ...(opts.context ? { context: opts.context } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.
         engine.setIterationMode('auto');

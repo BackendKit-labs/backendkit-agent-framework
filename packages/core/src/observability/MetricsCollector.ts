@@ -8,6 +8,7 @@ export class MetricsCollector {
     private estimatedCostUsd = 0;
     private tools = new Map<string, { calls: number; successes: number; failures: number }>();
     private agents = new Map<string, { invocations: number; totalDurationMs: number }>();
+    private guardrails = new Map<string, { redacted: number; blocked: number; errors: number }>();
 
     recordRun(durationMs: number, error: boolean): void {
         this.durations.push(durationMs);
@@ -25,6 +26,12 @@ export class MetricsCollector {
         if (!t) { t = { calls: 0, successes: 0, failures: 0 }; this.tools.set(name, t); }
         t.calls++;
         if (success) t.successes++; else t.failures++;
+    }
+
+    recordGuardrail(name: string, action: 'redact' | 'block' | 'error'): void {
+        let g = this.guardrails.get(name);
+        if (!g) { g = { redacted: 0, blocked: 0, errors: 0 }; this.guardrails.set(name, g); }
+        if (action === 'redact') g.redacted++; else if (action === 'block') g.blocked++; else g.errors++;
     }
 
     recordAgentBlock(agentId: string, durationMs: number): void {
@@ -52,6 +59,7 @@ export class MetricsCollector {
             },
             tools: Object.fromEntries(this.tools),
             agents: Object.fromEntries(this.agents),
+            ...(this.guardrails.size > 0 ? { guardrails: Object.fromEntries(this.guardrails) } : {}),
         };
     }
 

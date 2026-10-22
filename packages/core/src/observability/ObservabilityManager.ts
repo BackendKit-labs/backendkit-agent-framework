@@ -127,6 +127,13 @@ export class ObservabilityManager {
                 this.metrics?.recordToolCall(event.name, event.success);
                 break;
 
+            case 'guardrail':
+                if (!event.dry_run) {
+                    this.metrics?.recordGuardrail(event.name, event.action);
+                    this.runSpan?.setTag(`guardrail.${event.name}.${event.action}`, true);
+                }
+                break;
+
             case 'error':
                 this.runHadError = true;
                 this.runSpan?.setTag('error', event.message);

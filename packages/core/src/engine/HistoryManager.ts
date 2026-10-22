@@ -104,6 +104,22 @@ export class HistoryManager {
         return sanitizeMessages(this.messages);
     }
 
+    /**
+     * Blanks the arguments of one tool call already stored in the history (a guardrail refused them), so
+     * they are neither re-sent to the provider nor written to `historyPath`. The call itself stays so its
+     * result keeps pairing with it.
+     */
+    redactToolCallArgs(toolCallId: string): void {
+        this.messages = this.messages.map(m => {
+            if (m.role !== 'assistant' || !m.tool_calls?.some(c => c.id === toolCallId)) return m;
+            return {
+                ...m,
+                tool_calls: m.tool_calls.map(c =>
+                    c.id === toolCallId ? { ...c, function: { ...c.function, arguments: '{"redacted":"blocked by guardrail"}' } } : c),
+            };
+        });
+    }
+
     /** Replaces the whole conversation (used by ContextManager after compaction). */
     replaceAll(msgs: LLMMessage[]): void {
         this.messages = msgs;

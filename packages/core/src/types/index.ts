@@ -231,13 +231,19 @@ export type AgentEvent =
     | { type: 'workflow_step_complete'; step: string; success: boolean }
     | { type: 'workflow_approval_required'; step: string }
     | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' }
-    | { type: 'compacting'; label: string; phase: 'start' | 'done' | 'fail' };
+    | { type: 'compacting'; label: string; phase: 'start' | 'done' | 'fail' }
+    /**
+     * A guardrail changed, blocked or failed on a piece of text. `replacement` (output phase only) is the
+     * text that replaces what was already streamed, so a UI can swap it. `dry_run` events changed nothing.
+     */
+    | { type: 'guardrail'; name: string; phase: 'input' | 'tool_call' | 'tool_result' | 'output'; action: 'redact' | 'block' | 'error'; reason: string; agent_id?: string; tool?: string; dry_run?: boolean; replacement?: string };
 
 // ─── Engine Options ───────────────────────────────────────────────────────────
 
 import type { Skill } from '../skills/types';
 import type { BudgetUsage } from '../observability/types';
 import type { ContextOptions } from '../engine/ContextManager';
+import type { Guardrail } from '../guardrails/types';
 export type { Skill };
 
 export interface EngineOptions {
@@ -260,6 +266,18 @@ export interface EngineOptions {
      * Can be combined with `maxContextMessages`. Default: disabled.
      */
     context?: ContextOptions;
+    /**
+     * Checks on user input, tool arguments, tool results and model answers (see Guardrail). Applied to
+     * the main agent and to every sub-agent. Default: none.
+     */
+    guardrails?: Guardrail[];
+    /**
+     * How `output` guardrails act on a streamed answer. `after` (default) keeps streaming and, when a
+     * guardrail changes the answer, corrects the stored history and emits a `guardrail` event with the
+     * `replacement`. `buffer` holds the tokens until the answer is checked: nothing unchecked is ever
+     * shown, at the price of streaming.
+     */
+    guardrailOutputMode?: 'after' | 'buffer';
     workingDir?: string;
     sessionId?: string;
     /** Context injected into every agent system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */

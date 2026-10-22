@@ -8,6 +8,18 @@ export { createBaseEngine } from './engine/createBaseEngine';
 export type { BaseEngineOptions } from './engine/createBaseEngine';
 export { ContextManager, defaultEstimateTokens } from './engine/ContextManager';
 export type { ContextOptions, CompactionReport } from './engine/ContextManager';
+export {
+    GuardrailRunner,
+    piiGuardrail, secretLeakGuardrail, promptInjectionGuardrail,
+    maxLengthGuardrail, denyListGuardrail, llmJudgeGuardrail,
+    COMMON_SECRET_PATTERNS, INJECTION_PATTERNS,
+} from './guardrails';
+export type {
+    Guardrail, GuardrailContext, GuardrailDecision, GuardrailOutcome, GuardrailPhase, GuardrailAction,
+    GuardrailEventInfo, PiiKind, PiiGuardrailOptions, SecretLeakGuardrailOptions,
+    PromptInjectionGuardrailOptions, MaxLengthGuardrailOptions, DenyListGuardrailOptions,
+    LlmJudgeGuardrailOptions,
+} from './guardrails';
 export { IterationManager, DEFAULT_MAX_ITERATIONS, DEFAULT_BATCH_SIZE, GLOBAL_LIMIT } from './engine/IterationManager';
 export type { IterationMode, IterationStats, IterationManagerOptions } from './engine/IterationManager';
 

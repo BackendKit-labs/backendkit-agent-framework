@@ -14,6 +14,7 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 - [AgentEngine — the execution core](#agentengine--the-execution-core)
 - [createBaseEngine — high-level factory](#createbaseengine--high-level-factory)
 - [Context compaction (token budget)](#context-compaction-token-budget)
+- [Guardrails](#guardrails)
 - [Providers](#providers)
 - [Transports](#transports)
 - [SessionMemory](#sessionmemory)
@@ -389,6 +390,45 @@ of nesting a new one, and (3) as a last resort drops them. Cuts always fall on a
 tool_call / tool result pairs are never orphaned. It emits `compacting` events and a `[Context]` system line;
 summarizer usage is reported as `metrics` events like any other call, so `CostTracker` accounts for it.
 Compaction is best-effort: any failure is reported and the run continues. Can be combined with `maxContextMessages`.
+
+---
+
+## Guardrails
+
+Checks on what enters and leaves the agent loop, applied to the main agent **and every sub-agent**:
+
+| Phase | Text inspected | When a guardrail blocks |
+|---|---|---|
+| `input` | the user message | the run ends with an `error` event; the model is never called |
+| `tool_call` | the JSON arguments of a tool call (before approval) | the tool does not run; the model is told why and the arguments are scrubbed from the history |
+| `tool_result` | what a tool returned (before the model reads it) | the result is replaced by a notice |
+| `output` | the model's answer | the answer is replaced by a notice in the history |
+
+```typescript
+import { createBaseEngine, secretLeakGuardrail, piiGuardrail, promptInjectionGuardrail } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
+  // ...
+  guardrails: [secretLeakGuardrail(), piiGuardrail(), promptInjectionGuardrail()],
+  guardrailOutputMode: 'after',   // or 'buffer'
+});
+```
+
+Ready-made: `piiGuardrail` (email, phone [heuristic], card [Luhn], IBAN [mod 97], US SSN), `secretLeakGuardrail`
+(literal `AgentProfile.secrets` of **every** agent plus common key formats; always blocks them in tool arguments),
+`promptInjectionGuardrail` (heuristic: wraps suspicious tool results as `<untrusted_content>`; not a guarantee),
+`maxLengthGuardrail`, `denyListGuardrail`, `llmJudgeGuardrail` (one extra LLM call per check).
+
+Write your own: `{ name, phases, check(ctx) => { action: 'allow' } | { action: 'redact', content, reason } | { action: 'block', reason }, failMode?, dryRun? }`.
+`redact` feeds the next guardrail; the first `block` wins. A guardrail that throws **blocks** (`failMode: 'closed'`, default)
+unless you set `failMode: 'open'`. `dryRun: true` only reports, which is the way to tune false positives.
+
+`guardrailOutputMode`: with `after` (default) tokens stream as they arrive; if an output guardrail changes the answer, the
+stored history is corrected and a `guardrail` event carries the `replacement` for the UI. With `buffer` tokens are held
+until the answer is checked: nothing unchecked is ever shown, but there is no streaming.
+
+Every redaction, block and error emits a `{ type: 'guardrail', name, phase, action, reason, ... }` event, is written to the
+`auditLog` as `guardrail:<phase>:<name>`, and is counted in `MetricsSnapshot.guardrails`.
 
 ---
 

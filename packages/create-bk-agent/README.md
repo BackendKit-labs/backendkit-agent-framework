@@ -259,6 +259,14 @@ bk add agent billing          # creates src/agents/billing.json
 bk add trigger daily-report   # adds a cron trigger
 ```
 
+### Tests that need no API key
+
+```bash
+npx create-bk-agent add testing
+```
+
+Adds `@backendkit-labs/agent-testkit`, jest and ts-jest as dev dependencies, a `jest.config.js`, a `test` script and an example test (`src/__tests__/agent.example.test.ts`) that runs an agent against a scripted provider. Existing files are never overwritten. See the [agent-testkit README](../testkit/README.md) for the mock LLM server, record/replay and the real-world assertions.
+
 ---
 
 ## Scripts in scaffolded projects

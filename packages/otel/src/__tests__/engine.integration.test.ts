@@ -1,5 +1,6 @@
 import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
-import type { AgentProfile, LLMProvider, Transport } from '@backendkit-labs/agent-core';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
+import { mockTransport, scriptedProvider } from '@backendkit-labs/agent-testkit';
 import { otlpHttpSpanExporter } from '../otlpHttpExporter';
 
 /** A real engine, a scripted model, spans exported through OTLP to a fake collector. */
@@ -8,23 +9,13 @@ describe('agent-core engine → OTLP', () => {
         id: 'main', name: 'Main', icon: 'M', description: 'x', systemPrompt: 'x',
         allowedTools: ['echo'], delegatesTo: [], model: 'tiny',
     };
-    const transport: Transport = { emit: () => undefined, onInput: () => () => undefined, close: () => undefined };
+    const { transport } = mockTransport();
 
     it('exports run → agent_block → llm_call / tool_call with consistent ids', async () => {
-        let turn = 0;
-        const provider: LLMProvider = {
-            async chat(_m, _t, cb) {
-                if (turn++ === 0) {
-                    cb.onToolCall?.('echo', '{"x":1}', 'c1');
-                    cb.onMetrics?.(30, 5);
-                    cb.onDone({ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'echo', arguments: '{"x":1}' } }] });
-                } else {
-                    cb.onChunk?.('done');
-                    cb.onMetrics?.(40, 8);
-                    cb.onDone({ role: 'assistant', content: 'done' });
-                }
-            },
-        };
+        const provider = scriptedProvider([
+            { tool_calls: [{ id: 'c1', name: 'echo', args: { x: 1 } }], metrics: { inputTokens: 30, outputTokens: 5 } },
+            { content: 'done', metrics: { inputTokens: 40, outputTokens: 8 } },
+        ]);
         const posted: Array<Record<string, any>> = [];
         const exporter = otlpHttpSpanExporter({
             serviceName: 'it', flushIntervalMs: 0,

@@ -84,6 +84,16 @@ export function addPackageDependency(pkgFile: string, depName: string, version: 
     return true;
 }
 
+/** Adds `depName@version` to devDependencies if it is in neither dependencies nor devDependencies. */
+export function addPackageDevDependency(pkgFile: string, depName: string, version: string): boolean {
+    const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf-8'));
+    if (pkg.dependencies?.[depName] || pkg.devDependencies?.[depName]) return false;
+    pkg.devDependencies ??= {};
+    pkg.devDependencies[depName] = version;
+    fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + '\n');
+    return true;
+}
+
 // ── AgentEngine options patcher ───────────────────────────────────────────────
 
 /**

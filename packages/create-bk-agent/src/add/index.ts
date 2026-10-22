@@ -5,6 +5,7 @@ import { addTools }      from './modules/tools';
 import { addMcpClient }  from './modules/mcp-client';
 import { addPlugin }     from './modules/plugin';
 import { addKnowledge }  from './modules/knowledge';
+import { addTesting }    from './modules/testing';
 
 const HELP = `
 Usage: npx create-bk-agent add <module> [options]
@@ -29,6 +30,9 @@ Modules:
   plugin <name>         Install a backendkit agent as a stdio MCP plugin
                         Available: docker, k8s
 
+  testing               Set up tests that need no API key: agent-testkit + jest,
+                        a jest.config.js, a "test" script and an example test
+
 Examples:
   npx create-bk-agent add server --port 4000
   npx create-bk-agent add specialist data-analyst
@@ -39,6 +43,7 @@ Examples:
   npx create-bk-agent add mcp-client http://localhost:3001/mcp --name billing
   npx create-bk-agent add plugin docker
   npx create-bk-agent add plugin k8s
+  npx create-bk-agent add testing
 `;
 
 export function runAdd(args: string[], cwd: string): void {
@@ -88,6 +93,10 @@ export function runAdd(args: string[], cwd: string): void {
 
         case 'knowledge':
             addKnowledge(info, rest);
+            break;
+
+        case 'testing':
+            addTesting(info, rest);
             break;
 
         default:

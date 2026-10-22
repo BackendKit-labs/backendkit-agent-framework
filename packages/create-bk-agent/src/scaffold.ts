@@ -39,6 +39,7 @@ function copyDir(src: string, dst: string): void {
 export const GENERATED_DEP_RANGES = {
     '@backendkit-labs/mcp-server': '^0.16.0',
     '@backendkit-labs/agent-web':  '^0.4.0',
+    '@backendkit-labs/agent-testkit': '^0.1.0',
 } as const;
 
 // ── Patch package.json — name + scripts ──────────────────────────────────────

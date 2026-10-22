@@ -44,6 +44,9 @@ jobs:
       - name: Build agent-otel
         run: npm run build -w packages/otel
 
+      - name: Build agent-testkit
+        run: npm run build -w packages/testkit
+
       - name: Build agent-coding
         run: npm run build -w packages/coding
 

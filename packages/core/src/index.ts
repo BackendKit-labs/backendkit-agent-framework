@@ -12,6 +12,10 @@ export { isContextOverflowError } from './engine/contextOverflow';
 export { createJobRegistry, JobLimitError } from './jobs/JobRegistry';
 export type { JobRegistry, JobRegistryOptions, JobInfo, JobSpec, JobStatus, JobOutput } from './jobs/JobRegistry';
 export { JOB_TOOLS, jobOutputTool, jobListTool, jobKillTool } from './jobs/tools';
+export type {
+    SandboxMode, SandboxNetwork, SandboxExecRequest, SandboxExecResult, SandboxCaller,
+    SandboxDenyCode, SandboxOutcome, SandboxDecision, SandboxRunner,
+} from './sandbox/types';
 export {
     GuardrailRunner,
     piiGuardrail, secretLeakGuardrail, promptInjectionGuardrail,

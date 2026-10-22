@@ -110,6 +110,11 @@ export interface ExecutionContext {
      * `jobs.start({ kind, owner: ctx.agentId, run })` and returns its id instead of blocking.
      */
     jobs?: import('../jobs/JobRegistry').JobRegistry;
+    /**
+     * Confined execution (present when a sandbox is configured). A tool that runs something on the host
+     * should go through `sandbox.run(...)` so the policy, backend and environment hygiene apply.
+     */
+    sandbox?: import('../sandbox/types').SandboxRunner;
 }
 
 export interface SessionMemoryData {

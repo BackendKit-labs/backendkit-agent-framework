@@ -120,7 +120,10 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
             e.settled = new Promise<string | void>(resolve => resolve(spec.run(controller.signal, append)))
                 .then(
                     summary => finish(e, controller.signal.aborted ? 'cancelled' : 'done', typeof summary === 'string' ? summary : undefined),
-                    err => finish(e, controller.signal.aborted ? 'cancelled' : 'failed', err instanceof Error ? err.message : String(err)),
+                    // A cancelled job usually dies with an error (killed process): that is not why it ended.
+                    err => controller.signal.aborted
+                        ? finish(e, 'cancelled')
+                        : finish(e, 'failed', err instanceof Error ? err.message : String(err)),
                 );
             entries.set(e.info.id, e);
             return { ...e.info };

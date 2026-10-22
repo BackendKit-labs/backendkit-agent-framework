@@ -58,6 +58,16 @@ describe('createCodingEngine option forwarding', () => {
         expect(caps({ anthropic: { apiKey: 'k' } }, 'anthropic')).toBe('native');
     });
 
+    it('lets the deepseek provider drop thinking on forced tool choices, and only that one', () => {
+        const flag = (providers: unknown, id: string) => {
+            createCodingEngine({ providers: providers as never, defaultProvider: id, disablePersistence: true });
+            const call = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0];
+            return (call.providers[id] as { disableThinkingForForcedTools: boolean }).disableThinkingForForcedTools;
+        };
+        expect(flag({ deepseek: { apiKey: 'k' } }, 'deepseek')).toBe(true);
+        expect(flag({ openai: { apiKey: 'k' } }, 'openai')).toBe(false);
+    });
+
     it('fails fast on an invalid thinking budget', () => {
         expect(() => createCodingEngine({
             providers: { anthropic: { apiKey: 'k', thinking: { budgetTokens: 10 } } } as never,

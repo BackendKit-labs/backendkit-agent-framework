@@ -21,10 +21,16 @@ export type RepoReport = z.infer<typeof RepoReport>;
  * `StructuredOutputError`.
  */
 export async function repoReport(engine: GitEngine, cwd: string): Promise<RepoReport> {
+    // Independent reads: they run together now that git() is asynchronous.
+    const [status, branches, log] = await Promise.all([
+        git(['status', '--short'], cwd),
+        git(['branch', '-a'], cwd),
+        git(['log', '--oneline', '-15'], cwd),
+    ]);
     const facts = [
-        `## git status --short\n${git('status --short', cwd)}`,
-        `## git branch -a\n${git('branch -a', cwd)}`,
-        `## git log --oneline -15\n${git('log --oneline -15', cwd)}`,
+        `## git status --short\n${status}`,
+        `## git branch -a\n${branches}`,
+        `## git log --oneline -15\n${log}`,
     ].join('\n\n');
 
     return engine.generateObject(

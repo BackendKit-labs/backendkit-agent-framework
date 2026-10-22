@@ -31,10 +31,10 @@ Un ADR aceptado no se edita para cambiar la decisión: se escribe uno nuevo que 
 
 | ADR | Título | Estado |
 |---|---|---|
-| [0001](0001-ejecucion-paralela-de-tool-calls.md) | Ejecución paralela de tool calls | Propuesto |
-| [0002](0002-aborto-automatico-por-presupuesto.md) | Aborto automático por presupuesto | Propuesto |
-| [0003](0003-salida-estructurada.md) | Salida estructurada | Propuesto |
-| [0004](0004-cache-de-prompt-y-razonamiento-anthropic.md) | Caché de prompt y razonamiento en Anthropic | Propuesto |
-| [0005](0005-unificacion-de-providers.md) | Unificación de providers LLM | Propuesto |
+| [0001](0001-ejecucion-paralela-de-tool-calls.md) | Ejecución paralela de tool calls | Aceptado |
+| [0002](0002-aborto-automatico-por-presupuesto.md) | Aborto automático por presupuesto | Aceptado |
+| [0003](0003-salida-estructurada.md) | Salida estructurada | Aceptado |
+| [0004](0004-cache-de-prompt-y-razonamiento-anthropic.md) | Caché de prompt y razonamiento en Anthropic | Aceptado |
+| [0005](0005-unificacion-de-providers.md) | Unificación de providers LLM | Aceptado |
 
 Spec que los agrupa: [SPEC-0001](../specs/SPEC-0001-agent-core-ola-1.md).

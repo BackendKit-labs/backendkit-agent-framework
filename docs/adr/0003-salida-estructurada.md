@@ -1,7 +1,8 @@
 # ADR-0003: Salida estructurada
 
 **Fecha:** 2026-10-21
-**Estado:** Propuesto
+**Estado:** Aceptado
+**Implementado en:** agent-core 0.27.0, agent-providers 0.2.0, agent-coding 0.23.0 (PR #54)
 **Spec:** [SPEC-0001 §5](../specs/SPEC-0001-agent-core-ola-1.md)
 **Depende de:** [ADR-0005](0005-unificacion-de-providers.md)
 

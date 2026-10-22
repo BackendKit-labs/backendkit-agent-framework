@@ -14,6 +14,8 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
             model: opts.model ?? 'deepseek-v4-flash',
             // DeepSeek only offers json_object: the schema travels in the prompt.
             structuredOutput: opts.structuredOutput ?? 'json_object',
+            // V4 thinks by default and rejects forced tool choices in that mode.
+            disableThinkingForForcedTools: opts.disableThinkingForForcedTools ?? true,
         });
     }
 }

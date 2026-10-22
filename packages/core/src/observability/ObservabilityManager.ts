@@ -42,7 +42,7 @@ export class ObservabilityManager {
         return {
             emit: (event: AgentEvent) => {
                 this.handleEvent(event);
-                transport.emit(event);
+                transport.emit(this.withCost(event));
             },
             onInput: (handler) => transport.onInput(handler),
             close: () => transport.close(),
@@ -68,7 +68,21 @@ export class ObservabilityManager {
 
     // ── Private ────────────────────────────────────────────────────────────────
 
+    // Cost of the `metrics` event being handled (0 when there are no prices configured).
+    private batchCostUsd = 0;
+
+    /**
+     * Providers report tokens, not money. When a cost tracker with prices is configured, the
+     * `metrics` event that goes on to the transport carries the computed `cost_usd`, so any display
+     * can show the cost without recomputing it. A cost the provider already reported is left alone.
+     */
+    private withCost(event: AgentEvent): AgentEvent {
+        if (event.type !== 'metrics' || event.cost_usd !== undefined || this.batchCostUsd <= 0) return event;
+        return { ...event, cost_usd: this.batchCostUsd };
+    }
+
     private handleEvent(event: AgentEvent): void {
+        this.batchCostUsd = 0;
         switch (event.type) {
 
             case 'ready':
@@ -125,6 +139,7 @@ export class ObservabilityManager {
                     event.cost_usd,
                     { cacheReadTokens: event.cache_read_tokens, cacheWriteTokens: event.cache_write_tokens },
                 ) ?? 0;
+                this.batchCostUsd = costUsd;
                 this.metrics?.recordTokens(event.input_tokens, event.output_tokens, costUsd);
                 break;
             }

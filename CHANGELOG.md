@@ -2,6 +2,18 @@
 
 ## Sin publicar
 
+### `@backendkit-labs/agent-core` / `agent-providers` / `agent-coding` — correcciones halladas probando con DeepSeek
+
+- **`metrics` lleva `cost_usd`.** El `ObservabilityManager` calculaba el costo pero el evento que llegaba
+  al transporte seguía sin él, así que ninguna interfaz podía mostrarlo. Ahora, con un `costTracker` con
+  precios, el evento `metrics` reenviado incluye el `cost_usd` de esa llamada (tokens de caché incluidos).
+  Un `cost_usd` que ya traiga el provider se respeta, y sin precios el evento no cambia.
+- **DeepSeek V4 y `toolChoice` forzado.** V4 piensa por defecto y responde 400 a un `toolChoice`
+  `'required'` o por nombre en ese modo. `DeepSeekProvider` envía ahora `thinking: disabled` en esas
+  llamadas (si no fijaste `thinking` tú). Opción nueva `disableThinkingForForcedTools` en
+  `OpenAICompatibleProvider` (apagada por defecto: no todos los endpoints aceptan el campo `thinking`;
+  encendida en el preset de DeepSeek y para el provider `deepseek` de `createCodingEngine`).
+
 ### `examples/` — refactor con las novedades de 0.27
 
 Los ejemplos dependen ahora de los paquetes **publicados** (`agent-core ^0.27.0`, `agent-coding ^0.23.0`,
@@ -10,6 +22,10 @@ Los ejemplos dependen ahora de los paquetes **publicados** (`agent-core ^0.27.0`
   `openai`); presupuesto por ejecución con `abortOnBudget`; modo solo lectura (`GIT_AGENT_READONLY=1`);
   `/report` con salida estructurada (`engine.generateObject`); la terminal muestra uso, avisos del
   framework y tope de presupuesto; `npm run smoke` (prueba real contra un repo temporal).
+  Sus herramientas git ya no pasan por un shell: usan `execFile` con argumentos (nada de lo que elija el
+  modelo se interpreta como sintaxis de shell), rechazan refs que empiezan por `-`, no se cuelgan pidiendo
+  credenciales y devuelven también lo que git imprime por stderr (checkout, merge, push). `npm run check`
+  las prueba sin LLM.
 - `vault-pilot`: su `DeepSeekProvider` pasa a ser un adaptador fino sobre `agent-providers`.
 - `code-explainer` y `git-analyst`: tope de gasto opcional por llamada (`AGENT_BUDGET_USD` + precios).
 - `coding-assistant`: tope de gasto opcional, `maxParallelTools: 4`, muestra uso de caché y tope de

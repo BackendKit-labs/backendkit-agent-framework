@@ -173,3 +173,42 @@ describe('end to end with generateObject', () => {
         expect(out).toEqual({ a: 'z' });
     });
 });
+
+describe('forced toolChoice with a thinking-by-default backend (DeepSeek V4)', () => {
+    const forced: Array<ChatOptions['toolChoice']> = ['required', { name: 't' }];
+
+    it('DeepSeekProvider sends thinking disabled when a tool is forced', async () => {
+        for (const toolChoice of forced) {
+            const { client, create } = openaiClient([[text('{}')]]);
+            await new DeepSeekProvider({ apiKey: 'k', client, ...fast }).chat([userMsg('q')], [tool], recorder().callbacks, { toolChoice });
+            expect(oaiParams(create).thinking).toEqual({ type: 'disabled' });
+        }
+    });
+
+    it('leaves thinking out for auto / none / no option', async () => {
+        for (const options of [undefined, { toolChoice: 'auto' as const }, { toolChoice: 'none' as const }]) {
+            const { client, create } = openaiClient([[text('{}')]]);
+            await new DeepSeekProvider({ apiKey: 'k', client, ...fast }).chat([userMsg('q')], [tool], recorder().callbacks, options);
+            expect(oaiParams(create)).not.toHaveProperty('thinking');
+        }
+    });
+
+    it('an explicit thinking setting wins', async () => {
+        const { client, create } = openaiClient([[text('{}')]]);
+        await new DeepSeekProvider({ apiKey: 'k', client, thinking: 'enabled', ...fast })
+            .chat([userMsg('q')], [tool], recorder().callbacks, { toolChoice: 'required' });
+        expect(oaiParams(create).thinking).toEqual({ type: 'enabled' });
+    });
+
+    it('can be switched off, and the generic provider never adds the field', async () => {
+        const a = openaiClient([[text('{}')]]);
+        await new DeepSeekProvider({ apiKey: 'k', client: a.client, disableThinkingForForcedTools: false, ...fast })
+            .chat([userMsg('q')], [tool], recorder().callbacks, { toolChoice: 'required' });
+        expect(oaiParams(a.create)).not.toHaveProperty('thinking');
+
+        const b = openaiClient([[text('{}')]]);
+        await new OpenAICompatibleProvider({ apiKey: 'k', model: 'm', client: b.client, ...fast })
+            .chat([userMsg('q')], [tool], recorder().callbacks, { toolChoice: 'required' });
+        expect(oaiParams(b.create)).not.toHaveProperty('thinking');
+    });
+});

@@ -1,7 +1,8 @@
 # ADR-0002: Aborto automático por presupuesto
 
 **Fecha:** 2026-10-21
-**Estado:** Propuesto
+**Estado:** Aceptado
+**Implementado en:** agent-core 0.26.0, agent-coding 0.22.0 (PR #50)
 **Spec:** [SPEC-0001 §4](../specs/SPEC-0001-agent-core-ola-1.md)
 
 ## Contexto

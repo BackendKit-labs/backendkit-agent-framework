@@ -1,7 +1,8 @@
 # ADR-0004: Caché de prompt y razonamiento extendido en Anthropic
 
 **Fecha:** 2026-10-21
-**Estado:** Propuesto
+**Estado:** Aceptado
+**Implementado en:** agent-core 0.27.0, agent-providers 0.2.0, agent-coding 0.23.0 (PR #53)
 **Spec:** [SPEC-0001 §6](../specs/SPEC-0001-agent-core-ola-1.md)
 
 ## Contexto

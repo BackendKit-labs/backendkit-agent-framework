@@ -3,6 +3,7 @@ import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
 import { ContextManager, SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from './ContextManager';
 import { resolveSecrets } from './secrets';
+import { isContextOverflowError } from './contextOverflow';
 import { GuardrailRunner } from '../guardrails/GuardrailRunner';
 import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
@@ -143,6 +144,8 @@ const ASK_AGENT_TOOL: ToolDefinition = {
 
 import type { ZodType } from 'zod';
 import { generateObject } from '../structured/generateObject';
+
+const MAX_OVERFLOW_RETRIES = 2;
 
 /** What the engine knows about one LLM call, for tracing. */
 interface LlmCallInfo {
@@ -646,6 +649,29 @@ export class AgentEngine {
         this.trimHistory();
     }
 
+    /**
+     * The provider said the request did not fit: shrink the budget and force a compaction.
+     * True when the history got smaller, so repeating the call can succeed.
+     */
+    private async recoverFromOverflow(): Promise<boolean> {
+        const cm = this.contextManager;
+        if (!cm) return false;
+        cm.noteOverflow();
+        let report;
+        try {
+            report = await cm.compact({ force: true, targetRatio: 0.5 });
+        } catch {
+            return false;
+        }
+        if (!report || report.tokensAfter >= report.tokensBefore) return false;
+        this.opts.transport.emit({
+            type: 'system', level: 'info',
+            text: `[Context] Provider reported context overflow: compacted ~${report.tokensBefore} → ~${report.tokensAfter} tokens, ` +
+                  `budget now ~${cm.effectiveMaxTokens} tokens. Retrying.`,
+        });
+        return true;
+    }
+
     /** One summarization call, billed through `metrics` events like any other LLM call. */
     private summarizeForContext(transcript: string, previousSummary?: string): Promise<string> {
         const cfg = this.opts.context?.summarizer;
@@ -856,6 +882,7 @@ export class AgentEngine {
 
         this.iterationManager.reset();
         const iterManager = this.iterationManager;
+        let overflowRetries = 0;
 
         this.opts.transport.emit({
             type: 'block_start',
@@ -888,6 +915,7 @@ export class AgentEngine {
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
             const otherCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
+            let overflowError: Error | null = null;
 
             this.abortController = new AbortController();
             const signal = this.abortController.signal;
@@ -918,7 +946,13 @@ export class AgentEngine {
                     },
                     onDone: (msg) => { finalMessage = msg; },
                     onError: (err) => {
-                        if (!this.aborted) this.opts.transport.emit({ type: 'error', message: err.message });
+                        if (this.aborted) return;
+                        // Held back: the loop below may recover by compacting and retrying.
+                        if (this.contextManager && this.opts.context?.overflowRetry !== false && isContextOverflowError(err)) {
+                            overflowError = err;
+                            return;
+                        }
+                        this.opts.transport.emit({ type: 'error', message: err.message });
                     },
                     onMetrics: (inputTokens, outputTokens, usage) => {
                         // Anthropic reports cached tokens apart from input_tokens; the request still carried them.
@@ -940,6 +974,15 @@ export class AgentEngine {
 
             this.abortController = null;
             if (this.aborted) break;
+
+            if (!finalMessage && overflowError) {
+                if (overflowRetries < MAX_OVERFLOW_RETRIES && await this.recoverFromOverflow()) {
+                    overflowRetries++;
+                    continue;
+                }
+                this.opts.transport.emit({ type: 'error', message: (overflowError as Error).message });
+                break;
+            }
 
             if (!finalMessage) break;
 

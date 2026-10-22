@@ -1,6 +1,7 @@
 import { ApprovalGate } from './ApprovalGate';
 import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
+import { ContextManager, SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from './ContextManager';
 import { MCPRegistrar } from './MCPRegistrar';
 import type {
     AgentProfile,
@@ -160,6 +161,9 @@ export class AgentEngine {
     private readonly bus: DelegationBus;
     private readonly skillActivator = new SkillActivator();
     private readonly history: HistoryManager;
+    private readonly contextManager?: ContextManager;
+    /** Uncalibrated token estimate of the last request sent by runLoop, to calibrate against real usage. */
+    private lastRequestEstimate = 0;
     private readonly auditLogger: AuditLogger;
     private currentAgentId: string;
     private aborted = false;
@@ -185,6 +189,13 @@ export class AgentEngine {
             historyPath:        opts.historyPath,
             maxContextMessages: opts.maxContextMessages,
         });
+        if (opts.context) {
+            this.contextManager = new ContextManager(opts.context, {
+                history: this.history,
+                summarize: (transcript, previous) => this.summarizeForContext(transcript, previous),
+                emit: (event) => this.opts.transport.emit(event),
+            });
+        }
         this.auditLogger = new AuditLogger(opts.auditLog);
         this.mcpRegistrar = new MCPRegistrar({
             mcpManager: opts.mcpManager,
@@ -504,6 +515,51 @@ export class AgentEngine {
         this.history.save();
     }
 
+    /** Token-aware compaction first (when configured), then the message-count cap. */
+    private async prepareContext(): Promise<void> {
+        if (this.contextManager) {
+            try {
+                const report = await this.contextManager.compact();
+                if (report && report.summarizedMessages + report.droppedMessages + report.truncatedToolResults > 0) {
+                    this.opts.transport.emit({
+                        type: 'system', level: 'info',
+                        text: `[Context] ~${report.tokensBefore} → ~${report.tokensAfter} tokens ` +
+                              `(truncated ${report.truncatedToolResults} tool results, summarized ${report.summarizedMessages}, dropped ${report.droppedMessages} messages)`,
+                    });
+                }
+            } catch (err) {
+                // Compaction is best-effort: a bug here must never stop the agent.
+                this.opts.transport.emit({ type: 'system', level: 'warn', text: `[Context] Compaction failed: ${err instanceof Error ? err.message : String(err)}` });
+            }
+        }
+        this.trimHistory();
+    }
+
+    /** One summarization call, billed through `metrics` events like any other LLM call. */
+    private summarizeForContext(transcript: string, previousSummary?: string): Promise<string> {
+        const cfg = this.opts.context?.summarizer;
+        const provider = this.opts.providers.resolve(cfg?.provider, this.opts.defaultProvider);
+        return new Promise<string>((resolve, reject) => {
+            const chunks: string[] = [];
+            Promise.resolve(provider.chat(
+                [
+                    { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+                    { role: 'user', content: buildSummaryPrompt(transcript, previousSummary) },
+                ],
+                [],
+                {
+                    onChunk: (delta) => { chunks.push(delta); },
+                    onDone: (msg) => resolve(msg.content ?? chunks.join('')),
+                    onError: reject,
+                    onMetrics: (inputTokens, outputTokens, usage) => {
+                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+                    },
+                    ...(cfg?.model ? { model: cfg.model } : {}),
+                },
+            )).catch(reject);
+        });
+    }
+
     private trimHistory(): void {
         const max = this.opts.maxContextMessages;
         if (!max) return;
@@ -698,11 +754,17 @@ export class AgentEngine {
             const shouldContinue = await iterManager.advance();
             if (!shouldContinue) break;
 
-            this.trimHistory();
+            await this.prepareContext();
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
             const safeHistory = this.history.sanitized();
+            if (this.contextManager) {
+                this.lastRequestEstimate =
+                    this.contextManager.estimateText(systemMsg.content ?? '') +
+                    this.contextManager.estimateText(JSON.stringify(tools.map(t => [t.name, t.description, t.parameters]))) +
+                    this.contextManager.estimateRaw(safeHistory);
+            }
 
             let streamBuffer = '';
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
@@ -738,6 +800,11 @@ export class AgentEngine {
                         if (!this.aborted) this.opts.transport.emit({ type: 'error', message: err.message });
                     },
                     onMetrics: (inputTokens, outputTokens, usage) => {
+                        // Anthropic reports cached tokens apart from input_tokens; the request still carried them.
+                        this.contextManager?.observeUsage(
+                            inputTokens + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0),
+                            this.lastRequestEstimate,
+                        );
                         this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
                     },
                     signal,

@@ -324,6 +324,12 @@ export interface CodingEngineOptions {
      */
     subAgentContextMessages?: number;
     /**
+     * Token-aware context control: truncates bulky old tool results and summarizes (or drops) the oldest
+     * turns to keep the conversation under `context.maxTokens`. Default: disabled.
+     * Needs @backendkit-labs/agent-core >= 0.28.
+     */
+    context?: import('@backendkit-labs/agent-core').ContextOptions;
+    /**
      * Called before executing write/execute tools (write_file, edit_file, run_command) when
      * iteration mode is manual. Return 'approve', 'approve_all', or 'reject'.
      */
@@ -585,6 +591,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
+        ...(opts.context ? { context: opts.context } : {}),
         ...(memorySystem ? { memorySystem } : {}),
         ...(historyPath ? { historyPath } : {}),
         // Only rebuild project context on switch when persistence is enabled —

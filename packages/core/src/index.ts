@@ -6,6 +6,8 @@ export { ToolRegistry } from './engine/ToolRegistry';
 export { ProviderRegistry } from './engine/ProviderRegistry';
 export { createBaseEngine } from './engine/createBaseEngine';
 export type { BaseEngineOptions } from './engine/createBaseEngine';
+export { ContextManager, defaultEstimateTokens } from './engine/ContextManager';
+export type { ContextOptions, CompactionReport } from './engine/ContextManager';
 export { IterationManager, DEFAULT_MAX_ITERATIONS, DEFAULT_BATCH_SIZE, GLOBAL_LIMIT } from './engine/IterationManager';
 export type { IterationMode, IterationStats, IterationManagerOptions } from './engine/IterationManager';
 

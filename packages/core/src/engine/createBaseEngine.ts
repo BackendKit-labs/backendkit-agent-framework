@@ -23,6 +23,7 @@ import type { MemorySystem } from '../agent-memory/MemorySystem';
 import { discoverAgents } from '../agent-discovery/discoverAgents';
 import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 import type { IterationMode, IterationStats } from './IterationManager';
+import type { ContextOptions } from './ContextManager';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,16 @@ export interface BaseEngineOptions {
      * long-running autonomous agents.
      */
     maxContextMessages?: number;
+
+    /**
+     * Token-aware context control (see ContextOptions): truncates old bulky tool results, then summarizes
+     * (or drops) the oldest turns to keep the history under `context.maxTokens`. Can be combined with
+     * `maxContextMessages`.
+     *
+     * @example
+     * context: { maxTokens: 60_000, summarizer: { provider: 'deepseek', model: 'deepseek-chat' } }
+     */
+    context?: ContextOptions;
 
     /** Absolute path used as the working directory for tool calls. */
     workingDir?: string;
@@ -340,6 +351,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
+        ...(opts.context ? { context: opts.context } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(opts.historyPath ? { historyPath: opts.historyPath } : {}),
         projectContext: opts.projectContext,

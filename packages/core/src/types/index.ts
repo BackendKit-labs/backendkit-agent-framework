@@ -237,6 +237,7 @@ export type AgentEvent =
 
 import type { Skill } from '../skills/types';
 import type { BudgetUsage } from '../observability/types';
+import type { ContextOptions } from '../engine/ContextManager';
 export type { Skill };
 
 export interface EngineOptions {
@@ -253,6 +254,12 @@ export interface EngineOptions {
      * Recommended: 100–200 for interactive agents; 40–60 for long-running autonomous agents.
      */
     maxContextMessages?: number;
+    /**
+     * Token-aware context control: truncates bulky old tool results, then folds the oldest turns into a
+     * summary (or drops them) so the history stays under `context.maxTokens`. Checked before every LLM call.
+     * Can be combined with `maxContextMessages`. Default: disabled.
+     */
+    context?: ContextOptions;
     workingDir?: string;
     sessionId?: string;
     /** Context injected into every agent system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */

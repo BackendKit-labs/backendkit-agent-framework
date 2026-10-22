@@ -104,6 +104,11 @@ export class HistoryManager {
         return sanitizeMessages(this.messages);
     }
 
+    /** Replaces the whole conversation (used by ContextManager after compaction). */
+    replaceAll(msgs: LLMMessage[]): void {
+        this.messages = msgs;
+    }
+
     /** Appends a user-role message (used by injectContext). */
     inject(content: string): void {
         this.messages.push({ role: 'user', content });

@@ -13,6 +13,7 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 - [defineTool — typed tools with Zod](#definetool--typed-tools-with-zod)
 - [AgentEngine — the execution core](#agentengine--the-execution-core)
 - [createBaseEngine — high-level factory](#createbaseengine--high-level-factory)
+- [Context compaction (token budget)](#context-compaction-token-budget)
 - [Providers](#providers)
 - [Transports](#transports)
 - [SessionMemory](#sessionmemory)
@@ -359,6 +360,35 @@ const engine = createBaseEngine({
   orchestration: true,       // enables intent detection + domain routing + QA review
 });
 ```
+
+---
+
+## Context compaction (token budget)
+
+`maxContextMessages` caps the history by message count and discards what it cuts. With `context` the
+history is kept under a **token** budget instead, and old turns are summarized rather than lost:
+
+```typescript
+const engine = createBaseEngine({
+  // ...
+  context: {
+    maxTokens: 60_000,                                         // budget for the history (not the system prompt)
+    summarizer: { provider: 'deepseek', model: 'deepseek-chat' }, // cheap model for summaries (default: the default provider)
+    // strategy: 'summarize' | 'drop'   (default 'summarize'; a failing summarizer falls back to 'drop')
+    // keepRecentTurns: 4               (last user turns are never touched)
+    // toolResultMaxChars: 8000         (older tool results are cut head+tail)
+    // threshold: 0.85                  (compact above 85% of maxTokens, down to 70%)
+    // estimateTokens: (msg) => number  (default ~4 chars per token, calibrated with real provider usage)
+  },
+});
+```
+
+Before every LLM call the engine (1) truncates bulky old tool results, (2) folds the oldest turns into one
+`<conversation_summary>` block merged into the first kept user turn, extending the previous summary instead
+of nesting a new one, and (3) as a last resort drops them. Cuts always fall on a user-turn boundary, so
+tool_call / tool result pairs are never orphaned. It emits `compacting` events and a `[Context]` system line;
+summarizer usage is reported as `metrics` events like any other call, so `CostTracker` accounts for it.
+Compaction is best-effort: any failure is reported and the run continues. Can be combined with `maxContextMessages`.
 
 ---
 

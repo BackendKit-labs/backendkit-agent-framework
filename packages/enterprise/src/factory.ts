@@ -58,6 +58,8 @@ export interface EnterpriseSetupOptions {
     jobs?: boolean | import('@backendkit-labs/agent-core').JobRegistryOptions;
     /** Resolves `AgentProfile.secrets` references whose env var is unset. Needs agent-core >= 0.29. */
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
+    /** Confined execution (see BaseEngineOptions.sandbox), e.g. from `@backendkit-labs/agent-sandbox`. Needs agent-core >= 0.30. */
+    sandbox?: import('@backendkit-labs/agent-core').SandboxRunner;
     /** Token-aware context compaction for every session. Needs agent-core >= 0.28. */
     context?: import('@backendkit-labs/agent-core').ContextOptions;
 }
@@ -194,6 +196,7 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
             ...(opts.jobs ? { jobs: opts.jobs } : {}),
             ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+            ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
             ...(opts.context ? { context: opts.context } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.

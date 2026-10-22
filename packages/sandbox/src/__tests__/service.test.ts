@@ -224,3 +224,49 @@ describe('SandboxService — decisions, audit and authorizeTool', () => {
         expect(seen.map(d => [d.tool, d.outcome])).toEqual([['write_file', 'SANDBOX_DENIED']]);
     });
 });
+
+describe('SandboxService — approvalFor and environment switch', () => {
+    const svcFor = (cfg: Parameters<typeof createSandboxPolicy>[0]) =>
+        createSandboxService({ policy: createSandboxPolicy(cfg), backends: [] });
+
+    it('maps the approval level to ask / none by the kind of tool', () => {
+        const writes = ['write_file', 'edit_file'];
+        const ask = svcFor({ preset: 'ask', writeTools: writes });
+        expect(ask.approvalFor!(caller, 'run_command')).toBe('ask');
+        expect(ask.approvalFor!(caller, 'write_file')).toBe('ask');
+        expect(ask.approvalFor!(caller, 'read_file')).toBe('none');
+
+        const autoEdit = svcFor({ preset: 'auto-edit', writeTools: writes });
+        expect(autoEdit.approvalFor!(caller, 'run_command')).toBe('ask');
+        expect(autoEdit.approvalFor!(caller, 'write_file')).toBe('none');
+
+        for (const preset of ['read-only', 'full'] as const) {
+            expect(svcFor({ preset, writeTools: writes }).approvalFor!(caller, 'run_command')).toBe('none');
+        }
+    });
+
+    it('commandTools decides what counts as a command; the default is run_command', () => {
+        expect(svcFor({ preset: 'auto-edit' }).approvalFor!(caller, 'shell')).toBe('none');
+        expect(svcFor({ preset: 'auto-edit', commandTools: ['shell'] }).approvalFor!(caller, 'shell')).toBe('ask');
+        expect(svcFor({ preset: 'auto-edit', commandTools: ['shell'] }).approvalFor!(caller, 'run_command')).toBe('none');
+    });
+
+    it('approval follows a policy change and per-agent rules', () => {
+        const svc = svcFor({ preset: 'ask', rules: [{ agentId: 'trusted', mode: 'danger-full-access' }] });
+        expect(svc.approvalFor!(caller, 'run_command')).toBe('ask');
+        // rules change the MODE; the approval level stays the preset's unless set explicitly
+        expect(svc.approvalFor!({ agentId: 'trusted', sessionId: 's' }, 'run_command')).toBe('ask');
+        svc.policy.set({ preset: 'full' });
+        expect(svc.approvalFor!(caller, 'run_command')).toBe('none');
+    });
+
+    it('scrubEnvironment:false hands the command the whole environment (legacy behaviour)', async () => {
+        const f = fake('f');
+        const svc = createSandboxService({
+            policy: createSandboxPolicy({ preset: 'ask' }), backends: [f.backend],
+            baseEnv: { PATH: '/bin', DEEPSEEK_API_KEY: 'secret', GONE: undefined }, scrubEnvironment: false,
+        });
+        await svc.run(caller, req());
+        expect(f.calls[0].env).toEqual({ PATH: '/bin', DEEPSEEK_API_KEY: 'secret' });
+    });
+});

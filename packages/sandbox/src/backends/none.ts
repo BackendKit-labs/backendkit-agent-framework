@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from 'child_process';
 import type { SandboxMode, SandboxNetwork } from '@backendkit-labs/agent-core';
 import { runProcess } from '../process';
 import type { BackendExecRequest, SandboxBackend } from './types';

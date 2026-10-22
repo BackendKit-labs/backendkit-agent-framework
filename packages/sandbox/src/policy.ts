@@ -33,6 +33,8 @@ export interface SandboxPolicyConfig {
     env?: EnvPolicy;
     /** Tools refused outright while the mode is `read-only` (they write). The integrator lists them. */
     writeTools?: string[];
+    /** Tools that run commands (what the approval level calls "commands"). Default `['run_command']`. */
+    commandTools?: string[];
 }
 
 export interface ResolvedPolicy {
@@ -80,6 +82,7 @@ export function parsePolicyConfig(input: unknown): SandboxPolicyConfig {
     if (c.network !== undefined) out.network = oneOf('network', c.network, NETWORKS);
     if (c.roots !== undefined) out.roots = stringList('roots', c.roots);
     if (c.writeTools !== undefined) out.writeTools = stringList('writeTools', c.writeTools);
+    if (c.commandTools !== undefined) out.commandTools = stringList('commandTools', c.commandTools);
     if (c.env !== undefined) {
         const e = c.env as Record<string, unknown>;
         if (typeof e !== 'object' || e === null) throw new SandboxPolicyError('env', 'expected an object');
@@ -118,6 +121,8 @@ export interface SandboxPolicy {
     snapshot(): SandboxPolicyConfig;
     /** Tools refused while `read-only`, for the caller to enforce. */
     writeTools(): readonly string[];
+    /** Tools that count as running a command for the approval level. */
+    commandTools(): readonly string[];
     /** Increments on every successful `set`, so a control plane can tell whether its copy is current. */
     readonly version: number;
 }
@@ -153,6 +158,7 @@ export function createSandboxPolicy(initial: SandboxPolicyConfig = {}): SandboxP
         },
         snapshot: () => JSON.parse(JSON.stringify(config)) as SandboxPolicyConfig,
         writeTools: () => config.writeTools ?? [],
+        commandTools: () => config.commandTools ?? ['run_command'],
         get version() { return version; },
     };
 }

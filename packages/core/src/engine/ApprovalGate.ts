@@ -34,7 +34,14 @@ export class ApprovalGate {
      * Emits tool_approval_request events and invokes the onToolApproval callback
      * when required. Mutates the disabled flag on 'approve_all'.
      */
-    async check(call: { name: string; args: string }, agentId: string): Promise<'run' | 'rejected'> {
+    async check(
+        call: { name: string; args: string },
+        agentId: string,
+        /** What the sandbox policy says about this tool. Absent: the built-in list of tools that ask applies. */
+        sandbox?: 'none' | 'ask',
+    ): Promise<'run' | 'rejected' | 'no-approver'> {
+        // The policy wants a human and there is none: refuse. Never "run because nobody can be asked".
+        if (sandbox === 'ask' && !this.opts.onToolApproval && !this.disabled) return 'no-approver';
         if (!this.opts.onToolApproval) return 'run';
 
         const preview = call.args.slice(0, 200);
@@ -50,7 +57,9 @@ export class ApprovalGate {
             return decision === 'reject' ? 'rejected' : 'run';
         }
 
-        if (!this.disabled && ApprovalGate.WRITE_TOOLS.has(call.name)) {
+        // With a sandbox policy in charge, it alone decides which tools ask.
+        const asks = sandbox !== undefined ? sandbox === 'ask' : ApprovalGate.WRITE_TOOLS.has(call.name);
+        if (!this.disabled && asks) {
             this.opts.transport.emit({
                 type: 'tool_approval_request',
                 tool_name: call.name,

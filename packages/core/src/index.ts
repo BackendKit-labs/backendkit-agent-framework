@@ -8,6 +8,7 @@ export { createBaseEngine } from './engine/createBaseEngine';
 export type { BaseEngineOptions } from './engine/createBaseEngine';
 export { ContextManager, defaultEstimateTokens } from './engine/ContextManager';
 export type { ContextOptions, CompactionReport } from './engine/ContextManager';
+export { isContextOverflowError } from './engine/contextOverflow';
 export {
     GuardrailRunner,
     piiGuardrail, secretLeakGuardrail, promptInjectionGuardrail,

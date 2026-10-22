@@ -1,21 +1,48 @@
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { defineTool, z } from '@backendkit-labs/agent-core';
+
+const execFileAsync = promisify(execFile);
 
 const MAX_OUTPUT = 10_000;
 
-export function git(args: string, cwd: string): string {
+/**
+ * Runs `git` with an argument array: no shell, so nothing the model puts in a value (author, grep,
+ * path, branch…) can be interpreted as shell syntax. It is also asynchronous, so independent calls
+ * really overlap instead of blocking the event loop.
+ *
+ * GIT_TERMINAL_PROMPT=0 makes push/pull fail instead of hanging on a credentials prompt;
+ * GIT_OPTIONAL_LOCKS=0 stops read-only commands (status) from taking the index lock.
+ */
+export async function git(args: string[], cwd: string): Promise<string> {
     try {
-        const out = execSync(`git ${args}`, {
+        const { stdout, stderr } = await execFileAsync('git', args, {
             cwd,
             encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
             timeout: 15_000,
+            maxBuffer: 10 * 1024 * 1024,
+            env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
         });
+        // checkout, merge, push… report their result on stderr, so keep both.
+        const out = [stdout, stderr].map((s) => s.trim()).filter(Boolean).join('\n');
         return (out || '(no output)').slice(0, MAX_OUTPUT);
-    } catch (err: any) {
-        const msg = (err.stderr || err.stdout || err.message || String(err)).trim();
+    } catch (err) {
+        const e = err as { stderr?: string; stdout?: string; message?: string };
+        const msg = (e.stderr || e.stdout || e.message || String(err)).trim();
         return `Error: ${msg.slice(0, 2000)}`;
     }
+}
+
+/** A ref, branch, remote or hash must not start with "-": git would take it for an option. */
+function safe(label: string, value: string): string {
+    if (value.startsWith('-')) throw new Error(`${label} must not start with "-" (got "${value}")`);
+    return value;
+}
+
+/** A value an action needs: fail clearly instead of running git with the text "undefined". */
+function need(label: string, value: string | undefined): string {
+    if (!value) throw new Error(`${label} is required for this action`);
+    return safe(label, value);
 }
 
 // ── Status & Info ─────────────────────────────────────────────────────────────
@@ -27,7 +54,7 @@ export const gitStatus = defineTool({
         cwd: z.string().describe('Repository path'),
         short: z.boolean().optional().describe('Short format output'),
     }),
-    execute: async ({ cwd, short }) => git(`status${short ? ' -s' : ''}`, cwd),
+    execute: async ({ cwd, short }) => git(['status', ...(short ? ['-s'] : [])], cwd),
 });
 
 export const gitLog = defineTool({
@@ -43,14 +70,13 @@ export const gitLog = defineTool({
         oneline: z.boolean().optional().describe('One line per commit'),
     }),
     execute: async ({ cwd, count, branch, path, author, grep, oneline }) => {
-        const parts = ['log', `--max-count=${count}`];
-        if (oneline) parts.push('--oneline');
-        else parts.push('--pretty=format:"%h  %an  %ar  %s"');
-        if (author) parts.push(`--author="${author}"`);
-        if (grep)   parts.push(`--grep="${grep}"`);
-        parts.push(branch ?? 'HEAD');
-        if (path)   parts.push('--', path);
-        return git(parts.join(' '), cwd);
+        const args = ['log', `--max-count=${count}`];
+        args.push(oneline ? '--oneline' : '--pretty=format:%h  %an  %ar  %s');
+        if (author) args.push(`--author=${author}`);
+        if (grep)   args.push(`--grep=${grep}`);
+        args.push(branch ? safe('branch', branch) : 'HEAD');
+        if (path)   args.push('--', path);
+        return git(args, cwd);
     },
 });
 
@@ -66,13 +92,13 @@ export const gitDiff = defineTool({
         stat:   z.boolean().optional().describe('Show diffstat instead of full diff'),
     }),
     execute: async ({ cwd, staged, from, to, path, stat }) => {
-        const parts = ['diff'];
-        if (stat)   parts.push('--stat');
-        if (staged) parts.push('--cached');
-        if (from && to)  parts.push(`${from}..${to}`);
-        else if (from)   parts.push(from);
-        if (path)   parts.push('--', path);
-        return git(parts.join(' '), cwd);
+        const args = ['diff'];
+        if (stat)   args.push('--stat');
+        if (staged) args.push('--cached');
+        if (from && to) args.push(`${safe('from', from)}..${safe('to', to)}`);
+        else if (from)  args.push(safe('from', from));
+        if (path)   args.push('--', path);
+        return git(args, cwd);
     },
 });
 
@@ -85,7 +111,7 @@ export const gitShow = defineTool({
         stat: z.boolean().optional().describe('Show diffstat only'),
     }),
     execute: async ({ cwd, ref, stat }) =>
-        git(`show ${stat ? '--stat' : ''} ${ref}`, cwd),
+        git(['show', ...(stat ? ['--stat'] : []), safe('ref', ref)], cwd),
 });
 
 export const gitBlame = defineTool({
@@ -97,10 +123,8 @@ export const gitBlame = defineTool({
         from: z.number().int().optional().describe('Start line'),
         to:   z.number().int().optional().describe('End line'),
     }),
-    execute: async ({ cwd, file, from, to }) => {
-        const range = from && to ? `-L ${from},${to}` : '';
-        return git(`blame ${range} -- "${file}"`, cwd);
-    },
+    execute: async ({ cwd, file, from, to }) =>
+        git(['blame', ...(from && to ? ['-L', `${from},${to}`] : []), '--', file], cwd),
 });
 
 export const gitReflog = defineTool({
@@ -111,7 +135,7 @@ export const gitReflog = defineTool({
         count: z.number().int().min(1).max(50).default(20),
     }),
     execute: async ({ cwd, count }) =>
-        git(`reflog --max-count=${count} --pretty=format:"%h %gd %ar %gs"`, cwd),
+        git(['reflog', `--max-count=${count}`, '--pretty=format:%h %gd %ar %gs'], cwd),
 });
 
 // ── Staging & Committing ──────────────────────────────────────────────────────
@@ -124,8 +148,7 @@ export const gitAdd = defineTool({
         files: z.array(z.string()).describe('Files or patterns to stage. Use ["."] to stage all.'),
         patch: z.boolean().optional().describe('Interactive patch mode (not supported in non-TTY)'),
     }),
-    execute: async ({ cwd, files }) =>
-        git(`add -- ${files.map(f => `"${f}"`).join(' ')}`, cwd),
+    execute: async ({ cwd, files }) => git(['add', '--', ...files], cwd),
 });
 
 export const gitCommit = defineTool({
@@ -138,8 +161,8 @@ export const gitCommit = defineTool({
         noEdit:  z.boolean().optional().describe('Amend without editing message (keeps existing message)'),
     }),
     execute: async ({ cwd, message, amend, noEdit }) => {
-        if (amend && noEdit) return git('commit --amend --no-edit', cwd);
-        return git(`commit${amend ? ' --amend' : ''} -m "${message.replace(/"/g, '\\"')}"`, cwd);
+        if (amend && noEdit) return git(['commit', '--amend', '--no-edit'], cwd);
+        return git(['commit', ...(amend ? ['--amend'] : []), '-m', message], cwd);
     },
 });
 
@@ -157,11 +180,11 @@ export const gitBranch = defineTool({
     }),
     execute: async ({ cwd, action, name, newName, remote }) => {
         switch (action) {
-            case 'list':         return git(`branch${remote ? ' -a' : ''}`, cwd);
-            case 'create':       return git(`branch "${name}"`, cwd);
-            case 'rename':       return git(`branch -m "${name}" "${newName}"`, cwd);
-            case 'delete':       return git(`branch -d "${name}"`, cwd);
-            case 'delete-force': return git(`branch -D "${name}"`, cwd);
+            case 'list':         return git(['branch', ...(remote ? ['-a'] : [])], cwd);
+            case 'create':       return git(['branch', need('name', name)], cwd);
+            case 'rename':       return git(['branch', '-m', need('name', name), need('newName', newName)], cwd);
+            case 'delete':       return git(['branch', '-d', need('name', name)], cwd);
+            case 'delete-force': return git(['branch', '-D', need('name', name)], cwd);
         }
     },
 });
@@ -177,10 +200,10 @@ export const gitCheckout = defineTool({
         files:   z.array(z.string()).optional().describe('Restore specific files (git checkout -- files)'),
     }),
     execute: async ({ cwd, target, create, track, files }) => {
-        if (files?.length) return git(`checkout -- ${files.map(f => `"${f}"`).join(' ')}`, cwd);
-        if (track)  return git(`checkout -b "${target}" --track "${track}"`, cwd);
-        if (create) return git(`checkout -b "${target}"`, cwd);
-        return git(`checkout "${target}"`, cwd);
+        if (files?.length) return git(['checkout', '--', ...files], cwd);
+        if (track)  return git(['checkout', '-b', safe('target', target), '--track', safe('track', track)], cwd);
+        if (create) return git(['checkout', '-b', safe('target', target)], cwd);
+        return git(['checkout', safe('target', target)], cwd);
     },
 });
 
@@ -197,12 +220,12 @@ export const gitMerge = defineTool({
         message: z.string().optional().describe('Custom merge commit message'),
     }),
     execute: async ({ cwd, branch, noFF, abort, message }) => {
-        if (abort) return git('merge --abort', cwd);
-        const parts = ['merge'];
-        if (noFF) parts.push('--no-ff');
-        if (message) parts.push(`-m "${message.replace(/"/g, '\\"')}"`);
-        parts.push(`"${branch}"`);
-        return git(parts.join(' '), cwd);
+        if (abort) return git(['merge', '--abort'], cwd);
+        const args = ['merge'];
+        if (noFF) args.push('--no-ff');
+        if (message) args.push('-m', message);
+        args.push(safe('branch', branch));
+        return git(args, cwd);
     },
 });
 
@@ -217,10 +240,10 @@ export const gitRebase = defineTool({
         skip:   z.boolean().optional().describe('Skip current commit and continue'),
     }),
     execute: async ({ cwd, onto, abort, cont, skip }) => {
-        if (abort) return git('rebase --abort', cwd);
-        if (cont)  return git('rebase --continue', cwd);
-        if (skip)  return git('rebase --skip', cwd);
-        return git(`rebase "${onto}"`, cwd);
+        if (abort) return git(['rebase', '--abort'], cwd);
+        if (cont)  return git(['rebase', '--continue'], cwd);
+        if (skip)  return git(['rebase', '--skip'], cwd);
+        return git(['rebase', need('onto', onto)], cwd);
     },
 });
 
@@ -234,9 +257,8 @@ export const gitCherryPick = defineTool({
         abort:  z.boolean().optional().describe('Abort an in-progress cherry-pick'),
     }),
     execute: async ({ cwd, hashes, noCommit, abort }) => {
-        if (abort) return git('cherry-pick --abort', cwd);
-        const flags = noCommit ? '-n ' : '';
-        return git(`cherry-pick ${flags}${hashes.join(' ')}`, cwd);
+        if (abort) return git(['cherry-pick', '--abort'], cwd);
+        return git(['cherry-pick', ...(noCommit ? ['-n'] : []), ...hashes.map((h) => safe('hash', h))], cwd);
     },
 });
 
@@ -252,7 +274,7 @@ export const gitReset = defineTool({
                .describe('soft: keep staged | mixed: unstage | hard: discard changes ⚠️'),
     }),
     execute: async ({ cwd, ref, mode }) =>
-        git(`reset --${mode} ${ref}`, cwd),
+        git(['reset', `--${mode}`, safe('ref', ref)], cwd),
 });
 
 export const gitRevert = defineTool({
@@ -264,7 +286,7 @@ export const gitRevert = defineTool({
         noCommit: z.boolean().optional().describe('Stage the revert without committing (-n)'),
     }),
     execute: async ({ cwd, hash, noCommit }) =>
-        git(`revert ${noCommit ? '-n' : ''} ${hash}`, cwd),
+        git(['revert', ...(noCommit ? ['-n'] : []), safe('hash', hash)], cwd),
 });
 
 // ── Stash ─────────────────────────────────────────────────────────────────────
@@ -279,14 +301,14 @@ export const gitStash = defineTool({
         index:   z.number().int().min(0).optional().describe('Stash index (for apply/drop/show)'),
     }),
     execute: async ({ cwd, action, message, index }) => {
-        const ref = index !== undefined ? `stash@{${index}}` : '';
+        const ref = index !== undefined ? [`stash@{${index}}`] : [];
         switch (action) {
-            case 'push':  return git(`stash push${message ? ` -m "${message}"` : ''}`, cwd);
-            case 'list':  return git('stash list', cwd);
-            case 'pop':   return git(`stash pop ${ref}`.trim(), cwd);
-            case 'apply': return git(`stash apply ${ref}`.trim(), cwd);
-            case 'drop':  return git(`stash drop ${ref}`.trim(), cwd);
-            case 'show':  return git(`stash show -p ${ref}`.trim(), cwd);
+            case 'push':  return git(['stash', 'push', ...(message ? ['-m', message] : [])], cwd);
+            case 'list':  return git(['stash', 'list'], cwd);
+            case 'pop':   return git(['stash', 'pop', ...ref], cwd);
+            case 'apply': return git(['stash', 'apply', ...ref], cwd);
+            case 'drop':  return git(['stash', 'drop', ...ref], cwd);
+            case 'show':  return git(['stash', 'show', '-p', ...ref], cwd);
         }
     },
 });
@@ -305,13 +327,13 @@ export const gitPush = defineTool({
         tags:         z.boolean().optional().describe('Push tags'),
     }),
     execute: async ({ cwd, remote, branch, setUpstream, forceWithLease, tags }) => {
-        const parts = ['push'];
-        if (setUpstream)   parts.push('-u');
-        if (forceWithLease) parts.push('--force-with-lease');
-        if (tags)          parts.push('--tags');
-        parts.push(remote);
-        if (branch) parts.push(branch);
-        return git(parts.join(' '), cwd);
+        const args = ['push'];
+        if (setUpstream)    args.push('-u');
+        if (forceWithLease) args.push('--force-with-lease');
+        if (tags)           args.push('--tags');
+        args.push(safe('remote', remote));
+        if (branch) args.push(safe('branch', branch));
+        return git(args, cwd);
     },
 });
 
@@ -325,11 +347,11 @@ export const gitPull = defineTool({
         rebase: z.boolean().optional().describe('Pull with rebase instead of merge'),
     }),
     execute: async ({ cwd, remote, branch, rebase }) => {
-        const parts = ['pull'];
-        if (rebase) parts.push('--rebase');
-        parts.push(remote);
-        if (branch) parts.push(branch);
-        return git(parts.join(' '), cwd);
+        const args = ['pull'];
+        if (rebase) args.push('--rebase');
+        args.push(safe('remote', remote));
+        if (branch) args.push(safe('branch', branch));
+        return git(args, cwd);
     },
 });
 
@@ -345,11 +367,12 @@ export const gitTag = defineTool({
     }),
     execute: async ({ cwd, action, name, ref, message }) => {
         switch (action) {
-            case 'list':   return git('tag --sort=-version:refname', cwd);
-            case 'create': return message
-                ? git(`tag -a "${name}" ${ref ?? ''} -m "${message.replace(/"/g, '\\"')}"`, cwd)
-                : git(`tag "${name}" ${ref ?? ''}`.trim(), cwd);
-            case 'delete': return git(`tag -d "${name}"`, cwd);
+            case 'list':   return git(['tag', '--sort=-version:refname'], cwd);
+            case 'create': return git(
+                ['tag', ...(message ? ['-a'] : []), need('name', name), ...(message ? ['-m', message] : []), ...(ref ? [safe('ref', ref)] : [])],
+                cwd,
+            );
+            case 'delete': return git(['tag', '-d', need('name', name)], cwd);
         }
     },
 });

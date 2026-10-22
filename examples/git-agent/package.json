@@ -8,6 +8,7 @@
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "check": "ts-node src/check.ts",
     "smoke": "ts-node src/smoke.ts",
     "typecheck": "tsc --noEmit"
   },

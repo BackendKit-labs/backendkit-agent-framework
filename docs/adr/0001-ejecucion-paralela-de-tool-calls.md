@@ -1,7 +1,8 @@
 # ADR-0001: Ejecución paralela de tool calls
 
 **Fecha:** 2026-10-21
-**Estado:** Propuesto
+**Estado:** Aceptado
+**Implementado en:** agent-core 0.25.0 (PR #48)
 **Spec:** [SPEC-0001 §3](../specs/SPEC-0001-agent-core-ola-1.md)
 
 ## Contexto
@@ -41,3 +42,8 @@ Paralelizar solo las herramientas marcadas explícitamente como seguras, con un 
 - **Semáforo global sin metadato:** descartada; no resuelve qué es seguro, solo limita cuántas.
 - **Dejar solo `ask_agent` en paralelo (estado actual):** descartada; las lecturas independientes son el caso más común y más barato de acelerar.
 - **Volcar eventos según llegan:** descartada por defecto; entremezcla bloques en la UI. Queda como opción futura.
+
+## Seguimiento
+- **Sub-agentes sin paralelismo (límite conocido, comprobado con los ejemplos).** Las olas viven en `AgentEngine.runLoop`; `runAgentInternal` (las llamadas vía `ask_agent`) sigue recorriendo las herramientas en serie. Un agente orquestador que solo delega (el `general` de `agent-coding`, o el `orchestrator` de `git-agent`) no se beneficia de `maxParallelTools`; sí un agente que ejecuta sus propias herramientas (por ejemplo `coder`, con varios `read_file` en una misma vuelta). Llevar las olas a `runAgentInternal` exige resolver aprobaciones, aborto y búfer de eventos también ahí: es un cambio de diseño, no un arreglo.
+- **Antes de subir el valor por defecto de `maxParallelTools` a 4** (previsto para una versión posterior), comprobarlo en agentes reales; las herramientas con `concurrencySafe` que bloquean el bucle de eventos (por ejemplo las que usan `execSync`) no se solapan aunque se marquen.
+- Falta la prueba de aborto entre olas que pedía SPEC-0001 §3.5.

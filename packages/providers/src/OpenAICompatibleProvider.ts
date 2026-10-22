@@ -42,6 +42,13 @@ export interface OpenAICompatibleProviderOptions extends RetryTuning {
      */
     thinking?: 'enabled' | 'disabled';
     /**
+     * Send `thinking: disabled` on calls that force a tool (`toolChoice` 'required' or a named tool)
+     * when `thinking` was not set explicitly. DeepSeek V4 thinks by default and answers 400 to forced
+     * tool choices in that mode. Off by default (not every endpoint accepts the `thinking` field);
+     * on in `DeepSeekProvider`.
+     */
+    disableThinkingForForcedTools?: boolean;
+    /**
      * How the backend handles `ChatOptions.responseFormat`. `native`: `response_format: json_schema`
      * (default). `json_object`: only valid JSON is guaranteed, the schema must travel in the prompt
      * (`generateObject` does that). `none`: the option is ignored.
@@ -75,6 +82,7 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
     private readonly maxTokens: number | null;
     private readonly temperature: number | ((model: string) => number);
     private readonly thinking?: 'enabled' | 'disabled';
+    private readonly disableThinkingForForcedTools: boolean;
     readonly capabilities: { structuredOutput: StructuredOutputSupport };
 
     constructor(opts: OpenAICompatibleProviderOptions, defaults = { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 16_000 }) {
@@ -85,6 +93,7 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
         this.maxTokens = opts.maxTokens === undefined ? 16384 : opts.maxTokens;
         this.temperature = opts.temperature ?? 0;
         this.thinking = opts.thinking;
+        this.disableThinkingForForcedTools = opts.disableThinkingForForcedTools ?? false;
         this.capabilities = { structuredOutput: opts.structuredOutput ?? 'native' };
     }
 
@@ -108,7 +117,7 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
             stream: true,
             stream_options: { include_usage: true },
             // Not a standard OpenAI field: extension for OpenAI-compatible reasoning models.
-            ...(this.thinking ? { thinking: { type: this.thinking } } : {}),
+            ...(this.thinkingFor(options) ? { thinking: { type: this.thinkingFor(options) } } : {}),
         }, { signal: callbacks.signal });
 
         let content = '';
@@ -136,6 +145,14 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
         }
 
         this.finish(callbacks, content, buffers);
+    }
+
+    /** Explicit `thinking` wins; otherwise off for forced tool choices when the preset asks for it. */
+    private thinkingFor(options?: ChatOptions): 'enabled' | 'disabled' | undefined {
+        if (this.thinking) return this.thinking;
+        const choice = options?.toolChoice;
+        const forced = choice !== undefined && choice !== 'auto' && choice !== 'none';
+        return this.disableThinkingForForcedTools && forced ? 'disabled' : undefined;
     }
 
     private responseFormat(options?: ChatOptions): { response_format?: unknown } {

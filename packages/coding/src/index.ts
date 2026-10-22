@@ -422,6 +422,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
                 temperature: cfg.temperature,
                 thinking: cfg.thinking,
                 structuredOutput: cfg.structuredOutput ?? (id === 'deepseek' ? 'json_object' : undefined),
+                // DeepSeek V4 rejects forced tool choices while it thinks (its default).
+                ...(id === 'deepseek' ? { disableThinkingForForcedTools: true } : {}),
             });
         }
     }

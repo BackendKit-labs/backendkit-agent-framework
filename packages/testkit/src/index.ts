@@ -5,3 +5,7 @@ export type { MockTransport } from './mockTransport';
 export { world, fileEquals, untouched, processGone } from './world';
 export { startMockLlmServer } from './mockLlmServer';
 export type { MockBehavior, MockLlmServer, MockLlmServerOptions, CapturedRequest } from './mockLlmServer';
+export { RecordingProvider, serializeError, deserializeError } from './recording';
+export type { RecordedCall, RecordedEvent, RecordedError, RecordingSink, RecordingOptions } from './recording';
+export { ReplayProvider, readRecording } from './replay';
+export type { ReplayOptions, ReplayOverrides, ReplayFault } from './replay';

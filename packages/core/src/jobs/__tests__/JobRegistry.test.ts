@@ -97,6 +97,14 @@ describe('JobRegistry', () => {
         expect(await reg.cancel('bash-1', 'a')).toBe(false);
     });
 
+    it('a job that dies with an error because it was cancelled is cancelled, without that error as summary', async () => {
+        const reg = createJobRegistry();
+        reg.start({ kind: 'bash', owner: 'a', run: (signal) => new Promise<void>((_res, rej) => signal.addEventListener('abort', () => rej(new Error('exit 1')))) });
+        await reg.cancel('bash-1', 'a');
+        expect(reg.get('bash-1', 'a')).toMatchObject({ status: 'cancelled' });
+        expect(reg.get('bash-1', 'a')?.summary).toBeUndefined();
+    });
+
     it('cancel gives up waiting for a job that ignores its signal', async () => {
         const reg = createJobRegistry({ cancelGraceMs: 30 });
         reg.start({ kind: 'bash', owner: 'a', run: () => new Promise<void>(() => undefined) });

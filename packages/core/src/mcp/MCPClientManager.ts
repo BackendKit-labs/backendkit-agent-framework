@@ -325,7 +325,7 @@ export class MCPClientManager {
                 properties: {},
             },
             ...(config.trustAnnotations && mcpTool.annotations?.readOnlyHint === true ? { concurrencySafe: true } : {}),
-            execute: async (args) => {
+            execute: async (args, ctx) => {
                 let timerId: ReturnType<typeof setTimeout> | undefined;
                 const timer = new Promise<never>((_, reject) => {
                     timerId = setTimeout(
@@ -341,7 +341,7 @@ export class MCPClientManager {
                     // any timeoutMs configured above 60s — a tool that legitimately blocks server-side
                     // past 60s (e.g. a status-poll with a long wait_seconds) would error out at 60s
                     // regardless of what timeoutMs says. Pass it through so both layers agree.
-                    { timeout: timeoutMs },
+                    { timeout: timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
                 );
                 try {
                     const result = await Promise.race([call, timer]);

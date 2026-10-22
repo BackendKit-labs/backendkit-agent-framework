@@ -291,6 +291,10 @@ export interface CodingEngineOptions {
     maxParallelAgents?: number;
     /** Max concurrencySafe tool calls of one turn run at once. Default 1. */
     maxParallelTools?: number;
+    /** Default time limit for one tool call in ms (a tool's own timeout wins). Default: none. Needs agent-core >= 0.29. */
+    toolTimeoutMs?: number;
+    /** Wait for a tool to wind down after abort/timeout before answering. Default 2000 ms. */
+    toolTimeoutGraceMs?: number;
     /** Tracing, metrics and cost/budget tracking (see createBaseEngine). */
     observability?: ObservabilityConfig;
     /** Abort the run when observability.costTracker.budget is exceeded. Default false. */
@@ -599,6 +603,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
+        ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+        ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.context ? { context: opts.context } : {}),
         ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
         ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),

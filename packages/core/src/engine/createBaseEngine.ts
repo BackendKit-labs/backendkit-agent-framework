@@ -57,6 +57,16 @@ export interface BaseEngineOptions {
     /** Max LLM iterations per run() call. Default: 100. */
     maxIterations?: number;
 
+    /**
+     * Default time limit for one tool call, in ms (a tool's own `timeoutMs` wins). On expiry the call's
+     * `ctx.signal` is aborted and the model receives `Error: TOOL_TIMEOUT …`; a late result is discarded.
+     * Time waiting for approval does not count. Default: no limit.
+     */
+    toolTimeoutMs?: number;
+
+    /** Wait for a tool to wind down after its signal is aborted, before answering. Default 2000 ms. */
+    toolTimeoutGraceMs?: number;
+
     /** Max parallel agent delegations via ask_agent. Default: 6. */
     maxParallelAgents?: number;
 
@@ -365,6 +375,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
+        ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+        ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),

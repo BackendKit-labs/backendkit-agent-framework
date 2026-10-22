@@ -187,6 +187,8 @@ export class AgentEngine {
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
+    /** One controller per tool call in flight (main agent and sub-agents); see `runToolDef`. */
+    private readonly toolControllers = new Set<AbortController>();
     private allSkills: Skill[];
     private iterationManager: IterationManager;
     private activeSkillAddition = '';
@@ -533,6 +535,9 @@ export class AgentEngine {
         this.aborted = true;
         this.abortController?.abort();
         this.abortController = null;
+        // Tools already running get their signal too; each one winds down (or is given up on after
+        // the grace period) and the model is told the call was aborted.
+        for (const controller of [...this.toolControllers]) controller.abort('aborted');
     }
 
     /** Change the iteration mode at runtime — takes effect on the next run(). */
@@ -1192,6 +1197,7 @@ export class AgentEngine {
         const toolDef = this.opts.tools.get(call.name);
         let result: string;
         let success: boolean;
+        let outcome: 'timeout' | 'aborted' | undefined;
 
         if (!toolDef) {
             result  = `Tool "${call.name}" not found`;
@@ -1229,7 +1235,7 @@ export class AgentEngine {
                 if (gateDecision === 'rejected') {
                     result = `Tool call "${call.name}" was rejected by the user.`; success = false;
                 } else {
-                    ({ result, success } = await this.runToolDef(effective, toolDef, profile.id, depth));
+                    ({ result, success, outcome } = await this.runToolDef(effective, toolDef, profile.id, depth));
                     if (this.guardrails?.has('tool_result')) {
                         const checked = await this.guard('tool_result', result, profile.id, call.name);
                         result = checked.blocked
@@ -1248,6 +1254,7 @@ export class AgentEngine {
         emitEvent({
             type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120),
             agent_id: profile.id, started_at: callStart, duration_ms: Date.now() - callStart,
+            ...(outcome ? { outcome } : {}),
         });
         return result;
     }
@@ -1265,13 +1272,52 @@ export class AgentEngine {
         toolDef: import('../types').ToolDefinition,
         agentId: string,
         depth = 0,
-    ): Promise<{ result: string; success: boolean }> {
-        const ctx = this.buildContext(agentId, depth);
+    ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted' }> {
+        const controller = new AbortController();
+        this.toolControllers.add(controller);
+        const ctx = { ...this.buildContext(agentId, depth), signal: controller.signal };
+        const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;
+        const graceMs = this.opts.toolTimeoutGraceMs ?? 2000;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+        const execution = (async (): Promise<{ result: string; success: boolean }> => {
+            try {
+                const args = JSON.parse(call.args);
+                return { result: await toolDef.execute(args, ctx), success: true };
+            } catch (err) {
+                return { result: `Error: ${err instanceof Error ? err.message : String(err)}`, success: false };
+            }
+        })();
+        // A result that arrives after we gave up on the call is dropped, never an unhandled rejection.
+        execution.catch(() => undefined);
+
+        // Resolves with the reason as soon as the call is aborted or its time limit passes.
+        const interrupted = new Promise<'timeout' | 'aborted'>((resolve) => {
+            if (timeoutMs && timeoutMs > 0) {
+                timer = setTimeout(() => { controller.abort('timeout'); resolve('timeout'); }, timeoutMs);
+            }
+            controller.signal.addEventListener('abort', () => {
+                resolve(controller.signal.reason === 'timeout' ? 'timeout' : 'aborted');
+            }, { once: true });
+        });
+
         try {
-            const args = JSON.parse(call.args);
-            return { result: await toolDef.execute(args, ctx), success: true };
-        } catch (err) {
-            return { result: `Error: ${err instanceof Error ? err.message : String(err)}`, success: false };
+            const first = await Promise.race([execution, interrupted]);
+            if (first !== 'timeout' && first !== 'aborted') return first;
+
+            // Interrupted: give the tool a moment to react to the signal, then answer either way.
+            await Promise.race([
+                execution,
+                new Promise<void>((resolve) => { graceTimer = setTimeout(resolve, graceMs); }),
+            ]);
+            return first === 'timeout'
+                ? { result: `Error: TOOL_TIMEOUT: tool "${call.name}" exceeded ${timeoutMs}ms`, success: false, outcome: 'timeout' }
+                : { result: `Error: aborted: tool "${call.name}" was cancelled`, success: false, outcome: 'aborted' };
+        } finally {
+            clearTimeout(timer);
+            clearTimeout(graceTimer);
+            this.toolControllers.delete(controller);
         }
     }
 

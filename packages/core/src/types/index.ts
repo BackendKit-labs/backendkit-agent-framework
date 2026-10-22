@@ -55,12 +55,23 @@ export interface ToolDefinition {
     parameters: JSONSchema;
     /** Safe to run alongside other concurrencySafe tools in the same turn (read-only, order-independent). Default false. */
     concurrencySafe?: boolean;
+    /**
+     * Time limit for one call, in ms; takes precedence over the engine's `toolTimeoutMs`. When it expires
+     * `ctx.signal` is aborted and the model gets a `TOOL_TIMEOUT` error. Default: none.
+     */
+    timeoutMs?: number;
     execute(args: unknown, ctx: ExecutionContext): Promise<string>;
 }
 
 // ─── Execution Context ────────────────────────────────────────────────────────
 
 export interface ExecutionContext {
+    /**
+     * Aborted when the engine is aborted (`engine.abort()`, budget exceeded) or when the call's time
+     * limit expires. Pass it to `fetch`, child processes and other cancellable work so they stop instead
+     * of running on after the model has been told the call ended.
+     */
+    signal?: AbortSignal;
     agentId: string;
     sessionId: string;
     workingDir?: string;
@@ -218,7 +229,7 @@ export type AgentEvent =
     | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     /** `agent_id`, `started_at` (epoch ms) and `duration_ms` let tracing build an accurate span per tool call. */
-    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number }
+    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number; outcome?: 'timeout' | 'aborted' }
     | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }
     | { type: 'agent_switch'; from: string; to: string; to_name?: string; to_icon?: string }
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
@@ -257,6 +268,14 @@ export type { Skill };
 export interface EngineOptions {
     model: ModelConfig;
     maxIterations?: number;
+    /**
+     * Default time limit for one tool call, in ms (a tool's own `timeoutMs` wins). On expiry the call's
+     * `ctx.signal` is aborted and the model receives `Error: TOOL_TIMEOUT …`; a result that arrives
+     * later is discarded. Time spent waiting for approval does not count. Default: no limit.
+     */
+    toolTimeoutMs?: number;
+    /** After a tool's signal is aborted, how long to wait for it to wind down before replying. Default 2000. */
+    toolTimeoutGraceMs?: number;
     maxParallelAgents?: number;
     /**
      * Maximum number of messages to keep in the conversation history.

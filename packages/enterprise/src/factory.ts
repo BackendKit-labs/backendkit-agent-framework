@@ -52,6 +52,8 @@ export interface EnterpriseSetupOptions {
     guardrails?: import('@backendkit-labs/agent-core').Guardrail[];
     /** `after` (default) or `buffer`; see BaseEngineOptions.guardrailOutputMode. */
     guardrailOutputMode?: 'after' | 'buffer';
+    /** Default time limit for one tool call in ms. Default: none. Needs agent-core >= 0.29. */
+    toolTimeoutMs?: number;
     /** Token-aware context compaction for every session. Needs agent-core >= 0.28. */
     context?: import('@backendkit-labs/agent-core').ContextOptions;
 }
@@ -185,6 +187,7 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             sessionId,
             ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
             ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
+            ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
             ...(opts.context ? { context: opts.context } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.

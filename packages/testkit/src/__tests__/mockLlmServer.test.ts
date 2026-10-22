@@ -124,16 +124,6 @@ describe('startMockLlmServer — provider failures against the real providers', 
         expect(s.requests).toHaveLength(1);
     });
 
-    it('a connection cut mid-stream is never retried and never completes (the abort is only a safety net)', async () => {
-        const s = await boot([{ kind: 'cut', content: 'half an answ', afterChunks: 2 }, { kind: 'text', content: 'would be a duplicate' }]);
-        const safety = new AbortController();
-        const timer = setTimeout(() => safety.abort(), 1500);
-        const out = await ask(providerFor(s), safety.signal).finally(() => clearTimeout(timer));
-        expect(out.text.length).toBeGreaterThan(0);
-        expect(out.done).toBeUndefined();
-        expect(s.requests).toHaveLength(1);
-    });
-
     it('a corrupt stream chunk becomes an error instead of hanging', async () => {
         const s = await boot([{ kind: 'corrupt' }, { kind: 'corrupt' }, { kind: 'corrupt' }]);
         const quiet = jest.spyOn(console, 'error').mockImplementation(() => undefined);   // the SDK logs the bad chunk

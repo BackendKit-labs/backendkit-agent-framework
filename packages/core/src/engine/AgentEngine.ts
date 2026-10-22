@@ -1,6 +1,9 @@
 import { ApprovalGate } from './ApprovalGate';
 import { AuditLogger } from './AuditLogger';
 import { HistoryManager, sanitizeMessages } from './HistoryManager';
+import { ContextManager, SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from './ContextManager';
+import { GuardrailRunner } from '../guardrails/GuardrailRunner';
+import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import type {
     AgentProfile,
@@ -160,6 +163,10 @@ export class AgentEngine {
     private readonly bus: DelegationBus;
     private readonly skillActivator = new SkillActivator();
     private readonly history: HistoryManager;
+    private readonly contextManager?: ContextManager;
+    private readonly guardrails?: GuardrailRunner;
+    /** Uncalibrated token estimate of the last request sent by runLoop, to calibrate against real usage. */
+    private lastRequestEstimate = 0;
     private readonly auditLogger: AuditLogger;
     private currentAgentId: string;
     private aborted = false;
@@ -185,6 +192,14 @@ export class AgentEngine {
             historyPath:        opts.historyPath,
             maxContextMessages: opts.maxContextMessages,
         });
+        if (opts.guardrails?.length) this.guardrails = new GuardrailRunner(opts.guardrails);
+        if (opts.context) {
+            this.contextManager = new ContextManager(opts.context, {
+                history: this.history,
+                summarize: (transcript, previous) => this.summarizeForContext(transcript, previous),
+                emit: (event) => this.opts.transport.emit(event),
+            });
+        }
         this.auditLogger = new AuditLogger(opts.auditLog);
         this.mcpRegistrar = new MCPRegistrar({
             mcpManager: opts.mcpManager,
@@ -381,6 +396,19 @@ export class AgentEngine {
             return;
         }
 
+        if (this.guardrails?.has('input')) {
+            const checked = await this.guard('input', input, this.currentAgentId);
+            if (checked.blocked) {
+                this.opts.transport.emit({
+                    type: 'error',
+                    message: `Input blocked by guardrail "${checked.blocked.guardrail}": ${checked.blocked.reason}`,
+                });
+                this.opts.transport.emit({ type: 'done' });
+                return;
+            }
+            input = checked.content;
+        }
+
         await this.mcpRegistrar.ensureInitialized();
         await this.ensureAgentsLoaded();
 
@@ -502,6 +530,116 @@ export class AgentEngine {
 
     private saveHistory(): void {
         this.history.save();
+    }
+
+    /**
+     * Runs the guardrails of `phase` over `content`, reports what happened (transport event + audit log)
+     * and returns the outcome. `replacement` lets output checks attach the corrected text to the event.
+     */
+    private async guard(
+        phase: GuardrailPhase,
+        content: string,
+        agentId: string,
+        toolName?: string,
+        replacement?: (outcome: GuardrailOutcome) => string | undefined,
+    ): Promise<GuardrailOutcome> {
+        if (!this.guardrails?.has(phase)) return { content, changed: false, events: [] };
+        const sessionId = this.opts.sessionId ?? 'default';
+        const secrets = this.opts.agents.get(agentId)?.secrets;
+        const secretValues = this.opts.agents.getAll().flatMap(a => Object.values(a.secrets ?? {}));
+        const outcome = await this.guardrails.run({
+            phase, agentId, sessionId, content,
+            ...(toolName ? { toolName } : {}),
+            ...(secrets ? { secrets } : {}),
+            secretValues,
+        });
+        const replaced = replacement?.(outcome);
+        outcome.events.forEach((info, i) => {
+            this.opts.transport.emit({
+                type: 'guardrail',
+                name: info.name, phase: info.phase, action: info.action, reason: info.reason,
+                agent_id: info.agentId,
+                ...(info.tool ? { tool: info.tool } : {}),
+                ...(info.dryRun ? { dry_run: true } : {}),
+                ...(replaced !== undefined && !info.dryRun && i === outcome.events.length - 1 ? { replacement: replaced } : {}),
+            });
+            void this.auditLogger.log({
+                agentId: info.agentId,
+                tool: `guardrail:${info.phase}:${info.name}`,
+                inputPreview: `${info.action}${info.dryRun ? ' (dry-run)' : ''}: ${info.reason}`,
+                success: info.action === 'redact',
+                durationMs: 0,
+                sessionId,
+            });
+        });
+        return outcome;
+    }
+
+    /** Checks a model answer. Returns the (possibly corrected) message and the text to show. */
+    private async guardOutput(
+        message: LLMMessage,
+        agentId: string,
+    ): Promise<{ message: LLMMessage; text: string; touched: boolean }> {
+        const original = message.content ?? '';
+        if (!original || !this.guardrails?.has('output')) return { message, text: original, touched: false };
+        const buffered = this.opts.guardrailOutputMode === 'buffer';
+        const outcome = await this.guard('output', original, agentId, undefined, buffered ? undefined : (o) =>
+            o.blocked ? this.blockedText(o) : (o.changed ? o.content : undefined));
+        if (outcome.blocked) {
+            const text = this.blockedText(outcome);
+            return { message: { ...message, content: text }, text, touched: true };
+        }
+        if (outcome.changed) return { message: { ...message, content: outcome.content }, text: outcome.content, touched: true };
+        return { message, text: original, touched: false };
+    }
+
+    private blockedText(outcome: GuardrailOutcome): string {
+        return `[Response withheld by guardrail "${outcome.blocked?.guardrail}": ${outcome.blocked?.reason}]`;
+    }
+
+    /** Token-aware compaction first (when configured), then the message-count cap. */
+    private async prepareContext(): Promise<void> {
+        if (this.contextManager) {
+            try {
+                const report = await this.contextManager.compact();
+                if (report && report.summarizedMessages + report.droppedMessages + report.truncatedToolResults > 0) {
+                    this.opts.transport.emit({
+                        type: 'system', level: 'info',
+                        text: `[Context] ~${report.tokensBefore} → ~${report.tokensAfter} tokens ` +
+                              `(truncated ${report.truncatedToolResults} tool results, summarized ${report.summarizedMessages}, dropped ${report.droppedMessages} messages)`,
+                    });
+                }
+            } catch (err) {
+                // Compaction is best-effort: a bug here must never stop the agent.
+                this.opts.transport.emit({ type: 'system', level: 'warn', text: `[Context] Compaction failed: ${err instanceof Error ? err.message : String(err)}` });
+            }
+        }
+        this.trimHistory();
+    }
+
+    /** One summarization call, billed through `metrics` events like any other LLM call. */
+    private summarizeForContext(transcript: string, previousSummary?: string): Promise<string> {
+        const cfg = this.opts.context?.summarizer;
+        const provider = this.opts.providers.resolve(cfg?.provider, this.opts.defaultProvider);
+        return new Promise<string>((resolve, reject) => {
+            const chunks: string[] = [];
+            Promise.resolve(provider.chat(
+                [
+                    { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+                    { role: 'user', content: buildSummaryPrompt(transcript, previousSummary) },
+                ],
+                [],
+                {
+                    onChunk: (delta) => { chunks.push(delta); },
+                    onDone: (msg) => resolve(msg.content ?? chunks.join('')),
+                    onError: reject,
+                    onMetrics: (inputTokens, outputTokens, usage) => {
+                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
+                    },
+                    ...(cfg?.model ? { model: cfg.model } : {}),
+                },
+            )).catch(reject);
+        });
     }
 
     private trimHistory(): void {
@@ -698,13 +836,22 @@ export class AgentEngine {
             const shouldContinue = await iterManager.advance();
             if (!shouldContinue) break;
 
-            this.trimHistory();
+            await this.prepareContext();
 
             const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
             const tools = this.getToolsForAgent(currentProfile);
             const safeHistory = this.history.sanitized();
+            if (this.contextManager) {
+                this.lastRequestEstimate =
+                    this.contextManager.estimateText(systemMsg.content ?? '') +
+                    this.contextManager.estimateText(JSON.stringify(tools.map(t => [t.name, t.description, t.parameters]))) +
+                    this.contextManager.estimateRaw(safeHistory);
+            }
 
             let streamBuffer = '';
+            // `buffer` mode: hold tokens until the output guardrails have seen the whole answer.
+            const holdOutput = !!this.guardrails?.has('output') && this.opts.guardrailOutputMode === 'buffer';
+            const heldTokens: string[] = [];
             const askAgentCalls: Array<{ id: string; agentId: string; question: string; context?: string }> = [];
             const otherCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
@@ -718,7 +865,8 @@ export class AgentEngine {
                 {
                     onChunk: (delta) => {
                         streamBuffer += delta;
-                        this.opts.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
+                        if (holdOutput) heldTokens.push(delta);
+                        else this.opts.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
                     },
                     onToolCall: (name, args, id) => {
                         this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
@@ -738,6 +886,11 @@ export class AgentEngine {
                         if (!this.aborted) this.opts.transport.emit({ type: 'error', message: err.message });
                     },
                     onMetrics: (inputTokens, outputTokens, usage) => {
+                        // Anthropic reports cached tokens apart from input_tokens; the request still carried them.
+                        this.contextManager?.observeUsage(
+                            inputTokens + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0),
+                            this.lastRequestEstimate,
+                        );
                         this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage));
                     },
                     signal,
@@ -749,6 +902,14 @@ export class AgentEngine {
             if (this.aborted) break;
 
             if (!finalMessage) break;
+
+            const guardedOut = await this.guardOutput(finalMessage as LLMMessage, currentProfile.id);
+            finalMessage = guardedOut.message;
+            if (guardedOut.touched) streamBuffer = guardedOut.text;
+            if (holdOutput) {
+                const shown = guardedOut.touched ? guardedOut.text : heldTokens.join('');
+                if (shown) this.opts.transport.emit({ type: 'token', content: shown, agent_id: currentProfile.id });
+            }
 
             this.history.push(finalMessage);
 
@@ -804,14 +965,14 @@ export class AgentEngine {
                 }
                 for (let i = 0; i < wave.length; i++) iterManager.recordToolCall();
                 if (wave.length === 1) {
-                    const result = await this.executeToolCall(first, currentProfile, 0);
+                    const result = await this.executeToolCall(first, currentProfile, 0, undefined, () => this.history.redactToolCallArgs(first.id));
                     toolResults.push({ role: 'tool', tool_call_id: first.id, content: result });
                     continue;
                 }
                 // Parallel wave: events buffered per call, flushed in call order.
                 const buffers: Array<Array<import('../types').AgentEvent>> = wave.map(() => []);
                 const results = await Promise.all(wave.map((call, i) =>
-                    this.executeToolCall(call, currentProfile, 0, e => buffers[i].push(e)),
+                    this.executeToolCall(call, currentProfile, 0, e => buffers[i].push(e), () => this.history.redactToolCallArgs(call.id)),
                 ));
                 wave.forEach((call, i) => {
                     for (const e of buffers[i]) this.opts.transport.emit(e);
@@ -911,13 +1072,16 @@ export class AgentEngine {
             iter++;
 
             let streamContent = '';
+            const holdOutput = !!this.guardrails?.has('output') && this.opts.guardrailOutputMode === 'buffer';
+            const heldTokens: string[] = [];
             const toolCalls: Array<{ id: string; name: string; args: string }> = [];
             let finalMessage: LLMMessage | null = null;
 
             await this.getProviderForProfile(profile).chat(messages, this.getToolsForAgent(profile), {
                 onChunk: (delta) => {
                     streamContent += delta;
-                    if (!profile.suppressDefaultOutput) {
+                    if (holdOutput) heldTokens.push(delta);
+                    else if (!profile.suppressDefaultOutput) {
                         emit({ type: 'token', content: delta, agent_id: profile.id });
                     }
                 },
@@ -938,6 +1102,13 @@ export class AgentEngine {
             });
 
             if (!finalMessage) break;
+            const guardedOut = await this.guardOutput(finalMessage as LLMMessage, profile.id);
+            finalMessage = guardedOut.message;
+            if (guardedOut.touched) streamContent = guardedOut.text;
+            if (holdOutput && !profile.suppressDefaultOutput) {
+                const shown = guardedOut.touched ? guardedOut.text : heldTokens.join('');
+                if (shown) emit({ type: 'token', content: shown, agent_id: profile.id });
+            }
             if (streamContent) finalContent = streamContent;
             messages.push(finalMessage);
 
@@ -945,7 +1116,13 @@ export class AgentEngine {
 
             const toolResults: LLMMessage[] = [];
             for (const call of toolCalls) {
-                const result = await this.executeToolCall(call, profile, depth, emit);
+                const result = await this.executeToolCall(call, profile, depth, emit, () => {
+                    // Sub-agent history is the local `messages` array: blank the refused arguments there too.
+                    for (const m of messages) {
+                        const tc = m.role === 'assistant' ? m.tool_calls?.find(c => c.id === call.id) : undefined;
+                        if (tc) tc.function = { ...tc.function, arguments: '{"redacted":"blocked by guardrail"}' };
+                    }
+                });
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
             messages.push(...toolResults);
@@ -967,6 +1144,8 @@ export class AgentEngine {
         profile: import('../types').AgentProfile,
         depth = 0,
         emit?: (event: import('../types').AgentEvent) => void,
+        /** Called when a guardrail refused the arguments, so the caller can scrub them from its history. */
+        onArgsRefused?: () => void,
     ): Promise<string> {
         const emitEvent = emit ?? ((e) => this.opts.transport.emit(e));
         const callStart = Date.now();
@@ -985,12 +1164,41 @@ export class AgentEngine {
                       `Use ask_agent to delegate to a specialist.`;
             success = false;
         } else {
-            const gateDecision = await this.checkGateSerial(call, profile.id);
-            if (gateDecision === 'rejected') {
-                result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-            } else {
-                ({ result, success } = await this.runToolDef(call, toolDef, profile.id, depth));
+            // Guardrails on the arguments run before approval: nobody is asked to approve a blocked call.
+            let effective = call;
+            let withheld: string | undefined;
+            if (this.guardrails?.has('tool_call')) {
+                const checked = await this.guard('tool_call', call.args, profile.id, call.name);
+                if (checked.blocked) {
+                    withheld = `Tool call "${call.name}" blocked by guardrail "${checked.blocked.guardrail}": ${checked.blocked.reason}`;
+                } else if (checked.changed) {
+                    try {
+                        JSON.parse(checked.content);
+                        effective = { name: call.name, args: checked.content };
+                    } catch {
+                        withheld = `Tool call "${call.name}" blocked by guardrails: redaction left the arguments invalid`;
+                    }
+                }
             }
+
+            if (withheld) {
+                result = withheld; success = false;
+                onArgsRefused?.();
+            } else {
+                const gateDecision = await this.checkGateSerial(effective, profile.id);
+                if (gateDecision === 'rejected') {
+                    result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+                } else {
+                    ({ result, success } = await this.runToolDef(effective, toolDef, profile.id, depth));
+                    if (this.guardrails?.has('tool_result')) {
+                        const checked = await this.guard('tool_result', result, profile.id, call.name);
+                        result = checked.blocked
+                            ? `[Tool result withheld by guardrail "${checked.blocked.guardrail}": ${checked.blocked.reason}]`
+                            : checked.content;
+                    }
+                }
+            }
+            call = effective;
         }
 
         await this.auditLogger.log({ agentId: profile.id, tool: call.name, inputPreview: call.args, success, durationMs: Date.now() - callStart, sessionId: this.opts.sessionId });

@@ -324,6 +324,20 @@ export interface CodingEngineOptions {
      */
     subAgentContextMessages?: number;
     /**
+     * Token-aware context control: truncates bulky old tool results and summarizes (or drops) the oldest
+     * turns to keep the conversation under `context.maxTokens`. Default: disabled.
+     * Needs @backendkit-labs/agent-core >= 0.28.
+     */
+    context?: import('@backendkit-labs/agent-core').ContextOptions;
+    /**
+     * Guardrails on user input, tool arguments, tool results and model answers (piiGuardrail,
+     * secretLeakGuardrail, promptInjectionGuardrail, ... from agent-core). Applied to every agent.
+     * Default: none. Needs @backendkit-labs/agent-core >= 0.28.
+     */
+    guardrails?: import('@backendkit-labs/agent-core').Guardrail[];
+    /** `after` (default) or `buffer`; see agent-core BaseEngineOptions.guardrailOutputMode. */
+    guardrailOutputMode?: 'after' | 'buffer';
+    /**
      * Called before executing write/execute tools (write_file, edit_file, run_command) when
      * iteration mode is manual. Return 'approve', 'approve_all', or 'reject'.
      */
@@ -585,6 +599,9 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
+        ...(opts.context ? { context: opts.context } : {}),
+        ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
+        ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
         ...(memorySystem ? { memorySystem } : {}),
         ...(historyPath ? { historyPath } : {}),
         // Only rebuild project context on switch when persistence is enabled —

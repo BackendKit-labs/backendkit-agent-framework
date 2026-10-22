@@ -32,6 +32,8 @@ export interface MetricsSnapshot {
     };
     tools: Record<string, { calls: number; successes: number; failures: number }>;
     agents: Record<string, { invocations: number; totalDurationMs: number }>;
+    /** Present once a guardrail has acted. Dry-run events are not counted. */
+    guardrails?: Record<string, { redacted: number; blocked: number; errors: number }>;
 }
 
 // ── Budget ────────────────────────────────────────────────────────────────────

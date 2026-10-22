@@ -23,6 +23,8 @@ import type { MemorySystem } from '../agent-memory/MemorySystem';
 import { discoverAgents } from '../agent-discovery/discoverAgents';
 import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 import type { IterationMode, IterationStats } from './IterationManager';
+import type { ContextOptions } from './ContextManager';
+import type { Guardrail } from '../guardrails/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -87,6 +89,33 @@ export interface BaseEngineOptions {
      * long-running autonomous agents.
      */
     maxContextMessages?: number;
+
+    /**
+     * Token-aware context control (see ContextOptions): truncates old bulky tool results, then summarizes
+     * (or drops) the oldest turns to keep the history under `context.maxTokens`. Can be combined with
+     * `maxContextMessages`.
+     *
+     * @example
+     * context: { maxTokens: 60_000, summarizer: { provider: 'deepseek', model: 'deepseek-chat' } }
+     */
+    context?: ContextOptions;
+
+    /**
+     * Guardrails on user input, tool arguments, tool results and model answers; applied to the main agent
+     * and every sub-agent. Ready-made: piiGuardrail, secretLeakGuardrail, promptInjectionGuardrail,
+     * maxLengthGuardrail, denyListGuardrail, llmJudgeGuardrail.
+     *
+     * @example
+     * guardrails: [secretLeakGuardrail(), piiGuardrail({ mode: 'redact' }), promptInjectionGuardrail()]
+     */
+    guardrails?: Guardrail[];
+
+    /**
+     * `after` (default): stream the answer and, if an output guardrail changes it, correct the stored
+     * history and emit a `guardrail` event carrying the `replacement`. `buffer`: hold the tokens until the
+     * answer is checked, so nothing unchecked is shown (no streaming).
+     */
+    guardrailOutputMode?: 'after' | 'buffer';
 
     /** Absolute path used as the working directory for tool calls. */
     workingDir?: string;
@@ -340,6 +369,9 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
+        ...(opts.context ? { context: opts.context } : {}),
+        ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
+        ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(opts.historyPath ? { historyPath: opts.historyPath } : {}),
         projectContext: opts.projectContext,

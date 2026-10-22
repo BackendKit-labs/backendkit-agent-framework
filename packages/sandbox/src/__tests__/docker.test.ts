@@ -32,6 +32,12 @@ describe('buildDockerArgs', () => {
         expect(flag(ro, '--tmpfs')).toBe('/tmp');
     });
 
+    it('runs as the given user, and leaves the image default when none is given', () => {
+        const base = { command: 'x', cwd: '/w', workspace: '/w', mode: 'workspace-write' as const, network: 'none' as const };
+        expect(flag(buildDockerArgs('c', base, { ...opts, user: '1001:1002' }), '--user')).toBe('1001:1002');
+        expect(buildDockerArgs('c', base, opts)).not.toContain('--user');
+    });
+
     it('closes the network unless the policy allows it', () => {
         const base = { command: 'x', cwd: '/w', workspace: '/w', mode: 'workspace-write' as const };
         expect(flag(buildDockerArgs('c', { ...base, network: 'none' }, opts), '--network')).toBe('none');
@@ -50,6 +56,13 @@ describe('DockerBackend — what it claims and when it is available', () => {
         expect(d.supports('read-only', 'none')).toBe(true);
         expect(d.supports('workspace-write', 'allow')).toBe(true);
         expect(d.supports('danger-full-access', 'allow')).toBe(false);
+    });
+
+    it('chooses the user: host uid:gid on POSIX, explicit value, or none', () => {
+        const hostUser = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid!()}` : undefined;
+        expect((new DockerBackend() as unknown as { user?: string }).user).toBe(hostUser);
+        expect((new DockerBackend({ user: '5:6' }) as unknown as { user?: string }).user).toBe('5:6');
+        expect((new DockerBackend({ user: false }) as unknown as { user?: string }).user).toBeUndefined();
     });
 
     it('probes once while the answer is positive, and again after the negative ttl', async () => {

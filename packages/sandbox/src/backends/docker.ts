@@ -13,6 +13,13 @@ export interface DockerBackendOptions {
     memory?: string;
     /** Process limit. Default 512. */
     pidsLimit?: number;
+    /**
+     * User the command runs as inside the container (`uid:gid`). Default on POSIX: the uid and gid of this process,
+     * so the command is not root and the files it creates belong to you. With all capabilities dropped, a root
+     * container cannot touch host files owned by another user, which is the usual case on Linux. Pass `false`
+     * to leave the image's default user. On Windows there is no uid and nothing is passed.
+     */
+    user?: string | false;
     /** Replace the availability probe (tests, or an already known state). */
     probe?: () => Promise<boolean>;
     /** How long a negative probe result is trusted before asking the daemon again. Default 5 s. */
@@ -39,7 +46,7 @@ function defaultProbe(bin: string): Promise<boolean> {
 export function buildDockerArgs(
     name: string,
     req: Pick<BackendExecRequest, 'command' | 'cwd' | 'workspace' | 'mode' | 'network'>,
-    opts: { image: string; memory: string; pidsLimit: number },
+    opts: { image: string; memory: string; pidsLimit: number; user?: string },
 ): string[] {
     const rel = path.relative(req.workspace, req.cwd).split(path.sep).join('/');
     const readOnly = req.mode === 'read-only';
@@ -50,6 +57,7 @@ export function buildDockerArgs(
         '--security-opt', 'no-new-privileges',
         '--memory', opts.memory,
         '--pids-limit', String(opts.pidsLimit),
+        ...(opts.user ? ['--user', opts.user] : []),
         ...(readOnly ? ['--read-only', '--tmpfs', '/tmp'] : []),
         '-v', `${req.workspace}:/workspace${readOnly ? ':ro' : ''}`,
         '-w', rel ? `/workspace/${rel}` : '/workspace',
@@ -70,6 +78,7 @@ export class DockerBackend implements SandboxBackend {
     private readonly image: string;
     private readonly memory: string;
     private readonly pidsLimit: number;
+    private readonly user: string | undefined;
     private readonly probe: () => Promise<boolean>;
     private readonly negativeTtlMs: number;
     private cached?: { ok: boolean; at: number };
@@ -79,6 +88,8 @@ export class DockerBackend implements SandboxBackend {
         this.image = opts.image ?? 'node:22';
         this.memory = opts.memory ?? '2g';
         this.pidsLimit = opts.pidsLimit ?? 512;
+        this.user = opts.user === false ? undefined
+            : opts.user ?? (typeof process.getuid === 'function' && typeof process.getgid === 'function' ? `${process.getuid()}:${process.getgid()}` : undefined);
         this.probe = opts.probe ?? (() => defaultProbe(this.bin));
         this.negativeTtlMs = opts.negativeTtlMs ?? 5000;
     }
@@ -101,7 +112,7 @@ export class DockerBackend implements SandboxBackend {
 
     exec(req: BackendExecRequest) {
         const name = `bk-run-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        const proc = spawn(this.bin, buildDockerArgs(name, req, { image: this.image, memory: this.memory, pidsLimit: this.pidsLimit }));
+        const proc = spawn(this.bin, buildDockerArgs(name, req, { image: this.image, memory: this.memory, pidsLimit: this.pidsLimit, user: this.user }));
         return runProcess(proc, {
             timeoutMs: req.timeoutMs, signal: req.signal, onOutput: req.onOutput,
             kill: (p) => {

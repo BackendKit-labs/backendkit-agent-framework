@@ -295,6 +295,13 @@ export interface CodingEngineOptions {
     toolTimeoutMs?: number;
     /** Wait for a tool to wind down after abort/timeout before answering. Default 2000 ms. */
     toolTimeoutGraceMs?: number;
+    /**
+     * Background jobs: `run_command` gains `background: true` and the agents that can run commands also get
+     * `job_output`, `job_list` and `job_kill`. See BaseEngineOptions.jobs. Needs agent-core >= 0.29.
+     */
+    jobs?: boolean | import('@backendkit-labs/agent-core').JobRegistryOptions;
+    /** Resolves `AgentProfile.secrets` references whose env var is unset. Needs agent-core >= 0.29. */
+    secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
     /** Tracing, metrics and cost/budget tracking (see createBaseEngine). */
     observability?: ObservabilityConfig;
     /** Abort the run when observability.costTracker.budget is exceeded. Default false. */
@@ -573,11 +580,19 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         skills: builtinSkills,
     }).catch(err => console.warn(`[${appName}] seed warning: ${err.message}`));
 
+    // Agents that can run commands also get the job tools when jobs are on.
+    const jobTools = ['job_output', 'job_list', 'job_kill'];
+    const engineAgents = opts.jobs
+        ? allAgents.map(a => a.allowedTools.includes('run_command')
+            ? { ...a, allowedTools: [...new Set([...a.allowedTools, ...jobTools])] }
+            : a)
+        : allAgents;
+
     // ── Delegate engine assembly to createBaseEngine ──────────────────────────
     return createBaseEngine({
         providers,
         defaultProvider: opts.defaultProvider,
-        agents: allAgents,
+        agents: engineAgents,
         tools: CODING_TOOLS,
         defaultAgent: opts.defaultAgent ?? 'general',
         transport: opts.transport,
@@ -604,6 +619,8 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
         ...(opts.subAgentContextMessages ? { subAgentContextMessages: opts.subAgentContextMessages } : {}),
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+        ...(opts.jobs ? { jobs: opts.jobs } : {}),
+        ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.context ? { context: opts.context } : {}),
         ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),

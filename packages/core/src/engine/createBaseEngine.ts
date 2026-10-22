@@ -3,6 +3,9 @@ import { AgentRegistry } from './AgentRegistry';
 import { ToolRegistry } from './ToolRegistry';
 import { ProviderRegistry } from './ProviderRegistry';
 import { StdoutTransport } from '../transport/StdoutTransport';
+import { createJobRegistry } from '../jobs/JobRegistry';
+import type { JobRegistryOptions } from '../jobs/JobRegistry';
+import { JOB_TOOLS } from '../jobs/tools';
 import type {
     AgentProfile,
     LLMProvider,
@@ -63,6 +66,13 @@ export interface BaseEngineOptions {
      * Time waiting for approval does not count. Default: no limit.
      */
     toolTimeoutMs?: number;
+
+    /**
+     * Enables background jobs: registers `job_output`, `job_list` and `job_kill` (add them to `allowedTools`
+     * of the agents that use them) and gives tools `ctx.jobs`. `true` uses the defaults (8 live jobs per agent,
+     * 64 KB of output each, finished jobs kept 10 min). Each agent only sees its own jobs.
+     */
+    jobs?: boolean | JobRegistryOptions;
 
     /** Resolves `AgentProfile.secrets` references whose env var is unset (see EngineOptions.secretResolver). */
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
@@ -307,6 +317,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
     if (opts.memorySystem) {
         for (const tool of opts.memorySystem.getTools()) tools.register(tool);
     }
+    const jobs = opts.jobs ? createJobRegistry(opts.jobs === true ? {} : opts.jobs) : undefined;
+    if (jobs) for (const tool of JOB_TOOLS) tools.register(tool);
 
     const providers = new ProviderRegistry();
     for (const [id, provider] of Object.entries(opts.providers)) {
@@ -380,6 +392,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
         ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+        ...(jobs ? { jobs } : {}),
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),

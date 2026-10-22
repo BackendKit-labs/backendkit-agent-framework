@@ -105,6 +105,11 @@ export interface ExecutionContext {
      * it explicitly and return a clear error rather than assume it's there.
      */
     secrets?: Record<string, string>;
+    /**
+     * Background jobs of this engine (present when `jobs` is enabled). A tool starts one with
+     * `jobs.start({ kind, owner: ctx.agentId, run })` and returns its id instead of blocking.
+     */
+    jobs?: import('../jobs/JobRegistry').JobRegistry;
 }
 
 export interface SessionMemoryData {
@@ -283,6 +288,8 @@ export interface EngineOptions {
      * (e.g. a vault lookup). Called on every tool call; returning nothing omits the secret.
      */
     secretResolver?: (name: string, agentId: string) => string | undefined | Promise<string | undefined>;
+    /** Background job registry shared by the engine's tools (see BaseEngineOptions.jobs). */
+    jobs?: import('../jobs/JobRegistry').JobRegistry;
     /** After a tool's signal is aborted, how long to wait for it to wind down before replying. Default 2000. */
     toolTimeoutGraceMs?: number;
     maxParallelAgents?: number;

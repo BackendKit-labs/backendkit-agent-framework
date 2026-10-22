@@ -9,6 +9,9 @@ export type { BaseEngineOptions } from './engine/createBaseEngine';
 export { ContextManager, defaultEstimateTokens } from './engine/ContextManager';
 export type { ContextOptions, CompactionReport } from './engine/ContextManager';
 export { isContextOverflowError } from './engine/contextOverflow';
+export { createJobRegistry, JobLimitError } from './jobs/JobRegistry';
+export type { JobRegistry, JobRegistryOptions, JobInfo, JobSpec, JobStatus, JobOutput } from './jobs/JobRegistry';
+export { JOB_TOOLS, jobOutputTool, jobListTool, jobKillTool } from './jobs/tools';
 export {
     GuardrailRunner,
     piiGuardrail, secretLeakGuardrail, promptInjectionGuardrail,

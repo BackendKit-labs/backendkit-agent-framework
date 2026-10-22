@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
@@ -107,19 +107,42 @@ function buildDockerArgs(name: string, baseDir: string, workDir: string, command
     ];
 }
 
+/**
+ * Stops the command and everything it started. A plain proc.kill() leaves the children of a shell
+ * running (and on Windows does not reach them at all).
+ */
+function killProcessTree(proc: ChildProcess, containerName?: string): void {
+    if (containerName) {
+        spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
+    } else if (process.platform === 'win32' && proc.pid) {
+        // taskkill must see the tree while the shell is alive (once cmd.exe dies Windows forgets its
+        // children), so the shell is not killed here: /F ends it together with the rest.
+        const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+        tk.on('error', () => proc.kill());
+        tk.on('close', (code) => { if (code !== 0) proc.kill(); });
+        return;
+    } else if (proc.pid) {
+        try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* not a process group leader */ }
+    }
+    proc.kill();
+}
+
 export const runCommandTool = defineTool({
     name: 'run_command',
     description:
         'Execute a shell command in the working directory. ' +
         'Use the optional `cwd` parameter to run in a subdirectory instead of `cd dir && cmd`. ' +
         'Allowed binaries: npm, git, node, python, go, cargo, docker, kubectl, and common build/test/lint tools. ' +
-        'Shell features (pipes, &&, redirects) are supported when ALL commands in the chain are on the allowlist.',
+        'Shell features (pipes, &&, redirects) are supported when ALL commands in the chain are on the allowlist. ' +
+        'With `background: true` (when background jobs are enabled) the command starts as a job and returns its id at once: ' +
+        'read it with job_output, stop it with job_kill; timeout_ms does not apply.',
     input: z.object({
         command:    z.string().describe('Shell command to execute'),
         cwd:        z.string().optional().describe('Subdirectory to run in, relative to the working directory (e.g. "frontend", "packages/api")'),
         timeout_ms: z.number().int().min(1000).max(300_000).default(30_000).describe('Timeout in ms (default: 30 000)'),
+        background: z.boolean().optional().describe('Run as a background job (long-running servers, watchers, slow builds) and return its id immediately'),
     }),
-    execute: async ({ command, cwd, timeout_ms }, ctx) => {
+    execute: async ({ command, cwd, timeout_ms, background }, ctx) => {
         const baseDir = ctx.workingDir ?? process.cwd();
 
         // Parse `cd dir && cmd` patterns transparently
@@ -186,6 +209,28 @@ export const runCommandTool = defineTool({
             ? `bk-run-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
             : undefined;
 
+        if (background && ctx.jobs) {
+            const info = ctx.jobs.start({
+                kind: 'bash',
+                owner: ctx.agentId,
+                run: (signal, append) => new Promise<string>((resolve, reject) => {
+                    const proc = containerName
+                        ? spawn('docker', buildDockerArgs(containerName, baseDir, workDir, realCommand))
+                        : spawn(effectiveCommand, { shell: true, cwd: workDir, detached: process.platform !== 'win32' });
+                    proc.stdout?.on('data', (d: Buffer) => append(d.toString('utf-8')));
+                    proc.stderr?.on('data', (d: Buffer) => append(d.toString('utf-8')));
+                    const kill = () => killProcessTree(proc, containerName);
+                    if (signal.aborted) kill(); else signal.addEventListener('abort', kill, { once: true });
+                    proc.on('error', reject);
+                    proc.on('close', (code) => {
+                        signal.removeEventListener('abort', kill);
+                        if (code === 0) resolve('exit 0'); else reject(new Error(`exit ${code}`));
+                    });
+                }),
+            });
+            return `Started background job ${info.id}. Read its output with job_output (id: "${info.id}"); stop it with job_kill.`;
+        }
+
         // Use async spawn — spawnSync blocks the entire main process thread,
         // which freezes Electron's IPC channel for the duration of the command.
         const output = await new Promise<string>((resolve) => {
@@ -213,23 +258,7 @@ export const runCommandTool = defineTool({
             proc.stdout.on('data', collect);
             proc.stderr.on('data', collect);
 
-            // Stops the command and everything it started. A plain proc.kill() leaves the children of a
-            // shell running (and on Windows does not reach them at all).
-            const killTree = () => {
-                if (containerName) {
-                    spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => undefined);
-                } else if (process.platform === 'win32' && proc.pid) {
-                    // taskkill must see the tree while the shell is alive (once cmd.exe dies Windows forgets its
-                    // children), so the shell is not killed here: /F ends it together with the rest.
-                    const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
-                    tk.on('error', () => proc.kill());
-                    tk.on('close', (code) => { if (code !== 0) proc.kill(); });
-                    return;
-                } else if (proc.pid) {
-                    try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* not a process group leader */ }
-                }
-                proc.kill();
-            };
+            const killTree = () => killProcessTree(proc, containerName);
 
             const signal = ctx.signal;
             let aborted = false;

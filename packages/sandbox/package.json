@@ -1,0 +1,46 @@
+{
+  "name": "@backendkit-labs/agent-sandbox",
+  "version": "0.1.0",
+  "description": "Confinement and permissions for what agents run: sandbox modes, presets, a single policy point, swappable backends (host, docker) and environment hygiene, for @backendkit-labs/agent-core",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "test": "jest"
+  },
+  "peerDependencies": {
+    "@backendkit-labs/agent-core": ">=0.29.1 <0.31.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/sandbox"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

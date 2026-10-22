@@ -174,3 +174,79 @@ describe('AgentEngine — sandbox', () => {
         } finally { rmSync(dir, { recursive: true, force: true }); }
     });
 });
+
+describe('AgentEngine — sandbox, several engines and edge cases', () => {
+    /** A runner whose `run` answers a fixed outcome; shared on purpose. */
+    function sharedRunner(over: { outcome?: 'ok' | 'unavailable'; ask?: Record<string, 'ask' | 'none'>; deny?: string[] } = {}) {
+        const runner = {
+            policyMarker: 'reachable',
+            async run(_c: SandboxCaller, req: { tool: string }) {
+                return over.outcome === 'unavailable'
+                    ? { ok: false as const, code: 'SANDBOX_UNAVAILABLE' as const, reason: 'docker is down', mode: 'workspace-write' as const, network: 'none' as const }
+                    : { ok: true as const, mode: 'workspace-write' as const, network: 'none' as const, backend: 'fake', result: { exitCode: 0, output: `ran ${req.tool}`, timedOut: false, aborted: false } };
+            },
+            authorizeTool: (caller: SandboxCaller, t: string) => over.deny?.includes(t)
+                ? { ok: false as const, code: 'SANDBOX_DENIED' as const, reason: `${t} is refused for ${caller.agentId}` }
+                : { ok: true as const },
+            approvalFor: (_c: SandboxCaller, t: string) => over.ask?.[t] ?? 'none',
+        };
+        return runner as unknown as SandboxRunner & { policyMarker: string };
+    }
+
+    const sandboxCaller = (marker: { seen?: string }): ToolDefinition => ({
+        name: 'run_command', description: 'runs through the sandbox', parameters: { type: 'object', properties: {} },
+        execute: async (_a, ctx) => {
+            marker.seen = (ctx.sandbox as unknown as { policyMarker?: string } | undefined)?.policyMarker;
+            const out = await ctx.sandbox!.run({ agentId: ctx.agentId, sessionId: ctx.sessionId }, { tool: 'run_command', command: 'echo', cwd: '.' });
+            return out.ok ? out.result.output : `Error: ${out.code}: ${out.reason}`;
+        },
+    });
+
+    function engineWith(runner: SandboxRunner, script: Parameters<typeof createScriptedProvider>[0], extra: Partial<BaseEngineOptions> = {}, marker: { seen?: string } = {}) {
+        const { transport, events } = createMockTransport();
+        const engine = createBaseEngine({
+            providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id,
+            tools: [sandboxCaller(marker), tool('write_file', []), tool('read_file', [])], transport, workingDir: process.cwd(),
+            noQA: true, iterationMode: 'auto', sandbox: runner, ...extra,
+        });
+        return { engine, events };
+    }
+    const sandboxEvents = (events: ReturnType<typeof createMockTransport>['events']) =>
+        events.flatMap(e => (e.type === 'sandbox' ? [`${e.outcome}:${e.tool}`] : []));
+
+    it('reports the outcome of every run on the transport: allowed with mode and backend, or the refusal with its reason', async () => {
+        const ok = engineWith(sharedRunner(), [call('1', 'run_command'), { content: 'ok' }]);
+        await ok.engine.run('go');
+        expect(ok.events.find(e => e.type === 'sandbox')).toMatchObject({ outcome: 'allowed', tool: 'run_command', mode: 'workspace-write', network: 'none', backend: 'fake', agent_id: agent.id });
+
+        const down = engineWith(sharedRunner({ outcome: 'unavailable' }), [call('1', 'run_command'), { content: 'ok' }]);
+        await down.engine.run('go');
+        expect(down.events.find(e => e.type === 'sandbox')).toMatchObject({ outcome: 'SANDBOX_UNAVAILABLE', reason: 'docker is down' });
+    });
+
+    it('the tool still reaches everything on the runner (policy, markers) through the per-call wrapper', async () => {
+        const marker: { seen?: string } = {};
+        const { engine } = engineWith(sharedRunner(), [call('1', 'run_command'), { content: 'ok' }], {}, marker);
+        await engine.run('go');
+        expect(marker.seen).toBe('reachable');
+    });
+
+    it('ONE RUNNER SHARED BY TWO ENGINES: each transport sees only the decisions of its own calls', async () => {
+        const shared = sharedRunner({ deny: ['write_file'] });
+        const a = engineWith(shared, [call('1', 'run_command'), { content: 'a done' }]);
+        const b = engineWith(shared, [call('1', 'write_file'), call('2', 'run_command'), { content: 'b done' }]);
+
+        await Promise.all([a.engine.run('go'), b.engine.run('go')]);
+
+        expect(sandboxEvents(a.events)).toEqual(['allowed:run_command']);
+        expect(sandboxEvents(b.events).sort()).toEqual(['SANDBOX_DENIED:write_file', 'allowed:run_command']);
+    });
+
+    it('disableToolApproval() does not reopen the door: with no approver, a tool that needs approval is still refused', async () => {
+        const { engine, events } = engineWith(sharedRunner({ ask: { run_command: 'ask' } }), [call('1', 'run_command'), { content: 'ok' }]);
+        engine.disableToolApproval();
+        await engine.run('go');
+        const result = events.find(e => e.type === 'tool_result');
+        expect(result && result.type === 'tool_result' && result.preview).toMatch(/SANDBOX_DENIED.*no approver/);
+    });
+});

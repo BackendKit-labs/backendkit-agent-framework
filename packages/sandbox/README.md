@@ -104,6 +104,13 @@ createSandboxService({ policy, backends, auditLog: 'logs/sandbox.ndjson' });   /
 
 Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD` or `CREDENTIAL` (case-insensitive) are dropped. It is a denylist on purpose (Windows needs `SystemRoot`, `ComSpec`, `PATHEXT`). Let specific ones through with `env.allow` (`GH_TOKEN`, or `DEEPSEEK_*`), drop more with `env.deny`. Containers never inherit the host environment.
 
+## What it does not confine
+
+- **Tools that start processes on their own.** Only calls that go through `ctx.sandbox.run(...)` are confined (`run_command` does). A custom or MCP tool that spawns a process itself is outside the sandbox: write it against `ctx.sandbox`.
+- **`read-only` refuses tools by name.** It refuses exactly the tools listed in `writeTools` (the coding set lists `write_file` and `edit_file`). MCP tools and your own tools that write are not blocked unless you list them.
+- **File tools** still enforce the workspace with their own path check; they move behind the service in the next delivery.
+- **Several engines may share one service**: each engine reports only the decisions of its own calls on its transport and audit log. `sandbox.onDecision(...)` on the service sees all of them.
+
 ## Not here yet
 
 `request_escalation` (S2), file tools and terminal through the service (S3), `bwrap`/`landlock`, Windows and `ssh` backends (S4), private temp directories and waiting for child exit after a kill.

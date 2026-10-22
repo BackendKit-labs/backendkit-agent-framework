@@ -233,10 +233,6 @@ export class AgentEngine {
             onToolApproval: opts.onToolApproval,
             transport:      opts.transport,
         });
-        // Every sandbox decision reaches the transport (control plane, UI) and the audit log.
-        opts.sandbox?.onDecision?.(d => this.reportSandboxDecision({
-            outcome: d.outcome, tool: d.tool, mode: d.mode, network: d.network, agentId: d.agentId, backend: d.backend, reason: d.reason,
-        }));
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
             maxIterations: opts.maxIterations ?? 100,
@@ -1244,10 +1240,29 @@ export class AgentEngine {
     /** The sandbox this engine runs tools through, if any (e.g. to read or change its policy at runtime). */
     get sandbox(): import('../sandbox/types').SandboxRunner | undefined { return this.opts.sandbox; }
 
+    /**
+     * The runner a tool sees: the real one (so `policy` and the rest stay reachable) with `run` wrapped so each
+     * outcome is reported on THIS engine's transport and audit log. A runner shared by several engines therefore
+     * never leaks one engine's decisions to another.
+     */
+    private sandboxFor(agentId: string): import('../sandbox/types').SandboxRunner {
+        const real = this.opts.sandbox!;
+        return Object.assign(Object.create(real), {
+            run: async (caller: import('../sandbox/types').SandboxCaller, req: import('../sandbox/types').SandboxExecRequest) => {
+                const out = await real.run(caller, req);
+                this.reportSandboxDecision(out.ok
+                    ? { outcome: 'allowed', tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend }
+                    : { outcome: out.code, tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend, reason: out.reason });
+                return out;
+            },
+        });
+    }
+
     /** The message for the model when the sandbox policy refuses `tool` for `agentId`; undefined when allowed. */
     private sandboxRefusal(tool: string, agentId: string): string | undefined {
         const verdict = this.opts.sandbox?.authorizeTool?.({ agentId, sessionId: this.opts.sessionId ?? 'default' }, tool);
         if (!verdict || verdict.ok) return undefined;
+        this.reportSandboxDecision({ outcome: verdict.code, tool, agentId, reason: verdict.reason });
         return `Tool call "${tool}" refused by the sandbox policy (${verdict.code}): ${verdict.reason}`;
     }
 
@@ -1382,7 +1397,7 @@ export class AgentEngine {
             ...this.buildContext(agentId, depth),
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
-            ...(this.opts.sandbox ? { sandbox: this.opts.sandbox } : {}),
+            ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId) } : {}),
             signal: controller.signal,
         };
         const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;

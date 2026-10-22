@@ -41,7 +41,9 @@ export class ApprovalGate {
         sandbox?: 'none' | 'ask',
     ): Promise<'run' | 'rejected' | 'no-approver'> {
         // The policy wants a human and there is none: refuse. Never "run because nobody can be asked".
-        if (sandbox === 'ask' && !this.opts.onToolApproval && !this.disabled) return 'no-approver';
+        // Not even disableToolApproval() lifts this: without an approver that flag can only come from code,
+        // never from a person choosing "approve all".
+        if (sandbox === 'ask' && !this.opts.onToolApproval) return 'no-approver';
         if (!this.opts.onToolApproval) return 'run';
 
         const preview = call.args.slice(0, 200);

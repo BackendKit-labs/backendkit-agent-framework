@@ -82,6 +82,10 @@ export interface SandboxRunner {
      * refused (fail closed): an unattended flow or trigger can never end up running what nobody approved.
      */
     approvalFor?(caller: SandboxCaller, tool: string): 'none' | 'ask';
-    /** Observe every decision (allowed, denied, unavailable). Returns the unsubscribe function. */
+    /**
+     * Observe every decision (allowed, denied, unavailable) taken by this runner, whoever asked. Returns the
+     * unsubscribe function. The engine does NOT use this: a runner can be shared by several engines and each
+     * one reports only the decisions of its own calls.
+     */
     onDecision?(listener: (decision: SandboxDecision) => void): () => void;
 }

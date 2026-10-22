@@ -70,7 +70,7 @@ Behaviours (one is consumed per request; when the script is used up the server a
 | `status` | an HTTP error before streaming (429, 500, 503…) |
 | `reset` | the connection is dropped |
 | `stream_error` | the stream starts, then an error event arrives inside it (what OpenAI/DeepSeek send when something fails after the 200); a provider must not retry this |
-| `cut` | the stream starts, then the connection is reset. Platform-dependent on the client side (on Linux some HTTP clients do not notice): always give such a test an abort signal as a safety net |
+| `cut` | the stream starts, then the connection is reset. Plain `fetch` sees the failure on every platform; the OpenAI SDK's HTTP client was observed to hang on Linux (not abortable), so test mid-stream failures of a provider with `stream_error` and use `cut` only with a client you have checked |
 | `corrupt` | a 200 stream whose first chunk is not JSON |
 | `stall` | never answers (to test aborts and timeouts) |
 | `overflow` | the exact 400 DeepSeek/OpenAI send when the prompt does not fit the context window |

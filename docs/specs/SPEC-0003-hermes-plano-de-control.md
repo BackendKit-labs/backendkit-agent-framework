@@ -9,6 +9,8 @@
 
 **Hermes** es un agente supervisor construido con el propio framework (`createBaseEngine`) que registra, descubre, ejecuta, vigila y controla a los demás agentes: los creados con el framework y, más adelante, agentes externos (Claude Code, Codex, cualquier agente ACP).
 
+**Hermes por empresa.** La idea de producto es crear *Hermes específicos* según lo que necesite cada empresa: uno controla los **flujos** de otros agentes, los supervisa y **genera agentes nuevos cuando hace falta**. Por eso el control sobre agentes y automatizaciones (políticas, flujos, creación con límites) es tan central como delegar trabajo. Un Hermes específico es una configuración sobre una librería común (§2.7), no un código distinto por empresa.
+
 ### Objetivos
 1. Una flota declarada en YAML, con estado de salud y límites por agente.
 2. Delegar trabajo a cualquier agente de la flota (corto, largo/asíncrono) y seguirlo hasta su fin.
@@ -16,9 +18,11 @@
 4. Trazabilidad de extremo a extremo: una traza OTel que cruza procesos, auditoría y coste por agente.
 5. Operación segura: permisos por rol, aprobación humana de acciones destructivas, credenciales por referencia.
 6. Accesible desde chat (agent-web), desde clientes MCP (Claude Desktop) y, en fases posteriores, desde ACP.
+7. **Controlar flujos y automatizaciones** de otros agentes (listar, lanzar, pausar, cancelar, inspeccionar) y fijar en caliente su política de ejecución (sandbox, §4).
+8. **Generar agentes nuevos** desde plantillas aprobadas, con límites heredados del creador (§2.5).
 
 ### No objetivos
-Ser un orquestador de negocio (eso son los flows de `agent-enterprise`), reemplazar a `director-agent` en bk-agents (se evalúa su convergencia, §9), gestionar infraestructura (arrancar contenedores o pods: eso lo hacen `docker-agent`, `k8s-agent`, `fleet-agent`; Hermes los usa como agentes de la flota).
+Ser un orquestador de negocio (la lógica de los flows sigue siendo de `agent-enterprise`; Hermes los **controla**, no los define, §2.6), reemplazar a `director-agent` en bk-agents (se evalúa su convergencia, §9), gestionar infraestructura (arrancar contenedores o pods: eso lo hacen `docker-agent`, `k8s-agent`, `fleet-agent`; Hermes los usa como agentes de la flota).
 
 ## 2. Arquitectura
 
@@ -91,7 +95,32 @@ Las claves usan referencias (`{ env }`) de SPEC-0002 §4. Se valida con Zod; `bk
 | `agent_cancel` | cancela un run |
 | `fleet_health` | salud agregada y circuit breakers |
 | `fleet_budget` | gasto por agente y total del día |
+| `agent_create` | crea un agente desde un blueprint y lo registra en la flota (§2.5); pasa por aprobación |
+| `agent_retire` | retira un agente creado por Hermes (cancela sus runs, lo da de baja) |
+| `flow_list` / `flow_run` / `flow_status` / `flow_cancel` | controlan flows de agentes de la flota (§2.6) |
+| `policy_get` / `policy_set` | leen y fijan la política de ejecución (sandbox) de un agente (§4); solo hacia igual o más estricto sin aprobación |
+| `job_list` / `job_cancel` | jobs en segundo plano de un agente |
 Todas respetan roles y política; `agent_run` y `agent_cancel` pasan por `onToolApproval` según `access.approval`. Los resultados de agentes remotos se tratan como **contenido no confiable**: pasan por `promptInjectionGuardrail` y `secretLeakGuardrail`.
+
+### 2.5 Aprovisionamiento y herencia de permisos
+Un **blueprint** declara un agente que Hermes puede crear: plantilla base (las de `create-bk-agent` o un `AgentProfile` declarativo), herramientas permitidas, proveedor y modelo, política de ejecución (sandbox), presupuesto y caducidad (`ttl`). Los blueprints viven en el `fleet.yaml` (`blueprints:`) y solo se puede crear lo que un blueprint describe.
+```yaml
+blueprints:
+  - id: report-writer
+    template: single
+    tools: [read_file, search_files]
+    sandbox: { preset: read-only }
+    limits: { budgetUsdPerDay: 1, ttlMinutes: 120 }
+    approval: ask          # crear una instancia pide aprobación humana
+```
+**Regla de herencia (se comprueba en código, no solo se documenta):** la política del agente creado es igual o más estricta que la del creador en cada dimensión (modo del sandbox, red, raíces, nivel de aprobación, herramientas permitidas, presupuesto, profundidad de creación). Si el blueprint pide algo más amplio, `agent_create` falla con `POLICY_WIDER_THAN_PARENT` y la ampliación solo se concede por el camino de escalación de SPEC-0006 (aprobación, para esa creación). Una creación hecha sin aprobador (flujo sin humano) falla cerrado. Cada creación y baja queda en la auditoría con el creador, el blueprint y la política resultante.
+Se limita el número de agentes creados vivos y la profundidad de creación (un agente creado no crea otros salvo que el blueprint lo permita).
+
+### 2.6 Control de flujos
+`FlowConnector` (conector de la flota) expone los flows de `agent-enterprise` de un agente como capacidades: lista de flows, lanzar con entrada, estado por paso, pausar, cancelar. Hermes **no ejecuta la lógica** del flow: la ejecuta el agente que lo aloja; Hermes lo dispara, lo vigila y lo detiene bajo política. Requiere que el agente publique sus flows en `info` (extensión de §4).
+
+### 2.7 Qué es "un Hermes específico"
+`createHermes({ fleet, policies, blueprints, flows, interfaces })` sobre la librería común. Una empresa obtiene su Hermes con su `fleet.yaml`, sus políticas, sus blueprints y sus flows; las verticales repetibles se distribuyen como *presets* (un `fleet.yaml` y blueprints de partida), no como paquetes nuevos por cliente.
 
 ## 3. Estado y persistencia (`RunStore`)
 Fase 1: SQLite/JSON local con `runId`, `agentId`, capacidad, entrada (redactada), estado, tiempos, coste, `traceId`, principal y resultado. Al arrancar, Hermes **reconcilia** los runs `running`: pregunta al agente por `taskId`; si no existe, los marca `lost`. Interfaz `RunStore` para sustituirla por el log de sesión (SPEC-0004) en fases posteriores.
@@ -102,7 +131,9 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 2. `POST /v1/agent/control` `{ action: 'pause'|'resume'|'set_budget'|'drain', ... }`. `drain` deja de aceptar runs nuevos (para mantenimiento).
 3. Cabecera `traceparent` (W3C) en `run`: el servidor crea la traza del run como hija (ver §6).
 4. `GET /v1/agent/runs` (lista de runs activos y recientes) y `capabilities[].effects: 'read'|'write'|'external'` para que Hermes aplique política.
-5. `info` incluye `limits`, `version`, `protocolMinor`.
+5. `info` incluye `limits`, `version`, `protocolMinor`, y la lista de flows publicados.
+6. Control de ejecución: `POST /v1/agent/control` admite también `get_sandbox_policy` / `set_sandbox_policy` (el `SandboxPolicyConfig` JSON de SPEC-0006; `set` valida y aplica a la llamada siguiente, la respuesta incluye la `version`), `list_jobs` y `cancel_job` (el `JobRegistry` del engine). `set_sandbox_policy` hacia un modo más amplio exige aprobación.
+7. `GET /v1/agent/audit`: decisiones del sandbox y del engine del agente (las mismas que su NDJSON), para la vista unificada de §5.
 `AgentServer` conecta `cancel` con `engine.abort()` y las señales de SPEC-0002 (hoy el cancel solo marca la tarea).
 
 ## 5. Políticas
@@ -111,6 +142,8 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 - **Presupuesto:** `perRunUsd` y `perDayUsd` por agente y global. El coste de un run se obtiene del agente (`meta.costUsd` en la respuesta) o se estima desde `metrics`. Al superar el diario, `agent_run` responde `BUDGET_EXCEEDED` y emite `budget_exceeded`. El diario se persiste en el `RunStore` (hoy `CostTracker` lo pierde al reiniciar).
 - **Concurrencia:** `maxConcurrent` por agente con un bulkhead; sin cola infinita (rechaza con `AGENT_BUSY`).
 - **Auditoría:** cada decisión (permitir, denegar, aprobar) a `auditLog` NDJSON con `principal`, `agentId`, `capability`, `runId`.
+- **Auditoría unificada:** Hermes recoge las decisiones de cada agente (§4.7) y las suyas en una vista única: quién hizo qué, bajo qué política y con qué versión de esa política.
+- **Aprobador de máquina:** las solicitudes de escalación de un agente supervisado (SPEC-0006 §3.3) pueden resolverse por la política de la empresa en Hermes, solo para esa llamada y sin aprobador humano si la política lo permite; sin política aplicable, falla cerrado.
 
 ## 6. Observabilidad
 - Hermes abre un span `hermes.run` por solicitud; `agent_run` abre `hermes.agent_run` y envía `traceparent` al agente. El agente crea sus spans como hijos de ese contexto (**cambio en `agent-core`/`agent-otel`**: `Tracer.startRootSpan` acepta un contexto padre y `otelApiSpanExporter`/`otlpHttpSpanExporter` lo respetan, conservando `traceId`).
@@ -128,18 +161,22 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 | Fase | Contenido | Aceptación |
 |---|---|---|
 | **H0 — MVP** | `FleetRegistry` + validación, `ProtocolConnector`, `McpConnector`, herramientas `fleet_*`/`agent_*`, health periódico, `RunStore` con reconciliación, roles + aprobación, guardrails sobre resultados remotos, auditoría, OTel local, chat en agent-web, `bk-hermes` | Con 2 agentes de prueba levantados: listar, ejecutar uno corto y uno largo (asíncrono), cancelar, ver salud, caída de un agente detectada < 2 intervalos y marcada `down`, reinicio de Hermes sin perder runs, acción `always` pide aprobación, rol sin permiso → `FORBIDDEN`. Sin API key (con `agent-testkit`) |
-| **H1 — Control** | extensiones de `agent-protocol` §4, `traceparent`, eventos SSE en vivo, `drain`, presupuesto diario persistente | Una traza única Hermes → agente en Jaeger; `pause`/`resume`/`set_budget` surten efecto en un agente real; presupuesto diario sobrevive a reinicio |
+| **H1 — Control** | extensiones de `agent-protocol` §4 (incluidas política del sandbox y jobs), `traceparent`, eventos SSE en vivo, `drain`, presupuesto diario persistente, auditoría unificada | Una traza única Hermes → agente en Jaeger; `pause`/`resume`/`set_budget` surten efecto en un agente real; `set_sandbox_policy` cambia lo que el agente puede hacer en su llamada siguiente y deja decisión auditada; presupuesto diario sobrevive a reinicio |
+| **H1b — Aprovisionamiento y flows** | blueprints, `agent_create`/`agent_retire` con herencia de permisos comprobada, `FlowConnector`, `createHermes` | Crear un agente desde un blueprint con aprobación; un blueprint más amplio que el creador falla con `POLICY_WIDER_THAN_PARENT`; sin aprobador no se crea nada; un flow de otro agente se lanza, se pausa y se cancela desde Hermes; el agente creado caduca por `ttl` y queda auditado |
 | **H2 — Interoperabilidad** | `AcpConnector`, proveedores Claude Code/Codex (SPEC-0005), Hermes como servidor ACP y MCP | Delegar una tarea a Claude Code y a un agente propio desde el mismo chat |
 | **H3 — Continuables** | hijos con sesión (SPEC-0004/0005): `agent_send`, `agent_interrupt`, equipos con buzón y tablero | Conversación de varios turnos con un agente que sobrevive a reinicios |
-| **H4 — Flota** | políticas globales, convergencia con `director-agent`, fleet/docker/k8s como agentes gestores | Alta/baja de un agente por Hermes con aprobación |
+| **H4 — Flota** | políticas globales, convergencia con `director-agent`, fleet/docker/k8s como agentes gestores (infraestructura), RunStore compartido | Alta/baja de infraestructura de un agente por Hermes con aprobación |
 
 ## 9. Preguntas abiertas
 1. **¿`director-agent` es Hermes?** `director-agent` (bk-agents) ya tiene chat WS, RBAC por rol y especialistas vía MCP stdio. Propuesta: Hermes nace como librería reutilizable y `director-agent` se reimplementa encima cuando H1 esté estable (no se rompe nada antes).
 2. **Dónde vive el RunStore en producción:** SQLite local en H0; Redis/SQL para varias instancias de Hermes queda para H4.
 3. **Seguridad del canal:** H0 usa `apiKey` por agente (en referencia). mTLS o tokens firmados por agente quedan para H4.
 4. **Nombre:** `hermes` está libre en el scope; confirmar antes de publicar.
+5. **Dónde corre un agente creado:** en el mismo proceso de Hermes (`InProcessConnector`) o como proceso aparte con `agent-protocol`. Propuesta: in-process en H1b (más simple de confinar y de cerrar); procesos aparte con H4.
+6. **Quién define los blueprints:** el operador de la empresa, en `fleet.yaml`. Hermes no puede inventar blueprints en tiempo de ejecución (si pudiera, la herencia de permisos no valdría).
 
 ## 10. Riesgos
 - Un agente remoto malicioso o comprometido devuelve contenido con instrucciones (inyección): mitigado con guardrails y tratamiento como dato; Hermes **no** ejecuta herramientas de otros agentes con sus propios permisos sin pasar por política.
 - Dos fuentes de verdad de estado (RunStore y el agente): la reconciliación es por `taskId`; el agente manda.
+- **Crear agentes como vía de escalada:** un agente (o un Hermes comprometido por inyección) crea otro con más permisos. Mitigado por la herencia comprobada en código (§2.5), blueprints definidos solo por el operador, aprobación y límites de número y profundidad.
 - Crecimiento del alcance: H0 no incluye continuables, equipos ni ACP.

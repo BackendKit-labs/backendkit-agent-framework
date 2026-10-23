@@ -23,6 +23,8 @@ export interface SubagentRequest {
     task: string; parent: { agentId: string; sessionId: string };
     mode: 'one-shot' | 'continuable'; fork?: boolean;
     agentOptions?: { agentId?: string; model?: string; provider?: string; maxOutputTokens?: number };
+    /** Política de ejecución del hijo (SPEC-0006). Nunca más amplia que la del padre: si lo es, `start` falla con `POLICY_WIDER_THAN_PARENT`. Por omisión hereda la del padre. */
+    sandbox?: SandboxPolicyConfig;
     outputSchema?: JSONSchema; depth: number; traceparent?: string;
 }
 export interface SubagentRun {
@@ -33,6 +35,7 @@ export interface SubagentRun {
 }
 ```
 Una opción pedida que el proveedor no soporta **falla al iniciar** con `UNSUPPORTED_OPTION` (no se ignora en silencio).
+La misma regla de herencia que usa Hermes para crear agentes (SPEC-0003 §2.5) vale aquí: un hijo nunca tiene más permisos que su padre, comprobado con una función común `isNarrowerOrEqual(parent, child)` (SPEC-0006 §3.5). Un proveedor externo que no puede imponer la política pedida (por ejemplo `claude-code` sin confinamiento) falla al iniciar, no la ignora.
 
 ### 2.2 Servicio y límites
 `SubagentService` = registro de proveedores nombrados + límites: `maxDepth` (por defecto 1), `maxActive` de hijos continuables vivos (8; sin cola: `ACTIVATION_LIMIT_REACHED`, porque un padre esperando no debe esperar su propio hueco), un bulkhead para one-shot. Los hijos continuables heredan el pool del padre continuable. Catálogo `list(parentSessionId)` y linaje **sin cargar** a los hijos (lee la proyección de su sesión).
@@ -87,7 +90,7 @@ Paquetes nuevos `agent-subagents` y `agent-acp`; `agent-core`: el `DelegationBus
 - Aislamiento: un hijo que falla o cuelga no corrompe la sesión del padre.
 
 ## 7. Riesgos y preguntas abiertas
-- **Seguridad de hijos externos:** ejecutan sin supervisión en el workspace del padre; por defecto `permissionMode` restrictivo y confinamiento por SPEC-0006.
+- **Seguridad de hijos externos:** ejecutan sin supervisión en el workspace del padre; por defecto `permissionMode` restrictivo y confinamiento por SPEC-0006, con la política del hijo acotada por la del padre.
 - **Evolución de ACP:** el protocolo es joven; versionar el adaptador y fijar `protocolVersion`.
 - **Licencias y binarios** de Claude Code/Codex: los proveedores usan lo que el usuario ya tiene instalado, sin empaquetarlos.
 - **Pregunta:** ¿ACP también como transporte de `agent-web` (reemplazo del WebSocket propio)? Propuesta: no ahora; mantener ambos.

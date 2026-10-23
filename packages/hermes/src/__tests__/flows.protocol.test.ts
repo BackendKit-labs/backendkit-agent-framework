@@ -89,7 +89,7 @@ describe('Hermes controls the flows of an agent in another process', () => {
         const { runId } = await hermes.flowRun(ops, { agentId: 'books', flow: 'close-month' });
         await until(() => agent.ran.includes('collect'));
         expect((await hermes.flowStatus(ops, runId)).flow.status).toBe('running');
-        await expect(hermes.flowPause(ops, runId)).rejects.toMatchObject({ code: 'AGENT_UNAVAILABLE' });
+        await expect(hermes.flowPause(ops, runId)).rejects.toMatchObject({ code: 'FORBIDDEN' }); // a missing key is a refusal, not "the agent is down"
         expect((await hermes.flowStatus(ops, runId)).flow.status).toBe('running');
     });
 

@@ -120,4 +120,14 @@ describe('flows over agent-protocol', () => {
         const noControl = new AgentClient({ url, apiKey: 'run', maxRetries: 0 });
         await expect(noControl.steerFlow(flowRunId, 'pause')).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
+
+    it('starting a flow is sent once even when the client is set to retry: a retry could start a second run', async () => {
+        let starts = 0;
+        const handler = memoryFlows();
+        const flaky: FlowHandler = { ...handler, start: async () => { starts++; throw new ControlError('AGENT_UNAVAILABLE', 'busy'); } };
+        const { url } = await start({ apiKey: 'run', flowHandler: flaky });
+        const client = new AgentClient({ url, apiKey: 'run', maxRetries: 3 });
+        await expect(client.startFlow('close-month')).rejects.toMatchObject({ code: 'AGENT_UNAVAILABLE', status: 503 });
+        expect(starts).toBe(1);
+    });
 });

@@ -318,12 +318,23 @@ export class Hermes {
             }
             return out;
         } catch (err) {
-            const code = (err as { code?: string }).code;
-            const known: HermesErrorCode[] = ['APPROVAL_REQUIRED', 'POLICY_WIDER_THAN_PARENT', 'CONTROL_UNSUPPORTED', 'INVALID_INPUT', 'FORBIDDEN'];
-            const mapped: HermesErrorCode = known.includes(code as HermesErrorCode) ? code as HermesErrorCode : code === 'TASK_NOT_FOUND' ? 'RUN_NOT_FOUND' : 'AGENT_UNAVAILABLE';
-            this.audit.record({ action: 'control', outcome: mapped === 'AGENT_UNAVAILABLE' ? 'failed' : 'denied', principalId: principal.id, agentId, capability: action, reason: `${code ?? 'error'}: ${(err as Error).message}` });
-            throw new HermesError(mapped, `${agentId}.${action}: ${(err as Error).message}`);
+            const error = this.fromAgent(err, `${agentId}.${action}`);
+            this.audit.record({ action: 'control', outcome: error.code === 'AGENT_UNAVAILABLE' ? 'failed' : 'denied', principalId: principal.id, agentId, capability: action, reason: `${error.code}: ${(err as Error).message}` });
+            throw error;
         }
+    }
+
+    /**
+     * What an agent's error means to the caller. A refusal stays a refusal (a missing control key is FORBIDDEN, not "the agent is
+     * down"): only an agent that could not be reached or failed is AGENT_UNAVAILABLE, which invites a retry.
+     */
+    private fromAgent(err: unknown, subject: string): HermesError {
+        const { code, status } = err as { code?: string; status?: number };
+        const known: HermesErrorCode[] = ['APPROVAL_REQUIRED', 'POLICY_WIDER_THAN_PARENT', 'CONTROL_UNSUPPORTED', 'INVALID_INPUT', 'FORBIDDEN', 'CAPABILITY_NOT_FOUND'];
+        const mapped: HermesErrorCode = known.includes(code as HermesErrorCode) ? code as HermesErrorCode
+            : code === 'TASK_NOT_FOUND' || code === 'RUN_NOT_FOUND' || status === 404 ? 'RUN_NOT_FOUND'
+            : status === 401 || status === 403 ? 'FORBIDDEN' : 'AGENT_UNAVAILABLE';
+        return new HermesError(mapped, `${subject}: ${(err as Error).message}`);
     }
 
     // ── Flows of other agents ───────────────────────────────────────────────
@@ -332,7 +343,7 @@ export class Hermes {
     async flowList(principal: Principal, agentId: string) {
         const agent = this.agentFor(principal, agentId, 'info');
         const port = this.flowPortOf(agent);
-        return { agent: agentId, flows: await port.list().catch(err => { throw new HermesError('AGENT_UNAVAILABLE', `${agentId}: ${(err as Error).message}`); }) };
+        return { agent: agentId, flows: await port.list().catch(err => { throw this.fromAgent(err, agentId); }) };
     }
 
     /**
@@ -374,7 +385,7 @@ export class Hermes {
     async flowStatus(principal: Principal, runId: string): Promise<{ runId: string; agentId: string; flow: FlowRunState }> {
         const { record, port } = this.flowRunOf(principal, runId);
         try { return { runId, agentId: record.agentId, flow: await port.status(record.connectorRunId!) }; }
-        catch (err) { throw new HermesError('AGENT_UNAVAILABLE', `${record.agentId}: ${(err as Error).message}`); }
+        catch (err) { throw this.fromAgent(err, record.agentId); }
     }
 
     async flowPause(principal: Principal, runId: string) { return this.flowSteer(principal, runId, 'pause'); }
@@ -390,7 +401,7 @@ export class Hermes {
             return { runId, agentId: record.agentId, flow };
         } catch (err) {
             this.audit.record({ action: 'control', outcome: 'failed', principalId: principal.id, agentId: record.agentId, capability: `flow_${how}`, runId, reason: (err as Error).message });
-            throw new HermesError('AGENT_UNAVAILABLE', `${record.agentId}: ${(err as Error).message}`);
+            throw this.fromAgent(err, record.agentId);
         }
     }
 

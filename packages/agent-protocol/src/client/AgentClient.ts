@@ -302,12 +302,36 @@ export class AgentClient {
         return res.data!.flows;
     }
 
-    /** Starts a flow; the answer is the id to follow it by. */
+    /**
+     * Starts a flow; the answer is the id to follow it by. Sent exactly once, with the run key: a retry after a lost answer
+     * would start a second run of a business flow. (`run()` retries; this does not.)
+     */
     async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext): Promise<{ flowRunId: string }> {
-        const res = await this.request<{ flowRunId: string }>(
-            `/v1/agent/flows/${encodeURIComponent(flow)}/runs`, { method: 'POST', body: JSON.stringify({ input }) }, context,
-        );
-        return res.data!;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const res = await fetch(`${this.baseUrl}/v1/agent/flows/${encodeURIComponent(flow)}/runs`, {
+                method: 'POST',
+                body: JSON.stringify({ input }),
+                headers: {
+                    ...this.baseHeaders,
+                    ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
+                    ...(context?.traceId   ? { 'X-Trace-ID':   context.traceId   } : {}),
+                    ...(context?.requestId ? { 'X-Request-ID': context.requestId } : {}),
+                },
+                signal: controller.signal,
+            });
+            const body = await res.json() as ProtocolResponse<{ flowRunId: string }>;
+            if (!body.ok) {
+                throw Object.assign(new Error(body.error?.message ?? `Agent error ${res.status}`), { code: body.error?.code, status: res.status, details: body.error?.details });
+            }
+            return body.data!;
+        } catch (err) {
+            if ((err as Error).name === 'AbortError') throw Object.assign(new Error(`Starting flow '${flow}' timed out after ${this.timeout}ms`), { code: 'TIMEOUT' });
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     async flowRun(flowRunId: string): Promise<FlowRunState> {

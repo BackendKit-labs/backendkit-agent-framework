@@ -119,8 +119,44 @@ Se limita el número de agentes creados vivos y la profundidad de creación (un 
 ### 2.6 Control de flujos
 `FlowConnector` (conector de la flota) expone los flows de `agent-enterprise` de un agente como capacidades: lista de flows, lanzar con entrada, estado por paso, pausar, cancelar. Hermes **no ejecuta la lógica** del flow: la ejecuta el agente que lo aloja; Hermes lo dispara, lo vigila y lo detiene bajo política. Requiere que el agente publique sus flows en `info` (extensión de §4).
 
-### 2.7 Qué es "un Hermes específico"
-`createHermes({ fleet, policies, blueprints, flows, interfaces })` sobre la librería común. Una empresa obtiene su Hermes con su `fleet.yaml`, sus políticas, sus blueprints y sus flows; las verticales repetibles se distribuyen como *presets* (un `fleet.yaml` y blueprints de partida), no como paquetes nuevos por cliente.
+### 2.7 Hermes convencional y Hermes específico
+`createHermes({ fleet, policies, blueprints, flows, plugins, interfaces })` sobre la librería común. Tres niveles, del mismo código:
+1. **Convencional:** sin personalización; flota, delegación, control y políticas generales (H0–H1). Sirve tal cual para quien solo necesita supervisar agentes.
+2. **Específico:** el convencional más los blueprints, flows, políticas y plugins de una empresa o vertical. Las verticales repetibles (contabilidad, soporte, devops…) se distribuyen como *presets* (un `fleet.yaml`, blueprints y plugins de partida), no como paquetes nuevos por cliente.
+3. **Ampliado con plugins:** cualquiera de los dos, con capacidades añadidas (§2.9).
+
+### 2.8 Detección de carencias
+Cuando una tarea o un paso de un flow no lo cubre ningún agente de la flota (`fleet_find` no encuentra una capacidad que encaje), Hermes emite el evento `fleet.gap` con la descripción de lo que falta. Según la política de la empresa, ocurre una de tres cosas, de menos a más autonomía:
+- **Avisar:** informa al operador y no hace nada más (por defecto).
+- **Crear desde un blueprint existente** que cubre la carencia (§2.5), con la aprobación que ese blueprint exija.
+- **Proponer un blueprint nuevo:** Hermes redacta un borrador (herramientas, política, presupuesto) que queda *pendiente*; un operador lo revisa y, si lo aprueba, pasa a ser un blueprint del `fleet.yaml`. **El borrador no se puede usar para crear agentes mientras no esté aprobado**: lo que Hermes redacta es una propuesta, no una autorización. Además, su política se comprueba con la regla de herencia de §2.5 antes de aceptarse.
+Así Hermes "detecta una carencia y genera un agente específico" sin poder concederse permisos a sí mismo. Cada carencia, propuesta, aprobación y creación queda auditada y enlazada (`gapId` → blueprint → agente).
+
+### 2.9 Plugins de Hermes
+Un plugin amplía un Hermes sin tocar su código, siguiendo el patrón de *seams* (definición + proveedor + consumidor) del análisis de deepseek-harness, **sin** adoptar su contenedor de dependencias:
+```ts
+export interface HermesPlugin {
+    readonly name: string; readonly version: string;
+    /** Lo que necesita para funcionar; Hermes lo concede o no según la política de la empresa. */
+    readonly requires?: { tools?: string[]; network?: string[]; connectors?: string[]; events?: string[] };
+    setup(api: HermesPluginApi): void | Promise<void>;
+}
+interface HermesPluginApi {
+    registerTool(tool: ToolDefinition): void;               // herramientas para el modelo de Hermes
+    registerConnector(kind: string, factory: ConnectorFactory): void;
+    registerBlueprint(b: Blueprint): void;                  // sujeto a la regla de herencia
+    registerPolicyRule(rule: PolicyRule): void;             // solo puede restringir, nunca ampliar
+    on(event: HermesEvent, handler: (e) => void | Promise<void>): () => void;   // fleet.gap, run.done, budget.exceeded…
+}
+```
+- **Se declaran** en `plugins:` del `fleet.yaml` (paquete npm o ruta local) y se cargan al arrancar; recargar en caliente queda fuera de alcance.
+- **Mínimo privilegio:** un plugin solo recibe lo que declara en `requires` y la política concede; sus herramientas pasan por el sandbox y las aprobaciones como cualquier otra. Una regla de política de un plugin **solo puede restringir**.
+- **Aislamiento de fallos:** un plugin que lanza o cuelga se desactiva y se registra; no tumba a Hermes ni a los agentes. Los manejadores de eventos tienen plazo.
+- **Auditoría:** cada herramienta, conector, blueprint o regla que aporta un plugin queda registrada con su nombre y versión.
+- Ejemplos: plugins de dominio (conector a un ERP, plantilla de informes), de observabilidad (exportar eventos), de política (reglas de presupuesto de la empresa) y de notificación (avisar por correo o chat al aparecer un `fleet.gap`).
+
+### 2.10 Ejemplo: contabilidad de una empresa
+Un *preset* de contabilidad aporta cuatro agentes y un flow: `invoice-reader` (lee facturas), `ledger-classifier` (asigna cuentas), `reconciler` (concilia con el banco) y `reporter` (cierre y reportes); el flow `cierre-mensual` los encadena y Hermes lo lanza y vigila (§2.6). Un día llega una factura con retenciones fiscales que ningún agente sabe tratar: `fleet.gap` → Hermes propone el blueprint `tax-withholding` (solo lectura del libro, escritura en una carpeta de borradores, sin red, presupuesto propio) → el contador lo aprueba → Hermes crea el agente, lo añade al flow y lo retira por `ttl` si deja de usarse. Un plugin de ERP aporta el conector con el sistema contable.
 
 ## 3. Estado y persistencia (`RunStore`)
 Fase 1: SQLite/JSON local con `runId`, `agentId`, capacidad, entrada (redactada), estado, tiempos, coste, `traceId`, principal y resultado. Al arrancar, Hermes **reconcilia** los runs `running`: pregunta al agente por `taskId`; si no existe, los marca `lost`. Interfaz `RunStore` para sustituirla por el log de sesión (SPEC-0004) en fases posteriores.
@@ -162,7 +198,8 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 |---|---|---|
 | **H0 — MVP** | `FleetRegistry` + validación, `ProtocolConnector`, `McpConnector`, herramientas `fleet_*`/`agent_*`, health periódico, `RunStore` con reconciliación, roles + aprobación, guardrails sobre resultados remotos, auditoría, OTel local, chat en agent-web, `bk-hermes` | Con 2 agentes de prueba levantados: listar, ejecutar uno corto y uno largo (asíncrono), cancelar, ver salud, caída de un agente detectada < 2 intervalos y marcada `down`, reinicio de Hermes sin perder runs, acción `always` pide aprobación, rol sin permiso → `FORBIDDEN`. Sin API key (con `agent-testkit`) |
 | **H1 — Control** | extensiones de `agent-protocol` §4 (incluidas política del sandbox y jobs), `traceparent`, eventos SSE en vivo, `drain`, presupuesto diario persistente, auditoría unificada | Una traza única Hermes → agente en Jaeger; `pause`/`resume`/`set_budget` surten efecto en un agente real; `set_sandbox_policy` cambia lo que el agente puede hacer en su llamada siguiente y deja decisión auditada; presupuesto diario sobrevive a reinicio |
-| **H1b — Aprovisionamiento y flows** | blueprints, `agent_create`/`agent_retire` con herencia de permisos comprobada, `FlowConnector`, `createHermes` | Crear un agente desde un blueprint con aprobación; un blueprint más amplio que el creador falla con `POLICY_WIDER_THAN_PARENT`; sin aprobador no se crea nada; un flow de otro agente se lanza, se pausa y se cancela desde Hermes; el agente creado caduca por `ttl` y queda auditado |
+| **H1b — Aprovisionamiento, flows y carencias** | blueprints, `agent_create`/`agent_retire` con herencia de permisos comprobada, `FlowConnector`, `createHermes`, `fleet.gap` con propuesta de blueprint pendiente de aprobación | Crear un agente desde un blueprint con aprobación; un blueprint más amplio que el creador falla con `POLICY_WIDER_THAN_PARENT`; sin aprobador no se crea nada; un flow de otro agente se lanza, se pausa y se cancela desde Hermes; el agente creado caduca por `ttl` y queda auditado; una tarea sin agente que la cubra emite `fleet.gap` y una propuesta de blueprint no se puede usar hasta que un operador la aprueba |
+| **H1c — Plugins** | `HermesPlugin` y su API, carga desde `fleet.yaml`, permisos `requires`, aislamiento de fallos, un preset de ejemplo (contabilidad) con un plugin de conector | Un plugin añade una herramienta y un conector; uno que pide más de lo concedido no carga; uno que lanza no afecta al resto; una regla de plugin que intenta ampliar permisos se rechaza; el preset de contabilidad completa un cierre simulado con `agent-testkit` |
 | **H2 — Interoperabilidad** | `AcpConnector`, proveedores Claude Code/Codex (SPEC-0005), Hermes como servidor ACP y MCP | Delegar una tarea a Claude Code y a un agente propio desde el mismo chat |
 | **H3 — Continuables** | hijos con sesión (SPEC-0004/0005): `agent_send`, `agent_interrupt`, equipos con buzón y tablero | Conversación de varios turnos con un agente que sobrevive a reinicios |
 | **H4 — Flota** | políticas globales, convergencia con `director-agent`, fleet/docker/k8s como agentes gestores (infraestructura), RunStore compartido | Alta/baja de infraestructura de un agente por Hermes con aprobación |
@@ -173,7 +210,9 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 3. **Seguridad del canal:** H0 usa `apiKey` por agente (en referencia). mTLS o tokens firmados por agente quedan para H4.
 4. **Nombre:** `hermes` está libre en el scope; confirmar antes de publicar.
 5. **Dónde corre un agente creado:** en el mismo proceso de Hermes (`InProcessConnector`) o como proceso aparte con `agent-protocol`. Propuesta: in-process en H1b (más simple de confinar y de cerrar); procesos aparte con H4.
-6. **Quién define los blueprints:** el operador de la empresa, en `fleet.yaml`. Hermes no puede inventar blueprints en tiempo de ejecución (si pudiera, la herencia de permisos no valdría).
+6. **Quién define los blueprints:** el operador de la empresa, en `fleet.yaml`. Hermes puede **proponer** borradores (§2.8) pero no activarlos: solo valen tras la aprobación de un operador (si pudiera activarlos él, la herencia de permisos no valdría).
+7. **Cuánta autonomía por defecto para carencias:** propuesta, "avisar"; subir a "crear desde blueprint" o "proponer" es decisión explícita de la empresa.
+8. **Formato de distribución de plugins y presets:** paquetes npm con el prefijo `hermes-plugin-*` / `hermes-preset-*`, o también rutas locales. Pendiente decidir si se verifican (firma) antes de cargar.
 
 ## 10. Riesgos
 - Un agente remoto malicioso o comprometido devuelve contenido con instrucciones (inyección): mitigado con guardrails y tratamiento como dato; Hermes **no** ejecuta herramientas de otros agentes con sus propios permisos sin pasar por política.

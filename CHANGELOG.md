@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.33.0 (2026-10-23)
+
+Migración a **zod 4** y a **openai 6**, y cierre de SPEC-0008 P4–P6 (control desde Hermes, aprovisionamiento, flows de otros agentes, plugins y presets). La migración cierra GHSA-mrhx-c7xc-m3w5 (`zod <4.6.6`), cuyo único parche es zod 4.6.6 (#90).
+
+**Breaking:** los esquemas que se pasan a `defineTool` / `generateObject` deben ser de zod 4. `agent-core` ya no depende de `zod-to-json-schema` (devolvía `{}` con esquemas zod 4) y genera el JSON Schema con `z.toJSONSchema`. `agent-providers` pasa a `openai ^6`. Los proyectos que usen zod 3 junto a `agent-core` deben migrar: `z.record(x)` pasa a `z.record(z.string(), x)`, `invalid_type_error` pasa a `error` y los mensajes de error cambian (p. ej. "Invalid input: expected number").
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.33.0 |
+| `agent-protocol` | 0.3.0 |
+| `agent-providers` | 0.3.0 |
+| `hermes` | 0.2.0 |
+| `agent-enterprise` | 0.8.0 |
+| `orchestrator-agent` | 0.5.0 |
+| `curator-codex-agent` | 1.1.0 |
+| `mcp-connectors` | 0.2.0 |
+| `mcp-server` | 0.17.0 |
+| `create-bk-agent` | 0.23.0 |
+| `agent-coding` | 0.27.2 |
+| `agent-sandbox` | 0.1.3 |
+| `agent-otel` | 0.1.5 |
+| `agent-testkit` | 0.1.4 |
+| `agent-web` | 0.4.15 |
+| `aval-tools` | 0.1.10 |
+
+**Orden de publicación (obligatorio):** core → **sandbox** → **agent-protocol** → **hermes** → providers → coding → enterprise → otel → orchestrator-agent → (curator-codex-agent, mcp-connectors, testkit, web, mcp-server, aval-tools) → create-bk-agent.
+`hermes` tiene como peers `agent-core >=0.33.0 <0.35.0` y `agent-protocol ^0.3.0`: publicarlo antes de sus peers rompe las instalaciones.
+
+### Detalle
+- **Hermes (SPEC-0008 P4–P6):** control desde Hermes (política, jobs y auditoría unificada), aprovisionamiento y carencias, flows de otros agentes (`agent-protocol`), plugins con `requires` y `grant` del operador, y presets (más el preset neutral `pipeline`).
+- **zod 4:** `z.record` con clave explícita; `mcp-server` declara `zod` (antes lo usaba sin declararlo); las plantillas y `create-bk-agent` generan proyectos con `zod ^4.6.6`.
+- **Seguridad:** `body-parser` 1.20.9 / 2.4.0 en el lockfile (GHSA-27r3-jxmh-p828, #91).
+- **Sin verificar en vivo:** el generador de JSON Schema (`openapi-3.0`) y `openai` 6 contra un LLM real.
+
 ## v0.32.0 (2026-10-23)
 
 Control de agentes desde fuera y primer Hermes (SPEC-0008 P1–P3; PRs #79, #81, #82, #83). Todo es aditivo y opt-in: sin `controlApiKey` el servidor se comporta como 1.0. Rangos 0.x barridos (`agent-core ^0.32.0`; peers `<0.33.0`) y templates de `create-bk-agent` actualizados.

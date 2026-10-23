@@ -1,4 +1,4 @@
-# @backendkit-labs/hermes
+# @backendkit-labs/create-hermes
 
 Control plane for a fleet of agents. One place that knows which agents exist, whether they are up, who may use them, and what became of every run — and that gives a model the tools to supervise them.
 
@@ -25,7 +25,7 @@ policies:
 ## Use
 
 ```ts
-import { Hermes, createFleetTools, defaultResultGuardrails, parseFleet } from '@backendkit-labs/hermes';
+import { Hermes, createFleetTools, defaultResultGuardrails, parseFleet } from '@backendkit-labs/create-hermes';
 
 const hermes = new Hermes({
   fleet: parseFleet(readFileSync('fleet.yaml', 'utf8')),

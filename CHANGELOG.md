@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.31.0 (2026-10-23)
+
+Herramientas de archivo detrás del sandbox (SPEC-0006 S3a; PR #76). Una ruta se juzga por **dónde apunta de verdad**: un symlink o junction dentro del workspace que apuntaba fuera permitía leer y escribir fuera, porque `resolveAndCheck` compara solo texto.
+Es opt-in y compatible: sin `sandbox`, las herramientas se comportan como antes. Rangos 0.x barridos (`agent-core ^0.31.0`, `agent-coding ^0.27.0`; peers `<0.32.0`) y templates de `create-bk-agent` actualizados.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.31.0 |
+| `agent-sandbox` | 0.1.1 |
+| `agent-coding` | 0.27.0 |
+| `agent-enterprise` | 0.7.1 |
+| `agent-providers` | 0.2.5 |
+| `agent-otel` | 0.1.3 |
+| `agent-testkit` | 0.1.2 |
+| `agent-web` | 0.4.13 |
+| `mcp-server` | 0.16.8 |
+| `orchestrator-agent` | 0.4.5 |
+| `aval-tools` | 0.1.8 |
+| `create-bk-agent` | 0.22.10 |
+
+`mcp-connectors` y `curator-codex-agent` no cambian: su rango `agent-enterprise ^0.7.0` cubre 0.7.1.
+
+**Orden de publicación (obligatorio):** core → **sandbox** → providers → coding → enterprise → otel → orchestrator-agent → (opcionales: testkit, web, mcp-server, aval-tools) → create-bk-agent.
+`agent-sandbox` 0.1.1 tiene como peer `agent-core >=0.31.0 <0.32.0` (usa tipos nuevos del contrato): publicarlo antes que core rompe las instalaciones.
+
+### Detalle
+- **core:** `SandboxRunner.authorizePath?` y tipos `SandboxPathRequest` / `SandboxPathVerdict`. El engine lo envuelve por llamada: denegaciones y escrituras permitidas salen por el transport y la auditoría de ese engine aunque el runner se comparta; las lecturas permitidas no se reportan.
+- **sandbox:** `authorizePath` resuelve la ruta real (symlinks, junctions, enlaces colgantes y rutas aún inexistentes) y la compara con workspace + `roots` + directorios extra (memoria del agente). `read-only` rechaza escrituras; `danger-full-access` permite; una ruta que no se puede resolver se deniega. Exporta `realPathOf` e `isInsideDir`.
+- **coding:** `write_file`, `edit_file`, `read_file`, `list_directory` y `search_files` consultan `ctx.sandbox.authorizePath` tras `resolveAndCheck`, que sigue siendo el suelo incluso en full access.
+
 ## v0.30.0 (2026-10-22)
 
 Sandbox de ejecución (SPEC-0006 S1; PRs #73 y #74): confinamiento y permisos de lo que ejecutan los agentes, con política como datos que un plano de control puede fijar y consultar.

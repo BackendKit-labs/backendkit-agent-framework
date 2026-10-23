@@ -1,6 +1,7 @@
 import { ProtocolConnector } from '../connectors/ProtocolConnector';
+import { UnavailableConnector } from '../connectors/UnavailableConnector';
 import type { AgentConnector, AgentDescriptor, HealthReport } from '../connectors/types';
-import type { AgentConfig, FleetConfig } from './schema';
+import type { AgentConfig, ConnectorConfig, FleetConfig } from './schema';
 
 export type AgentState = 'unknown' | 'ok' | 'degraded' | 'down';
 
@@ -41,20 +42,24 @@ export function connectorsFor(config: FleetConfig, options: RegistryOptions = {}
     for (const agent of config.agents) {
         const c = agent.connector;
         if (c.kind === 'protocol') {
-            const ref = c.apiKey?.env;
-            const controlRef = c.controlApiKey?.env;
+            const p = c as Extract<ConnectorConfig, { url: string }>;
+            const ref = p.apiKey?.env;
+            const controlRef = p.controlApiKey?.env;
             out.set(agent.id, new ProtocolConnector({
-                url: c.url,
+                url: p.url,
                 ...(ref ? { apiKey: () => env[ref] } : {}),
                 ...(controlRef ? { controlApiKey: () => env[controlRef] } : {}),
-                ...(c.timeoutMs ? { timeoutMs: c.timeoutMs } : {}),
-                ...(c.maxRetries !== undefined ? { maxRetries: c.maxRetries } : {}),
-                ...(c.pollIntervalMs ? { pollIntervalMs: c.pollIntervalMs } : {}),
+                ...(p.timeoutMs ? { timeoutMs: p.timeoutMs } : {}),
+                ...(p.maxRetries !== undefined ? { maxRetries: p.maxRetries } : {}),
+                ...(p.pollIntervalMs ? { pollIntervalMs: p.pollIntervalMs } : {}),
             }));
-        } else {
+        } else if (c.kind === 'in-process') {
             const connector = options.inProcess?.[agent.id];
             if (!connector) throw new Error(`agent "${agent.id}" is in-process but no connector was registered for it`);
             out.set(agent.id, connector);
+        } else {
+            // a kind a plugin provides: down until Hermes has loaded plugins and asked the factory
+            out.set(agent.id, new UnavailableConnector(c.kind, `no plugin has provided the connector kind "${c.kind}" yet`));
         }
     }
     return out;
@@ -89,6 +94,12 @@ export class FleetRegistry {
         this.running = false;
         for (const t of this.timers.values()) clearTimeout(t);
         this.timers.clear();
+    }
+
+    /** Replaces the connector of an agent (before the fleet starts): used when a plugin provides its kind. */
+    setConnector(id: string, connector: AgentConnector): void {
+        const agent = this.agents.get(id);
+        if (agent) (agent as { connector: AgentConnector }).connector = connector;
     }
 
     /** Adds an agent while running (one Hermes created): checks it now and keeps checking it. */

@@ -6,6 +6,15 @@ export { Provisioning, matchScore } from './provisioning/Provisioning';
 export type { Provision, InstanceRecord, DraftRecord, GapRecord } from './provisioning/Provisioning';
 export { blueprintSchema, checkBlueprint } from './fleet/provisioning';
 export type { Blueprint, CreatorPolicy, ProvisioningPolicy, BlueprintProblem } from './fleet/provisioning';
+export { PluginHost } from './plugins/PluginHost';
+export type { PluginEntry } from './plugins/PluginHost';
+export { loadPluginModule } from './plugins/loadModule';
+export type {
+    HermesPlugin, HermesPluginApi, PluginRequires, PluginGrant, PolicyRule, RuleContext, ConnectorFactory, PluginReport, PluginStatus,
+} from './plugins/types';
+export { UnavailableConnector } from './connectors/UnavailableConnector';
+export { FLEET_TOOL_NAMES } from './tools';
+export type { ConnectorConfig } from './fleet/schema';
 export { createHermes } from './createHermes';
 export type { CreateHermesOptions } from './createHermes';
 export { createFleetTools } from './tools';

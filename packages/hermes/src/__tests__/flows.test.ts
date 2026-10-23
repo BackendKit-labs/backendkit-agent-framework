@@ -130,6 +130,7 @@ describe('flows of another agent', () => {
         const { runId } = await hermes.flowRun(ops, { agentId: 'books', flow: 'close-month' });
         await until(() => ran.includes('collect'));
         const pending = hermes.cancel(ops, runId); // the step is still waiting: cancel returns after the grace period or when the flow reaches a boundary
+        await tick(30); // let the cancel reach the flow before the step ends
         release('collect');
         expect((await pending).status).toBe('cancelled');
         await tick(50);

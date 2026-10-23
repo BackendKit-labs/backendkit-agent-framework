@@ -36,7 +36,7 @@ agents:
   - id: a
     connector: { kind: protocol, url: not-a-url }
   - id: b
-    connector: { kind: carrier-pigeon }
+    connector: { kind: Carrier_Pigeon }
 `);
         expect(found.map(i => i.path)).toEqual(expect.arrayContaining(['agents.0.connector.url', 'agents.1.connector.kind']));
     });

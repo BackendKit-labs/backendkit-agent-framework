@@ -8,6 +8,12 @@ import type { ApprovalMode, FleetConfig } from './fleet/schema';
 import { ACTIVE, JsonRunStore, type RunRecord, type RunStore, type StoredStatus } from './store/RunStore';
 import { HermesError, type ApprovalRequest, type Approver, type HermesErrorCode, type HermesEvent, type Principal } from './errors';
 import { matchScore, Provisioning, type Provision } from './provisioning/Provisioning';
+import { PluginHost, type PluginEntry } from './plugins/PluginHost';
+import { loadPluginModule } from './plugins/loadModule';
+import type { PluginReport } from './plugins/types';
+import { FLEET_TOOL_NAMES } from './tools';
+import { UnavailableConnector } from './connectors/UnavailableConnector';
+import type { ToolDefinition } from '@backendkit-labs/agent-core';
 
 export { HermesError } from './errors';
 export type { Principal, HermesErrorCode, ApprovalRequest, Approver, HermesEvent } from './errors';
@@ -24,8 +30,14 @@ export interface HermesOptions extends RegistryOptions {
     provision?: Provision;
     /** Where created agents, drafts and gaps are kept. Without it they live only in memory. */
     provisioningFile?: string;
-    /** Events for the host: `fleet.gap`, `fleet.agent.created`, `fleet.agent.retired`, `fleet.blueprint.*`. */
+    /** Events for the host: `fleet.gap`, `fleet.agent.created`, `fleet.agent.retired`, `fleet.blueprint.*`, `fleet.agent.state`, `run.done`. */
     onEvent?: (event: HermesEvent) => void;
+    /** Plugins given as objects, each with the grant the operator (the code that builds Hermes) gives it. */
+    plugins?: PluginEntry[];
+    /** Where plugin modules named in the fleet file are resolved from. Default: the working directory. */
+    pluginBaseDir?: string;
+    /** Deadlines for plugin code, in ms: `setup` (default 5000), an event handler (2000) and a policy rule (1000). */
+    pluginTimeouts?: { setupMs?: number; handlerMs?: number; ruleMs?: number };
     /** Longest an `agent_run` waits for the answer before returning the run id. Default 30 s. */
     defaultWaitMs?: number;
     /** Results longer than this are cut (the run store and the model never get more). Default 64000 characters. */
@@ -65,6 +77,7 @@ export class Hermes {
     private readonly tracked = new Map<string, Tracked>();
     private readonly guardrails: Guardrail[];
     readonly provisioning: Provisioning;
+    private readonly plugins: PluginHost;
     private started = false;
     /** Aborted on `stop()`: runs stop being followed, but they do not end because of it, so the store keeps them as they were. */
     private readonly shutdown = new AbortController();
@@ -78,6 +91,7 @@ export class Hermes {
             ...(options.env ? { env: options.env } : {}),
             onHealthChange: (agent, previous) => {
                 options.onHealthChange?.(agent, previous);
+                if (agent.health.state !== previous) this.emitEvent({ type: 'fleet.agent.state', agentId: agent.id, from: previous, to: agent.health.state });
                 // An agent that answers again may know the runs we could not ask about while it was away.
                 if (this.started && agent.health.state !== 'down' && previous === 'down') void this.reconcile(agent.id);
             },
@@ -90,13 +104,60 @@ export class Hermes {
             ...(options.provisioningFile ? { stateFile: options.provisioningFile } : {}),
             approve: (request, mode) => this.requireApproval(request, mode),
             cancelRunsOf: (agentId, reason) => this.cancelRunsOf(agentId, reason),
-            emit: event => { try { options.onEvent?.(event); } catch { /* the host's handler must not affect Hermes */ } },
+            emit: event => this.emitEvent(event),
             find: (principal, need) => this.find(principal, need),
         });
+        this.plugins = new PluginHost({
+            audit: this.audit,
+            reservedTools: new Set(FLEET_TOOL_NAMES),
+            parseBlueprint: (input, taken) => this.provisioning.parseExternal(input, taken),
+            addBlueprint: blueprint => this.provisioning.addExternal(blueprint),
+            ...(options.pluginTimeouts?.setupMs ? { setupTimeoutMs: options.pluginTimeouts.setupMs } : {}),
+            ...(options.pluginTimeouts?.handlerMs ? { handlerTimeoutMs: options.pluginTimeouts.handlerMs } : {}),
+            ...(options.pluginTimeouts?.ruleMs ? { ruleTimeoutMs: options.pluginTimeouts.ruleMs } : {}),
+        });
+    }
+
+    /** Tells the host and the plugins. Neither can affect Hermes: handlers have deadlines and their errors stop here. */
+    private emitEvent(event: HermesEvent): void {
+        try { this.options.onEvent?.(event); } catch { /* the host's handler must not affect Hermes */ }
+        this.plugins.emit(event);
+    }
+
+    /** What plugins added for the model (empty before `start()`). */
+    pluginTools(): ToolDefinition[] { return this.plugins.toolDefinitions(); }
+
+    /** What became of each plugin: loaded, refused (and why) or disabled. */
+    pluginReport(): PluginReport[] { return this.plugins.report(); }
+
+    private async loadPlugins(): Promise<void> {
+        const entries: PluginEntry[] = [...(this.options.plugins ?? [])];
+        const baseDir = this.options.pluginBaseDir ?? process.cwd();
+        for (const e of this.options.fleet.plugins ?? []) {
+            try { entries.push({ plugin: loadPluginModule(e.module, baseDir, e.options), grant: e.grant as PluginEntry['grant'], ...(e.options ? { options: e.options } : {}) }); }
+            catch (err) {
+                // a module that cannot be loaded is reported like any refused plugin: the rest still load
+                this.audit.record({ action: 'plugin', outcome: 'denied', plugin: e.module, reason: `not loaded: ${(err as Error).message}` });
+            }
+        }
+        await this.plugins.load(entries);
+        // agents of a kind a plugin provides get their connector now; one nobody provides stays down
+        for (const a of this.registry.list()) {
+            const kind = a.config.connector.kind;
+            if (kind === 'protocol' || kind === 'in-process') continue;
+            const factory = this.plugins.connectorFactory(kind);
+            if (!factory) { this.audit.record({ action: 'plugin', outcome: 'denied', agentId: a.id, reason: `no plugin provides the connector kind "${kind}"; the agent stays down` }); continue; }
+            try { this.registry.setConnector(a.id, await factory({ ...a.config.connector }, { agentId: a.id })); }
+            catch (err) {
+                this.registry.setConnector(a.id, new UnavailableConnector(kind, `the "${kind}" connector could not be built: ${(err as Error).message}`));
+                this.audit.record({ action: 'plugin', outcome: 'failed', agentId: a.id, reason: `connector "${kind}" failed: ${(err as Error).message}` });
+            }
+        }
     }
 
     /** Checks the fleet, then settles the runs a previous process left open. */
     async start(): Promise<void> {
+        await this.loadPlugins();
         await this.registry.start();
         await this.provisioning.start();
         this.started = true;
@@ -550,12 +611,14 @@ export class Hermes {
     private async settle(runId: string, outcome: { status: StoredStatus; output?: unknown; error?: string }): Promise<RunRecord | undefined> {
         const current = this.store.get(runId);
         if (!current || !ACTIVE.includes(current.status)) return current;
-        return this.store.update(runId, {
+        const updated = await this.store.update(runId, {
             status: outcome.status,
             finishedAt: new Date().toISOString(),
             ...(outcome.output !== undefined ? { output: this.sanitize(outcome.output) } : {}),
             ...(outcome.error ? { error: this.mask(outcome.error, 2000) } : {}),
         });
+        if (updated) this.emitEvent({ type: 'run.done', runId, agentId: updated.agentId, capability: updated.capability, status: updated.status });
+        return updated;
     }
 
     private agentFor(principal: Principal, agentId: string, action: 'run' | 'info' | 'control', capability?: string): FleetAgent {
@@ -597,6 +660,8 @@ export class Hermes {
 
     /** `ask` and `always` both need the approver (they differ only in what a future policy may remember); with none, the action is refused. */
     private async requireApproval(request: ApprovalRequest, mode: ApprovalMode): Promise<void> {
+        // Plugin rules come first and apply whatever the approval mode: a rule can only refuse.
+        await this.plugins.enforce({ action: request.action, principal: request.principal, agentId: request.agentId, capability: request.capability, ...(request.runId ? { runId: request.runId } : {}) });
         if (mode === 'never') return;
         const auditAction = request.action === 'run' || request.action === 'cancel' ? request.action : request.action === 'agent_create' ? 'provision' : 'control';
         const base = { action: auditAction as 'run' | 'cancel' | 'control' | 'provision', principalId: request.principal.id, agentId: request.agentId, capability: request.capability } as const;
@@ -616,9 +681,9 @@ export class Hermes {
     private secretValues(): string[] {
         const env = this.options.env ?? process.env;
         return this.options.fleet.agents.flatMap(a => {
-            const ref = a.connector.kind === 'protocol' ? a.connector.apiKey?.env : undefined;
-            const v = ref ? env[ref] : undefined;
-            return v ? [v] : [];
+            const c = a.connector as { kind: string; apiKey?: { env: string }; controlApiKey?: { env: string } };
+            if (c.kind !== 'protocol') return [];
+            return [c.apiKey?.env, c.controlApiKey?.env].flatMap(ref => { const v = ref ? env[ref] : undefined; return v ? [v] : []; });
         });
     }
 

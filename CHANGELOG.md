@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.30.0 (2026-10-22)
+
+Sandbox de ejecución (SPEC-0006 S1; PRs #73 y #74): confinamiento y permisos de lo que ejecutan los agentes, con política como datos que un plano de control puede fijar y consultar.
+Es opt-in: sin `sandbox` configurado, `run_command` y el engine se comportan como antes (salvo la nota de la ruta heredada con docker). Rangos 0.x barridos (`agent-core ^0.30.0`, `agent-coding ^0.26.0`, `agent-enterprise ^0.7.0`; peers `<0.31.0`) y templates de `create-bk-agent` actualizados.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.30.0 |
+| `agent-sandbox` | 0.1.0 (nuevo) |
+| `agent-coding` | 0.26.0 |
+| `agent-enterprise` | 0.7.0 |
+| `agent-providers` | 0.2.4 |
+| `agent-otel` | 0.1.2 |
+| `agent-testkit` | 0.1.1 |
+| `agent-web` | 0.4.12 |
+| `mcp-server` | 0.16.7 |
+| `mcp-connectors` | 0.1.6 |
+| `orchestrator-agent` | 0.4.4 |
+| `aval-tools` | 0.1.7 |
+| `curator-codex-agent` | 1.0.4 |
+| `create-bk-agent` | 0.22.9 |
+
+**Orden de publicación (obligatorio):** core → **sandbox** → providers → coding → enterprise → otel → orchestrator-agent → (opcionales: testkit, web, mcp-server, mcp-connectors, aval-tools, curator-codex-agent) → create-bk-agent.
+`agent-coding` depende **de forma dura** de `agent-sandbox` y este tiene como peer `agent-core >=0.30.0`: publicar coding antes que sandbox, o sandbox antes que core, rompe las instalaciones.
+`agent-providers`, `agent-otel`, `agent-testkit`, `agent-web`, `mcp-server`, `mcp-connectors`, `orchestrator-agent`, `aval-tools`, `curator-codex-agent` y `create-bk-agent` solo cambian rangos de dependencia/peer (templates en el caso de `create-bk-agent`).
+
+### Detalle
+
+### `@backendkit-labs/agent-sandbox` (nuevo)
+- **Modos** `read-only`, `workspace-write`, `danger-full-access` y red `none|allow`; presets `read-only`, `ask`, `auto-edit`, `full`.
+- **Falla cerrado:** si el modo exigido no se puede imponer en este host, la llamada devuelve `SANDBOX_UNAVAILABLE` y no se ejecuta nada. El backend `none` (host) solo reclama `danger-full-access` con red abierta; `docker` reclama `read-only` y `workspace-write`.
+- **Política como datos:** `SandboxPolicyConfig` JSON (preset, mode, approval, network, roots, reglas por agente/herramienta, env, writeTools, commandTools); `set()` validado que aplica a la siguiente llamada, `snapshot()`, `version`, `parsePolicyConfig()`.
+- **Entorno depurado** (KEY/SECRET/TOKEN/PASSWORD/CREDENTIAL) con `env.allow`; decisiones observables (`onDecision`) y auditoría NDJSON ordenada.
+- Backend docker: workspace `:ro` y raíz de solo lectura en `read-only`, red `none` por defecto, sin capacidades, límites de memoria y procesos, **ejecución con el uid:gid del host en POSIX**.
+
+### `@backendkit-labs/agent-core`
+- Contrato `SandboxRunner` / `SandboxMode` / `SandboxOutcome` / `SandboxDecision`, `ExecutionContext.sandbox`, evento `sandbox` y `createBaseEngine({ sandbox })`; `engine.sandbox` para leer o cambiar la política en caliente.
+- `authorizeTool` rechaza por nombre las herramientas de escritura en `read-only` antes del gate de aprobación; `approvalFor` sustituye la lista fija de herramientas que preguntan.
+- **Fail-closed sin humano:** una herramienta que exige aprobación y no tiene `onToolApproval` se rechaza, incluso tras `disableToolApproval()`.
+- Cada engine reporta solo las decisiones de sus propias llamadas aunque comparta el servicio con otros.
+
+### `@backendkit-labs/agent-coding`
+- `run_command` delega lanzamiento, terminación, timeout y captura al backend; las comprobaciones de comandos y los mensajes no cambian. `createCodingEngine({ sandbox: { preset, policy, backends, docker, auditLog } })` y `CODING_WRITE_TOOLS`.
+- **Ruta heredada** (sin `sandbox`): `BK_RUN_COMMAND_SANDBOX` se traduce a la política equivalente (deprecado). Con `docker`, el contenedor corre ahora con el uid:gid del host en POSIX (antes root) y `BK_SANDBOX_NETWORK` distinto de `none` significa `bridge`.
+
+### `@backendkit-labs/agent-enterprise`
+- Reenvía `sandbox`.
+
+### Límites
+Solo se confina lo que pasa por `ctx.sandbox.run`; una herramienta propia o MCP que lance procesos por su cuenta queda fuera. `read-only` rechaza por nombre solo las herramientas listadas como de escritura. Las herramientas de archivos siguen usando su propia comprobación de ruta hasta la siguiente entrega.
+
 ## v0.29.1 (2026-10-22)
 
 Parche sobre la Ola 3a. Sin cambios de rangos: `^0.29.0` ya cubre 0.29.1.

@@ -151,6 +151,18 @@ describe('control actions go to the handler', () => {
         expect((await json(broken)).error).toMatchObject({ code: 'EXECUTION_FAILED', message: 'registry exploded' });
     });
 
+    it('an error from another package is recognised by name and code, without importing ControlError', async () => {
+        class ForeignControlError extends Error {
+            readonly code = 'APPROVAL_REQUIRED';
+            readonly details = { why: 'no approver' };
+            constructor() { super('widening needs approval'); this.name = 'ControlError'; }
+        }
+        const { url } = await start({ controlApiKey: 'c', control: { actions: ['set_sandbox_policy'], control: async () => { throw new ForeignControlError(); } } });
+        const res = await post(url, 'c', { action: 'set_sandbox_policy', params: {} });
+        expect(res.status).toBe(403);
+        expect((await json(res)).error).toMatchObject({ code: 'APPROVAL_REQUIRED', message: 'widening needs approval', details: { why: 'no approver' } });
+    });
+
     it('an action the handler does not implement answers CONTROL_UNSUPPORTED (501)', async () => {
         const { url } = await start({ controlApiKey: 'c', control: { actions: ['list_jobs'], control: async () => [] } });
         const res = await post(url, 'c', { action: 'set_budget', params: { usd: 1 } });

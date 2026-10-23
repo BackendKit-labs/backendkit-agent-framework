@@ -31,6 +31,8 @@ export interface JobRegistry {
     output(id: string, owner: string, opts?: { sinceOffset?: number; waitMs?: number }): Promise<JobOutput>;
     cancel(id: string, owner: string): Promise<boolean>;
     list(owner: string): JobInfo[];
+    /** Every job of every owner. For the operator's control channel; an agent only ever sees its own through `list`. */
+    listAll(): JobInfo[];
     /** Jobs that ended since the last call and were not reported yet. */
     drainFinished(owner: string): JobInfo[];
     /** Cancels every running job (engine abort / shutdown). */
@@ -160,6 +162,11 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
         list(owner) {
             purge();
             return [...entries.values()].filter(e => e.info.owner === owner).map(e => ({ ...e.info }));
+        },
+
+        listAll() {
+            purge();
+            return [...entries.values()].map(e => ({ ...e.info }));
         },
 
         drainFinished(owner) {

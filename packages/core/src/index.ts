@@ -9,6 +9,11 @@ export type { BaseEngineOptions } from './engine/createBaseEngine';
 export { ContextManager, defaultEstimateTokens } from './engine/ContextManager';
 export type { ContextOptions, CompactionReport } from './engine/ContextManager';
 export { isContextOverflowError } from './engine/contextOverflow';
+export { createEngineControl, EngineControlError } from './control/EngineControl';
+export type {
+    EngineControl, EngineControlAction, EngineControlContext, EngineControlOptions, PolicyControl, PolicyReview,
+    WideningRequest, ControlAuditEntry,
+} from './control/EngineControl';
 export { createJobRegistry, JobLimitError } from './jobs/JobRegistry';
 export type { JobRegistry, JobRegistryOptions, JobInfo, JobSpec, JobStatus, JobOutput } from './jobs/JobRegistry';
 export { JOB_TOOLS, jobOutputTool, jobListTool, jobKillTool } from './jobs/tools';

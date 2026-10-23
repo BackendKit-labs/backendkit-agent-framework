@@ -48,7 +48,7 @@ export interface WideningRequest {
     context: EngineControlContext;
 }
 
-export interface ControlAuditEntry {
+export type ControlAuditEntry = {
     ts: string;
     kind: 'control' | 'sandbox';
     agentId?: string;

@@ -94,6 +94,46 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
             execute: guarded(async ({ run_id }) => json(await hermes.cancel(who(), run_id))),
         }),
         defineTool({
+            name: 'policy_get',
+            description: "Read the sandbox policy an agent runs under (what it may read, write, run, and whether it asks first), with its version.",
+            input: z.object({ agent: z.string() }),
+            concurrencySafe: true,
+            execute: guarded(async ({ agent }) => json(await hermes.policyGet(who(), agent))),
+        }),
+        defineTool({
+            name: 'policy_set',
+            description:
+                "Set the sandbox policy of an agent. Narrowing it (less access) is always allowed for those with the control role; widening is refused " +
+                "by the agent unless its own approver allows it. Read the current policy first and pass its version as expected_version. " +
+                "Keep the parts that restrict (approval, writeTools, env deny) when you narrow, or the change counts as a widening.",
+            input: z.object({
+                agent: z.string(),
+                policy: z.record(z.unknown()).describe('The whole policy, as policy_get shows it'),
+                expected_version: z.number().int().optional().describe('Version you read; the change fails if the policy moved since'),
+            }),
+            execute: guarded(async ({ agent, policy, expected_version }) => json(await hermes.policySet(who(), agent, policy, expected_version))),
+        }),
+        defineTool({
+            name: 'job_list',
+            description: "List the background jobs running on an agent (every owner, or one with 'owner').",
+            input: z.object({ agent: z.string(), owner: z.string().optional() }),
+            concurrencySafe: true,
+            execute: guarded(async ({ agent, owner }) => json(await hermes.jobList(who(), agent, owner))),
+        }),
+        defineTool({
+            name: 'job_cancel',
+            description: 'Cancel a background job of an agent by its id (see job_list). Needs the control role.',
+            input: z.object({ agent: z.string(), job_id: z.string() }),
+            execute: guarded(async ({ agent, job_id }) => json(await hermes.jobCancel(who(), agent, job_id))),
+        }),
+        defineTool({
+            name: 'fleet_audit',
+            description: "One time-ordered trail of decisions: what Hermes decided and what each agent's sandbox and control channel decided. Filter by agent, 'since' (ISO time) and 'limit'.",
+            input: z.object({ agent: z.string().optional(), since: z.string().optional(), limit: z.number().int().min(1).max(1000).optional() }),
+            concurrencySafe: true,
+            execute: guarded(async ({ agent, since, limit }) => json(await hermes.auditView(who(), { ...(agent ? { agentId: agent } : {}), ...(since ? { since } : {}), ...(limit ? { limit } : {}) }))),
+        }),
+        defineTool({
             name: 'fleet_health',
             description: 'Health of the whole fleet: how many agents are ok, degraded or down, and each one\'s last check.',
             input: z.object({}),

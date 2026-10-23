@@ -68,3 +68,11 @@ agents:
         expect(issues('fleet: x\nagents:\n  - { id: "../x", connector: { kind: in-process } }\n')[0].path).toBe('agents.0.id');
     });
 });
+
+describe('fleet.yaml control settings', () => {
+    it('accepts a control key reference and control roles, and refuses a control key written in the file', () => {
+        const fleet = parseFleet('fleet: x\nagents:\n  - id: a\n    connector: { kind: protocol, url: "http://localhost:1", controlApiKey: { env: CTL } }\n    access: { roles: [ops], controlRoles: [sre] }\n');
+        expect(fleet.agents[0].access?.controlRoles).toEqual(['sre']);
+        expect(issues('fleet: x\nagents:\n  - id: a\n    connector: { kind: protocol, url: "http://localhost:1", controlApiKey: literal-key }\n')[0].path).toBe('agents.0.connector.controlApiKey');
+    });
+});

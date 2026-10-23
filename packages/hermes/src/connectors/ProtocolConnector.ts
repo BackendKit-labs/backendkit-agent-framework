@@ -1,7 +1,7 @@
 import { AgentClient } from '@backendkit-labs/agent-protocol';
 import type { TaskRecord } from '@backendkit-labs/agent-protocol';
 import type {
-    AgentConnector, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunLookup, RunOutcome, RunStatus,
+    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunLookup, RunOutcome, RunStatus,
 } from './types';
 
 export interface ProtocolConnectorOptions {
@@ -11,6 +11,8 @@ export interface ProtocolConnectorOptions {
      * Never logged, never stored.
      */
     apiKey?: () => string | undefined;
+    /** The control key, read when needed like `apiKey`. Without it the agent has no control port. */
+    controlApiKey?: () => string | undefined;
     timeoutMs?: number;
     maxRetries?: number;
     /** How often a background run is asked for its state. Default 1000 ms. */
@@ -34,6 +36,7 @@ export class ProtocolConnector implements AgentConnector {
     readonly kind = 'protocol' as const;
     private client?: AgentClient;
     private clientKey?: string;
+    private clientControlKey?: string;
     private capabilities = new Map<string, CapabilityInfo>();
 
     constructor(private readonly options: ProtocolConnectorOptions) {}
@@ -41,11 +44,14 @@ export class ProtocolConnector implements AgentConnector {
     /** One client per key: its circuit breaker keeps its history, and a rotated key gets a fresh one. */
     private api(): AgentClient {
         const key = this.options.apiKey?.();
-        if (!this.client || key !== this.clientKey) {
+        const controlKey = this.options.controlApiKey?.();
+        if (!this.client || key !== this.clientKey || controlKey !== this.clientControlKey) {
             this.clientKey = key;
+            this.clientControlKey = controlKey;
             this.client = new AgentClient({
                 url: this.options.url,
                 ...(key ? { apiKey: key } : {}),
+                ...(controlKey ? { controlApiKey: controlKey } : {}),
                 ...(this.options.timeoutMs ? { timeout: this.options.timeoutMs } : {}),
                 ...(this.options.maxRetries !== undefined ? { maxRetries: this.options.maxRetries } : {}),
             });
@@ -53,8 +59,24 @@ export class ProtocolConnector implements AgentConnector {
         return this.client;
     }
 
+    control(): AgentControlPort | undefined {
+        if (!this.options.controlApiKey?.()) return undefined;
+        return {
+            // What the agent says it accepts is in `info.control`; until asked, assume nothing beyond what a call proves.
+            actions: this.controlActions,
+            call: async (action, params) => {
+                const out = await this.api().control(action as never, params);
+                return out.result ?? out;
+            },
+            audit: async query => await this.api().audit(query) as AgentAuditEntry[],
+        };
+    }
+
+    private controlActions: string[] = [];
+
     async describe(): Promise<AgentDescriptor> {
         const info = await this.api().info();
+        this.controlActions = info.control ?? [];
         this.capabilities = new Map(info.capabilities.map(c => [c.name, { name: c.name, description: c.description, async: c.async, input: c.input }]));
         return { name: info.name, version: info.version, description: info.description, capabilities: [...this.capabilities.values()] };
     }

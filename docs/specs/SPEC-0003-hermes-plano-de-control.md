@@ -45,7 +45,7 @@ Usuario / cliente MCP / ACP
 ```
 
 ### 2.1 Paquete
-`packages/hermes` → `@backendkit-labs/create-hermes` (librería + CLI `bk-hermes`). Peer: `agent-core`, `agent-protocol`; opcionales: `agent-web`, `mcp-server`, `agent-otel`.
+`packages/hermes` → `@backendkit-labs/hermes` (librería + CLI `bk-hermes`). Peer: `agent-core`, `agent-protocol`; opcionales: `agent-web`, `mcp-server`, `agent-otel`.
 
 ### 2.2 `AgentConnector` (el contrato central)
 ```ts

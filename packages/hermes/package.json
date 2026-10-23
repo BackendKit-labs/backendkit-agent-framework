@@ -1,5 +1,5 @@
 {
-  "name": "@backendkit-labs/create-hermes",
+  "name": "@backendkit-labs/hermes",
   "version": "0.1.0",
   "description": "Control plane for a fleet of agents: a validated fleet.yaml, connectors (in-process, agent-protocol), run store with reconciliation, roles and approval, and the fleet_* / agent_* tools for @backendkit-labs/agent-core",
   "main": "dist/index.js",

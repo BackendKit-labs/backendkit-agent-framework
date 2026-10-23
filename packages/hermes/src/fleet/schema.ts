@@ -1,5 +1,6 @@
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { blueprintSchema, checkBlueprint, provisioningSchema } from './provisioning';
 
 /** Credentials are never written in the file: they are references resolved when used, so a rotated key applies without a restart. */
 const secretRef = z.object({ env: z.string().min(1) }, { invalid_type_error: 'use { env: NAME }: credentials are references, never written in the file' }).strict();
@@ -53,8 +54,11 @@ const agent = z.object({
 export const fleetSchema = z.object({
     fleet: z.string().min(1),
     agents: z.array(agent).min(1, 'a fleet needs at least one agent'),
+    /** What Hermes may create. Only the operator writes these (or approves a drafted one). */
+    blueprints: z.array(blueprintSchema).optional(),
     policies: z.object({
         approval: z.object({ default: approval.optional() }).strict().optional(),
+        provisioning: provisioningSchema.optional(),
         /** Accepted and kept; not enforced yet. */
         budget: z.object({ perRunUsd: z.number().positive().optional(), perDayUsd: z.number().positive().optional() }).strict().optional(),
     }).strict().optional(),
@@ -63,6 +67,15 @@ export const fleetSchema = z.object({
     fleet.agents.forEach((a, i) => {
         if (seen.has(a.id)) ctx.addIssue({ code: 'custom', path: ['agents', i, 'id'], message: `duplicate agent id "${a.id}"` });
         seen.add(a.id);
+    });
+    const blueprintIds = new Set<string>();
+    (fleet.blueprints ?? []).forEach((b, i) => {
+        if (blueprintIds.has(b.id)) ctx.addIssue({ code: 'custom', path: ['blueprints', i, 'id'], message: `duplicate blueprint id "${b.id}"` });
+        blueprintIds.add(b.id);
+        // A blueprint wider than what Hermes may hand out is refused here, when the file is read, not only when it is used.
+        for (const problem of checkBlueprint(b, fleet.policies?.provisioning)) {
+            ctx.addIssue({ code: 'custom', path: ['blueprints', i, ...(problem.path ? problem.path.split('.') : [])], message: problem.message });
+        }
     });
 });
 

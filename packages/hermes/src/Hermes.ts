@@ -6,36 +6,11 @@ import type { AgentAuditEntry, AgentConnector, AgentControlPort, RunHandle, RunO
 import { FleetRegistry, type FleetAgent, type RegistryOptions } from './fleet/FleetRegistry';
 import type { ApprovalMode, FleetConfig } from './fleet/schema';
 import { ACTIVE, JsonRunStore, type RunRecord, type RunStore, type StoredStatus } from './store/RunStore';
+import { HermesError, type ApprovalRequest, type Approver, type HermesErrorCode, type HermesEvent, type Principal } from './errors';
+import { matchScore, Provisioning, type Provision } from './provisioning/Provisioning';
 
-/** Who is asking. It comes from the transport (a JWT, an MCP token, the host's login); Hermes only reads it. */
-export interface Principal {
-    id: string;
-    roles: string[];
-}
-
-export type HermesErrorCode =
-    | 'FORBIDDEN' | 'APPROVAL_REQUIRED' | 'AGENT_NOT_FOUND' | 'AGENT_UNAVAILABLE' | 'CAPABILITY_NOT_FOUND' | 'RUN_NOT_FOUND' | 'RUN_FAILED'
-    | 'POLICY_WIDER_THAN_PARENT' | 'CONTROL_UNSUPPORTED' | 'INVALID_INPUT';
-
-export class HermesError extends Error {
-    constructor(readonly code: HermesErrorCode, message: string) {
-        super(message);
-        this.name = 'HermesError';
-    }
-}
-
-export interface ApprovalRequest {
-    action: 'run' | 'cancel' | 'policy_set' | 'job_cancel';
-    principal: Principal;
-    agentId: string;
-    capability: string;
-    /** The input, masked and cut: what a human needs to decide. */
-    inputPreview?: string;
-    runId?: string;
-}
-
-/** Decides whether an action that asks for approval may go on. Without one, those actions are refused. */
-export type Approver = (request: ApprovalRequest) => boolean | Promise<boolean>;
+export { HermesError } from './errors';
+export type { Principal, HermesErrorCode, ApprovalRequest, Approver, HermesEvent } from './errors';
 
 export interface HermesOptions extends RegistryOptions {
     fleet: FleetConfig;
@@ -45,6 +20,12 @@ export interface HermesOptions extends RegistryOptions {
     auditLog?: string;
     onAudit?: AuditListener;
     approver?: Approver;
+    /** Builds the agent a blueprint describes. Without it Hermes cannot create agents. */
+    provision?: Provision;
+    /** Where created agents, drafts and gaps are kept. Without it they live only in memory. */
+    provisioningFile?: string;
+    /** Events for the host: `fleet.gap`, `fleet.agent.created`, `fleet.agent.retired`, `fleet.blueprint.*`. */
+    onEvent?: (event: HermesEvent) => void;
     /** Longest an `agent_run` waits for the answer before returning the run id. Default 30 s. */
     defaultWaitMs?: number;
     /** Results longer than this are cut (the run store and the model never get more). Default 64000 characters. */
@@ -83,6 +64,7 @@ export class Hermes {
     private readonly audit: AuditLog;
     private readonly tracked = new Map<string, Tracked>();
     private readonly guardrails: Guardrail[];
+    readonly provisioning: Provisioning;
     private started = false;
     /** Aborted on `stop()`: runs stop being followed, but they do not end because of it, so the store keeps them as they were. */
     private readonly shutdown = new AbortController();
@@ -100,11 +82,23 @@ export class Hermes {
                 if (this.started && agent.health.state !== 'down' && previous === 'down') void this.reconcile(agent.id);
             },
         });
+        this.provisioning = new Provisioning({
+            fleet: options.fleet,
+            registry: this.registry,
+            audit: this.audit,
+            ...(options.provision ? { provision: options.provision } : {}),
+            ...(options.provisioningFile ? { stateFile: options.provisioningFile } : {}),
+            approve: (request, mode) => this.requireApproval(request, mode),
+            cancelRunsOf: (agentId, reason) => this.cancelRunsOf(agentId, reason),
+            emit: event => { try { options.onEvent?.(event); } catch { /* the host's handler must not affect Hermes */ } },
+            find: (principal, need) => this.find(principal, need),
+        });
     }
 
     /** Checks the fleet, then settles the runs a previous process left open. */
     async start(): Promise<void> {
         await this.registry.start();
+        await this.provisioning.start();
         this.started = true;
         await this.reconcile();
     }
@@ -113,6 +107,7 @@ export class Hermes {
         this.started = false;
         this.shutdown.abort();
         this.registry.stop();
+        await this.provisioning.stop();
         await this.audit.flush();
         await this.store.flush?.();
     }
@@ -331,6 +326,55 @@ export class Hermes {
         }
     }
 
+    // ── Creating agents, and what the fleet cannot do ───────────────────────
+
+    /** Creates an agent from a blueprint of the operator's. The blueprint id is the whole request: see `Provisioning.create`. */
+    async agentCreate(principal: Principal, request: { blueprint: string; label?: string; gapId?: string }) {
+        const made = await this.provisioning.create(principal, { blueprintId: request.blueprint, ...(request.label ? { label: request.label } : {}), ...(request.gapId ? { gapId: request.gapId } : {}) });
+        return { id: made.id, blueprint: made.blueprintId, expiresAt: made.expiresAt, state: this.registry.get(made.id)?.health.state };
+    }
+
+    /** Retires an agent Hermes created. An agent of the operator's own fleet cannot be retired this way. */
+    async agentRetire(principal: Principal, instanceId: string) {
+        const rec = await this.provisioning.retire(principal, instanceId);
+        return { id: rec.id, status: rec.status, reason: rec.retiredReason };
+    }
+
+    /** The capabilities of the fleet that fit what is needed (words in common with their name, description and tags). */
+    find(principal: Principal, need: string): Array<{ agentId: string; capability: string; score: number }> {
+        const out: Array<{ agentId: string; capability: string; score: number }> = [];
+        for (const a of this.registry.list()) {
+            if (!this.mayUse(principal, a) || a.health.state === 'down') continue;
+            for (const c of a.descriptor?.capabilities ?? []) {
+                const score = matchScore(need, [c.name.replace(/[_-]/g, ' '), c.description, a.config.description ?? '', ...(a.config.tags ?? [])].join(' '));
+                if (score > 0) out.push({ agentId: a.id, capability: c.name, score });
+            }
+        }
+        return out.sort((x, y) => y.score - x.score);
+    }
+
+    /** Something needed that no agent of the fleet covers. See `Provisioning.reportGap`. */
+    reportGap(principal: Principal, need: string) { return this.provisioning.reportGap(principal, need); }
+
+    blueprintList(principal: Principal) { return this.provisioning.list(principal); }
+
+    /** A draft blueprint, pending until an operator decides. */
+    blueprintPropose(principal: Principal, blueprint: unknown, gapId?: string) { return this.provisioning.propose(principal, blueprint, gapId); }
+
+    /**
+     * An operator approves or rejects a draft. This is deliberately a method for the host to call with the operator's own
+     * principal, not a tool: a model that could approve its own proposals would grant itself permissions.
+     */
+    blueprintDecide(principal: Principal, draftId: string, decision: 'approved' | 'rejected') { return this.provisioning.decide(principal, draftId, decision); }
+
+    private async cancelRunsOf(agentId: string, reason: string): Promise<void> {
+        for (const record of this.store.list({ agentId, status: [...ACTIVE] })) {
+            const tracked = this.tracked.get(record.runId);
+            await tracked?.handle.cancel(reason).catch(() => undefined);
+            await this.settle(record.runId, { status: 'cancelled', error: reason });
+        }
+    }
+
     // ── After a restart ─────────────────────────────────────────────────────
 
     /**
@@ -427,7 +471,8 @@ export class Hermes {
     /** `ask` and `always` both need the approver (they differ only in what a future policy may remember); with none, the action is refused. */
     private async requireApproval(request: ApprovalRequest, mode: ApprovalMode): Promise<void> {
         if (mode === 'never') return;
-        const base = { action: (request.action === 'run' || request.action === 'cancel' ? request.action : 'control') as 'run' | 'cancel' | 'control', principalId: request.principal.id, agentId: request.agentId, capability: request.capability } as const;
+        const auditAction = request.action === 'run' || request.action === 'cancel' ? request.action : request.action === 'agent_create' ? 'provision' : 'control';
+        const base = { action: auditAction as 'run' | 'cancel' | 'control' | 'provision', principalId: request.principal.id, agentId: request.agentId, capability: request.capability } as const;
         if (!this.options.approver) {
             this.audit.record({ ...base, outcome: 'denied', reason: 'needs approval and no approver is configured' });
             throw new HermesError('APPROVAL_REQUIRED', `${request.action} on ${request.agentId}.${request.capability} needs approval and no approver is configured`);

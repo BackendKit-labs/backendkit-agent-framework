@@ -1,6 +1,7 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import type { ToolDefinition } from '@backendkit-labs/agent-core';
-import { Hermes, HermesError, type Principal } from './Hermes';
+import type { Hermes } from './Hermes';
+import { HermesError, type Principal } from './errors';
 
 export interface FleetToolsOptions {
     /**
@@ -132,6 +133,57 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
             input: z.object({ agent: z.string().optional(), since: z.string().optional(), limit: z.number().int().min(1).max(1000).optional() }),
             concurrencySafe: true,
             execute: guarded(async ({ agent, since, limit }) => json(await hermes.auditView(who(), { ...(agent ? { agentId: agent } : {}), ...(since ? { since } : {}), ...(limit ? { limit } : {}) }))),
+        }),
+        defineTool({
+            name: 'fleet_find',
+            description: 'Find which agent of the fleet can do something: describe the need in a few words. Returns the capabilities that fit, best first. Empty means nothing in the fleet covers it (see fleet_gap).',
+            input: z.object({ need: z.string().min(3) }),
+            concurrencySafe: true,
+            execute: guarded(({ need }) => json(hermes.find(who(), need))),
+        }),
+        defineTool({
+            name: 'fleet_gap',
+            description:
+                'Report something needed that no agent of the fleet covers. Hermes records it and tells the operator; depending on the company policy it may also ' +
+                'create an agent from an approved blueprint that covers it, or invite you to draft one with blueprint_propose. It never grants permissions by itself.',
+            input: z.object({ need: z.string().min(3).describe('What is missing, in a sentence') }),
+            execute: guarded(async ({ need }) => json(await hermes.reportGap(who(), need))),
+        }),
+        defineTool({
+            name: 'blueprint_list',
+            description: 'List the blueprints you may create agents from, and the agents Hermes created that are live. Operators also see drafts waiting for a decision.',
+            input: z.object({}),
+            concurrencySafe: true,
+            execute: guarded(() => json(hermes.blueprintList(who()))),
+        }),
+        defineTool({
+            name: 'agent_create',
+            description:
+                'Create an agent from a blueprint. You choose only WHICH blueprint: its tools, sandbox, budget, lifetime and who may use it are fixed by the operator. ' +
+                'Creating usually needs approval; if it is refused, say so and do not retry.',
+            input: z.object({
+                blueprint: z.string().describe('Blueprint id from blueprint_list'),
+                label: z.string().max(80).optional().describe('A short note on why'),
+                gap_id: z.string().optional().describe('The gap this answers, from fleet_gap'),
+            }).strict(),
+            execute: guarded(async ({ blueprint, label, gap_id }) => json(await hermes.agentCreate(who(), { blueprint, ...(label ? { label } : {}), ...(gap_id ? { gapId: gap_id } : {}) }))),
+        }),
+        defineTool({
+            name: 'agent_retire',
+            description: 'Retire an agent that Hermes created: its runs are cancelled and it leaves the fleet. Agents of the operator\'s own fleet cannot be retired this way.',
+            input: z.object({ agent: z.string() }),
+            execute: guarded(async ({ agent }) => json(await hermes.agentRetire(who(), agent))),
+        }),
+        defineTool({
+            name: 'blueprint_propose',
+            description:
+                'Draft a new blueprint when the company lets you propose them. The draft stays PENDING and cannot create anything until a human operator approves it; ' +
+                'it is checked against what Hermes may hand out and refused if it asks for more. You cannot approve it yourself.',
+            input: z.object({ blueprint: z.record(z.unknown()).describe('id, template, tools, sandbox, limits, covers, createRoles, access'), gap_id: z.string().optional() }),
+            execute: guarded(async ({ blueprint, gap_id }) => {
+                const draft = await hermes.blueprintPropose(who(), blueprint, gap_id);
+                return json({ id: draft.blueprint.id, status: draft.status, note: 'waiting for an operator' });
+            }),
         }),
         defineTool({
             name: 'fleet_health',

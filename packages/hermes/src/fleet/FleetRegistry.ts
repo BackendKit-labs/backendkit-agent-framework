@@ -91,6 +91,26 @@ export class FleetRegistry {
         this.timers.clear();
     }
 
+    /** Adds an agent while running (one Hermes created): checks it now and keeps checking it. */
+    async add(config: AgentConfig, connector: AgentConnector): Promise<FleetAgent> {
+        if (this.agents.has(config.id)) throw new Error(`agent "${config.id}" already exists`);
+        const agent: FleetAgent = { id: config.id, config, connector, health: { state: 'unknown' } };
+        this.agents.set(config.id, agent);
+        await this.check(agent);
+        if (this.agents.get(config.id) === agent) this.schedule(agent);
+        return agent;
+    }
+
+    /** Takes an agent out of the fleet and stops checking it. */
+    remove(id: string): FleetAgent | undefined {
+        const agent = this.agents.get(id);
+        if (!agent) return undefined;
+        clearTimeout(this.timers.get(id));
+        this.timers.delete(id);
+        this.agents.delete(id);
+        return agent;
+    }
+
     /** Asks one agent (or all) now, outside the timer. */
     async checkNow(id?: string): Promise<void> {
         const targets = id ? [this.agents.get(id)].filter((a): a is FleetAgent => !!a) : this.list();
@@ -101,6 +121,7 @@ export class FleetRegistry {
         if (!this.running) return;
         const interval = (agent.config.health?.intervalSec ?? DEFAULT_INTERVAL_MS / 1000) * 1000;
         const timer = setTimeout(() => {
+            if (this.agents.get(agent.id) !== agent) return; // removed meanwhile
             void this.check(agent).finally(() => this.schedule(agent));
         }, interval);
         timer.unref?.();

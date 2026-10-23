@@ -14,6 +14,8 @@ const protocolConnector = z.object({
     kind: z.literal('protocol'),
     url: z.string().url(),
     apiKey: secretRef.optional(),
+    /** Key of the agent's control channel. Distinct from `apiKey`: whoever may run capabilities may not thereby change the agent's policy. */
+    controlApiKey: secretRef.optional(),
     timeoutMs: z.number().int().positive().optional(),
     maxRetries: z.number().int().min(0).max(10).optional(),
     pollIntervalMs: z.number().int().positive().optional(),
@@ -41,6 +43,8 @@ const agent = z.object({
     access: z.object({
         /** Who may use the agent. Absent: any identified principal. */
         roles: roles.optional(),
+        /** Who may change the agent's execution (policy, jobs). Absent: nobody, only reading. */
+        controlRoles: roles.optional(),
         approval: approval.optional(),
         capabilities: z.record(capabilityAccess).optional(),
     }).strict().optional(),

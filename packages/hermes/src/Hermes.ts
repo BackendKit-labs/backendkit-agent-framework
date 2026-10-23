@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { promptInjectionGuardrail, secretLeakGuardrail } from '@backendkit-labs/agent-core';
 import type { Guardrail, GuardrailContext } from '@backendkit-labs/agent-core';
 import { AuditLog, type AuditEvent, type AuditListener } from './audit';
-import type { AgentConnector, RunHandle, RunOutcome } from './connectors/types';
+import type { AgentAuditEntry, AgentConnector, AgentControlPort, RunHandle, RunOutcome } from './connectors/types';
 import { FleetRegistry, type FleetAgent, type RegistryOptions } from './fleet/FleetRegistry';
 import type { ApprovalMode, FleetConfig } from './fleet/schema';
 import { ACTIVE, JsonRunStore, type RunRecord, type RunStore, type StoredStatus } from './store/RunStore';
@@ -14,7 +14,8 @@ export interface Principal {
 }
 
 export type HermesErrorCode =
-    | 'FORBIDDEN' | 'APPROVAL_REQUIRED' | 'AGENT_NOT_FOUND' | 'AGENT_UNAVAILABLE' | 'CAPABILITY_NOT_FOUND' | 'RUN_NOT_FOUND' | 'RUN_FAILED';
+    | 'FORBIDDEN' | 'APPROVAL_REQUIRED' | 'AGENT_NOT_FOUND' | 'AGENT_UNAVAILABLE' | 'CAPABILITY_NOT_FOUND' | 'RUN_NOT_FOUND' | 'RUN_FAILED'
+    | 'POLICY_WIDER_THAN_PARENT' | 'CONTROL_UNSUPPORTED' | 'INVALID_INPUT';
 
 export class HermesError extends Error {
     constructor(readonly code: HermesErrorCode, message: string) {
@@ -24,7 +25,7 @@ export class HermesError extends Error {
 }
 
 export interface ApprovalRequest {
-    action: 'run' | 'cancel';
+    action: 'run' | 'cancel' | 'policy_set' | 'job_cancel';
     principal: Principal;
     agentId: string;
     capability: string;
@@ -73,6 +74,8 @@ const view = (r: RunRecord): RunView => ({
 });
 
 interface Tracked { handle: RunHandle; settled: Promise<void> }
+
+type AuditRow = { source: string; ts: string; [key: string]: unknown };
 
 export class Hermes {
     readonly registry: FleetRegistry;
@@ -227,6 +230,107 @@ export class Hermes {
         return view(updated ?? this.store.get(runId)!);
     }
 
+    // ── Controlling an agent's execution ────────────────────────────────────
+
+    /** The sandbox policy in force on an agent, with its version. Needs the right to use the agent. */
+    async policyGet(principal: Principal, agentId: string): Promise<{ version: number; policy: unknown }> {
+        const { port } = this.controlFor(principal, agentId, 'read');
+        return await this.callControl(principal, agentId, port, 'get_sandbox_policy', {}, false) as { version: number; policy: unknown };
+    }
+
+    /**
+     * Sets the sandbox policy of an agent. Needs one of the agent's `controlRoles` and, unless the agent is set to `never`,
+     * an approval. The agent still decides for itself: a policy wider than the one in force is refused there unless its own
+     * approver allows it, and nothing goes past the ceiling its operator set. `expectedVersion` makes the change fail if the
+     * policy moved since it was read.
+     */
+    async policySet(principal: Principal, agentId: string, policy: unknown, expectedVersion?: number): Promise<{ version: number; policy: unknown }> {
+        const { agent, port } = this.controlFor(principal, agentId, 'write');
+        await this.requireApproval(
+            { action: 'policy_set', principal, agentId, capability: 'set_sandbox_policy', inputPreview: this.mask(JSON.stringify(policy) ?? '', 500) },
+            this.approvalMode(agent, 'set_sandbox_policy'),
+        );
+        return await this.callControl(principal, agentId, port, 'set_sandbox_policy', {
+            policy, by: principal.id, ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+        }, true) as { version: number; policy: unknown };
+    }
+
+    /** Background jobs of an agent (all owners, or one). */
+    async jobList(principal: Principal, agentId: string, owner?: string): Promise<unknown> {
+        const { port } = this.controlFor(principal, agentId, 'read');
+        return await this.callControl(principal, agentId, port, 'list_jobs', owner ? { owner } : {}, false);
+    }
+
+    async jobCancel(principal: Principal, agentId: string, jobId: string): Promise<unknown> {
+        const { agent, port } = this.controlFor(principal, agentId, 'write');
+        await this.requireApproval({ action: 'job_cancel', principal, agentId, capability: 'cancel_job', inputPreview: jobId }, this.approvalMode(agent, 'cancel_job'));
+        return await this.callControl(principal, agentId, port, 'cancel_job', { id: jobId, by: principal.id }, true);
+    }
+
+    /**
+     * One trail for the whole fleet: what Hermes decided and what each agent decided (its sandbox and control decisions),
+     * in time order. Agents without a control channel, or that cannot be reached, are listed in `unavailable` instead.
+     */
+    async auditView(principal: Principal, query: { agentId?: string; since?: string; limit?: number } = {}) {
+        const since = query.since ? Date.parse(query.since) : undefined;
+        if (query.since && Number.isNaN(since)) throw new HermesError('INVALID_INPUT', "'since' must be an ISO timestamp");
+        if (query.agentId) this.agentFor(principal, query.agentId, 'control');
+        const visible = this.registry.list().filter(a => this.mayUse(principal, a) && (!query.agentId || a.id === query.agentId));
+        const ids = new Set(visible.map(a => a.id));
+
+        const local = this.audit.recent()
+            .filter(e => (!e.agentId || ids.has(e.agentId)) && (since === undefined || Date.parse(e.ts) >= since))
+            .map(e => ({ source: 'hermes', ...e }) as AuditRow);
+
+        const unavailable: Array<{ agentId: string; reason: string }> = [];
+        const remote = await Promise.all(visible.map(async a => {
+            const port = a.connector.control?.();
+            if (!port?.audit) { unavailable.push({ agentId: a.id, reason: 'no audit trail' }); return [] as AuditRow[]; }
+            try {
+                const rows = await port.audit({ ...(query.since ? { since: query.since } : {}) });
+                return rows.map((e: AgentAuditEntry) => ({ source: a.id, ...e }) as AuditRow);
+            } catch (err) {
+                unavailable.push({ agentId: a.id, reason: (err as Error).message });
+                return [] as AuditRow[];
+            }
+        }));
+        const entries = [...local, ...remote.flat()].sort((x, y) => x.ts.localeCompare(y.ts));
+        this.audit.record({ action: 'control', outcome: 'allowed', principalId: principal.id, capability: 'audit_view', ...(query.agentId ? { agentId: query.agentId } : {}) });
+        return { entries: query.limit ? entries.slice(-query.limit) : entries, unavailable };
+    }
+
+    /** Finds the agent and its control port, checking who may do what: reading needs access to the agent, changing needs a control role. */
+    private controlFor(principal: Principal, agentId: string, mode: 'read' | 'write'): { agent: FleetAgent; port: AgentControlPort } {
+        const agent = this.agentFor(principal, agentId, 'control');
+        if (mode === 'write') {
+            const roles = agent.config.access?.controlRoles;
+            if (!roles || !roles.some(r => principal.roles.includes(r))) {
+                this.audit.record({ action: 'control', outcome: 'denied', principalId: principal.id, agentId, reason: 'control role' });
+                throw new HermesError('FORBIDDEN', `${principal.id} may not change the execution of ${agentId}`);
+            }
+        }
+        const port = agent.connector.control?.();
+        if (!port) throw new HermesError('CONTROL_UNSUPPORTED', `${agentId} has no control channel configured`);
+        return { agent, port };
+    }
+
+    private async callControl(principal: Principal, agentId: string, port: AgentControlPort, action: string, params: Record<string, unknown>, audited: boolean): Promise<unknown> {
+        try {
+            const out = await port.call(action, params);
+            if (audited) {
+                const version = (out as { version?: unknown } | undefined)?.version;
+                this.audit.record({ action: 'control', outcome: 'allowed', principalId: principal.id, agentId, capability: action, ...(version !== undefined ? { reason: `policy version ${String(version)}` } : {}) });
+            }
+            return out;
+        } catch (err) {
+            const code = (err as { code?: string }).code;
+            const known: HermesErrorCode[] = ['APPROVAL_REQUIRED', 'POLICY_WIDER_THAN_PARENT', 'CONTROL_UNSUPPORTED', 'INVALID_INPUT', 'FORBIDDEN'];
+            const mapped: HermesErrorCode = known.includes(code as HermesErrorCode) ? code as HermesErrorCode : code === 'TASK_NOT_FOUND' ? 'RUN_NOT_FOUND' : 'AGENT_UNAVAILABLE';
+            this.audit.record({ action: 'control', outcome: mapped === 'AGENT_UNAVAILABLE' ? 'failed' : 'denied', principalId: principal.id, agentId, capability: action, reason: `${code ?? 'error'}: ${(err as Error).message}` });
+            throw new HermesError(mapped, `${agentId}.${action}: ${(err as Error).message}`);
+        }
+    }
+
     // ── After a restart ─────────────────────────────────────────────────────
 
     /**
@@ -283,7 +387,7 @@ export class Hermes {
         });
     }
 
-    private agentFor(principal: Principal, agentId: string, action: 'run' | 'info', capability?: string): FleetAgent {
+    private agentFor(principal: Principal, agentId: string, action: 'run' | 'info' | 'control', capability?: string): FleetAgent {
         const agent = this.registry.get(agentId);
         // An agent the principal may not use is reported as missing: the fleet is not enumerable through error messages.
         if (!agent || !this.mayUse(principal, agent)) {
@@ -323,7 +427,7 @@ export class Hermes {
     /** `ask` and `always` both need the approver (they differ only in what a future policy may remember); with none, the action is refused. */
     private async requireApproval(request: ApprovalRequest, mode: ApprovalMode): Promise<void> {
         if (mode === 'never') return;
-        const base = { action: request.action, principalId: request.principal.id, agentId: request.agentId, capability: request.capability } as const;
+        const base = { action: (request.action === 'run' || request.action === 'cancel' ? request.action : 'control') as 'run' | 'cancel' | 'control', principalId: request.principal.id, agentId: request.agentId, capability: request.capability } as const;
         if (!this.options.approver) {
             this.audit.record({ ...base, outcome: 'denied', reason: 'needs approval and no approver is configured' });
             throw new HermesError('APPROVAL_REQUIRED', `${request.action} on ${request.agentId}.${request.capability} needs approval and no approver is configured`);

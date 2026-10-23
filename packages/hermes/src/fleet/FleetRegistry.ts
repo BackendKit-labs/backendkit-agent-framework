@@ -42,9 +42,11 @@ export function connectorsFor(config: FleetConfig, options: RegistryOptions = {}
         const c = agent.connector;
         if (c.kind === 'protocol') {
             const ref = c.apiKey?.env;
+            const controlRef = c.controlApiKey?.env;
             out.set(agent.id, new ProtocolConnector({
                 url: c.url,
                 ...(ref ? { apiKey: () => env[ref] } : {}),
+                ...(controlRef ? { controlApiKey: () => env[controlRef] } : {}),
                 ...(c.timeoutMs ? { timeoutMs: c.timeoutMs } : {}),
                 ...(c.maxRetries !== undefined ? { maxRetries: c.maxRetries } : {}),
                 ...(c.pollIntervalMs ? { pollIntervalMs: c.pollIntervalMs } : {}),

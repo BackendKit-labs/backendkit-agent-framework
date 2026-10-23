@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
-    AgentConnector, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunOutcome, RunStatus,
+    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunOutcome, RunStatus,
 } from './types';
 
 export interface InProcessCapability extends Partial<Pick<CapabilityInfo, 'description' | 'input'>> {
@@ -15,6 +15,12 @@ export interface InProcessConnectorOptions {
     version?: string;
     description?: string;
     capabilities: Record<string, InProcessCapability>;
+    /** Control of the engine behind this agent: a `createEngineControl(...)` result. Without it the agent has no control port. */
+    control?: {
+        readonly actions: readonly string[];
+        control(action: string, params: Record<string, unknown>, context: { tenantId?: string; traceId?: string; requestId?: string }): Promise<unknown>;
+        audit?(query: { since?: string; limit?: number }): Promise<AgentAuditEntry[]>;
+    };
 }
 
 interface Live {
@@ -37,6 +43,16 @@ export class InProcessConnector implements AgentConnector {
 
     /** For tests and maintenance: report the agent as down. */
     setAvailable(available: boolean): void { this.available = available; }
+
+    control(): AgentControlPort | undefined {
+        const c = this.options.control;
+        if (!c) return undefined;
+        return {
+            actions: c.actions,
+            call: (action, params) => c.control(action, params, {}),
+            ...(c.audit ? { audit: (q: { since?: string; limit?: number }) => c.audit!(q) } : {}),
+        };
+    }
 
     async describe(): Promise<AgentDescriptor> {
         return {

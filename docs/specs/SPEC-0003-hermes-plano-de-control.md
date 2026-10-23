@@ -110,10 +110,13 @@ blueprints:
   - id: report-writer
     template: single
     tools: [read_file, search_files]
-    sandbox: { preset: read-only }
+    sandbox: { preset: read-only, approval: writes-and-commands, writeTools: [write_file, edit_file] }
     limits: { budgetUsdPerDay: 1, ttlMinutes: 120 }
     approval: ask          # crear una instancia pide aprobación humana
+    covers: [write reports, summaries]
+    createRoles: [ops]     # quién puede crear instancias; sin esto, nadie
 ```
+El `sandbox` se escribe **completo**: `{ preset: read-only }` a secas cuenta como *más amplio* que un creador `ask` en la dimensión `approval` (read-only no pregunta nada) y en `writeTools`, y `checkNarrower` lo rechaza. Lo que Hermes puede repartir (`policies.provisioning.creator`: sandbox, herramientas, presupuesto) vive solo en el archivo del operador y ninguna herramienta lo cambia.
 **Regla de herencia (se comprueba en código, no solo se documenta):** la política del agente creado es igual o más estricta que la del creador en cada dimensión (modo del sandbox, red, raíces, nivel de aprobación, herramientas permitidas, presupuesto, profundidad de creación). Si el blueprint pide algo más amplio, `agent_create` falla con `POLICY_WIDER_THAN_PARENT` y la ampliación solo se concede por el camino de escalación de SPEC-0006 (aprobación, para esa creación). Una creación hecha sin aprobador (flujo sin humano) falla cerrado. Cada creación y baja queda en la auditoría con el creador, el blueprint y la política resultante.
 Se limita el número de agentes creados vivos y la profundidad de creación (un agente creado no crea otros salvo que el blueprint lo permita).
 

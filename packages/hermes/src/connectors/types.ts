@@ -78,6 +78,8 @@ export interface AgentControlPort {
 
 export interface AgentConnector {
     readonly kind: 'protocol' | 'in-process';
+    /** Releases what the connector holds (processes, sockets) when its agent leaves the fleet. */
+    close?(): Promise<void>;
     /** The control channel, when the connector has one configured. */
     control?(): AgentControlPort | undefined;
     describe(): Promise<AgentDescriptor>;

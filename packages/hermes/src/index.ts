@@ -1,5 +1,13 @@
-export { Hermes, HermesError, defaultResultGuardrails } from './Hermes';
-export type { Principal, HermesOptions, HermesErrorCode, Approver, ApprovalRequest, RunView } from './Hermes';
+export { Hermes, defaultResultGuardrails } from './Hermes';
+export type { HermesOptions, RunView } from './Hermes';
+export { HermesError } from './errors';
+export type { Principal, HermesErrorCode, Approver, ApprovalRequest, HermesEvent } from './errors';
+export { Provisioning, matchScore } from './provisioning/Provisioning';
+export type { Provision, InstanceRecord, DraftRecord, GapRecord } from './provisioning/Provisioning';
+export { blueprintSchema, checkBlueprint } from './fleet/provisioning';
+export type { Blueprint, CreatorPolicy, ProvisioningPolicy, BlueprintProblem } from './fleet/provisioning';
+export { createHermes } from './createHermes';
+export type { CreateHermesOptions } from './createHermes';
 export { createFleetTools } from './tools';
 export type { FleetToolsOptions } from './tools';
 export { parseFleet, validateFleet, fleetSchema, FleetConfigError } from './fleet/schema';

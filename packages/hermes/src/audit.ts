@@ -1,8 +1,8 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export type AuditAction = 'run' | 'cancel' | 'info' | 'list' | 'health' | 'reconcile' | 'control';
-export type AuditOutcome = 'allowed' | 'denied' | 'approved' | 'not-approved' | 'failed' | 'lost' | 'recovered';
+export type AuditAction = 'run' | 'cancel' | 'info' | 'list' | 'health' | 'reconcile' | 'control' | 'provision' | 'gap' | 'blueprint';
+export type AuditOutcome = 'allowed' | 'denied' | 'approved' | 'not-approved' | 'failed' | 'lost' | 'recovered' | 'created' | 'retired' | 'expired' | 'proposed' | 'rejected';
 
 /** One decision or event: who did what to which agent, and what became of it. */
 export interface AuditEvent {
@@ -14,6 +14,10 @@ export interface AuditEvent {
     capability?: string;
     runId?: string;
     reason?: string;
+    /** Provisioning: the blueprint, the instance made from it, and the gap that led to it. */
+    blueprintId?: string;
+    instanceId?: string;
+    gapId?: string;
 }
 
 export type AuditListener = (event: AuditEvent) => void;

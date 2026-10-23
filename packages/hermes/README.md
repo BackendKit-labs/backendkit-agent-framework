@@ -4,7 +4,7 @@ Control plane for a fleet of agents. One place that knows which agents exist, wh
 
 It is domain-agnostic: it knows nothing about accounting, support or devops. What a fleet is *for* lives in its `fleet.yaml` and in the agents it points at.
 
-**What is here (H0 and H1 control).** It runs, watches and controls agents: how each one executes (its sandbox policy, its background jobs) and one audit trail across the fleet. Creating agents, flows, plugins and budgets come next (see `docs/specs/SPEC-0008`).
+**What is here.** It runs, watches and controls agents (how each one executes: its sandbox policy and background jobs; one audit trail across the fleet), and it can create and retire agents from blueprints the operator wrote and notice what the fleet cannot do. Flows, plugins and budgets come next (see `docs/specs/SPEC-0008`).
 
 ## The fleet
 
@@ -63,6 +63,49 @@ An agent served with `AgentServer` exposes a control channel (protocol 1.1) when
 - **A lock-down keeps its approval.** To tighten an `auto-edit` agent send `{ preset: 'read-only', approval: 'commands', writeTools: [...] }`: dropping `approval` or the `writeTools` counts as widening.
 - **One trail.** `fleet_audit` merges Hermes's own decisions with each agent's (sandbox and control decisions, with who asked and the policy version after a change) in time order. Agents with no control channel, or that cannot be reached, are listed under `unavailable` instead of failing the view.
 
+## Creating agents
+
+The operator lists **blueprints** in `fleet.yaml` and says what Hermes itself may hand out. Hermes can then create an agent from a blueprint, never from anything else.
+
+```yaml
+policies:
+  provisioning:
+    creator:                      # the most Hermes may give to anything it creates
+      sandbox: { preset: ask, writeTools: [write_file, edit_file] }
+      tools: [read_file, search_files]
+      budgetUsdPerDay: 5
+    maxLive: 3
+    operatorRoles: [operator]     # who may approve a drafted blueprint
+    gap: { mode: notify }         # notify (default) | create | propose
+blueprints:
+  - id: report-writer
+    template: single              # the host's provisioner decides what this means
+    tools: [read_file, search_files]
+    sandbox: { preset: read-only, approval: writes-and-commands, writeTools: [write_file, edit_file] }
+    limits: { budgetUsdPerDay: 1, ttlMinutes: 120 }
+    approval: ask                 # each creation needs a human (the default)
+    covers: [write reports, summaries]
+    createRoles: [ops]            # who may create and retire; without it, nobody
+    access: { roles: [ops], controlRoles: [sre], approval: never }
+```
+
+```ts
+const { hermes, tools, guardrails } = createHermes({
+  fleet: readFileSync('fleet.yaml', 'utf8'),
+  provision: (blueprint, { instanceId, sandbox }) => buildTheAgent(blueprint, instanceId, sandbox),  // the host knows how
+  approver: askAHuman,
+  provisioningFile: 'hermes-provisioning.json',
+  onEvent: e => notifyOperators(e),   // fleet.gap, fleet.agent.created / retired, fleet.blueprint.*
+});
+```
+
+- **A blueprint is never wider than what Hermes may hand out.** Sandbox (`checkNarrower`), tools and budget are checked when the file is read (`bk-hermes validate` names the field) and again at the moment of creation. A bare `sandbox: { preset: read-only }` is refused for an `ask` creator, because read-only asks for nothing and counts as wider in `approval`: write the whole policy, as above.
+- **`agent_create` takes a blueprint id (and a label), nothing else.** The model cannot pass a sandbox, tools, limits or roles. Hermes picks the instance id (`<blueprint>-<n>`, never one of the operator's).
+- **Fails closed.** No `createRoles`: nobody can create. No approver: nothing is built. No provisioner: `CONTROL_UNSUPPORTED`. A built agent that reports a policy wider than the creator's is closed and never registered.
+- **Limits.** `maxLive` created agents at once; each can expire (`ttlMinutes`). Retiring cancels its runs, takes it out of the fleet and closes it. Created agents do not outlive Hermes: on restart they are retired and their open runs are `lost`. A created agent cannot create others.
+- **Gaps.** `fleet_find` looks for a capability by words; `fleet_gap` reports a need nobody covers. Hermes emits `fleet.gap` and, by the company's choice, only that (`notify`), creates from a blueprint that `covers` it with that blueprint's own roles and approval (`create`), or invites a draft (`propose`).
+- **Drafts are proposals, not authorizations.** `blueprint_propose` stores a pending draft, checked against the same bounds. It cannot create anything until an operator approves it with `hermes.blueprintDecide(operatorPrincipal, id, 'approved')` (checked again then). That call is for the host and is deliberately **not a tool**: a model that could approve its own drafts would grant itself permissions. Approved drafts live in the provisioning file; `fleet.yaml` is never rewritten.
+
 ## Connectors
 
 - `ProtocolConnector`: an agent served by `AgentServer` (agent-protocol).
@@ -70,4 +113,4 @@ An agent served with `AgentServer` exposes a control channel (protocol 1.1) when
 
 ## Not here yet
 
-`McpConnector`; creating and retiring agents; flows; concurrency and budget limits (`limits` is accepted, not enforced — only `deadlineMs`, as how long a call waits; a daily budget needs the agents to report what a run cost, which agent-protocol does not carry yet); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.
+`McpConnector`; flows (next: P5b); concurrency and budget limits (`limits` is accepted, not enforced — only `deadlineMs`, as how long a call waits; a daily budget needs the agents to report what a run cost, which agent-protocol does not carry yet); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.

@@ -30,6 +30,7 @@
   },
   "peerDependencies": {
     "@backendkit-labs/agent-core": ">=0.31.0 <0.33.0",
+    "@backendkit-labs/agent-sandbox": "^0.1.2",
     "@backendkit-labs/agent-protocol": "^0.2.1"
   },
   "devDependencies": {

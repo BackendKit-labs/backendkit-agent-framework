@@ -33,10 +33,10 @@ describe('fleet tools', () => {
     let hermes: Hermes;
     afterEach(async () => { await hermes.stop(); });
 
-    it('offers the supervision and control tools', async () => {
+    it('offers the supervision, control and provisioning tools', async () => {
         hermes = build();
         expect(createFleetTools(hermes, { principal: ops }).map(t => t.name).sort()).toEqual(
-            ['agent_cancel', 'agent_result', 'agent_run', 'agent_status', 'fleet_audit', 'fleet_health', 'fleet_info', 'fleet_list', 'job_cancel', 'job_list', 'policy_get', 'policy_set'],
+            ['agent_cancel', 'agent_result', 'agent_run', 'agent_status', 'agent_create', 'agent_retire', 'blueprint_list', 'blueprint_propose', 'fleet_audit', 'fleet_find', 'fleet_gap', 'fleet_health', 'fleet_info', 'fleet_list', 'job_cancel', 'job_list', 'policy_get', 'policy_set'].sort(),
         );
     });
 
@@ -45,7 +45,9 @@ describe('fleet tools', () => {
         await hermes.start();
         const tools = toolMap(createFleetTools(hermes, { principal: () => undefined }));
         for (const name of Object.keys(tools)) {
-            expect(await run(tools[name], { agent: 'ledger', capability: 'balance', run_id: 'x', policy: {}, job_id: 'x' })).toMatch(/^Error: FORBIDDEN/);
+            const args = name === 'agent_create' ? { blueprint: 'b' } : name === 'blueprint_propose' ? { blueprint: {} }
+                : { agent: 'ledger', capability: 'balance', run_id: 'x', policy: {}, job_id: 'x', need: 'something missing' };
+            expect(await run(tools[name], args)).toMatch(/^Error: FORBIDDEN/);
         }
     });
 

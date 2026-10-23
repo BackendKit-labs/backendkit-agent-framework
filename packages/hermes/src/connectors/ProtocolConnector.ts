@@ -1,7 +1,7 @@
 import { AgentClient } from '@backendkit-labs/agent-protocol';
 import type { TaskRecord } from '@backendkit-labs/agent-protocol';
 import type {
-    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunLookup, RunOutcome, RunStatus,
+    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, FlowPort, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunLookup, RunOutcome, RunStatus,
 } from './types';
 
 export interface ProtocolConnectorOptions {
@@ -73,10 +73,25 @@ export class ProtocolConnector implements AgentConnector {
     }
 
     private controlActions: string[] = [];
+    private flowSupported = false;
+
+    /** The flows the agent hosts, once it has said it can start and steer them (`info.flowControl`). Steering needs the control key. */
+    flows(): FlowPort | undefined {
+        if (!this.flowSupported) return undefined;
+        return {
+            list: async () => (await this.api().listFlows()).map(f => ({ name: f.name, ...(f.description ? { description: f.description } : {}), ...(f.steps ? { steps: f.steps } : {}) })),
+            start: (flow, input) => this.api().startFlow(flow, input),
+            status: id => this.api().flowRun(id),
+            pause: id => this.api().steerFlow(id, 'pause'),
+            resume: id => this.api().steerFlow(id, 'resume'),
+            cancel: id => this.api().steerFlow(id, 'cancel'),
+        };
+    }
 
     async describe(): Promise<AgentDescriptor> {
         const info = await this.api().info();
         this.controlActions = info.control ?? [];
+        this.flowSupported = info.flowControl === true;
         this.capabilities = new Map(info.capabilities.map(c => [c.name, { name: c.name, description: c.description, async: c.async, input: c.input }]));
         return { name: info.name, version: info.version, description: info.description, capabilities: [...this.capabilities.values()] };
     }

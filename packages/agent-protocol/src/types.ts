@@ -42,6 +42,8 @@ export interface AgentInfo {
     flows?:       FlowDescriptor[];
     /** Control actions this server accepts (only when control is enabled). */
     control?:     ControlAction[];
+    /** The server can start, watch and steer the flows it hosts (see `FlowHandler`). */
+    flowControl?: boolean;
 }
 
 export interface FlowDescriptor {
@@ -49,6 +51,32 @@ export interface FlowDescriptor {
     description?: string;
     steps?:       string[];
 }
+
+// ── Flows (protocol 1.1) ──────────────────────────────────────────────────────
+
+export type FlowStatus = 'running' | 'paused' | 'done' | 'failed' | 'cancelled';
+
+export interface FlowStepState {
+    name:    string;
+    status:  'pending' | 'running' | 'done' | 'failed' | 'skipped';
+    detail?: string;
+}
+
+/** A flow run seen from outside: where it is, step by step. */
+export interface FlowRunState {
+    flowRunId:    string;
+    flow:         string;
+    status:       FlowStatus;
+    currentStep?: string;
+    steps:        FlowStepState[];
+    startedAt:    string;
+    finishedAt?:  string;
+    output?:      string;
+    error?:       string;
+}
+
+export type FlowSteerAction = 'pause' | 'resume' | 'cancel';
+export const FLOW_STEER_ACTIONS: readonly FlowSteerAction[] = ['pause', 'resume', 'cancel'];
 
 // ── Control (protocol 1.1) ────────────────────────────────────────────────────
 

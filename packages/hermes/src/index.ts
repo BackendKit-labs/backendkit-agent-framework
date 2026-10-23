@@ -17,8 +17,12 @@ export type { FleetAgent, AgentHealth, AgentState, RegistryOptions, HealthListen
 export { ProtocolConnector } from './connectors/ProtocolConnector';
 export type { ProtocolConnectorOptions } from './connectors/ProtocolConnector';
 export { InProcessConnector } from './connectors/InProcessConnector';
+export { InProcessFlows, FlowCancelled } from './connectors/InProcessFlows';
+export { serveFlows } from './connectors/serveFlows';
+export type { InProcessFlow, FlowControl } from './connectors/InProcessFlows';
 export type { InProcessCapability, InProcessConnectorOptions } from './connectors/InProcessConnector';
 export type {
+    FlowInfo, FlowPort, FlowRunState, FlowStatus, FlowStepState,
     AgentConnector, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, HealthState,
     RunHandle, RunLookup, RunOutcome, RunStatus,
 } from './connectors/types';

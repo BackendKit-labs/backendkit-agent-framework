@@ -60,6 +60,37 @@ export interface RunHandle {
 /** The answer of an agent about a run Hermes started earlier. `unknown` = the agent has no such run. */
 export type RunLookup = { found: true; status: RunStatus; output?: unknown; error?: string } | { found: false };
 
+export interface FlowInfo { name: string; description?: string; steps?: string[] }
+
+export interface FlowStepState { name: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
+
+export type FlowStatus = 'running' | 'paused' | 'done' | 'failed' | 'cancelled';
+
+export interface FlowRunState {
+    flowRunId: string;
+    flow: string;
+    status: FlowStatus;
+    currentStep?: string;
+    steps: FlowStepState[];
+    startedAt: string;
+    finishedAt?: string;
+    output?: string;
+    error?: string;
+}
+
+/**
+ * A flow is a sequence of steps that the agent hosting it runs. Hermes does not run the logic: it starts the flow, watches
+ * which step it is on, and pauses, resumes or cancels it. Errors carry a `code` like the control port's.
+ */
+export interface FlowPort {
+    list(): Promise<FlowInfo[]>;
+    start(flow: string, input: Record<string, unknown>): Promise<{ flowRunId: string }>;
+    status(flowRunId: string): Promise<FlowRunState>;
+    pause(flowRunId: string): Promise<FlowRunState>;
+    resume(flowRunId: string): Promise<FlowRunState>;
+    cancel(flowRunId: string): Promise<FlowRunState>;
+}
+
 /** One line of an agent's own audit trail (its sandbox and control decisions). */
 export interface AgentAuditEntry { ts: string; [key: string]: unknown }
 
@@ -80,6 +111,8 @@ export interface AgentConnector {
     readonly kind: 'protocol' | 'in-process';
     /** Releases what the connector holds (processes, sockets) when its agent leaves the fleet. */
     close?(): Promise<void>;
+    /** The flows this agent hosts, when it has any. */
+    flows?(): FlowPort | undefined;
     /** The control channel, when the connector has one configured. */
     control?(): AgentControlPort | undefined;
     describe(): Promise<AgentDescriptor>;

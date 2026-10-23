@@ -4,6 +4,9 @@ import type {
     AuditEntry,
     AuditQuery,
     ControlAction,
+    FlowDescriptor,
+    FlowRunState,
+    FlowSteerAction,
     RunRequest,
     RunResponse,
     RunSummary,
@@ -289,6 +292,56 @@ export class AgentClient {
         if (query.limit) qs.set('limit', String(query.limit));
         const data = await this.controlRequest<{ entries: AuditEntry[] }>(`/v1/agent/audit${qs.size ? `?${qs}` : ''}`);
         return data.entries;
+    }
+
+    // ── Flows (protocol 1.1) ────────────────────────────────────────────────
+
+    /** The flows the agent hosts. */
+    async listFlows(): Promise<FlowDescriptor[]> {
+        const res = await this.request<{ flows: FlowDescriptor[] }>('/v1/agent/flows');
+        return res.data!.flows;
+    }
+
+    /**
+     * Starts a flow; the answer is the id to follow it by. Sent exactly once, with the run key: a retry after a lost answer
+     * would start a second run of a business flow. (`run()` retries; this does not.)
+     */
+    async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext): Promise<{ flowRunId: string }> {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const res = await fetch(`${this.baseUrl}/v1/agent/flows/${encodeURIComponent(flow)}/runs`, {
+                method: 'POST',
+                body: JSON.stringify({ input }),
+                headers: {
+                    ...this.baseHeaders,
+                    ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
+                    ...(context?.traceId   ? { 'X-Trace-ID':   context.traceId   } : {}),
+                    ...(context?.requestId ? { 'X-Request-ID': context.requestId } : {}),
+                },
+                signal: controller.signal,
+            });
+            const body = await res.json() as ProtocolResponse<{ flowRunId: string }>;
+            if (!body.ok) {
+                throw Object.assign(new Error(body.error?.message ?? `Agent error ${res.status}`), { code: body.error?.code, status: res.status, details: body.error?.details });
+            }
+            return body.data!;
+        } catch (err) {
+            if ((err as Error).name === 'AbortError') throw Object.assign(new Error(`Starting flow '${flow}' timed out after ${this.timeout}ms`), { code: 'TIMEOUT' });
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async flowRun(flowRunId: string): Promise<FlowRunState> {
+        const res = await this.request<FlowRunState>(`/v1/agent/flow-runs/${encodeURIComponent(flowRunId)}`);
+        return res.data!;
+    }
+
+    /** Pause, resume or cancel a flow run. Control: needs the control key, and like every control call it is never retried. */
+    async steerFlow(flowRunId: string, action: FlowSteerAction): Promise<FlowRunState> {
+        return this.controlRequest<FlowRunState>(`/v1/agent/flow-runs/${encodeURIComponent(flowRunId)}/${action}`, { method: 'POST', body: '{}' });
     }
 
     /** Returns the current circuit breaker state ('closed', 'open', 'half_open'). */

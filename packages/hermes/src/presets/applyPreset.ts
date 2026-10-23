@@ -22,7 +22,7 @@ export const presetSchema = z.object({
     agents: z.array(agentSchema).optional(),
     blueprints: z.array(blueprintSchema).optional(),
     /** Plugins it needs loaded. They carry no grant: the operator grants (or not) in their own file. */
-    plugins: z.array(z.object({ module: z.string().min(1), options: z.record(z.unknown()).optional() }).strict()).optional(),
+    plugins: z.array(z.object({ module: z.string().min(1), options: z.record(z.string(), z.unknown()).optional() }).strict()).optional(),
 }).strict();
 
 export interface HermesPreset extends z.input<typeof presetSchema> {

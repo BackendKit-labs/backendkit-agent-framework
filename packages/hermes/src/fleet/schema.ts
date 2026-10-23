@@ -90,13 +90,13 @@ export const fleetSchema = z.object({
     presets: z.array(z.object({
         module: z.string().min(1),
         /** Grants for the preset's own plugins, by module. A preset never grants itself anything. */
-        grants: z.record(z.object({
+        grants: z.record(z.string(), z.object({
             tools: z.array(z.string()).optional(), connectors: z.array(z.string()).optional(), events: z.array(z.string()).optional(),
             blueprints: z.boolean().optional(), rules: z.boolean().optional(),
         }).strict()).optional(),
         /** The preset's role names → the roles of this company. */
-        roleMap: z.record(z.array(z.string().min(1))).optional(),
-        options: z.record(z.unknown()).optional(),
+        roleMap: z.record(z.string(), z.array(z.string().min(1))).optional(),
+        options: z.record(z.string(), z.unknown()).optional(),
     }).strict()).optional(),
     /** Code that extends Hermes. Each runs with exactly the grant written here. */
     plugins: z.array(pluginEntry).optional(),

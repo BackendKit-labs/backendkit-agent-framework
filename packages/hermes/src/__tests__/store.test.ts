@@ -112,4 +112,28 @@ describe('bk-hermes validate', () => {
         expect(runCli('validate', join(dir, 'missing.yaml')).status).toBe(1);
         expect(runCli().status).toBe(0);
     });
+
+    (existsSync(cli) ? it : it.skip)('also checks the fleet as it will be once presets are merged', () => {
+        const fs = require('node:fs');
+        const mod = join(__dirname, 'fixtures', 'preset-module.js').split(String.fromCharCode(92)).join('/');
+        const ok = join(dir, 'with-preset.yaml');
+        fs.writeFileSync(ok, `fleet: f
+agents:
+  - { id: a, connector: { kind: in-process } }
+presets:
+  - { module: "${mod}", options: { word: hi } }
+`);
+        expect(runCli('validate', ok)).toMatchObject({ status: 0, stdout: expect.stringContaining('2 agent') });
+
+        const clash = join(dir, 'clash.yaml');
+        fs.writeFileSync(clash, `fleet: f
+agents:
+  - { id: echo, connector: { kind: in-process } }
+presets:
+  - { module: "${mod}", options: { word: hi } }
+`);
+        const failed = runCli('validate', clash);
+        expect(failed.status).toBe(1);
+        expect(failed.stderr).toContain('already in the fleet');
+    });
 });

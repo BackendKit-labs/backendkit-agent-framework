@@ -57,7 +57,7 @@ const pluginEntry = z.object({
     options: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
-const agent = z.object({
+export const agentSchema = z.object({
     id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, 'letters, digits, "-" and "_"; must not start with a symbol'),
     description: z.string().optional(),
     connector: connectorConfig,
@@ -85,7 +85,19 @@ const agent = z.object({
 
 export const fleetSchema = z.object({
     fleet: z.string().min(1),
-    agents: z.array(agent).min(1, 'a fleet needs at least one agent'),
+    agents: z.array(agentSchema).min(1, 'a fleet needs at least one agent'),
+    /** Presets to add: content for a kind of company (agents, blueprints, plugins). Applied by `createHermes`. */
+    presets: z.array(z.object({
+        module: z.string().min(1),
+        /** Grants for the preset's own plugins, by module. A preset never grants itself anything. */
+        grants: z.record(z.string(), z.object({
+            tools: z.array(z.string()).optional(), connectors: z.array(z.string()).optional(), events: z.array(z.string()).optional(),
+            blueprints: z.boolean().optional(), rules: z.boolean().optional(),
+        }).strict()).optional(),
+        /** The preset's role names → the roles of this company. */
+        roleMap: z.record(z.string(), z.array(z.string().min(1))).optional(),
+        options: z.record(z.string(), z.unknown()).optional(),
+    }).strict()).optional(),
     /** Code that extends Hermes. Each runs with exactly the grant written here. */
     plugins: z.array(pluginEntry).optional(),
     /** What Hermes may create. Only the operator writes these (or approves a drafted one). */

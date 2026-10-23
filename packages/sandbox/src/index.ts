@@ -15,3 +15,5 @@ export type { DockerBackendOptions } from './backends/docker';
 export type { SandboxBackend, BackendExecRequest } from './backends/types';
 export { runProcess, killProcessTree, DEFAULT_MAX_OUTPUT_CHARS } from './process';
 export type { RunProcessOptions } from './process';
+export { sandboxPolicyControl } from './control';
+export type { SandboxPolicyControlOptions } from './control';

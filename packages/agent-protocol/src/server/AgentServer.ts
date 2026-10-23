@@ -298,8 +298,12 @@ export class AgentServer {
     }
 
     private sendControlError(res: Response, err: unknown, traceId?: string): void {
-        if (err instanceof ControlError) {
-            res.status(statusForCode(err.code)).json(this.errEnvelope(err.code, err.message, err.details, traceId));
+        // By name as well as by class: a handler from another package (agent-core's engine control) raises its own
+        // error and must not need to import this one.
+        const named = err as { name?: unknown; code?: unknown; message?: unknown; details?: unknown };
+        if (err instanceof ControlError || (named?.name === 'ControlError' && typeof named.code === 'string')) {
+            const e = named as { code: ErrorCode; message: string; details?: unknown };
+            res.status(statusForCode(e.code)).json(this.errEnvelope(e.code, e.message, e.details, traceId));
             return;
         }
         res.status(500).json(this.errEnvelope('EXECUTION_FAILED', (err as Error).message, undefined, traceId));

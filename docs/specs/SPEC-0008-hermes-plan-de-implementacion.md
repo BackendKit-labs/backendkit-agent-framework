@@ -35,8 +35,8 @@ Cada PR lleva su propio bump y publicación. P1 y P2 son útiles sin Hermes: cua
 `#79 (isNarrowerOrEqual)` → P1 → P2 → P3 → P4 → P5 → P6. P3 puede empezar en paralelo a P2 (solo usa el contrato de P1 con un handler simulado), pero P4 necesita P2 y P3.
 
 ## 5. Preguntas abiertas
-1. **¿Dónde vive `createEngineControl`?** `agent-core` no debería depender de `agent-protocol` (hoy no lo hace). Opciones: (a) en `agent-core` como `ControlHandler`-agnóstico (una interfaz propia y `agent-protocol` la adapta); (b) en `agent-web`, que ya une engine y servidor. Propuesta: (a), con la interfaz definida en `agent-core` y el adaptador de rutas en `agent-protocol`.
-2. **¿La política de un agente la fija Hermes, o la dueña es el agente?** Propuesta: el agente tiene un *techo* configurado por su operador; Hermes puede moverla libremente por debajo del techo y necesita aprobación para tocarlo.
+1. **¿Dónde vive `createEngineControl`?** *(Decidido en P2: `agent-core`, sin dependencia de `agent-protocol`; el puerto de política lo pone `agent-sandbox` con `sandboxPolicyControl`; los errores se reconocen por nombre.)* `agent-core` no debería depender de `agent-protocol` (hoy no lo hace). Opciones: (a) en `agent-core` como `ControlHandler`-agnóstico (una interfaz propia y `agent-protocol` la adapta); (b) en `agent-web`, que ya une engine y servidor. Propuesta: (a), con la interfaz definida en `agent-core` y el adaptador de rutas en `agent-protocol`.
+2. **¿La política de un agente la fija Hermes, o la dueña es el agente?** *(Decidido en P2: el techo del operador es un límite duro; por debajo, estrechar es libre y ampliar pide aprobación.)* Propuesta: el agente tiene un *techo* configurado por su operador; Hermes puede moverla libremente por debajo del techo y necesita aprobación para tocarlo.
 3. **Autenticación del canal de control:** una `apiKey` con rol `control` distinta de la de `run`. mTLS o tokens firmados quedan para H4.
 
 ## 6. Riesgos

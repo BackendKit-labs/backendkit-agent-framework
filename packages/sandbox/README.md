@@ -122,6 +122,15 @@ Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`
 - **File tools run in the host process**, so they are not confined by a backend: the service judges the path instead (`authorizePath`). It follows symlinks and junctions, so a link inside the workspace cannot reach outside; the tool's own workspace check stays as the floor, even in full access. A tool that does its own I/O must call `ctx.sandbox.authorizePath(...)` itself.
 - **Several engines may share one service**: each engine reports only the decisions of its own calls on its transport and audit log. `sandbox.onDecision(...)` on the service sees all of them.
 
+## Controlling a policy from outside
+
+`createEngineControl(engine, { policy: sandboxPolicyControl(service.policy, { ceiling }), jobs, approveWidening })` (from `agent-core`) is a handler an `AgentServer` can plug in as `control` (protocol 1.1), so a supervisor can read and change the policy, list and cancel jobs, and read an audit trail.
+
+- **Narrowing is free, widening needs approval.** The comparison is `checkNarrower`. Without `approveWidening` a wider policy is refused (`APPROVAL_REQUIRED`): control never widens on its own say-so.
+- **The ceiling is a hard limit.** A request beyond `ceiling` (the widest policy the operator accepts) is `POLICY_WIDER_THAN_PARENT` whatever the approver says.
+- **A lock-down must keep its approval.** `{ preset: 'read-only' }` is *wider* than an `auto-edit` policy in the approval dimension (read-only asks for nothing), so a supervisor tightening an agent sends `{ preset: 'read-only', approval: 'commands' }` and keeps the parent's `writeTools`.
+- **Audited.** Every change records who asked (`by`, else the tenant), the outcome and the policy `version` in force afterwards, next to the sandbox decisions of the engine. `expectedVersion` makes a change fail if the policy moved since the supervisor read it.
+
 ## Not here yet
 
 `request_escalation` (S2), a terminal tool through the service (there is none in this repo yet), `bwrap`/`landlock`, Windows and `ssh` backends (S4), private temp directories and waiting for child exit after a kill.

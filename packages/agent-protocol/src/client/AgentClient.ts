@@ -1,8 +1,12 @@
 import type {
     AgentInfo,
     AgentContext,
+    AuditEntry,
+    AuditQuery,
+    ControlAction,
     RunRequest,
     RunResponse,
+    RunSummary,
     TaskRecord,
     ProtocolResponse,
 } from '../types';
@@ -13,6 +17,8 @@ import { RetryEngine } from '@backendkit-labs/retry';
 export interface AgentClientOptions {
     url:             string;
     apiKey?:         string;
+    /** Key for control calls (`control`, `listRuns`, `audit`). Never falls back to `apiKey`. */
+    controlApiKey?:  string;
     tenantId?:       string;
     /** Per-request timeout in ms. Default: 30 000 */
     timeout?:        number;
@@ -40,12 +46,14 @@ export class AgentClient {
     readonly baseUrl:                  string;
     private readonly baseHeaders:      Record<string, string>;
     private readonly timeout:          number;
+    private readonly controlApiKey?:   string;
     private readonly cb:               CircuitBreaker | null;
     private readonly retryEngine:      RetryEngine;
 
     constructor(opts: AgentClientOptions) {
         this.baseUrl = opts.url.replace(/\/$/, '');
         this.timeout = opts.timeout ?? 30_000;
+        this.controlApiKey = opts.controlApiKey;
         this.baseHeaders = {
             'Content-Type': 'application/json',
             ...(opts.apiKey   ? { Authorization:  `Bearer ${opts.apiKey}` } : {}),
@@ -223,6 +231,64 @@ export class AgentClient {
             new Error(`Task ${taskId} timed out after ${maxWait}ms`),
             { code: 'TIMEOUT' },
         );
+    }
+
+    // ── Control (protocol 1.1) ──────────────────────────────────────────────
+    // Control calls skip the retry engine and the circuit breaker on purpose: a supervisor must still be able to
+    // pause, drain or tighten an agent whose run circuit is open, and an action must never be repeated behind its back.
+
+    private async controlRequest<T>(path: string, init: RequestInit = {}, context?: AgentContext): Promise<T> {
+        if (!this.controlApiKey) {
+            throw Object.assign(new Error('This client has no controlApiKey'), { code: 'FORBIDDEN' });
+        }
+        const controller = new AbortController();
+        const timer      = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const res = await fetch(`${this.baseUrl}${path}`, {
+                ...init,
+                headers: {
+                    ...this.baseHeaders,
+                    Authorization: `Bearer ${this.controlApiKey}`,
+                    ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
+                    ...(context?.traceId   ? { 'X-Trace-ID':   context.traceId   } : {}),
+                    ...(context?.requestId ? { 'X-Request-ID': context.requestId } : {}),
+                },
+                signal: controller.signal,
+            });
+            const body = await res.json() as ProtocolResponse<T>;
+            if (!body.ok) {
+                throw Object.assign(new Error(body.error?.message ?? `Agent error ${res.status}`), {
+                    code: body.error?.code, status: res.status, details: body.error?.details,
+                });
+            }
+            return body.data as T;
+        } catch (err) {
+            if ((err as Error).name === 'AbortError') {
+                throw Object.assign(new Error(`Control request to ${path} timed out after ${this.timeout}ms`), { code: 'TIMEOUT' });
+            }
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    /** Sends a control action. Errors carry the protocol `code` (e.g. `CONTROL_UNSUPPORTED`, `POLICY_WIDER_THAN_PARENT`) and the HTTP `status`. */
+    async control<T = unknown>(action: ControlAction, params: Record<string, unknown> = {}, context?: AgentContext): Promise<{ action: ControlAction; result?: T; draining?: boolean }> {
+        return this.controlRequest('/v1/agent/control', { method: 'POST', body: JSON.stringify({ action, params }) }, context);
+    }
+
+    /** Active and recent runs, and whether the agent is draining. */
+    async listRuns(): Promise<{ runs: RunSummary[]; draining: boolean }> {
+        return this.controlRequest('/v1/agent/runs');
+    }
+
+    /** The agent's audit trail, newest last. */
+    async audit(query: AuditQuery = {}): Promise<AuditEntry[]> {
+        const qs = new URLSearchParams();
+        if (query.since) qs.set('since', query.since);
+        if (query.limit) qs.set('limit', String(query.limit));
+        const data = await this.controlRequest<{ entries: AuditEntry[] }>(`/v1/agent/audit${qs.size ? `?${qs}` : ''}`);
+        return data.entries;
     }
 
     /** Returns the current circuit breaker state ('closed', 'open', 'half_open'). */

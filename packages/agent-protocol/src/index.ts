@@ -1,5 +1,5 @@
 // ── Protocol version ──────────────────────────────────────────────────────────
-export { PROTOCOL_VERSION } from './types';
+export { PROTOCOL_VERSION, PROTOCOL_MINOR, CONTROL_ACTIONS } from './types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type {
@@ -16,12 +16,20 @@ export type {
     ProtocolError,
     ProtocolResponse,
     ResponseMeta,
+    ControlAction,
+    ControlRequest,
+    RunSummary,
+    AuditEntry,
+    AuditQuery,
+    FlowDescriptor,
 } from './types';
 
 // ── Server ────────────────────────────────────────────────────────────────────
 export { AgentServer }         from './server/AgentServer';
 export type { AgentServerOptions, CapabilityHandler } from './server/AgentServer';
 export { TaskStore }           from './server/TaskStore';
+export { ControlError, statusForCode } from './server/ControlHandler';
+export type { ControlHandler } from './server/ControlHandler';
 
 // ── Client ────────────────────────────────────────────────────────────────────
 export { AgentClient }         from './client/AgentClient';

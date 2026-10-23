@@ -1,14 +1,31 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
-import type {
-    AgentInfo,
-    CapabilityDefinition,
-    AgentContext,
-    RunRequest,
-    ProtocolResponse,
-    ErrorCode,
-    ResponseMeta,
+import { timingSafeEqual } from 'node:crypto';
+import {
+    CONTROL_ACTIONS,
+    PROTOCOL_MINOR,
+    type AgentInfo,
+    type CapabilityDefinition,
+    type AgentContext,
+    type ControlAction,
+    type FlowDescriptor,
+    type RunRequest,
+    type RunSummary,
+    type ProtocolResponse,
+    type ErrorCode,
+    type ResponseMeta,
 } from '../types';
+import { ControlError, statusForCode, type ControlHandler } from './ControlHandler';
 import { TaskStore } from './TaskStore';
+
+const CONTROL_PATHS = new Set(['/v1/agent/control', '/v1/agent/runs', '/v1/agent/audit']);
+
+/** Constant-time comparison of a presented Bearer token with the expected key. */
+function keyMatches(header: string | undefined, key: string): boolean {
+    if (!header?.startsWith('Bearer ')) return false;
+    const a = Buffer.from(header.slice(7));
+    const b = Buffer.from(key);
+    return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export interface CapabilityHandler {
     definition: CapabilityDefinition;
@@ -22,6 +39,18 @@ export interface AgentServerOptions {
     port?:       number;
     apiKey?:     string;
     evictIntervalMs?: number; // how often to evict old tasks, default 10 min
+    /**
+     * Key for the control endpoints (`/v1/agent/control`, `/runs`, `/audit`). Deliberately separate from `apiKey`:
+     * whoever may run capabilities may not thereby change the agent's policy. Without it those endpoints answer
+     * `FORBIDDEN`, whatever else is configured.
+     */
+    controlApiKey?: string;
+    /** What the control actions do. Without it (and with `controlApiKey`) only `drain` and `resume` work. */
+    control?: ControlHandler;
+    /** Declared limits, published in `info`. */
+    limits?: Record<string, number>;
+    /** Flows this agent hosts, published in `info`. */
+    flows?: FlowDescriptor[];
 }
 
 export class AgentServer {
@@ -31,15 +60,26 @@ export class AgentServer {
     private readonly info:       AgentInfo;
     private readonly port:       number;
     private readonly apiKey?:    string;
+    private readonly controlApiKey?: string;
+    private readonly control?:   ControlHandler;
+    private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
 
     constructor(opts: AgentServerOptions) {
         this.port      = opts.port ?? 3300;
         this.apiKey    = opts.apiKey;
+        this.controlApiKey = opts.controlApiKey;
+        this.control   = opts.control;
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
-        this.info      = { name: opts.name, version: opts.version, description: opts.description, capabilities: [] };
+        this.info      = {
+            name: opts.name, version: opts.version, description: opts.description, capabilities: [],
+            protocolMinor: PROTOCOL_MINOR,
+            ...(opts.limits ? { limits: opts.limits } : {}),
+            ...(opts.flows ? { flows: opts.flows } : {}),
+            ...(opts.controlApiKey ? { control: this.controlActions() } : {}),
+        };
         this.app       = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -59,12 +99,21 @@ export class AgentServer {
     private setupMiddleware(): void {
         this.app.use(express.json({ limit: '10mb' }));
 
-        // Auth
+        // Auth. Control endpoints need the control key and nothing else opens them.
         this.app.use((req: Request, res: Response, next: NextFunction) => {
+            if (CONTROL_PATHS.has(req.path)) {
+                if (!this.controlApiKey) {
+                    return res.status(403).json(this.errEnvelope('FORBIDDEN', 'Control endpoints are disabled: no controlApiKey is configured'));
+                }
+                if (!keyMatches(req.headers.authorization, this.controlApiKey)) {
+                    return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing control key'));
+                }
+                return next();
+            }
             if (req.path === '/v1/agent/health') return next();
             if (!this.apiKey) return next();
             const auth = req.headers.authorization;
-            if (!auth?.startsWith('Bearer ') || auth.slice(7) !== this.apiKey) {
+            if (!keyMatches(auth, this.apiKey)) {
                 return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing API key'));
             }
             next();
@@ -97,6 +146,9 @@ export class AgentServer {
                     this.errEnvelope('CAPABILITY_NOT_FOUND', `Capability '${body.capability}' not found`)
                 );
             }
+            if (this.draining) {
+                return res.status(503).json(this.errEnvelope('AGENT_UNAVAILABLE', 'The agent is draining: it is not accepting new runs'));
+            }
 
             const runAsync = body.async ?? handler.definition.async;
 
@@ -118,7 +170,7 @@ export class AgentServer {
 
             // Asynchronous — respond immediately, run in background
             const taskId = crypto.randomUUID();
-            this.taskStore.create(taskId);
+            this.taskStore.create(taskId, body.capability);
             res.json(this.okEnvelope(
                 { status: 'running', taskId },
                 { traceId: context.traceId, agentVersion: this.info.version },
@@ -152,6 +204,74 @@ export class AgentServer {
             res.json(this.okEnvelope({ taskId: req.params.id, status: 'cancelled' }));
         });
 
+        // ── Control (protocol 1.1) ──────────────────────────────────────────────
+
+        this.app.post('/v1/agent/control', async (req: Request, res: Response) => {
+            const body = req.body as { action?: unknown; params?: unknown } | undefined;
+            const action = body?.action;
+            if (typeof action !== 'string' || !(CONTROL_ACTIONS as readonly string[]).includes(action)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', `Unknown or missing 'action'. Expected one of: ${CONTROL_ACTIONS.join(', ')}`));
+            }
+            const params = body?.params ?? {};
+            if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'params' must be an object"));
+            }
+            const act = action as ControlAction;
+            if (!this.controlActions().includes(act)) {
+                return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', `This agent does not support '${act}'`));
+            }
+            const context = extractContext(req);
+            try {
+                // drain/resume are the server's own; a handler that also lists 'resume' (un-pause) is told too.
+                if (act === 'drain') {
+                    this.draining = true;
+                    return res.json(this.okEnvelope({ action: act, draining: true }));
+                }
+                if (act === 'resume') this.draining = false;
+                const result = this.control?.actions.includes(act)
+                    ? await this.control.control(act, params as Record<string, unknown>, context)
+                    : undefined;
+                res.json(this.okEnvelope({ action: act, ...(act === 'resume' ? { draining: false } : {}), ...(result !== undefined ? { result } : {}) }));
+            } catch (err) {
+                this.sendControlError(res, err, context.traceId);
+            }
+        });
+
+        this.app.get('/v1/agent/runs', async (_req: Request, res: Response) => {
+            try {
+                const runs: RunSummary[] = this.control?.runs
+                    ? await this.control.runs()
+                    : this.taskStore.list().map(t => ({
+                        runId: t.taskId, status: t.status, startedAt: t.startedAt,
+                        ...(t.capability ? { capability: t.capability } : {}),
+                        ...(t.finishedAt ? { finishedAt: t.finishedAt } : {}),
+                    }));
+                res.json(this.okEnvelope({ runs, draining: this.draining }));
+            } catch (err) {
+                this.sendControlError(res, err);
+            }
+        });
+
+        this.app.get('/v1/agent/audit', async (req: Request, res: Response) => {
+            if (!this.control?.audit) {
+                return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent does not publish an audit trail'));
+            }
+            const limitRaw = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+            if (limitRaw !== undefined && (!Number.isInteger(limitRaw) || limitRaw < 1 || limitRaw > 10_000)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'limit' must be an integer between 1 and 10000"));
+            }
+            const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+            if (since !== undefined && Number.isNaN(Date.parse(since))) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'since' must be an ISO timestamp"));
+            }
+            try {
+                const entries = await this.control.audit({ ...(since ? { since } : {}), ...(limitRaw ? { limit: limitRaw } : {}) });
+                res.json(this.okEnvelope({ entries }));
+            } catch (err) {
+                this.sendControlError(res, err);
+            }
+        });
+
         // 404 fallback
         this.app.use((req: Request, res: Response) => {
             res.status(404).json(this.errEnvelope(
@@ -170,6 +290,19 @@ export class AgentServer {
             }
             res.status(status).json(this.errEnvelope('INVALID_INPUT', err.message));
         });
+    }
+
+    /** The control actions this server accepts: its own drain/resume plus whatever the handler implements. */
+    private controlActions(): ControlAction[] {
+        return [...new Set<ControlAction>(['drain', 'resume', ...(this.control?.actions ?? [])])];
+    }
+
+    private sendControlError(res: Response, err: unknown, traceId?: string): void {
+        if (err instanceof ControlError) {
+            res.status(statusForCode(err.code)).json(this.errEnvelope(err.code, err.message, err.details, traceId));
+            return;
+        }
+        res.status(500).json(this.errEnvelope('EXECUTION_FAILED', (err as Error).message, undefined, traceId));
     }
 
     // ── Envelope helpers ────────────────────────────────────────────────────

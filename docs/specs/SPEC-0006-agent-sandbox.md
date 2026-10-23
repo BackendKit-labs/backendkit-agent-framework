@@ -13,6 +13,7 @@ Hoy hay piezas sueltas en `agent-coding`: `COMMAND_ALLOWLIST` fijo en `run-comma
 1. Tres modos de confinamiento por llamada: `read-only`, `workspace-write`, `danger-full-access`.
 2. **Fail-closed:** si el modo pedido no puede imponerse en este host, la llamada falla con `SANDBOX_UNAVAILABLE`; nunca se ejecuta sin confinar en silencio.
 3. Un solo punto de política para shell, herramientas de archivos y terminales; elegible por sesión.
+   *Estado (2026-10-23):* shell (`run_command`) y herramientas de archivo ya pasan por el servicio (S1, S3a: la ruta se juzga por dónde apunta de verdad, symlinks incluidos). **Terminal interactiva: fuera de alcance** — no existe en el repo y no hace falta para controlar flujos; si algún día se necesita pasar respuestas a un programa, se añade `stdin` a `run_command` en vez de una sesión pty. Si se construyera una terminal, nacería contra `ctx.sandbox`.
 4. Backends intercambiables: `docker` (existente), `bwrap`/`landlock` (Linux), **Windows** (token restringido o Job Object + ACL), `ssh` (remoto).
 5. Presets de permisos que combinan sandbox + aprobación (`read-only`, `ask`, `auto-edit`, `full`).
 6. Elevación: tras una denegación el modelo puede pedir un modo estrictamente más amplio con aprobación humana.
@@ -50,8 +51,14 @@ Por sesión; una combinación que no coincide se muestra como `custom`. Se persi
 ### 3.3 Elevación y aprobación
 Tras `SANDBOX_DENIED`, el modelo puede llamar a `request_escalation({ mode, reason })`; la aprobación humana (o política de máquina) la concede **solo para esa llamada**. Cada solicitud y resultado queda en `auditLog`. Aprobador ausente o con error → `unavailable` (cierra).
 
+### 3.3.1 Aprobador de máquina
+El aprobador de una escalación puede ser humano o una **política de máquina** (por ejemplo, Hermes aplicando la política de la empresa, SPEC-0003 §5). El contrato es el mismo: concede solo para esa llamada, queda en `auditLog` con quién aprobó y por qué regla, y sin aprobador aplicable o con error cierra.
+
 ### 3.4 Higiene de subprocesos
 Entorno depurado (se eliminan variables `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*` salvo lista blanca explícita), temporales `0700` con nombres aleatorios y aperturas `wx`/`0600`, desenlazar symlinks/junctions en vez de seguirlos, `dispose` espera a la salida de los hijos tras `kill`, excepciones de listeners aisladas.
+
+### 3.5 Herencia de política
+`isNarrowerOrEqual(parent, child)` (en `agent-sandbox`) compara dos `SandboxPolicyConfig` resueltos y es verdadera solo si el hijo no es más amplio en ninguna dimensión: modo (`read-only` < `workspace-write` < `danger-full-access`), red (`none` < `allow`), raíces (subconjunto), nivel de aprobación (igual o más exigente), `writeTools`/`commandTools` (el hijo no puede quitar herramientas de escritura de la lista) y variables de entorno permitidas (subconjunto). La usan la creación de agentes de Hermes (SPEC-0003 §2.5) y los subagentes (SPEC-0005). Es función pura, sin I/O, y sus pruebas cubren cada dimensión.
 
 ## 4. Integración
 `createCodingEngine({ sandbox: { preset: 'ask', backends: ['docker'] } })`; `createBaseEngine({ sandbox })` para herramientas propias vía `ctx.sandbox.run(...)` (se añade a `ExecutionContext`). Compatibilidad: sin `sandbox`, `run_command` mantiene su comportamiento (incluido `BK_RUN_COMMAND_SANDBOX`, que se traduce a la política equivalente y queda deprecado).

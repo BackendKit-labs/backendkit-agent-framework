@@ -2,6 +2,7 @@
 
 **Fecha:** 2026-10-22
 **Estado:** Borrador
+**Plan de implementación:** SPEC-0008.
 **Depende de:** SPEC-0002 (cancelación, jobs, credenciales por referencia); fases posteriores de SPEC-0004, SPEC-0005 y SPEC-0006
 **Contexto:** `docs/notes/analisis-deepseek-harness-y-hermes.md`
 
@@ -209,9 +210,9 @@ Hoy: `run`, `tasks/:id` (GET), `DELETE tasks/:id`, `health`, `info`. Se añaden,
 2. **Dónde vive el RunStore en producción:** SQLite local en H0; Redis/SQL para varias instancias de Hermes queda para H4.
 3. **Seguridad del canal:** H0 usa `apiKey` por agente (en referencia). mTLS o tokens firmados por agente quedan para H4.
 4. **Nombre:** `hermes` está libre en el scope; confirmar antes de publicar.
-5. **Dónde corre un agente creado:** en el mismo proceso de Hermes (`InProcessConnector`) o como proceso aparte con `agent-protocol`. Propuesta: in-process en H1b (más simple de confinar y de cerrar); procesos aparte con H4.
+5. **Dónde corre un agente creado:** *decidido (2026-10-23)* — in-process en H1b (más simple de confinar y de cerrar); procesos aparte con `agent-protocol` en H4.
 6. **Quién define los blueprints:** el operador de la empresa, en `fleet.yaml`. Hermes puede **proponer** borradores (§2.8) pero no activarlos: solo valen tras la aprobación de un operador (si pudiera activarlos él, la herencia de permisos no valdría).
-7. **Cuánta autonomía por defecto para carencias:** propuesta, "avisar"; subir a "crear desde blueprint" o "proponer" es decisión explícita de la empresa.
+7. **Cuánta autonomía por defecto para carencias:** *decidido (2026-10-23)* — "avisar"; subir a "crear desde blueprint" o "proponer" es decisión explícita de la empresa.
 8. **Formato de distribución de plugins y presets:** paquetes npm con el prefijo `hermes-plugin-*` / `hermes-preset-*`, o también rutas locales. Pendiente decidir si se verifican (firma) antes de cargar.
 
 ## 10. Riesgos

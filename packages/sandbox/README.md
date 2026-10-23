@@ -100,6 +100,17 @@ sandbox.onDecision(d => console.log(d.agentId, d.tool, d.mode, d.backend, d.outc
 createSandboxService({ policy, backends, auditLog: 'logs/sandbox.ndjson' });   // one JSON line per decision, in order
 ```
 
+## A child is never wider than its parent
+
+Whoever creates an agent (a supervisor, a parent agent spawning a sub-agent) must not hand it more power than it has itself. `isNarrowerOrEqual(parent, child)` is a pure check on two `SandboxPolicyConfig`s; `checkNarrower` returns every violation so the refusal can say why.
+
+```ts
+const verdict = checkNarrower(parentPolicy.snapshot(), requestedChildPolicy);
+if (!verdict.ok) throw new Error(`POLICY_WIDER_THAN_PARENT: ${describeViolations(verdict.violations)}`);
+```
+
+Each policy is measured at its **widest** (its base setting or any rule), so a rule cannot hide a widening. The child may not exceed the parent's mode or network, must ask at least as much (`approval`), may only use roots inside the parent's, must keep every `writeTools`/`commandTools` entry and every `env.deny` the parent lists, and may only allow variables the parent allows. Note that a `read-only` child of an `ask` parent must still set `approval: 'writes-and-commands'`: it can still run commands.
+
 ## Environment hygiene
 
 Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD` or `CREDENTIAL` (case-insensitive) are dropped. It is a denylist on purpose (Windows needs `SystemRoot`, `ComSpec`, `PATHEXT`). Let specific ones through with `env.allow` (`GH_TOKEN`, or `DEEPSEEK_*`), drop more with `env.deny`. Containers never inherit the host environment.

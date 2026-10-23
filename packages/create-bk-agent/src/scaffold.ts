@@ -37,7 +37,7 @@ function copyDir(src: string, dst: string): void {
  * minor, so these must follow the workspace versions (guarded by a test).
  */
 export const GENERATED_DEP_RANGES = {
-    '@backendkit-labs/mcp-server': '^0.16.0',
+    '@backendkit-labs/mcp-server': '^0.17.0',
     '@backendkit-labs/agent-web':  '^0.4.0',
     '@backendkit-labs/agent-testkit': '^0.1.0',
 } as const;

@@ -2,6 +2,7 @@ import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
+import { sandboxPathError } from './sandbox-path';
 
 function listRecursive(dir: string, depth: number, maxDepth: number): string[] {
     if (depth > maxDepth) return [];
@@ -30,6 +31,8 @@ export const listDirectoryTool = defineTool({
     execute: async ({ path: inputPath, max_depth }, ctx) => {
         try {
             const abs = resolveAndCheck(ctx.workingDir, inputPath, ctx.additionalRoots ?? []);
+            const denied = sandboxPathError(ctx, 'list_directory', abs, 'read');
+            if (denied) return denied;
             const stat = statSync(abs);
             if (!stat.isDirectory()) return `${abs} (file, not a directory)`;
             const lines = listRecursive(abs, 0, max_depth);

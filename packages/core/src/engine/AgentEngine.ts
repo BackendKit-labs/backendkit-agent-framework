@@ -1255,6 +1255,15 @@ export class AgentEngine {
                     : { outcome: out.code, tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend, reason: out.reason });
                 return out;
             },
+            ...(real.authorizePath ? {
+                authorizePath: (caller: import('../sandbox/types').SandboxCaller, req: import('../sandbox/types').SandboxPathRequest) => {
+                    const verdict = real.authorizePath!(caller, req);
+                    // Allowed reads are not reported (every file read would be an event); denials and writes are.
+                    if (!verdict.ok) this.reportSandboxDecision({ outcome: verdict.code, tool: req.tool, agentId, reason: verdict.reason });
+                    else if (req.access === 'write') this.reportSandboxDecision({ outcome: 'allowed', tool: req.tool, agentId });
+                    return verdict;
+                },
+            } : {}),
         });
     }
 

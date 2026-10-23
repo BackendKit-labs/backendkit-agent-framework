@@ -242,6 +242,57 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
         expect(sandboxEvents(b.events).sort()).toEqual(['SANDBOX_DENIED:write_file', 'allowed:run_command']);
     });
 
+    describe('file access (authorizePath)', () => {
+        /** A tool that asks the sandbox for a path, as the file tools do. */
+        const fileTool = (name: string, path: string, access: 'read' | 'write'): ToolDefinition => ({
+            name, description: 'touches a path', parameters: { type: 'object', properties: {} },
+            execute: async (_a, ctx) => {
+                const v = ctx.sandbox!.authorizePath?.({ agentId: ctx.agentId, sessionId: ctx.sessionId }, { tool: name, path, access, workspace: '/ws' });
+                return v && !v.ok ? `Error: ${v.code}: ${v.reason}` : 'done';
+            },
+        });
+        const pathRunner = () => ({
+            ...sharedRunner(),
+            authorizePath: (_c: SandboxCaller, r: { path: string }) => r.path.startsWith('/ws')
+                ? { ok: true as const }
+                : { ok: false as const, code: 'SANDBOX_DENIED' as const, reason: `${r.path} is outside` },
+        }) as unknown as SandboxRunner;
+        const build2 = (runner: SandboxRunner, tools: ToolDefinition[], script: Parameters<typeof createScriptedProvider>[0]) => {
+            const { transport, events } = createMockTransport();
+            const engine = createBaseEngine({
+                providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [{ ...agent, allowedTools: tools.map(t => t.name) }],
+                defaultAgent: agent.id, tools, transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', sandbox: runner,
+            });
+            return { engine, events };
+        };
+
+        it('a denial and a write reach the engine transport; an allowed read does not', async () => {
+            const { engine, events } = build2(pathRunner(),
+                [fileTool('read_file', '/ws/a', 'read'), fileTool('write_file', '/ws/b', 'write'), fileTool('edit_file', '/etc/passwd', 'write')],
+                [call('1', 'read_file'), call('2', 'write_file'), call('3', 'edit_file'), { content: 'ok' }]);
+            await engine.run('go');
+            expect(sandboxEvents(events)).toEqual(['allowed:write_file', 'SANDBOX_DENIED:edit_file']);
+            expect(events.find(e => e.type === 'sandbox' && e.outcome === 'SANDBOX_DENIED')).toMatchObject({ reason: '/etc/passwd is outside', agent_id: agent.id });
+        });
+
+        it('ONE RUNNER SHARED BY TWO ENGINES: a file denial is reported only by the engine whose tool asked', async () => {
+            const shared = pathRunner();
+            const a = build2(shared, [fileTool('read_file', '/ws/a', 'read')], [call('1', 'read_file'), { content: 'a' }]);
+            const b = build2(shared, [fileTool('edit_file', '/etc/passwd', 'write')], [call('1', 'edit_file'), { content: 'b' }]);
+            await Promise.all([a.engine.run('go'), b.engine.run('go')]);
+            expect(sandboxEvents(a.events)).toEqual([]);
+            expect(sandboxEvents(b.events)).toEqual(['SANDBOX_DENIED:edit_file']);
+        });
+
+        it('a runner without authorizePath leaves ctx.sandbox.authorizePath undefined (file tools then behave as before)', async () => {
+            let seen: unknown = 'unset';
+            const probe: ToolDefinition = { name: 'read_file', description: 'x', parameters: { type: 'object', properties: {} }, execute: async (_a, ctx) => { seen = ctx.sandbox!.authorizePath; return 'ok'; } };
+            const { engine } = build2(sharedRunner(), [probe], [call('1', 'read_file'), { content: 'ok' }]);
+            await engine.run('go');
+            expect(seen).toBeUndefined();
+        });
+    });
+
     it('disableToolApproval() does not reopen the door: with no approver, a tool that needs approval is still refused', async () => {
         const { engine, events } = engineWith(sharedRunner({ ask: { run_command: 'ask' } }), [call('1', 'run_command'), { content: 'ok' }]);
         engine.disableToolApproval();

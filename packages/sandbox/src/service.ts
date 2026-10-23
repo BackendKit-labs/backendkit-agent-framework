@@ -1,10 +1,12 @@
 import { appendFile, mkdir } from 'fs/promises';
-import { dirname, resolve as resolvePath } from 'path';
+import { dirname } from 'path';
 import type {
-    SandboxCaller, SandboxDecision, SandboxDenyCode, SandboxExecRequest, SandboxOutcome, SandboxRunner,
+    SandboxCaller, SandboxDecision, SandboxDenyCode, SandboxExecRequest, SandboxOutcome, SandboxPathRequest,
+    SandboxPathVerdict, SandboxRunner,
 } from '@backendkit-labs/agent-core';
 import type { SandboxBackend } from './backends/types';
 import { scrubEnv } from './env';
+import { isInside, realPathOf } from './paths';
 import type { SandboxPolicy } from './policy';
 import { needsApproval } from './presets';
 
@@ -29,17 +31,6 @@ export interface SandboxService extends SandboxRunner {
     readonly policy: SandboxPolicy;
     /** Called for every decision (allowed, denied, unavailable). A throwing listener never affects the call. */
     onDecision(listener: DecisionListener): () => void;
-}
-
-/** Normalised containment test; case-insensitive on Windows, separator-agnostic. */
-function isInside(root: string, target: string): boolean {
-    const norm = (p: string) => {
-        const s = resolvePath(p).replace(/\\/g, '/');
-        return process.platform === 'win32' ? s.toLowerCase() : s;
-    };
-    const r = norm(root);
-    const t = norm(target);
-    return t === r || t.startsWith(r.endsWith('/') ? r : r + '/');
 }
 
 export function createSandboxService(options: SandboxServiceOptions): SandboxService {
@@ -83,6 +74,32 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             const r = policy.resolve(caller, tool);
             const kind = policy.commandTools().includes(tool) ? 'command' : policy.writeTools().includes(tool) ? 'write' : 'read';
             return needsApproval(r.approval, kind) ? 'ask' : 'none';
+        },
+
+        authorizePath(caller: SandboxCaller, req: SandboxPathRequest): SandboxPathVerdict {
+            const r = policy.resolve(caller, req.tool);
+            const deny = (reason: string): SandboxPathVerdict => {
+                emit({ ...base(caller, req.tool), mode: r.mode, network: r.network, outcome: 'SANDBOX_DENIED', reason });
+                return { ok: false, code: 'SANDBOX_DENIED', reason };
+            };
+            if (r.mode === 'danger-full-access') return { ok: true };
+            if (req.access === 'write' && r.mode === 'read-only') {
+                return deny(`"${req.path}" is not writable: the sandbox policy for agent "${caller.agentId}" is read-only`);
+            }
+            // Judge where the path really lands, and against roots that are themselves resolved (a root may be a link too).
+            let real: string;
+            let roots: string[];
+            try {
+                real = realPathOf(req.path);
+                roots = [req.workspace, ...r.roots, ...(req.extraRoots ?? [])].map(root => realPathOf(root));
+            } catch (err) {
+                return deny(`cannot resolve "${req.path}": ${err instanceof Error ? err.message : String(err)}`);
+            }
+            if (!roots.some(root => isInside(root, real))) {
+                return deny(`"${req.path}" resolves to "${real}", outside the allowed roots`);
+            }
+            if (req.access === 'write') emit({ ...base(caller, req.tool), mode: r.mode, network: r.network, outcome: 'allowed' });
+            return { ok: true };
         },
 
         async run(caller: SandboxCaller, req: SandboxExecRequest): Promise<SandboxOutcome> {

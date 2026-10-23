@@ -68,6 +68,20 @@ export interface SandboxDecision {
     reason?: string;
 }
 
+/** A file tool asking whether it may touch a path. */
+export interface SandboxPathRequest {
+    tool: string;
+    /** Absolute path the tool is about to read or write (it need not exist yet). */
+    path: string;
+    access: 'read' | 'write';
+    /** The working directory the tool is scoped to. */
+    workspace: string;
+    /** More directories the tool may use besides the workspace and the policy's roots (e.g. the agent's memory directory). */
+    extraRoots?: string[];
+}
+
+export type SandboxPathVerdict = { ok: true } | { ok: false; code: SandboxDenyCode; reason: string };
+
 /** `ExecutionContext.sandbox`: the single place tools go through to run something confined. */
 export interface SandboxRunner {
     run(caller: SandboxCaller, request: SandboxExecRequest): Promise<SandboxOutcome>;
@@ -82,6 +96,12 @@ export interface SandboxRunner {
      * refused (fail closed): an unattended flow or trigger can never end up running what nobody approved.
      */
     approvalFor?(caller: SandboxCaller, tool: string): 'none' | 'ask';
+    /**
+     * May `tool` touch this path? For file tools, which do their I/O in the host process and so never go through
+     * `run`. The path is judged by where it REALLY points (symlinks and junctions are followed), so a link inside the
+     * workspace cannot reach outside it. `read-only` refuses `write` access outright.
+     */
+    authorizePath?(caller: SandboxCaller, request: SandboxPathRequest): SandboxPathVerdict;
     /**
      * Observe every decision (allowed, denied, unavailable) taken by this runner, whoever asked. Returns the
      * unsubscribe function. The engine does NOT use this: a runner can be shared by several engines and each

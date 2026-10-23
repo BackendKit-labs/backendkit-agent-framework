@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
+import { sandboxPathError } from './sandbox-path';
 
 const MAX_RESULTS  = 200;
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB — skip binary/large files
@@ -87,6 +88,9 @@ export const searchFilesTool = defineTool({
     execute: async ({ pattern, path: searchPath, glob, case_insensitive }, ctx) => {
         const cwd        = ctx.workingDir ?? process.cwd();
         const targetPath = searchPath ? resolveAndCheck(cwd, searchPath) : cwd;
+
+        const denied = sandboxPathError(ctx, 'search_files', targetPath, 'read');
+        if (denied) return denied;
 
         let regex: RegExp;
         try {

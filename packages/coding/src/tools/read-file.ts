@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
+import { sandboxPathError } from './sandbox-path';
 
 export const readFileTool = defineTool({
     name: 'read_file',
@@ -16,6 +17,8 @@ export const readFileTool = defineTool({
     execute: async ({ file_path }, ctx) => {
         try {
             const abs = resolveAndCheck(ctx.workingDir, file_path, ctx.additionalRoots ?? []);
+            const denied = sandboxPathError(ctx, 'read_file', abs, 'read');
+            if (denied) return denied;
             return readFileSync(abs, 'utf-8');
         } catch (err) {
             return `Error: ${(err as Error).message}`;

@@ -108,9 +108,9 @@ Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`
 
 - **Tools that start processes on their own.** Only calls that go through `ctx.sandbox.run(...)` are confined (`run_command` does). A custom or MCP tool that spawns a process itself is outside the sandbox: write it against `ctx.sandbox`.
 - **`read-only` refuses tools by name.** It refuses exactly the tools listed in `writeTools` (the coding set lists `write_file` and `edit_file`). MCP tools and your own tools that write are not blocked unless you list them.
-- **File tools** still enforce the workspace with their own path check; they move behind the service in the next delivery.
+- **File tools run in the host process**, so they are not confined by a backend: the service judges the path instead (`authorizePath`). It follows symlinks and junctions, so a link inside the workspace cannot reach outside; the tool's own workspace check stays as the floor, even in full access. A tool that does its own I/O must call `ctx.sandbox.authorizePath(...)` itself.
 - **Several engines may share one service**: each engine reports only the decisions of its own calls on its transport and audit log. `sandbox.onDecision(...)` on the service sees all of them.
 
 ## Not here yet
 
-`request_escalation` (S2), file tools and terminal through the service (S3), `bwrap`/`landlock`, Windows and `ssh` backends (S4), private temp directories and waiting for child exit after a kill.
+`request_escalation` (S2), a terminal tool through the service (there is none in this repo yet), `bwrap`/`landlock`, Windows and `ssh` backends (S4), private temp directories and waiting for child exit after a kill.

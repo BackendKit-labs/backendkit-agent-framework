@@ -4,6 +4,7 @@ export { createSandboxPolicy, parsePolicyConfig, SandboxPolicyError } from './po
 export type { SandboxPolicy, SandboxPolicyConfig, SandboxRule, ResolvedPolicy } from './policy';
 export { PERMISSION_PRESETS, isPermissionPreset, matchPreset, needsApproval } from './presets';
 export type { PermissionPreset, PresetDefinition, ApprovalLevel, ActionKind } from './presets';
+export { realPathOf, isInside as isInsideDir } from './paths';
 export { scrubEnv } from './env';
 export type { EnvPolicy } from './env';
 export { NoneBackend } from './backends/none';

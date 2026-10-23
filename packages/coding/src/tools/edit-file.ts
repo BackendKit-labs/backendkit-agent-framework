@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { defineTool, z, atomicWriteSync } from '@backendkit-labs/agent-core';
 import { resolveAndCheck, checkFrameworkProtection } from './path-sandbox';
+import { sandboxPathError } from './sandbox-path';
 import { warnIfSecrets } from './secret-scanner';
 
 export const editFileTool = defineTool({
@@ -17,6 +18,8 @@ export const editFileTool = defineTool({
             const abs = resolveAndCheck(ctx.workingDir, file_path, ctx.additionalRoots ?? []);
             const fwWarn = checkFrameworkProtection(abs, ctx.workingDir);
             if (fwWarn) return `Error: ${fwWarn}`;
+            const denied = sandboxPathError(ctx, 'edit_file', abs, 'write');
+            if (denied) return denied;
             const content = readFileSync(abs, 'utf-8');
 
             if (!content.includes(old_string)) {

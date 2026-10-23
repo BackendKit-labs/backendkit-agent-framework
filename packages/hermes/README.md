@@ -63,6 +63,38 @@ An agent served with `AgentServer` exposes a control channel (protocol 1.1) when
 - **A lock-down keeps its approval.** To tighten an `auto-edit` agent send `{ preset: 'read-only', approval: 'commands', writeTools: [...] }`: dropping `approval` or the `writeTools` counts as widening.
 - **One trail.** `fleet_audit` merges Hermes's own decisions with each agent's (sandbox and control decisions, with who asked and the policy version after a change) in time order. Agents with no control channel, or that cannot be reached, are listed under `unavailable` instead of failing the view.
 
+## Flows of other agents
+
+A flow is a sequence of steps that the agent hosting it runs. Hermes does not run the logic: it starts the flow, watches which step it is on, and pauses, resumes or cancels it, under the same roles and approval as any run.
+
+Tools: `flow_list`, `flow_run`, `flow_status`, `flow_pause`, `flow_resume`, `flow_cancel`. A flow run is a run like any other (capability `flow:<name>`, so `access.capabilities['flow:close-month']` can set its own roles and approval), and it appears in `agent_status` / `agent_result` / `agent_cancel` too.
+
+The agent side is cooperative: a flow pauses and stops at its next step boundary, never in the middle of a step.
+
+```ts
+const flows = {
+  'close-month': {
+    steps: ['collect', 'reconcile', 'report'],
+    run: async (input, ctl) => {
+      await ctl.step('collect');     // waits here while paused; throws if cancelled
+      /* ... */
+      await ctl.step('reconcile');
+      /* ... */
+      return 'done';
+    },
+  },
+};
+
+// in the same process as Hermes
+new InProcessConnector({ name: 'books', capabilities: {}, flows });
+
+// or in a service of its own, over agent-protocol
+const { handler } = serveFlows(flows);
+new AgentServer({ /* ... */, apiKey, controlApiKey, flowHandler: handler });
+```
+
+Over agent-protocol, starting and watching use the run key; pausing, resuming and cancelling need the agent's `controlApiKey`. After a Hermes restart a flow run is picked up again where the agent still has it, or is `lost` if the agent does not know it (a flow of an in-process agent does not outlive Hermes). Cancelling a flow that never reaches a step boundary is reported cancelled after a grace period (2 s) and its result is ignored.
+
 ## Creating agents
 
 The operator lists **blueprints** in `fleet.yaml` and says what Hermes itself may hand out. Hermes can then create an agent from a blueprint, never from anything else.
@@ -113,4 +145,4 @@ const { hermes, tools, guardrails } = createHermes({
 
 ## Not here yet
 
-`McpConnector`; flows (next: P5b); concurrency and budget limits (`limits` is accepted, not enforced — only `deadlineMs`, as how long a call waits; a daily budget needs the agents to report what a run cost, which agent-protocol does not carry yet); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.
+`McpConnector`; concurrency and budget limits (`limits` is accepted, not enforced — only `deadlineMs`, as how long a call waits; a daily budget needs the agents to report what a run cost, which agent-protocol does not carry yet); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.

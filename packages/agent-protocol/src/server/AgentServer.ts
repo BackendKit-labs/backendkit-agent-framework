@@ -15,9 +15,13 @@ import {
     type ResponseMeta,
 } from '../types';
 import { ControlError, statusForCode, type ControlHandler } from './ControlHandler';
+import type { FlowHandler } from './FlowHandler';
+import { FLOW_STEER_ACTIONS, type FlowSteerAction } from '../types';
 import { TaskStore } from './TaskStore';
 
 const CONTROL_PATHS = new Set(['/v1/agent/control', '/v1/agent/runs', '/v1/agent/audit']);
+/** Pausing, resuming and cancelling a flow run are control: they need the control key. */
+const FLOW_STEER_PATH = /^\/v1\/agent\/flow-runs\/[^/]+\/(pause|resume|cancel)$/;
 
 /** Constant-time comparison of a presented Bearer token with the expected key. */
 function keyMatches(header: string | undefined, key: string): boolean {
@@ -51,6 +55,8 @@ export interface AgentServerOptions {
     limits?: Record<string, number>;
     /** Flows this agent hosts, published in `info`. */
     flows?: FlowDescriptor[];
+    /** Runs the flows this agent hosts so a supervisor can start, watch and steer them. Its flows are published in `info.flows`. */
+    flowHandler?: FlowHandler;
 }
 
 export class AgentServer {
@@ -62,6 +68,7 @@ export class AgentServer {
     private readonly apiKey?:    string;
     private readonly controlApiKey?: string;
     private readonly control?:   ControlHandler;
+    private readonly flowHandler?: FlowHandler;
     private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
@@ -71,13 +78,15 @@ export class AgentServer {
         this.apiKey    = opts.apiKey;
         this.controlApiKey = opts.controlApiKey;
         this.control   = opts.control;
+        this.flowHandler = opts.flowHandler;
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
         this.info      = {
             name: opts.name, version: opts.version, description: opts.description, capabilities: [],
             protocolMinor: PROTOCOL_MINOR,
             ...(opts.limits ? { limits: opts.limits } : {}),
-            ...(opts.flows ? { flows: opts.flows } : {}),
+            ...(opts.flows || opts.flowHandler ? { flows: opts.flows ?? opts.flowHandler!.flows() } : {}),
+            ...(opts.flowHandler ? { flowControl: true } : {}),
             ...(opts.controlApiKey ? { control: this.controlActions() } : {}),
         };
         this.app       = express();
@@ -101,7 +110,7 @@ export class AgentServer {
 
         // Auth. Control endpoints need the control key and nothing else opens them.
         this.app.use((req: Request, res: Response, next: NextFunction) => {
-            if (CONTROL_PATHS.has(req.path)) {
+            if (CONTROL_PATHS.has(req.path) || (req.method === 'POST' && FLOW_STEER_PATH.test(req.path))) {
                 if (!this.controlApiKey) {
                     return res.status(403).json(this.errEnvelope('FORBIDDEN', 'Control endpoints are disabled: no controlApiKey is configured'));
                 }
@@ -270,6 +279,42 @@ export class AgentServer {
             } catch (err) {
                 this.sendControlError(res, err);
             }
+        });
+
+        // ── Flows (protocol 1.1) ────────────────────────────────────────────────
+
+        this.app.get('/v1/agent/flows', (_req: Request, res: Response) => {
+            if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
+            res.json(this.okEnvelope({ flows: this.flowHandler.flows() }));
+        });
+
+        this.app.post('/v1/agent/flows/:name/runs', async (req: Request, res: Response) => {
+            if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
+            if (this.draining) return res.status(503).json(this.errEnvelope('AGENT_UNAVAILABLE', 'The agent is draining: it is not accepting new runs'));
+            const input = (req.body as { input?: unknown } | undefined)?.input ?? {};
+            if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'input' must be an object"));
+            }
+            const context = extractContext(req);
+            try {
+                res.json(this.okEnvelope(await this.flowHandler.start(String(req.params.name), input as Record<string, unknown>, context)));
+            } catch (err) { this.sendControlError(res, err, context.traceId); }
+        });
+
+        this.app.get('/v1/agent/flow-runs/:id', async (req: Request, res: Response) => {
+            if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
+            try { res.json(this.okEnvelope(await this.flowHandler.status(String(req.params.id)))); }
+            catch (err) { this.sendControlError(res, err); }
+        });
+
+        this.app.post('/v1/agent/flow-runs/:id/:action', async (req: Request, res: Response) => {
+            const action = String(req.params.action) as FlowSteerAction;
+            if (!(FLOW_STEER_ACTIONS as readonly string[]).includes(action)) {
+                return res.status(404).json(this.errEnvelope('INVALID_INPUT', `Unknown flow action '${action}'`));
+            }
+            if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
+            try { res.json(this.okEnvelope(await this.flowHandler[action](String(req.params.id)))); }
+            catch (err) { this.sendControlError(res, err); }
         });
 
         // 404 fallback

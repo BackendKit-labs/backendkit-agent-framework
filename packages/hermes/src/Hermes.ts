@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { promptInjectionGuardrail, secretLeakGuardrail } from '@backendkit-labs/agent-core';
 import type { Guardrail, GuardrailContext } from '@backendkit-labs/agent-core';
 import { AuditLog, type AuditEvent, type AuditListener } from './audit';
-import type { AgentAuditEntry, AgentConnector, AgentControlPort, RunHandle, RunOutcome } from './connectors/types';
+import type { AgentAuditEntry, AgentConnector, AgentControlPort, FlowPort, FlowRunState, RunHandle, RunOutcome } from './connectors/types';
 import { FleetRegistry, type FleetAgent, type RegistryOptions } from './fleet/FleetRegistry';
 import type { ApprovalMode, FleetConfig } from './fleet/schema';
 import { ACTIVE, JsonRunStore, type RunRecord, type RunStore, type StoredStatus } from './store/RunStore';
@@ -326,6 +326,107 @@ export class Hermes {
         }
     }
 
+    // ── Flows of other agents ───────────────────────────────────────────────
+
+    /** The flows an agent hosts. Needs the right to use the agent. */
+    async flowList(principal: Principal, agentId: string) {
+        const agent = this.agentFor(principal, agentId, 'info');
+        const port = this.flowPortOf(agent);
+        return { agent: agentId, flows: await port.list().catch(err => { throw new HermesError('AGENT_UNAVAILABLE', `${agentId}: ${(err as Error).message}`); }) };
+    }
+
+    /**
+     * Starts a flow on the agent that hosts it. A flow run is a run like any other (same roles, approval and store; the
+     * capability is `flow:<name>`), so `agent_status`, `agent_result` and `agent_cancel` work on it too.
+     */
+    async flowRun(principal: Principal, request: { agentId: string; flow: string; input?: Record<string, unknown> }): Promise<RunView & { flowRunId: string }> {
+        const capability = `flow:${request.flow}`;
+        const agent = this.agentFor(principal, request.agentId, 'run', capability);
+        const port = this.flowPortOf(agent);
+        this.requireRoles(principal, agent, 'run', capability);
+        if (agent.health.state === 'down') {
+            this.audit.record({ action: 'run', outcome: 'denied', principalId: principal.id, agentId: agent.id, capability, reason: 'agent is down' });
+            throw new HermesError('AGENT_UNAVAILABLE', `${agent.id} is down: ${agent.health.detail ?? 'no answer'}`);
+        }
+        const known = await port.list().catch(() => [] as Array<{ name: string }>);
+        if (!known.some(f => f.name === request.flow)) throw new HermesError('CAPABILITY_NOT_FOUND', `${agent.id} has no flow "${request.flow}"`);
+        const input = request.input ?? {};
+        const inputPreview = this.mask(JSON.stringify(input), 500);
+        await this.requireApproval({ action: 'run', principal, agentId: agent.id, capability, inputPreview }, this.approvalMode(agent, capability));
+
+        const runId = randomUUID();
+        await this.store.put({ runId, agentId: agent.id, capability, inputPreview, status: 'pending', principalId: principal.id, startedAt: new Date().toISOString() });
+        let flowRunId: string;
+        try { ({ flowRunId } = await port.start(request.flow, input)); }
+        catch (err) {
+            const message = (err as Error).message;
+            await this.store.update(runId, { status: 'failed', error: message, finishedAt: new Date().toISOString() });
+            this.audit.record({ action: 'run', outcome: 'failed', principalId: principal.id, agentId: agent.id, capability, runId, reason: message });
+            throw new HermesError('RUN_FAILED', `${agent.id}.${capability}: ${message}`);
+        }
+        await this.store.update(runId, { status: 'running', connectorRunId: flowRunId });
+        this.audit.record({ action: 'run', outcome: 'allowed', principalId: principal.id, agentId: agent.id, capability, runId });
+        this.track(runId, this.flowHandle(port, flowRunId));
+        return { ...view(this.store.get(runId)!), flowRunId };
+    }
+
+    /** Where a flow run is: its status, the step it is on and each step's state. */
+    async flowStatus(principal: Principal, runId: string): Promise<{ runId: string; agentId: string; flow: FlowRunState }> {
+        const { record, port } = this.flowRunOf(principal, runId);
+        try { return { runId, agentId: record.agentId, flow: await port.status(record.connectorRunId!) }; }
+        catch (err) { throw new HermesError('AGENT_UNAVAILABLE', `${record.agentId}: ${(err as Error).message}`); }
+    }
+
+    async flowPause(principal: Principal, runId: string) { return this.flowSteer(principal, runId, 'pause'); }
+
+    async flowResume(principal: Principal, runId: string) { return this.flowSteer(principal, runId, 'resume'); }
+
+    private async flowSteer(principal: Principal, runId: string, how: 'pause' | 'resume') {
+        const { record, port, agent } = this.flowRunOf(principal, runId);
+        this.requireRoles(principal, agent, 'run', record.capability);
+        try {
+            const flow = await port[how](record.connectorRunId!);
+            this.audit.record({ action: 'control', outcome: 'allowed', principalId: principal.id, agentId: record.agentId, capability: `flow_${how}`, runId });
+            return { runId, agentId: record.agentId, flow };
+        } catch (err) {
+            this.audit.record({ action: 'control', outcome: 'failed', principalId: principal.id, agentId: record.agentId, capability: `flow_${how}`, runId, reason: (err as Error).message });
+            throw new HermesError('AGENT_UNAVAILABLE', `${record.agentId}: ${(err as Error).message}`);
+        }
+    }
+
+    private flowPortOf(agent: FleetAgent): FlowPort {
+        const port = agent.connector.flows?.();
+        if (!port) throw new HermesError('CONTROL_UNSUPPORTED', `${agent.id} hosts no flows`);
+        return port;
+    }
+
+    private flowRunOf(principal: Principal, runId: string): { record: RunRecord; port: FlowPort; agent: FleetAgent } {
+        const record = this.recordFor(principal, runId);
+        const agent = this.registry.get(record.agentId);
+        const port = agent?.connector.flows?.();
+        if (!record.capability.startsWith('flow:') || !record.connectorRunId || !agent || !port) throw new HermesError('RUN_NOT_FOUND', `"${runId}" is not a flow run`);
+        return { record, port, agent };
+    }
+
+    /** A flow run followed like any other run: it ends when the flow reaches done, failed or cancelled. */
+    private flowHandle(port: FlowPort, flowRunId: string, pollMs = 100): RunHandle {
+        const terminal = (s: FlowRunState): RunOutcome | undefined => s.status === 'done' ? { status: 'done', output: s.output ?? '' }
+            : s.status === 'failed' ? { status: 'failed', error: s.error ?? 'flow failed' } : s.status === 'cancelled' ? { status: 'cancelled' } : undefined;
+        return {
+            connectorRunId: flowRunId,
+            status: async () => { const s = await port.status(flowRunId); return s.status === 'paused' ? 'running' : terminal(s)?.status ?? 'running'; },
+            cancel: async () => { await port.cancel(flowRunId); },
+            result: async () => {
+                for (;;) {
+                    const done = terminal(await port.status(flowRunId));
+                    if (done) return done;
+                    if (this.shutdown.signal.aborted) return { status: 'cancelled', error: 'stopped waiting' };
+                    await new Promise<void>(r => { const t = setTimeout(r, pollMs); t.unref?.(); });
+                }
+            },
+        };
+    }
+
     // ── Creating agents, and what the fleet cannot do ───────────────────────
 
     /** Creates an agent from a blueprint of the operator's. The blueprint id is the whole request: see `Provisioning.create`. */
@@ -391,6 +492,21 @@ export class Hermes {
                 this.audit.record({ action: 'reconcile', outcome: 'lost', agentId: record.agentId, runId: record.runId, reason });
             };
             if (!agent) { await lost('the agent is no longer in the fleet'); continue; }
+            if (record.capability.startsWith('flow:')) {
+                const port = agent.connector.flows?.();
+                if (!port || !record.connectorRunId) { await lost('the flow run did not outlive the Hermes process'); continue; }
+                try {
+                    const state = await port.status(record.connectorRunId);
+                    if (state.status === 'running' || state.status === 'paused') this.track(record.runId, this.flowHandle(port, record.connectorRunId));
+                    else await this.settle(record.runId, state.status === 'done' ? { status: 'done', output: state.output ?? '' } : state.status === 'failed' ? { status: 'failed', error: state.error ?? 'flow failed' } : { status: 'cancelled' });
+                    this.audit.record({ action: 'reconcile', outcome: 'recovered', agentId: record.agentId, runId: record.runId });
+                } catch (err) {
+                    const e = err as { status?: number; code?: string };
+                    if (e.status === 404 || e.code === 'RUN_NOT_FOUND' || e.code === 'TASK_NOT_FOUND') await lost('the agent does not know this flow run');
+                    else this.audit.record({ action: 'reconcile', outcome: 'failed', agentId: record.agentId, runId: record.runId, reason: `could not ask the agent: ${(err as Error).message}` });
+                }
+                continue;
+            }
             if (!agent.connector.lookup || !record.connectorRunId) { await lost('the run did not outlive the Hermes process'); continue; }
             try {
                 const found = await agent.connector.lookup(record.connectorRunId);

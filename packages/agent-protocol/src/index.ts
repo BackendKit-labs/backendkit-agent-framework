@@ -1,5 +1,5 @@
 // ── Protocol version ──────────────────────────────────────────────────────────
-export { PROTOCOL_VERSION, PROTOCOL_MINOR, CONTROL_ACTIONS } from './types';
+export { PROTOCOL_VERSION, PROTOCOL_MINOR, CONTROL_ACTIONS, FLOW_STEER_ACTIONS } from './types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type {
@@ -22,6 +22,10 @@ export type {
     AuditEntry,
     AuditQuery,
     FlowDescriptor,
+    FlowRunState,
+    FlowStepState,
+    FlowStatus,
+    FlowSteerAction,
 } from './types';
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -29,6 +33,7 @@ export { AgentServer }         from './server/AgentServer';
 export type { AgentServerOptions, CapabilityHandler } from './server/AgentServer';
 export { TaskStore }           from './server/TaskStore';
 export { ControlError, statusForCode } from './server/ControlHandler';
+export type { FlowHandler } from './server/FlowHandler';
 export type { ControlHandler } from './server/ControlHandler';
 
 // ── Client ────────────────────────────────────────────────────────────────────

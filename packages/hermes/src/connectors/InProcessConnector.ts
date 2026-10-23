@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { InProcessFlows, type InProcessFlow } from './InProcessFlows';
 import type {
-    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunOutcome, RunStatus,
+    AgentAuditEntry, AgentConnector, AgentControlPort, AgentDescriptor, FlowPort, CapabilityInfo, ConnectorRunContext, ConnectorRunRequest, HealthReport, RunHandle, RunOutcome, RunStatus,
 } from './types';
 
 export interface InProcessCapability extends Partial<Pick<CapabilityInfo, 'description' | 'input'>> {
@@ -15,6 +16,8 @@ export interface InProcessConnectorOptions {
     version?: string;
     description?: string;
     capabilities: Record<string, InProcessCapability>;
+    /** Flows this agent hosts: Hermes starts, watches, pauses, resumes and cancels them. */
+    flows?: Record<string, InProcessFlow>;
     /** Control of the engine behind this agent: a `createEngineControl(...)` result. Without it the agent has no control port. */
     control?: {
         readonly actions: readonly string[];
@@ -38,8 +41,13 @@ export class InProcessConnector implements AgentConnector {
     readonly kind = 'in-process' as const;
     private readonly runs = new Map<string, Live>();
     private available = true;
+    private readonly flowHost?: InProcessFlows;
 
-    constructor(private readonly options: InProcessConnectorOptions) {}
+    constructor(private readonly options: InProcessConnectorOptions) {
+        if (options.flows) this.flowHost = new InProcessFlows(options.flows);
+    }
+
+    flows(): FlowPort | undefined { return this.flowHost; }
 
     /** For tests and maintenance: report the agent as down. */
     setAvailable(available: boolean): void { this.available = available; }
@@ -101,6 +109,7 @@ export class InProcessConnector implements AgentConnector {
 
     /** Stops every run still going (Hermes shutting down). */
     async close(): Promise<void> {
+        await this.flowHost?.close();
         for (const live of this.runs.values()) live.controller.abort();
         await Promise.allSettled([...this.runs.values()].map(l => l.done));
     }

@@ -4,6 +4,9 @@ import type {
     AuditEntry,
     AuditQuery,
     ControlAction,
+    FlowDescriptor,
+    FlowRunState,
+    FlowSteerAction,
     RunRequest,
     RunResponse,
     RunSummary,
@@ -289,6 +292,32 @@ export class AgentClient {
         if (query.limit) qs.set('limit', String(query.limit));
         const data = await this.controlRequest<{ entries: AuditEntry[] }>(`/v1/agent/audit${qs.size ? `?${qs}` : ''}`);
         return data.entries;
+    }
+
+    // ── Flows (protocol 1.1) ────────────────────────────────────────────────
+
+    /** The flows the agent hosts. */
+    async listFlows(): Promise<FlowDescriptor[]> {
+        const res = await this.request<{ flows: FlowDescriptor[] }>('/v1/agent/flows');
+        return res.data!.flows;
+    }
+
+    /** Starts a flow; the answer is the id to follow it by. */
+    async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext): Promise<{ flowRunId: string }> {
+        const res = await this.request<{ flowRunId: string }>(
+            `/v1/agent/flows/${encodeURIComponent(flow)}/runs`, { method: 'POST', body: JSON.stringify({ input }) }, context,
+        );
+        return res.data!;
+    }
+
+    async flowRun(flowRunId: string): Promise<FlowRunState> {
+        const res = await this.request<FlowRunState>(`/v1/agent/flow-runs/${encodeURIComponent(flowRunId)}`);
+        return res.data!;
+    }
+
+    /** Pause, resume or cancel a flow run. Control: needs the control key, and like every control call it is never retried. */
+    async steerFlow(flowRunId: string, action: FlowSteerAction): Promise<FlowRunState> {
+        return this.controlRequest<FlowRunState>(`/v1/agent/flow-runs/${encodeURIComponent(flowRunId)}/${action}`, { method: 'POST', body: '{}' });
     }
 
     /** Returns the current circuit breaker state ('closed', 'open', 'half_open'). */

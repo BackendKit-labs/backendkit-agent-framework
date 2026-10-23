@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.32.0 (2026-10-23)
+
+Control de agentes desde fuera y primer Hermes (SPEC-0008 P1–P3; PRs #79, #81, #82, #83). Todo es aditivo y opt-in: sin `controlApiKey` el servidor se comporta como 1.0. Rangos 0.x barridos (`agent-core ^0.32.0`; peers `<0.33.0`) y templates de `create-bk-agent` actualizados.
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.32.0 |
+| `agent-sandbox` | 0.1.2 |
+| `agent-protocol` | 0.2.2 |
+| `hermes` (nuevo) | 0.1.0 |
+| `agent-coding` | 0.27.1 |
+| `agent-enterprise` | 0.7.2 |
+| `agent-providers` | 0.2.6 |
+| `agent-otel` | 0.1.4 |
+| `agent-testkit` | 0.1.3 |
+| `agent-web` | 0.4.14 |
+| `mcp-server` | 0.16.9 |
+| `orchestrator-agent` | 0.4.6 |
+| `aval-tools` | 0.1.9 |
+| `create-bk-agent` | 0.22.11 |
+
+`mcp-connectors` y `curator-codex-agent` no cambian.
+
+**Orden de publicación (obligatorio):** core → **sandbox** → **agent-protocol** → **hermes** → providers → coding → enterprise → otel → orchestrator-agent → (opcionales: testkit, web, mcp-server, aval-tools) → create-bk-agent.
+`agent-sandbox` 0.1.2 tiene como peer `agent-core >=0.32.0 <0.33.0` (usa tipos nuevos: `PolicyControl`); `hermes` tiene como peers `agent-core >=0.31.0 <0.33.0` y `agent-protocol ^0.2.1`. Publicarlos antes de sus peers rompe las instalaciones.
+
+### Detalle
+- **core:** `createEngineControl(engine, { policy, jobs, approveWidening, onAudit })`: un handler de control con la forma de `ControlHandler` (`get/set_sandbox_policy`, `list_jobs`, `cancel_job`, `audit`). Estrechar una política es libre; ampliarla exige aprobación y falla cerrado sin aprobador (`APPROVAL_REQUIRED`); el techo del operador es un límite duro (`POLICY_WIDER_THAN_PARENT`); `expectedVersion` evita pisar cambios. `JobRegistry.listAll()` (nuevo método de la interfaz).
+- **sandbox:** `isNarrowerOrEqual` / `checkNarrower` (un hijo nunca es más amplio que su padre) y `sandboxPolicyControl(policy, { ceiling })`.
+- **agent-protocol:** protocolo 1.1 (compatible con 1.0): `POST /v1/agent/control`, `GET /v1/agent/runs`, `GET /v1/agent/audit`, `drain`/`resume` del servidor, `info` con `protocolMinor`, límites y flows. Cerrado por defecto: exige `controlApiKey`, distinta de `apiKey`. El cliente (`control`, `listRuns`, `audit`) no reintenta ni usa circuit breaker a propósito.
+- **hermes (nuevo):** `fleet.yaml` validado (`bk-hermes validate`), registro de flota con salud periódica, conectores `in-process` y `protocol`, store de runs con reconciliación tras reinicio, herramientas `fleet_*`/`agent_*`, roles, aprobación que falla cerrado, guardrails sobre resultados y auditoría NDJSON.
+- **Conocido:** cancelar un run en un `AgentServer` marca la tarea pero no aborta el handler del servidor.
+
 ## v0.31.0 (2026-10-23)
 
 Herramientas de archivo detrás del sandbox (SPEC-0006 S3a; PR #76). Una ruta se juzga por **dónde apunta de verdad**: un symlink o junction dentro del workspace que apuntaba fuera permitía leer y escribir fuera, porque `resolveAndCheck` compara solo texto.

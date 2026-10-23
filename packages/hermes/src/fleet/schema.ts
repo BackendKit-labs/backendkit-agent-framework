@@ -25,10 +25,42 @@ const protocolConnector = z.object({
 /** An agent that runs in the same process as Hermes; the code registers its connector under the agent's id. */
 const inProcessConnector = z.object({ kind: z.literal('in-process') }).strict();
 
+/** A connector of a kind a plugin provides: Hermes checks the kind, the plugin's factory reads the rest. */
+type CustomConnector = { kind: string; [key: string]: unknown };
+type ProtocolConnectorConfig = z.infer<typeof protocolConnector>;
+type InProcessConnectorConfig = z.infer<typeof inProcessConnector>;
+export type ConnectorConfig = ProtocolConnectorConfig | InProcessConnectorConfig | CustomConnector;
+
+const connectorConfig = z.custom<ConnectorConfig>(v => typeof v === 'object' && v !== null && !Array.isArray(v), 'a connector is an object with a kind')
+    .superRefine((value, ctx) => {
+        const kind = (value as { kind?: unknown } | null)?.kind;
+        const builtin = kind === 'protocol' ? protocolConnector : kind === 'in-process' ? inProcessConnector : undefined;
+        if (builtin) {
+            const parsed = builtin.safeParse(value);
+            if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+        } else if (typeof kind !== 'string' || !/^[a-z][a-z0-9-]*$/.test(kind)) {
+            ctx.addIssue({ code: 'custom', path: ['kind'], message: 'a connector kind is lowercase letters, digits and "-" (protocol, in-process, or one a plugin provides)' });
+        }
+    });
+
+const pluginEntry = z.object({
+    /** A module path (relative to the fleet file) or a package name. CommonJS. */
+    module: z.string().min(1),
+    /** What the operator grants it. The plugin gets only what it asked for AND is granted here. */
+    grant: z.object({
+        tools: z.array(z.string()).optional(),
+        connectors: z.array(z.string()).optional(),
+        events: z.array(z.string()).optional(),
+        blueprints: z.boolean().optional(),
+        rules: z.boolean().optional(),
+    }).strict().optional(),
+    options: z.record(z.unknown()).optional(),
+}).strict();
+
 const agent = z.object({
     id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, 'letters, digits, "-" and "_"; must not start with a symbol'),
     description: z.string().optional(),
-    connector: z.discriminatedUnion('kind', [protocolConnector, inProcessConnector]),
+    connector: connectorConfig,
     tags: z.array(z.string()).optional(),
     /** Read and kept for what comes next (concurrency and budget are not enforced yet); `deadlineMs` bounds a wait. */
     limits: z.object({
@@ -54,6 +86,8 @@ const agent = z.object({
 export const fleetSchema = z.object({
     fleet: z.string().min(1),
     agents: z.array(agent).min(1, 'a fleet needs at least one agent'),
+    /** Code that extends Hermes. Each runs with exactly the grant written here. */
+    plugins: z.array(pluginEntry).optional(),
     /** What Hermes may create. Only the operator writes these (or approves a drafted one). */
     blueprints: z.array(blueprintSchema).optional(),
     policies: z.object({

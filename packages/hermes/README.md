@@ -138,6 +138,42 @@ const { hermes, tools, guardrails } = createHermes({
 - **Gaps.** `fleet_find` looks for a capability by words; `fleet_gap` reports a need nobody covers. Hermes emits `fleet.gap` and, by the company's choice, only that (`notify`), creates from a blueprint that `covers` it with that blueprint's own roles and approval (`create`), or invites a draft (`propose`).
 - **Drafts are proposals, not authorizations.** `blueprint_propose` stores a pending draft, checked against the same bounds. It cannot create anything until an operator approves it with `hermes.blueprintDecide(operatorPrincipal, id, 'approved')` (checked again then). That call is for the host and is deliberately **not a tool**: a model that could approve its own drafts would grant itself permissions. Approved drafts live in the provisioning file; `fleet.yaml` is never rewritten.
 
+## Plugins
+
+A plugin adds to Hermes without touching its code: tools for the model, connectors for kinds of agents, blueprints, event listeners and policy rules. **The operator grants; the plugin declares; the API holds the plugin to both at every call.**
+
+```yaml
+plugins:
+  - module: ./plugins/erp.js          # a path (from the fleet file) or a package name; CommonJS
+    grant: { tools: [erp_lookup], connectors: [erp] }
+    options: { baseUrl: https://erp.example }
+agents:
+  - id: erp
+    connector: { kind: erp, url: https://erp.example }   # a kind the plugin provides
+```
+
+```ts
+export default (options): HermesPlugin => ({
+  name: 'erp', version: '1.0.0',
+  requires: { tools: ['erp_lookup'], connectors: ['erp'] },   // what it needs; the grant above is what it gets
+  setup(api) {
+    api.registerTool(defineTool({ name: 'erp_lookup', /* ... */ }));
+    api.registerConnector('erp', (config, { agentId }) => new ErpConnector(config));
+  },
+});
+```
+
+Plugins can also be given as objects from code (`plugins: [{ plugin, grant, options }]`), which is the easiest way to test one.
+
+- **Least privilege.** A plugin whose `requires` goes beyond its `grant` is not loaded (and the refusal is audited); the others load. A call outside `requires` (a tool name, connector kind or event it did not declare) throws and disables the plugin, even when the plugin swallows the error. There is deliberately no `network` permission: a plugin runs inside the Hermes process with its privileges, and Hermes cannot confine what such code does on the network.
+- **No takeovers.** A plugin cannot register a tool Hermes already has (`agent_create`, `policy_set`...) or one another plugin has. Its API has no handle on Hermes, on what Hermes may hand out, or on approving drafts.
+- **Rules can only restrict.** `api.registerRule(ctx => ({ deny: 'reason' }))` refuses `run`, `cancel`, `policy_set`, `job_cancel` and `agent_create` before approval, whatever the approval mode. Anything but a `{ deny }` has no effect; a rule that throws or is slow refuses; a refusal by role stays a refusal. **A plugin that fails after registering a rule does not lift it**: the rule stays in force.
+- **Failures stay inside.** `setup` has a deadline and a throw only disables that plugin; event handlers have a deadline and cannot affect Hermes; a plugin tool that throws answers `Error: plugin <name>: ...` text.
+- **Blueprints** a plugin registers (grant `blueprints`) are checked against what Hermes may hand out exactly like the operator's.
+- **Connector kinds.** An agent whose `kind` no plugin provides stays in the fleet, visibly down, and runs nothing.
+- **Audited.** Every tool, connector, blueprint, listener and rule a plugin brings is recorded with its `name@version`; `hermes.pluginReport()` tells what became of each plugin.
+- Plugin tools reach the model through `createFleetTools` once `hermes.start()` has loaded the plugins. Events plugins can listen to: `fleet.gap`, `fleet.agent.created`, `fleet.agent.retired`, `fleet.agent.state`, `fleet.blueprint.*`, `run.done`.
+
 ## Connectors
 
 - `ProtocolConnector`: an agent served by `AgentServer` (agent-protocol).

@@ -121,7 +121,26 @@ export class Provisioning {
     /** The blueprints that can create agents: the operator's, and drafts an operator approved. Never a pending draft. */
     usable(): Blueprint[] {
         const approved = Object.values(this.state.drafts).filter(d => d.status === 'approved').map(d => d.blueprint);
-        return [...(this.deps.fleet.blueprints ?? []), ...approved];
+        return [...(this.deps.fleet.blueprints ?? []), ...this.contributed, ...approved];
+    }
+
+    /** Blueprints a plugin contributed (the operator granted it `blueprints`). They are bounded exactly like the operator's own. */
+    private readonly contributed: Blueprint[] = [];
+
+    /** Parses a blueprint offered by a plugin and checks it against what Hermes may hand out. Throws when it is not acceptable. */
+    parseExternal(input: unknown, taken: ReadonlySet<string>): Blueprint {
+        const parsed = blueprintSchema.safeParse(input);
+        if (!parsed.success) throw new Error(parsed.error.issues.map(i => `${i.path.join('.') || '$'}: ${i.message}`).join('; '));
+        const bp = parsed.data;
+        if (taken.has(bp.id) || this.usable().some(b => b.id === bp.id) || this.state.drafts[bp.id]) throw new Error(`a blueprint "${bp.id}" already exists`);
+        const problems = checkBlueprint(bp, this.policy);
+        if (problems.length) throw new Error(problemText(problems));
+        return bp;
+    }
+
+    addExternal(blueprint: Blueprint): void {
+        if (this.usable().some(b => b.id === blueprint.id)) throw new Error(`a blueprint "${blueprint.id}" already exists`);
+        this.contributed.push(blueprint);
     }
 
     private blueprint(id: string): Blueprint | undefined { return this.usable().find(b => b.id === id); }

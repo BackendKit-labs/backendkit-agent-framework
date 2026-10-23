@@ -35,4 +35,6 @@ export type HermesEvent =
     | { type: 'fleet.agent.created'; instanceId: string; blueprintId: string; createdBy: string; gapId?: string }
     | { type: 'fleet.agent.retired'; instanceId: string; blueprintId: string; reason: string }
     | { type: 'fleet.blueprint.proposed'; draftId: string; proposedBy: string; gapId?: string }
-    | { type: 'fleet.blueprint.decided'; draftId: string; decision: 'approved' | 'rejected'; decidedBy: string };
+    | { type: 'fleet.blueprint.decided'; draftId: string; decision: 'approved' | 'rejected'; decidedBy: string }
+    | { type: 'fleet.agent.state'; agentId: string; from: string; to: string }
+    | { type: 'run.done'; runId: string; agentId: string; capability: string; status: string };

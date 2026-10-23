@@ -108,7 +108,8 @@ export interface AgentControlPort {
 }
 
 export interface AgentConnector {
-    readonly kind: 'protocol' | 'in-process';
+    /** `protocol` and `in-process` are built in; any other kind comes from a plugin. */
+    readonly kind: string;
     /** Releases what the connector holds (processes, sockets) when its agent leaves the fleet. */
     close?(): Promise<void>;
     /** The flows this agent hosts, when it has any. */

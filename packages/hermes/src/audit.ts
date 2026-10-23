@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export type AuditAction = 'run' | 'cancel' | 'info' | 'list' | 'health' | 'reconcile' | 'control' | 'provision' | 'gap' | 'blueprint';
+export type AuditAction = 'run' | 'cancel' | 'info' | 'list' | 'health' | 'reconcile' | 'control' | 'provision' | 'gap' | 'blueprint' | 'plugin';
 export type AuditOutcome = 'allowed' | 'denied' | 'approved' | 'not-approved' | 'failed' | 'lost' | 'recovered' | 'created' | 'retired' | 'expired' | 'proposed' | 'rejected';
 
 /** One decision or event: who did what to which agent, and what became of it. */
@@ -16,6 +16,8 @@ export interface AuditEvent {
     reason?: string;
     /** Provisioning: the blueprint, the instance made from it, and the gap that led to it. */
     blueprintId?: string;
+    /** A plugin, as name@version, when the event is about one or comes from one. */
+    plugin?: string;
     instanceId?: string;
     gapId?: string;
 }

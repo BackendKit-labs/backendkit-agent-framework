@@ -74,8 +74,7 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "node-cron": "^4.2.1",
     "yaml": "^2.4.0",
-    "zod": "^3.25.0",
-    "zod-to-json-schema": "^3.24.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

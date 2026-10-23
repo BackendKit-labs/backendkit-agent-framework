@@ -480,7 +480,7 @@ srv.tool(
         config_path: z.string().describe('Absolute path to orchestrator.yaml'),
         task:        z.string().describe('Task description in natural language'),
         flow_id:     z.string().optional().describe('Force a specific static flow ID instead of auto-detection'),
-        payload:     z.record(z.string()).optional().describe(
+        payload:     z.record(z.string(), z.string()).optional().describe(
             'Key-value pairs for {{payload.key}} interpolation in static flow templates ' +
             '(e.g. {"nombre": "Juan", "puesto": "Developer", "fecha_ingreso": "2026-07-01"})',
         ),

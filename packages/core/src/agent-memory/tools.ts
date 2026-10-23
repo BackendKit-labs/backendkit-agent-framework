@@ -45,7 +45,7 @@ export function buildMemoryTools(
             description: 'Store a piece of knowledge or decision in semantic memory for future retrieval.',
             input: z.object({
                 content:  z.string().describe('Knowledge to store'),
-                metadata: z.record(z.string()).default({}).describe('Optional key-value metadata'),
+                metadata: z.record(z.string(), z.string()).default({}).describe('Optional key-value metadata'),
             }),
             execute: async ({ content, metadata }) => {
                 const id = await semantic.index(content, metadata);

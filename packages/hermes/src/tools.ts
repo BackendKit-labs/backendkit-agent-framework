@@ -69,7 +69,7 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
             input: z.object({
                 agent: z.string().describe('Agent id'),
                 capability: z.string().describe('Capability name from fleet_info'),
-                input: z.record(z.unknown()).optional().describe('Input for the capability'),
+                input: z.record(z.string(), z.unknown()).optional().describe('Input for the capability'),
                 wait: z.boolean().optional().describe('Wait for the answer. Default: yes for quick capabilities, no for long ones'),
             }),
             execute: guarded(async ({ agent, capability, input, wait }) => {
@@ -117,7 +117,7 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
                 "Keep the parts that restrict (approval, writeTools, env deny) when you narrow, or the change counts as a widening.",
             input: z.object({
                 agent: z.string(),
-                policy: z.record(z.unknown()).describe('The whole policy, as policy_get shows it'),
+                policy: z.record(z.string(), z.unknown()).describe('The whole policy, as policy_get shows it'),
                 expected_version: z.number().int().optional().describe('Version you read; the change fails if the policy moved since'),
             }),
             execute: guarded(async ({ agent, policy, expected_version }) => json(await hermes.policySet(who(), agent, policy, expected_version))),
@@ -187,7 +187,7 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
             description:
                 'Draft a new blueprint when the company lets you propose them. The draft stays PENDING and cannot create anything until a human operator approves it; ' +
                 'it is checked against what Hermes may hand out and refused if it asks for more. You cannot approve it yourself.',
-            input: z.object({ blueprint: z.record(z.unknown()).describe('id, template, tools, sandbox, limits, covers, createRoles, access'), gap_id: z.string().optional() }),
+            input: z.object({ blueprint: z.record(z.string(), z.unknown()).describe('id, template, tools, sandbox, limits, covers, createRoles, access'), gap_id: z.string().optional() }),
             execute: guarded(async ({ blueprint, gap_id }) => {
                 const draft = await hermes.blueprintPropose(who(), blueprint, gap_id);
                 return json({ id: draft.blueprint.id, status: draft.status, note: 'waiting for an operator' });
@@ -203,7 +203,7 @@ export function createFleetTools(hermes: Hermes, options: FleetToolsOptions): To
         defineTool({
             name: 'flow_run',
             description: 'Start a flow on the agent that hosts it. Returns a run_id; follow it with flow_status. Some agents need approval first.',
-            input: z.object({ agent: z.string(), flow: z.string(), input: z.record(z.unknown()).optional() }),
+            input: z.object({ agent: z.string(), flow: z.string(), input: z.record(z.string(), z.unknown()).optional() }),
             execute: guarded(async ({ agent, flow, input }) => json(await hermes.flowRun(who(), { agentId: agent, flow, ...(input ? { input } : {}) }))),
         }),
         defineTool({

@@ -4,6 +4,8 @@ export { createSandboxPolicy, parsePolicyConfig, SandboxPolicyError } from './po
 export type { SandboxPolicy, SandboxPolicyConfig, SandboxRule, ResolvedPolicy } from './policy';
 export { PERMISSION_PRESETS, isPermissionPreset, matchPreset, needsApproval } from './presets';
 export type { PermissionPreset, PresetDefinition, ApprovalLevel, ActionKind } from './presets';
+export { checkNarrower, isNarrowerOrEqual, describeViolations } from './inherit';
+export type { InheritanceVerdict, InheritanceViolation, InheritanceDimension } from './inherit';
 export { realPathOf, isInside as isInsideDir } from './paths';
 export { scrubEnv } from './env';
 export type { EnvPolicy } from './env';

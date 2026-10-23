@@ -10,7 +10,7 @@ const TransportSchema = z.discriminatedUnion('type', [
         type: z.literal('stdio'),
         command: z.string(),
         args: z.array(z.string()).default([]),
-        env: z.record(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
     }),
     z.object({
         type: z.literal('http'),
@@ -60,7 +60,7 @@ export const OrchestratorConfigSchema = z.object({
         /** Override where runs and RAG index are stored. Default: .orchestrator/ adjacent to this file. */
         data_dir: z.string().optional(),
     }),
-    providers: z.record(ProviderConfigSchema).default({}),
+    providers: z.record(z.string(), ProviderConfigSchema).default({}),
     agents:    z.array(AgentConfigSchema).min(1, 'At least one agent must be configured'),
     flows:     z.array(FlowEntryConfigSchema).optional(),
 });

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ToolDefinition, ExecutionContext } from '../types';
 
 // ── Public re-export so consumers use the framework's zod instance ────────────
@@ -46,10 +45,7 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
  * OpenAPI 3 flavour, no `$ref`s, without the top-level `$schema` / `definitions` meta.
  */
 export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
-    // Cast to bypass TypeScript's deep-instantiation limit on generic Zod schemas
-    const toSchema = zodToJsonSchema as unknown as (s: z.ZodTypeAny, opts: object) => Record<string, unknown>;
-    // zodToJsonSchema wraps the schema in a root object with $schema etc.
-    return stripTopLevelMeta(toSchema(schema, { target: 'openApi3', $refStrategy: 'none' }));
+    return stripTopLevelMeta(z.toJSONSchema(schema, { target: 'openapi-3.0', unrepresentable: 'any', io: 'input' }) as Record<string, unknown>);
 }
 
 export function defineTool<TInput extends z.ZodTypeAny>(

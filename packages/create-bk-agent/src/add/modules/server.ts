@@ -60,7 +60,7 @@ export function addServer(info: BkProjectInfo, args: string[]): void {
     console.log(`\n✓  Created src/server.ts  (HTTP MCP on port ${opts.port})`);
 
     const added = addPackageDependency(info.pkgFile, '@backendkit-labs/mcp-server', '^0.15.0');
-    addPackageDependency(info.pkgFile, 'zod', '^3.25.0');
+    addPackageDependency(info.pkgFile, 'zod', '^4.6.6');
     addPackageScript(info.pkgFile, 'server', 'ts-node src/server.ts');
 
     if (added) {

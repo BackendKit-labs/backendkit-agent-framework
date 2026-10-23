@@ -27,7 +27,7 @@ export function createN8nTriggerTool(opts: N8nTriggerOptions = {}): ToolDefiniti
             event: z.string().describe(
                 'Event type / workflow trigger name (e.g. "employee.onboarded", "invoice.approved")',
             ),
-            payload: z.record(z.unknown()).describe(
+            payload: z.record(z.string(), z.unknown()).describe(
                 'Arbitrary data forwarded to n8n as the request body alongside the event and correlationId',
             ),
             correlation_id: z.string().optional().describe(

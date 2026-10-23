@@ -34,6 +34,62 @@ export interface AgentInfo {
     version:      string;
     description:  string;
     capabilities: CapabilityDefinition[];
+    /** Minor revision of protocol v1 the server speaks. Absent on servers older than 1.1. */
+    protocolMinor?: number;
+    /** Declared limits (e.g. `maxConcurrent`, `budgetUsdPerDay`) so a supervisor can plan around them. */
+    limits?:      Record<string, number>;
+    /** Flows this agent hosts and can be asked to run, by name. */
+    flows?:       FlowDescriptor[];
+    /** Control actions this server accepts (only when control is enabled). */
+    control?:     ControlAction[];
+}
+
+export interface FlowDescriptor {
+    name:         string;
+    description?: string;
+    steps?:       string[];
+}
+
+// ── Control (protocol 1.1) ────────────────────────────────────────────────────
+
+/** Minor revision of protocol v1 implemented here. 1.1 adds the control surface; everything in 1.0 is unchanged. */
+export const PROTOCOL_MINOR = 1 as const;
+
+export const CONTROL_ACTIONS = [
+    'pause', 'resume', 'drain', 'set_budget',
+    'get_sandbox_policy', 'set_sandbox_policy',
+    'list_jobs', 'cancel_job',
+] as const;
+export type ControlAction = typeof CONTROL_ACTIONS[number];
+
+export interface ControlRequest {
+    action:  ControlAction;
+    params?: Record<string, unknown>;
+}
+
+/** One run, active or recent. */
+export interface RunSummary {
+    runId:       string;
+    capability?: string;
+    status:      TaskStatus;
+    startedAt:   string;
+    finishedAt?: string;
+}
+
+/** One line of an agent's audit trail (sandbox and engine decisions). Extra fields are allowed. */
+export interface AuditEntry {
+    ts:        string;
+    agentId?:  string;
+    tool?:     string;
+    outcome?:  string;
+    detail?:   string;
+    [key: string]: unknown;
+}
+
+export interface AuditQuery {
+    /** ISO timestamp: only entries at or after it. */
+    since?: string;
+    limit?: number;
 }
 
 // ── Task ──────────────────────────────────────────────────────────────────────
@@ -42,6 +98,7 @@ export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface TaskRecord {
     taskId:      string;
+    capability?: string;
     status:      TaskStatus;
     output?:     unknown;
     error?:      string;
@@ -74,7 +131,13 @@ export type ErrorCode =
     | 'TASK_NOT_FOUND'
     | 'EXECUTION_FAILED'
     | 'AGENT_UNAVAILABLE'
-    | 'TIMEOUT';
+    | 'TIMEOUT'
+    // protocol 1.1 (control)
+    /** The server has no control handler, or the handler does not support this action. */
+    | 'CONTROL_UNSUPPORTED'
+    /** A requested execution policy is wider than the one in force; widening needs approval. */
+    | 'POLICY_WIDER_THAN_PARENT'
+    | 'APPROVAL_REQUIRED';
 
 export interface ProtocolError {
     code:     ErrorCode;

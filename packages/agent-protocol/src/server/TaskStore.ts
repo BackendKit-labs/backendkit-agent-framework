@@ -3,11 +3,12 @@ import type { TaskRecord, TaskStatus } from '../types';
 export class TaskStore {
     private readonly tasks = new Map<string, TaskRecord>();
 
-    create(taskId: string): TaskRecord {
+    create(taskId: string, capability?: string): TaskRecord {
         const task: TaskRecord = {
             taskId,
             status:    'pending',
             startedAt: new Date().toISOString(),
+            ...(capability ? { capability } : {}),
         };
         this.tasks.set(taskId, task);
         return task;
@@ -15,6 +16,10 @@ export class TaskStore {
 
     get(taskId: string): TaskRecord | undefined {
         return this.tasks.get(taskId);
+    }
+
+    list(): TaskRecord[] {
+        return [...this.tasks.values()];
     }
 
     setRunning(taskId: string): void {

@@ -50,7 +50,7 @@ describe('generateObject', () => {
         const second = calls[1].messages;
         expect(second.slice(-2).map(m => m.role)).toEqual(['assistant', 'user']);
         expect(second[second.length - 2].content).toBe('{"title":"a","score":"high"}');
-        expect(second[second.length - 1].content).toContain('score: Expected number');
+        expect(second[second.length - 1].content).toContain('score: Invalid input: expected number');
     });
 
     it('retries on text that is not JSON', async () => {

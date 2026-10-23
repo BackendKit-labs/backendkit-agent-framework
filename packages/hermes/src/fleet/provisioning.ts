@@ -18,7 +18,7 @@ export const blueprintSchema = z.object({
     template: z.string().min(1),
     tools: z.array(z.string().min(1)),
     /** The execution policy of the instance: a sandbox policy config. Must be as strict as the creator's. */
-    sandbox: z.record(z.unknown()),
+    sandbox: z.record(z.string(), z.unknown()),
     limits: z.object({
         budgetUsdPerDay: z.number().positive().optional(),
         /** The instance is retired after this long. Fractions allowed. */
@@ -38,7 +38,7 @@ export type Blueprint = z.infer<typeof blueprintSchema>;
 
 /** What Hermes itself may hand out. A blueprint can never exceed it. It lives only in the operator's file. */
 export const creatorSchema = z.object({
-    sandbox: z.record(z.unknown()),
+    sandbox: z.record(z.string(), z.unknown()),
     /** Tools Hermes may give to an instance. A blueprint's `tools` must be inside this list. */
     tools: z.array(z.string()),
     budgetUsdPerDay: z.number().positive().optional(),

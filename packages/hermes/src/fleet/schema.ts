@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { blueprintSchema, checkBlueprint, provisioningSchema } from './provisioning';
 
 /** Credentials are never written in the file: they are references resolved when used, so a rotated key applies without a restart. */
-const secretRef = z.object({ env: z.string().min(1) }, { invalid_type_error: 'use { env: NAME }: credentials are references, never written in the file' }).strict();
+const secretRef = z.object({ env: z.string().min(1) }, { error: 'use { env: NAME }: credentials are references, never written in the file' }).strict();
 
 const approval = z.enum(['never', 'ask', 'always']);
 
@@ -54,7 +54,7 @@ const pluginEntry = z.object({
         blueprints: z.boolean().optional(),
         rules: z.boolean().optional(),
     }).strict().optional(),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 const agent = z.object({
@@ -79,7 +79,7 @@ const agent = z.object({
         /** Who may change the agent's execution (policy, jobs). Absent: nobody, only reading. */
         controlRoles: roles.optional(),
         approval: approval.optional(),
-        capabilities: z.record(capabilityAccess).optional(),
+        capabilities: z.record(z.string(), capabilityAccess).optional(),
     }).strict().optional(),
 }).strict();
 

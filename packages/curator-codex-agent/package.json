@@ -36,9 +36,9 @@
     "@backendkit-labs/agent-enterprise": "^0.7.0",
     "@backendkit-labs/infra": "^0.1.0",
     "@anthropic-ai/sdk": "^0.55.0",
-    "openai": "^4.0.0",
+    "openai": "^6.0.0",
     "pdf-parse": "^2.4.5",
-    "zod": "^3.25.0",
+    "zod": "^4.6.6",
     "@huggingface/transformers": "^4.3.1"
   },
   "devDependencies": {

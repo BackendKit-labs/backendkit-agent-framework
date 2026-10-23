@@ -83,6 +83,8 @@ export class Hermes {
     private readonly shutdown = new AbortController();
 
     constructor(private readonly options: HermesOptions) {
+        // A preset adds agents and blueprints that must be checked against the operator's limits: only createHermes does that.
+        if (options.fleet.presets?.length) throw new Error('the fleet lists presets: build it with createHermes (or applyPreset), which merges and checks them');
         this.store = options.store ?? new JsonRunStore(options.storeFile);
         this.audit = new AuditLog(options.auditLog, options.onAudit);
         this.guardrails = options.guardrails ?? defaultResultGuardrails();

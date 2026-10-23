@@ -174,6 +174,27 @@ Plugins can also be given as objects from code (`plugins: [{ plugin, grant, opti
 - **Audited.** Every tool, connector, blueprint, listener and rule a plugin brings is recorded with its `name@version`; `hermes.pluginReport()` tells what became of each plugin.
 - Plugin tools reach the model through `createFleetTools` once `hermes.start()` has loaded the plugins. Events plugins can listen to: `fleet.gap`, `fleet.agent.created`, `fleet.agent.retired`, `fleet.agent.state`, `fleet.blueprint.*`, `run.done`.
 
+## Presets
+
+A **preset** is a starting point for a kind of company or team, as content: agents, blueprints, plugins to load, and the code of its in-process agents (which is where its flows live). Hermes knows no domain; a domain arrives as a preset — from the operator, from a third party (`hermes-preset-*`), or from the neutral reference in this package.
+
+```yaml
+presets:
+  - module: hermes-preset-acme-support      # or a path; CommonJS
+    roleMap: { agent: [support-team] }       # the preset's role names → this company's
+    grants: { ./notify.js: { tools: [notify_send] } }   # the preset's plugins, granted here
+```
+
+```ts
+const { hermes, tools } = createHermes({ fleet: readFileSync('fleet.yaml', 'utf8'), presets: [{ preset: pipelinePreset(), roleMap: { 'pipeline-user': ['staff'] } }] });
+```
+
+- **A preset brings content; the operator keeps the limits.** A preset cannot set `policies`, what Hermes may hand out, who approves drafts or an approval default, and cannot grant its own plugins anything (the operator does, in `grants`). Its agents are in-process (or of a kind its plugins provide) — never `protocol`: a preset cannot point Hermes at an address or a key. The merged fleet is validated again, so a preset blueprint wider than the operator's ceiling is refused with the preset's name.
+- **Approval is never looser than the operator's default**: a preset agent that says `never` where the operator's default is `ask` is raised to `ask`, and `createHermes(...).notes` says so.
+- **Roles** are the preset's own words; `roleMap` turns them into the company's. A principal with none of them sees none of the preset's agents.
+- `bk-hermes validate` checks the fleet as it will be once presets are merged.
+- `pipelinePreset()` is the neutral reference: ingest → process → review → deliver as four agents plus a `pipeline` agent hosting the flow `run-pipeline`. Replace the stage handlers (`pipelinePreset({ ...defaultStages(), process })`) to make it do something real. Presets of real domains (accounting, support, devops…) belong in their own packages; the tests carry two throwaway ones to prove the same mechanism loads both, with a test that keeps domain words out of the core.
+
 ## Connectors
 
 - `ProtocolConnector`: an agent served by `AgentServer` (agent-protocol).

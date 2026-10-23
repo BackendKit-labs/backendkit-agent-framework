@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { FleetConfigError, parseFleet } from '../fleet/schema';
 import { FleetRegistry } from '../fleet/FleetRegistry';
+import { applyPreset, loadPresetModule, PresetError } from '../presets/applyPreset';
 
 const USAGE = `bk-hermes — control plane for a fleet of agents
 
@@ -23,7 +25,20 @@ function load(file: string | undefined) {
 async function main(argv: string[]): Promise<void> {
     const [command, file] = argv;
     if (command === 'validate') {
-        const fleet = load(file);
+        let fleet = load(file);
+        // presets are part of what the file means: check the fleet as it will be once they are merged
+        const baseDir = dirname(resolve(file!));
+        for (const entry of fleet.presets ?? []) {
+            try {
+                const { presets: _presets, ...rest } = fleet;
+                const applied = applyPreset(rest as typeof fleet, loadPresetModule(entry.module, baseDir, entry.options), { ...(entry.grants ? { grants: entry.grants as never } : {}), ...(entry.roleMap ? { roleMap: entry.roleMap } : {}) });
+                fleet = { ...applied.fleet, presets: fleet.presets };
+                for (const note of applied.notes) console.log(`note: ${note}`);
+            } catch (err) {
+                console.error(err instanceof PresetError ? err.message : `Preset "${entry.module}": ${(err as Error).message}`);
+                process.exit(1);
+            }
+        }
         console.log(`ok: fleet "${fleet.fleet}", ${fleet.agents.length} agent(s)`);
     } else if (command === 'fleet') {
         const fleet = load(file);

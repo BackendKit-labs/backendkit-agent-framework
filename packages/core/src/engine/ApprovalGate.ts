@@ -1,5 +1,6 @@
 import type { Transport } from '../transport/Transport';
 import type { ToolApprovalDecision } from '../types';
+import { requiresInstallApproval } from './package-install';
 
 export interface ApprovalGateOptions {
     onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<ToolApprovalDecision>;
@@ -10,20 +11,6 @@ export class ApprovalGate {
     private disabled = false;
 
     private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
-
-    /**
-     * Commands that always require user approval regardless of iteration mode or
-     * disabled flag. These are irreversible or high-blast-radius operations:
-     * installing new packages, removing packages, running destructive npm scripts.
-     */
-    private static readonly ALWAYS_ASK_PATTERNS: RegExp[] = [
-        /^\s*npm\s+(install|i|add)\s+[^-]/i,
-        /^\s*npm\s+uninstall\b/i,
-        /^\s*yarn\s+add\s+[^-]/i,
-        /^\s*pnpm\s+add\s+[^-]/i,
-        /^\s*pip\s+install\b/i,
-        /^\s*pip3\s+install\b/i,
-    ];
 
     constructor(private readonly opts: ApprovalGateOptions) {}
 
@@ -84,7 +71,9 @@ export class ApprovalGate {
         try {
             const { command } = JSON.parse(call.args) as { command?: string };
             if (!command) return false;
-            return ApprovalGate.ALWAYS_ASK_PATTERNS.some(re => re.test(command));
+            // Installing or removing packages always asks, regardless of iteration mode or the disabled flag: it
+            // runs third-party code. Judged on what each shell segment runs, not on how the line starts.
+            return requiresInstallApproval(command);
         } catch {
             return false;
         }

@@ -4,7 +4,8 @@
  * ComSpec and PATHEXT, and most tools need PATH/HOME-like variables).
  */
 
-const DEFAULT_DENY = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL/i;
+// `PAT` only as a whole word (GH_PAT, GITHUB_PAT): a bare /PAT/ would also drop PATH and PATHEXT.
+const DEFAULT_DENY = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|(?:^|_)PAT(?:_|$)/i;
 
 export interface EnvPolicy {
     /** Names (exact, or with `*` as wildcard) that are passed even if they look like credentials, e.g. `GH_TOKEN`. */

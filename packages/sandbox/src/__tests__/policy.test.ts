@@ -14,6 +14,11 @@ describe('scrubEnv', () => {
         expect(Object.keys(scrubEnv(env)).sort()).toEqual(['ComSpec', 'HOME', 'PATH', 'PATHEXT', 'SystemRoot']);
     });
 
+    it('drops personal access tokens named PAT, but not PATH or PATHEXT', () => {
+        const out = scrubEnv({ GH_PAT: 'a', GITHUB_PAT: 'b', PAT: 'c', NPM_PAT_READ: 'd', PATH: '/bin', PATHEXT: '.EXE', PATTERN: 'x' });
+        expect(Object.keys(out).sort()).toEqual(['PATH', 'PATHEXT', 'PATTERN']);
+    });
+
     it('allow wins over the default patterns, with exact names or wildcards', () => {
         const out = scrubEnv(env, { allow: ['GITHUB_TOKEN', 'deepseek_*'] });
         expect(out.GITHUB_TOKEN).toBe('t');

@@ -29,6 +29,7 @@ import { VaultWriter }                            from '@backendkit-labs/agent-e
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
 import { isBearerAuthorized }                     from './auth.js';
 import { resolveHttpBinding }                     from './http-binding.js';
+import { claimRun, withRunClaim }                 from './gate-claims.js';
 import { TaskPlanner }                            from './planner.js';
 import { PlanExecutor, executeSubtask, type ExecutionResult, type ActiveRule, ruleToGateCriteria } from './executor.js';
 import { OpenAICompatibleProvider, callLLM }      from './provider.js';
@@ -525,7 +526,10 @@ srv.tool(
         approved:    z.boolean().describe('true to approve and continue, false to reject and stop'),
         notes:       z.string().optional().describe('Optional notes from the approver (required when rejecting)'),
     },
-    async ({ config_path, run_id, approved, notes }) => {
+    async ({ config_path, run_id, approved, notes }) => withRunClaim(
+      run_id,
+      () => ok(`Run \`${run_id}\` is already being approved or rejected by another call. Poll with \`orchestrator_status\`.`),
+      async () => {
         let config: OrchestratorConfig;
         try {
             config = loadConfig(config_path);
@@ -604,7 +608,8 @@ srv.tool(
             '',
             `Poll with \`orchestrator_status\` to see progress.`,
         ].filter(Boolean).join('\n'));
-    },
+      },
+    ),
 );
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1125,11 @@ async function startHttpServer(
 
                 if (!runId) { reply(res, 400, { error: 'run_id is required' }); return; }
 
+                // one decision at a time per run: an overlapping approval would resume the plan twice
+                const releaseClaim = claimRun(runId);
+                if (!releaseClaim) { reply(res, 409, { error: `Run ${runId} is already being approved or rejected` }); return; }
+                try {
+
                 let config: OrchestratorConfig;
                 try { config = loadConfig(configPath); }
                 catch (err) { reply(res, 500, { error: `Config error: ${err instanceof Error ? err.message : String(err)}` }); return; }
@@ -1168,6 +1178,9 @@ async function startHttpServer(
 
                 reply(res, 200, { runId, status: 'running', stepId: gate.stepId });
                 return;
+                } finally {
+                    releaseClaim();
+                }
             }
 
             reply(res, 404, {

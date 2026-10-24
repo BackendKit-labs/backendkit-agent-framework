@@ -118,6 +118,7 @@ services:
     environment:
       ORCHESTRATOR_CONFIG: /app/orchestrator.yaml
       ORCHESTRATOR_HTTP_PORT: 3000
+      ORCHESTRATOR_HTTP_HOST: 0.0.0.0   # published port needs a non-loopback bind, which requires the API key
       ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
       ORCHESTRATOR_REDIS_URL: redis://redis:6379
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}

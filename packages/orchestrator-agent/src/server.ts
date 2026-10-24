@@ -28,6 +28,7 @@ import { Redis as IORedis } from 'ioredis';
 import { VaultWriter }                            from '@backendkit-labs/agent-enterprise';
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
 import { isBearerAuthorized }                     from './auth.js';
+import { resolveHttpBinding }                     from './http-binding.js';
 import { TaskPlanner }                            from './planner.js';
 import { PlanExecutor, executeSubtask, type ExecutionResult, type ActiveRule, ruleToGateCriteria } from './executor.js';
 import { OpenAICompatibleProvider, callLLM }      from './provider.js';
@@ -1015,6 +1016,7 @@ srv.tool(
 
 async function startHttpServer(
     port:       number,
+    host:       string,
     configPath: string,
     apiKey:     string | undefined,
 ): Promise<http.Server> {
@@ -1179,7 +1181,7 @@ async function startHttpServer(
         }
     });
 
-    await new Promise<void>(resolve => server.listen(port, resolve));
+    await new Promise<void>(resolve => server.listen(port, host, resolve));
     return server;
 }
 
@@ -1192,14 +1194,17 @@ async function main() {
 
     if (httpPort && httpConfig) {
         const port = parseInt(httpPort, 10);
+        const binding = resolveHttpBinding(process.env);
         if (isNaN(port)) {
             process.stderr.write(`[orchestrator-agent] Invalid ORCHESTRATOR_HTTP_PORT: ${httpPort}\n`);
+        } else if (!binding.ok) {
+            process.stderr.write(`[orchestrator-agent] HTTP trigger NOT started: ${binding.error}\n`);
         } else {
-            await startHttpServer(port, path.resolve(httpConfig), httpApiKey);
+            await startHttpServer(port, binding.host, path.resolve(httpConfig), httpApiKey);
             process.stderr.write(
-                `[orchestrator-agent] HTTP trigger on :${port}` +
+                `[orchestrator-agent] HTTP trigger on ${binding.host}:${port}` +
                 ` — config: ${httpConfig}` +
-                (httpApiKey ? ' — auth: Bearer ***' : ' — WARNING: no API key set, all requests accepted') +
+                (httpApiKey ? ' — auth: Bearer ***' : ' — no API key set: loopback only') +
                 '\n',
             );
         }

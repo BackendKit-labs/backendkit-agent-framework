@@ -17,6 +17,7 @@ import { CodeIndexer } from './indexer/indexer.js';
 import { FileWatcher } from './indexer/watcher.js';
 import { detectStackFromGraph } from './indexer/stack-detector.js';
 import { registerPlatformResources } from './resources/platform-resources.js';
+import { extraIndexRoots, isLoopbackRequest, resolveInside } from './request-guards.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
@@ -214,7 +215,14 @@ t(
         cwd: z.string().optional().describe('Directory to index (defaults to server cwd)'),
     },
     async ({ cwd }: { cwd?: string }) => {
-        const dir = cwd ?? CWD;
+        // the client picks the directory, and what gets indexed can be read back with code_context:
+        // it must stay inside the working directory (or BK_INDEX_ROOTS)
+        let dir: string;
+        try {
+            dir = cwd ? await resolveInside([CWD, ...extraIndexRoots()], cwd) : CWD;
+        } catch (err) {
+            return { isError: true, content: [{ type: 'text', text: `Error: ${(err as Error).message}` }] };
+        }
         const result = await indexer.indexDirectory(dir);
         const stats = store.stats();
         return {
@@ -277,6 +285,13 @@ async function startHttp() {
     }
 
     const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+        // bound to 127.0.0.1, yet reachable from a web page in the user's browser (DNS rebinding / cross-site POST)
+        if (!isLoopbackRequest(req.headers.host, req.headers.origin)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden host or origin' }));
+            return;
+        }
+
         if (req.url !== MCP_PATH) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: `Use POST/GET ${MCP_PATH}` }));

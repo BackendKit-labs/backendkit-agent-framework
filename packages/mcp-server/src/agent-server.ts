@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { CallbackTransport, type AgentEngine } from '@backendkit-labs/agent-core';
+import { isLoopbackRequest } from './request-guards.js';
 
 type ZodRawShape = Record<string, z.ZodTypeAny>;
 
@@ -117,7 +118,16 @@ export class AgentMCPServer {
             );
         }
 
+        const loopbackBind = ['127.0.0.1', 'localhost', '::1'].includes(host);
+
         this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+            // bound to loopback, yet reachable from a web page in the user's browser (DNS rebinding / cross-site POST).
+            // Only when bound to loopback: on another address the Host is legitimately not loopback (and a token is required).
+            if (loopbackBind && !isLoopbackRequest(req.headers.host, req.headers.origin)) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Forbidden host or origin' }));
+                return;
+            }
             if (token && !isAuthorized(req.headers.authorization, token)) {
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Unauthorized' }));

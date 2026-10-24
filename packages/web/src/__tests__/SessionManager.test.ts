@@ -124,7 +124,15 @@ describe('SessionManager', () => {
             const monitorBus = makeMonitorBus();
             const mgr        = new SessionManager({ engineFactory, monitorBus });
             const session    = mgr.create(makeSocket());
-            expect(monitorBus.notifySessionOpen).toHaveBeenCalledWith(session.id);
+            expect(monitorBus.notifySessionOpen).toHaveBeenCalledWith(session.id, undefined);
+            mgr.close();
+        });
+
+        it('tells the monitorBus who owns the session, so observers can be scoped to their user', () => {
+            const monitorBus = makeMonitorBus();
+            const mgr        = new SessionManager({ engineFactory, monitorBus });
+            const session    = mgr.create(makeSocket(), 'alice');
+            expect(monitorBus.notifySessionOpen).toHaveBeenCalledWith(session.id, 'alice');
             mgr.close();
         });
 

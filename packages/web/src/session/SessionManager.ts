@@ -88,7 +88,7 @@ export class SessionManager {
         };
 
         this.sessions.set(id, session);
-        this.monitorBus?.notifySessionOpen(id);
+        this.monitorBus?.notifySessionOpen(id, userId);
         this.metrics?.sessionOpened();
         this.store?.set(id, {
             id,

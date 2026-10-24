@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import type { SessionManager } from '../session/SessionManager';
 import type { MonitorBus } from '../monitor/MonitorBus';
 import type { MetricsCollector } from '../metrics/MetricsCollector';
+import { inScope, sessionScope } from '../auth/scope';
 
 export function registerRoutes(
     app: FastifyInstance,
@@ -10,6 +11,7 @@ export function registerRoutes(
     monitorBus?: MonitorBus,
     metrics?: MetricsCollector,
     metricsPath?: string,
+    adminRole = 'admin',
 ): void {
 
     // ── Health ────────────────────────────────────────────────────────────────
@@ -31,11 +33,18 @@ export function registerRoutes(
 
     // ── Sessions ─────────────────────────────────────────────────────────────
 
-    app.get('/sessions', async () => ({ sessions: sessions.list() }));
+    // With a user in play, a request sees and ends its own sessions only; `adminRole` sees all of them.
+    app.get('/sessions', async (req) => {
+        const scope = sessionScope(req.user, adminRole);
+        return { sessions: sessions.list().filter(s => inScope(scope, s.userId)) };
+    });
 
     app.delete<{ Params: { id: string } }>('/sessions/:id', async (req, reply) => {
-        const session = sessions.get(req.params.id);
-        if (!session) return reply.code(404).send({ error: 'Session not found' });
+        const scope = sessionScope(req.user, adminRole);
+        // list() does not touch the session; get() would reset its idle timer for someone who does not own it
+        const visible = sessions.list().find(s => s.id === req.params.id && inScope(scope, s.userId));
+        // 404, not 403: another user's session id must not be confirmed to exist
+        if (!visible) return reply.code(404).send({ error: 'Session not found' });
         sessions.destroy(req.params.id);
         return { ok: true };
     });
@@ -103,8 +112,9 @@ export function registerRoutes(
     //   { sessionId, ...AgentEvent }
     if (monitorBus) {
         const bus = monitorBus;
-        app.get('/monitor', { websocket: true }, (socket: WebSocket, _req) => {
-            bus.subscribe(socket);
+        app.get('/monitor', { websocket: true }, (socket: WebSocket, req) => {
+            // an observer sees the sessions of its own user only, unless it holds adminRole (or there is no auth)
+            bus.subscribe(socket, sessionScope(req.user, adminRole));
         });
     }
 }

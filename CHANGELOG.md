@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.33.1 (2026-10-24)
+
+Auditoría de seguridad y robustez en cuatro lotes (#93, #94, #95, #96): 21 arreglos verificados contra el código, cada uno con sus tests. Rangos sin barrido: los parches caben en los `^` existentes; solo se actualizan los de plantillas (`orchestrator-agent ^0.6.0`), los de `create-bk-agent` (`mcp-server ^0.18.0`, `agent-web ^0.5.0`) y el peer de `hermes` sobre `agent-protocol` (`>=0.3.0 <0.5.0`).
+
+| Paquete | Versión |
+|---|---|
+| `agent-core` | 0.33.1 |
+| `agent-sandbox` | 0.1.4 |
+| `agent-protocol` | 0.4.0 |
+| `hermes` | 0.2.1 |
+| `agent-coding` | 0.27.3 |
+| `agent-enterprise` | 0.8.1 |
+| `orchestrator-agent` | 0.6.0 |
+| `curator-codex-agent` | 1.1.1 |
+| `mcp-connectors` | 0.2.1 |
+| `mcp-server` | 0.18.0 |
+| `agent-web` | 0.5.0 |
+| `create-bk-agent` | 0.23.1 |
+
+`agent-providers`, `agent-otel`, `agent-testkit` y `aval-tools` no cambian.
+
+**Orden de publicación (obligatorio):** core → sandbox → **agent-protocol** → **hermes** → coding → enterprise → orchestrator-agent → (curator-codex-agent, mcp-connectors, web, mcp-server) → create-bk-agent.
+`hermes` 0.2.1 acepta `agent-protocol` 0.3 y 0.4 como peer; publicarlo antes que `agent-protocol` 0.4.0 no rompe nada, pero el orden evita instalaciones a medias.
+
+### Cambios de comportamiento (léelos antes de actualizar)
+- **orchestrator-agent 0.6.0:** el trigger HTTP escucha en `127.0.0.1` por defecto. Para exponerlo (un contenedor, la red) hace falta `ORCHESTRATOR_HTTP_HOST` **y** `ORCHESTRATOR_API_KEY`; un host no loopback sin clave no arranca el trigger. Los ejemplos de docker-compose de `docs/` ya lo incluyen. Además: `callLLM` tiene timeout (300 s, `ORCHESTRATOR_LLM_TIMEOUT_MS`) y la espera de subtareas vence a los 15 min (`ORCHESTRATOR_SUBTASK_TIMEOUT_MS`); dos aprobaciones solapadas del mismo gate ya no reanudan el plan dos veces (la segunda recibe 409).
+- **agent-protocol 0.4.0:** `AgentClient.run()` y `runAndWait()` ya no repiten una capability tras un 5xx, un timeout o un corte (podía ejecutarse dos veces: un pago, un email). Solo reintentan un 429. `RunOptions.idempotent: true` recupera los reintentos para capabilities de solo lectura.
+- **mcp-server 0.18.0:** el HTTP rechaza con 403 un `Host` u `Origin` no loopback (DNS rebinding). `resource-auth` deniega cuando ABAC no puede decidir (sin token, o `abac-service` caído); `BK_ABAC_FAIL_OPEN=1` lo permite en desarrollo. `code_index` solo acepta directorios dentro de `BK_CWD` o de `BK_INDEX_ROOTS`.
+- **agent-web 0.5.0:** con un hook de auth que fija `req.user` (JwtAuth lo hace), `/sessions`, `DELETE /sessions/:id` y `/monitor` muestran a cada usuario solo sus sesiones; un token con el rol `admin` (`adminRole`) ve todas. Sin auth, nada cambia. CORS con varios orígenes devuelve el `Origin` de la petición en lugar de la lista unida.
+- **mcp-connectors 0.2.1:** `fetchJson` no reintenta POST/PATCH ante un 5xx, un timeout o un corte (solo un 429). Las lecturas hechas con POST (Odoo `search`/`read`, HubSpot `/search`, Calendar `freeBusy`) lo declaran y siguen reintentando.
+- **agent-core 0.33.1:** `ApprovalGate` juzga cada segmento del comando, no cómo empieza la línea: tras "approve all", instalar paquetes con `cd x && npm i y`, `sudo`, `-D`, `bash -c` o `python -m pip` vuelve a pedir aprobación. Skills y packs rechazan nombres con separadores, `:`, NUL, `.` o `..`.
+
+### Arreglos
+- **agent-coding 0.27.3:** `edit_file` ya no expande `$&`, `$1` ni `$$` en el texto nuevo (corrompía el archivo en silencio).
+- **agent-core 0.33.1:** `FailureCatalog` no queda envenenado tras un fallo de escritura (perdía registros en silencio).
+- **agent-sandbox 0.1.4:** `scrubEnv` también descarta variables `PAT` (`GH_PAT`, `GITHUB_PAT`) sin tocar `PATH` ni `PATHEXT`.
+- **agent-enterprise 0.8.1:** `VectorStore` escribe de forma atómica; el frontmatter de `VaultWriter` escapa comillas y saltos de línea; el registro de `ComplianceGate` no puede salir de la bóveda con un `flowId` o `runId` como `../x`, y `VaultWriter` rechaza un `agentFolder` que resuelva fuera de ella.
+- **orchestrator-agent 0.6.0:** `RunStore` escribe de forma atómica.
+- **curator-codex-agent 1.1.1:** los adaptadores de LLM declaran su timeout (300 s, `timeoutMs`) en lugar de depender del default del SDK.
+
+### Pendiente (decisiones de diseño, fuera de esta versión)
+Autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, `AgentServer` escuchando en `0.0.0.0`, `WebhookServer` con `secret` opcional.
+
 ## v0.33.0 (2026-10-23)
 
 Migración a **zod 4** y a **openai 6**, y cierre de SPEC-0008 P4–P6 (control desde Hermes, aprovisionamiento, flows de otros agentes, plugins y presets). La migración cierra GHSA-mrhx-c7xc-m3w5 (`zod <4.6.6`), cuyo único parche es zod 4.6.6 (#90).

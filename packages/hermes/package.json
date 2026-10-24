@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/hermes",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Control plane for a fleet of agents: a validated fleet.yaml, connectors (in-process, agent-protocol), run store with reconciliation, roles and approval, and the fleet_* / agent_* tools for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,7 +31,7 @@
   "peerDependencies": {
     "@backendkit-labs/agent-core": ">=0.33.0 <0.35.0",
     "@backendkit-labs/agent-sandbox": "^0.1.2",
-    "@backendkit-labs/agent-protocol": "^0.3.0"
+    "@backendkit-labs/agent-protocol": ">=0.3.0 <0.5.0"
   },
   "devDependencies": {
     "@backendkit-labs/agent-sandbox": "^0.1.2",

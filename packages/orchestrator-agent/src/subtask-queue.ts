@@ -9,6 +9,14 @@ export interface SubtaskJobData {
     configPath:   string;
 }
 
+/** How long the executor waits for a worker to finish one subtask. ORCHESTRATOR_SUBTASK_TIMEOUT_MS overrides it. */
+export const DEFAULT_SUBTASK_TIMEOUT_MS = 900_000;
+
+export function subtaskTimeoutMs(env: Record<string, string | undefined> = process.env): number {
+    const parsed = Number(env['ORCHESTRATOR_SUBTASK_TIMEOUT_MS']);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SUBTASK_TIMEOUT_MS;
+}
+
 export class SubtaskQueue {
     private readonly connection: IORedis;
     private readonly queues     = new Map<string, Queue<SubtaskJobData, ExecutionResult>>();
@@ -42,7 +50,9 @@ export class SubtaskQueue {
             removeOnComplete: 100,
             removeOnFail:     50,
         });
-        return job.waitUntilFinished(events) as Promise<ExecutionResult>;
+        // Without a ttl this waits for the worker's completion event forever: a worker that dies mid-job would hang
+        // the executor with it. On expiry it rejects, and the run reports the step as failed.
+        return job.waitUntilFinished(events, subtaskTimeoutMs()) as Promise<ExecutionResult>;
     }
 
     async close(): Promise<void> {

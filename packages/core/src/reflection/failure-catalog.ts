@@ -87,23 +87,32 @@ export class FailureCatalog {
    * @returns El registro agregado (con ID generado si no tenía)
    */
   async addRecord(record: FailureRecord): Promise<FailureRecord> {
-    this.writeQueue = this.writeQueue.then(async () => {
+    await this.enqueue(async () => {
       await this.ensureLoaded();
       this.records.push(record);
       await this.save();
     });
-    await this.writeQueue;
     return record;
   }
 
   async addRecords(records: FailureRecord[]): Promise<FailureRecord[]> {
-    this.writeQueue = this.writeQueue.then(async () => {
+    await this.enqueue(async () => {
       await this.ensureLoaded();
       this.records.push(...records);
       await this.save();
     });
-    await this.writeQueue;
     return records;
+  }
+
+  /**
+   * Runs a mutation after the ones queued before it. The caller sees its own failure, but a failed write does not
+   * poison the queue: chaining on the raw task promise would leave it rejected for good, and every later write
+   * would skip its callback and rethrow the first error, losing records silently.
+   */
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(task);
+    this.writeQueue = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   /**
@@ -119,13 +128,15 @@ export class FailureCatalog {
    * @returns true si se actualizó, false si no se encontró
    */
   async updateRecord(id: string, updates: Partial<FailureRecord>): Promise<boolean> {
-    await this.ensureLoaded();
-    const index = this.records.findIndex(r => r.id === id);
-    if (index === -1) return false;
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      const index = this.records.findIndex(r => r.id === id);
+      if (index === -1) return false;
 
-    this.records[index] = { ...this.records[index], ...updates };
-    await this.save();
-    return true;
+      this.records[index] = { ...this.records[index], ...updates };
+      await this.save();
+      return true;
+    });
   }
 
   /**
@@ -157,13 +168,15 @@ export class FailureCatalog {
    * @description Elimina un registro por su ID.
    */
   async deleteRecord(id: string): Promise<boolean> {
-    await this.ensureLoaded();
-    const index = this.records.findIndex(r => r.id === id);
-    if (index === -1) return false;
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      const index = this.records.findIndex(r => r.id === id);
+      if (index === -1) return false;
 
-    this.records.splice(index, 1);
-    await this.save();
-    return true;
+      this.records.splice(index, 1);
+      await this.save();
+      return true;
+    });
   }
 
   // ── Consultas ──────────────────────────────────────────────────────────────

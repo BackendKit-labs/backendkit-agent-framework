@@ -68,6 +68,18 @@ export interface ComplianceGateOptions {
     evidenceMode: 'required' | 'optional';
 }
 
+// ── Paths ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A flow id or run id as one directory name. Both come from outside (a flow definition, the caller of the runner),
+ * and the audit trail must land under `auditoria/` whatever they say: separators and drive colons become `_`,
+ * and `.` / `..` / empty become `_`.
+ */
+function dirSegment(id: string): string {
+    const segment = id.replace(/[\\/:\u0000]/g, '_').trim();
+    return segment === '' || segment === '.' || segment === '..' ? '_' : segment;
+}
+
 // ── Error ─────────────────────────────────────────────────────────────────────
 
 export class ComplianceGateError extends Error {
@@ -237,7 +249,7 @@ export class ComplianceGate {
 
         const writer = new VaultWriter({
             vaultPath,
-            agentFolder: path.join('auditoria', record.flowId, record.runId),
+            agentFolder: path.join('auditoria', dirSegment(record.flowId), dirSegment(record.runId)),
         });
 
         return writer.writeNote({

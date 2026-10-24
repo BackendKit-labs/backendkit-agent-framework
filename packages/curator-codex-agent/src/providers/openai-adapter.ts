@@ -1,11 +1,13 @@
 import OpenAI from 'openai';
-import type { CuratorLLMProvider, CompleteOptions } from './types.js';
+import { DEFAULT_COMPLETION_TIMEOUT_MS, type CuratorLLMProvider, type CompleteOptions } from './types.js';
 
 export interface OpenAIAdapterOptions {
     apiKey: string;
     model: string;
     baseUrl?: string;
     maxTokens?: number;
+    /** Per-request timeout in ms. Default: {@link DEFAULT_COMPLETION_TIMEOUT_MS}. */
+    timeoutMs?: number;
 }
 
 export class OpenAIAdapter implements CuratorLLMProvider {
@@ -18,6 +20,7 @@ export class OpenAIAdapter implements CuratorLLMProvider {
         this.client = new OpenAI({
             apiKey:  opts.apiKey,
             baseURL: opts.baseUrl ?? 'https://api.deepseek.com/v1',
+            timeout: opts.timeoutMs ?? DEFAULT_COMPLETION_TIMEOUT_MS,
         });
         this.model     = opts.model;
         this.maxTokens = opts.maxTokens ?? 16384;

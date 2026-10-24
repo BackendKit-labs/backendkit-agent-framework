@@ -14,6 +14,8 @@ export interface ProviderConfig {
     model?: string;
     baseUrl?: string;
     maxTokens?: number;
+    /** Per-request timeout in ms. Default: 300 000. */
+    timeoutMs?: number;
 }
 
 const DEFAULTS: Record<ProviderName, { model: string; baseUrl?: string }> = {
@@ -31,8 +33,8 @@ export function createProvider(cfg: ProviderConfig): CuratorLLMProvider {
     if (!cfg.apiKey) throw new Error('API key is required');
 
     if (provider === 'anthropic') {
-        return new AnthropicAdapter({ apiKey: cfg.apiKey, model, maxTokens: cfg.maxTokens });
+        return new AnthropicAdapter({ apiKey: cfg.apiKey, model, maxTokens: cfg.maxTokens, timeoutMs: cfg.timeoutMs });
     }
 
-    return new OpenAIAdapter({ apiKey: cfg.apiKey, model, baseUrl, maxTokens: cfg.maxTokens });
+    return new OpenAIAdapter({ apiKey: cfg.apiKey, model, baseUrl, maxTokens: cfg.maxTokens, timeoutMs: cfg.timeoutMs });
 }

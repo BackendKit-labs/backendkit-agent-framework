@@ -9,27 +9,36 @@ export type MonitorFrame =
     | { sessionId: string; type: 'run_input'; content: string };
 
 export class MonitorBus {
-    private monitors = new Set<WebSocket>();
-    private activeSessions = new Set<string>();
+    /** Observer -> the only user whose sessions it may see (undefined: every session). */
+    private monitors = new Map<WebSocket, string | undefined>();
+    /** Open session -> its owner (undefined when the session has none, e.g. no auth configured). */
+    private activeSessions = new Map<string, string | undefined>();
 
-    subscribe(socket: WebSocket): void {
-        this.monitors.add(socket);
+    /**
+     * @param onlyUserId When set, the observer receives frames of that user's sessions only. A session with no
+     *                   owner is visible only to an unscoped observer.
+     */
+    subscribe(socket: WebSocket, onlyUserId?: string): void {
+        this.monitors.set(socket, onlyUserId);
 
-        // Greet the new observer with currently open sessions
-        const hello: MonitorFrame = { type: 'monitor_hello', sessionIds: [...this.activeSessions] };
+        // Greet the new observer with the currently open sessions it may see
+        const hello: MonitorFrame = {
+            type: 'monitor_hello',
+            sessionIds: [...this.activeSessions].filter(([, owner]) => canSee(onlyUserId, owner)).map(([id]) => id),
+        };
         this.send(socket, hello);
 
         socket.on('close', () => this.monitors.delete(socket));
     }
 
-    notifySessionOpen(sessionId: string): void {
-        this.activeSessions.add(sessionId);
+    notifySessionOpen(sessionId: string, ownerId?: string): void {
+        this.activeSessions.set(sessionId, ownerId);
         this.fanOut({ type: 'monitor_session_open', sessionId });
     }
 
     notifySessionClose(sessionId: string): void {
-        this.activeSessions.delete(sessionId);
         this.fanOut({ type: 'monitor_session_close', sessionId });
+        this.activeSessions.delete(sessionId);
     }
 
     broadcast(sessionId: string, event: AgentEvent): void {
@@ -41,8 +50,10 @@ export class MonitorBus {
     }
 
     private fanOut(frame: MonitorFrame): void {
+        const sessionId = 'sessionId' in frame ? frame.sessionId : undefined;
         const data = JSON.stringify(frame);
-        for (const ws of this.monitors) {
+        for (const [ws, onlyUserId] of this.monitors) {
+            if (onlyUserId !== undefined && !canSee(onlyUserId, sessionId === undefined ? undefined : this.activeSessions.get(sessionId))) continue;
             if (ws.readyState === 1 /* OPEN */) {
                 try { ws.send(data); } catch { /* ignore — socket may be closing */ }
             }
@@ -58,4 +69,9 @@ export class MonitorBus {
     get size(): number {
         return this.monitors.size;
     }
+}
+
+/** An unscoped observer sees everything; a scoped one only the sessions its user owns. */
+function canSee(onlyUserId: string | undefined, ownerId: string | undefined): boolean {
+    return onlyUserId === undefined || onlyUserId === ownerId;
 }

@@ -33,6 +33,13 @@ export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics
     host?: string;
     /** Optional auth hook — called on every request before route handlers. */
     auth?: AuthHook;
+    /**
+     * With an auth hook that sets `req.user` (as JwtAuth does), `/sessions` and `/monitor` show a user only the
+     * sessions it owns, and it can end only those. A user holding this role in `roles` sees and ends all of them.
+     * Without auth, or with a hook that leaves `req.user` unset, the server is single-tenant and nothing is filtered.
+     * Default: 'admin'.
+     */
+    adminRole?: string;
     /** Fastify logger. Default: false (silent). Pass true for pretty logs in dev. */
     logger?: boolean | object;
     /** Allowed CORS origins. Default: '*'. */
@@ -148,7 +155,7 @@ export class AgentServer {
         const triggers = this.triggerBus;
         this.app.register(async (instance) => {
             await instance.register(fastifyWebSocket);
-            registerRoutes(instance, sessions, monitor, collector, metricsPath);
+            registerRoutes(instance, sessions, monitor, collector, metricsPath, opts.adminRole);
             triggers?.registerRoutes(instance);
         });
     }

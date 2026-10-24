@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { atomicWrite } from '@backendkit-labs/agent-core';
 import * as path from 'path';
 
 export interface VectorChunk {
@@ -73,7 +74,7 @@ export class VectorStore {
             embeddingModel: this.embeddingModel,
             chunks: this.chunks,
         };
-        await fs.writeFile(this.storePath, JSON.stringify(data), 'utf-8');
+        await atomicWrite(this.storePath, JSON.stringify(data));
         this.dirty = false;
     }
 

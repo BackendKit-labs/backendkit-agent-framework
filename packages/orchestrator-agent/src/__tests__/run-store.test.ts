@@ -24,6 +24,14 @@ describe('RunStore', () => {
         for (const id of ids) expect(id).toMatch(/^run-\d+-[a-z0-9]+$/);
     });
 
+    it('save leaves no temp file behind and overwrites in place', async () => {
+        const s = state();
+        await store.save(s);
+        await store.save({ ...s, status: 'complete' });
+        expect(fs.readdirSync(path.join(dir, 'runs'))).toEqual([`${s.runId}.json`]);
+        expect((await store.load(s.runId))?.status).toBe('complete');
+    });
+
     it('save/load round-trips and stamps updatedAt', async () => {
         const s = state({ task: 'hello' });
         await store.save(s);

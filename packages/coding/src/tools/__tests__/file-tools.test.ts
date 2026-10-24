@@ -83,6 +83,19 @@ describe('edit_file', () => {
         expect(readFileSync(join(dir, 'file.txt'), 'utf-8')).toBe('hello there');
     });
 
+    it('writes new_string literally: $-patterns are not expanded', async () => {
+        const { readFileSync } = await import('fs');
+        for (const replacement of ['cost: $5', 'a $& b', 'x $1 y', '$$', "$'", '$`']) {
+            writeFileSync(join(dir, 'file.txt'), 'PLACEHOLDER', 'utf-8');
+            const result = await editFileTool.execute(
+                { file_path: 'file.txt', old_string: 'PLACEHOLDER', new_string: replacement },
+                makeCtx(dir),
+            );
+            expect(result).toMatch(/Edited/);
+            expect(readFileSync(join(dir, 'file.txt'), 'utf-8')).toBe(replacement);
+        }
+    });
+
     it('returns error when old_string not found', async () => {
         writeFileSync(join(dir, 'file.txt'), 'hello', 'utf-8');
         const result = await editFileTool.execute(

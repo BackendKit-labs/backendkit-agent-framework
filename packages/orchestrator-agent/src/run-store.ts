@@ -1,5 +1,6 @@
 import * as fs   from 'node:fs';
 import * as path from 'node:path';
+import { atomicWriteSync } from '@backendkit-labs/agent-core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,11 +68,7 @@ export class RunStore implements IRunStore {
 
     async save(state: RunState): Promise<void> {
         const updated: RunState = { ...state, updatedAt: new Date().toISOString() };
-        fs.writeFileSync(
-            path.join(this.dir, `${state.runId}.json`),
-            JSON.stringify(updated, null, 2),
-            'utf-8',
-        );
+        atomicWriteSync(path.join(this.dir, `${state.runId}.json`), JSON.stringify(updated, null, 2));
     }
 
     async load(runId: string): Promise<RunState | null> {

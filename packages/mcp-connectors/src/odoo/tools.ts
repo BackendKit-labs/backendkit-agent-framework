@@ -43,7 +43,7 @@ async function doAuthenticate(): Promise<OdooSession> {
             jsonrpc: '2.0', method: 'call', id: 1,
             params: { db, login: user, password: pass },
         }),
-    });
+    }, { idempotent: true });
     if (data.error)        throw new Error(`Odoo auth error: ${data.error.message}`);
     if (!data.result?.uid) throw new Error('Odoo auth failed — no uid returned (wrong credentials?)');
     _session = { uid: data.result.uid, sessionId: data.result.session_id };
@@ -64,6 +64,13 @@ function isSessionExpiredError(error: { code?: number; message?: string } | unde
     if (error.code === 100) return true; // Odoo's "Session Expired" error code
     return /session\s*expired/i.test(error.message ?? '');
 }
+
+/**
+ * Odoo does everything through POST /call_kw. Only these model methods read without side effects, so only
+ * they may be repeated after a timeout or a 5xx; create, write, compute_sheet or action_* may already have
+ * been applied by the first attempt (a duplicated employee or payslip).
+ */
+const READ_ONLY_METHODS = new Set(['search', 'read', 'search_read', 'search_count', 'name_get', 'name_search', 'fields_get', 'read_group']);
 
 async function odooCall<T>(
     model:   string,
@@ -87,7 +94,7 @@ async function odooCall<T>(
             jsonrpc: '2.0', method: 'call', id: Date.now(),
             params: { model, method, args, kwargs },
         }),
-    });
+    }, { idempotent: READ_ONLY_METHODS.has(method) });
     if (data.error) {
         if (!_retriedAfterReauth && isSessionExpiredError(data.error)) {
             _session = null;

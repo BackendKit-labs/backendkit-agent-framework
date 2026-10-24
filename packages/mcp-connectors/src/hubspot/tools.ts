@@ -15,6 +15,9 @@ async function hs<T>(method: string, path: string, body?: unknown): Promise<T> {
             'Content-Type': 'application/json',
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+    }, {
+        // the CRM search endpoints are reads done with POST: repeating them is safe. Creating a contact or note is not.
+        idempotent: path.endsWith('/search') ? true : undefined,
     });
 }
 

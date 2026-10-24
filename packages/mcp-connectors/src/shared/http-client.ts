@@ -6,7 +6,16 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 export interface FetchJsonOptions {
     timeoutMs?: number;
     maxAttempts?: number;
+    /**
+     * Whether repeating the request is safe. Default: by method (GET/HEAD/OPTIONS/PUT/DELETE yes, POST/PATCH no).
+     * Set it for a POST that only reads (JSON-RPC search) so it keeps its retries; a non-idempotent call that fails
+     * with a 5xx, a timeout or a network error is NOT repeated, because the first attempt may have been applied
+     * (a duplicated payslip, issue or contact). A 429 is always retried: the request was refused, not processed.
+     */
+    idempotent?: boolean;
 }
+
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 /**
  * fetch() wrapper shared by connectors: hard timeout via AbortController, retry with
@@ -24,6 +33,7 @@ export async function fetchJson<T>(
 ): Promise<T> {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const method = init.method ?? 'GET';
+    const idempotent = opts.idempotent ?? IDEMPOTENT_METHODS.has(method.toUpperCase());
 
     const attempt = async (): Promise<T> => {
         const controller = new AbortController();
@@ -61,7 +71,8 @@ export async function fetchJson<T>(
         maxAttempts: opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
         backoff: { type: 'exponential', baseDelay: 500, maxDelay: 8_000, jitter: 'full' },
         retryIf: (e: { type: string; status?: number }) =>
-            e.type === 'network' || (e.type === 'http' && ((e.status ?? 0) >= 500 || e.status === 429)),
+            (e.type === 'http' && e.status === 429) ||
+            (idempotent && (e.type === 'network' || (e.type === 'http' && (e.status ?? 0) >= 500))),
         abortIf: (e: { type: string; status?: number }) =>
             e.type === 'http' && [401, 403].includes(e.status ?? 0),
     });

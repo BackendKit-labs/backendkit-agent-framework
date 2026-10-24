@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as yaml from 'yaml';
 import { run, isOk, fromThrowable } from '@backendkit-labs/result';
 import { getFrameworkDir } from '../shared/utils/project-key';
+import { isProjectTrusted } from '../trust/workspace-trust';
 import { parseMdSkill } from './parse-md-skill';
 import type { Skill, SkillScope } from './types';
 
@@ -57,8 +58,12 @@ export class SkillLoader {
     /**
      * Loads project-specific skills from inside the project directory.
      * Path: {cwd}/.{appName}/skills/*.{yaml,yml,md}
+     *
+     * These come from the repository, so they load only when the project is trusted (ADR-0006); otherwise this
+     * returns nothing. `trusted` lets a host that already decided pass its answer instead of asking again.
      */
-    async loadProject(cwd: string): Promise<Skill[]> {
+    async loadProject(cwd: string, trusted: boolean = isProjectTrusted(this.appName, cwd).trusted): Promise<Skill[]> {
+        if (!trusted) return [];
         const dir = path.join(cwd, `.${this.appName}`, 'skills');
         return this.loadFromDir(dir, 'project');
     }
@@ -72,12 +77,12 @@ export class SkillLoader {
         return this.loadFromDir(dir, 'project');
     }
 
-    async loadAll(cwd?: string, projectDir?: string): Promise<LoadedSkills> {
+    async loadAll(cwd?: string, projectDir?: string, trusted?: boolean): Promise<LoadedSkills> {
         const [global, packs, projectConfig, project] = await Promise.all([
             this.loadGlobal(),
             this.loadPacks(),
             projectDir ? this.loadProjectConfig(projectDir) : Promise.resolve([]),
-            cwd ? this.loadProject(cwd) : Promise.resolve([]),
+            cwd ? this.loadProject(cwd, trusted) : Promise.resolve([]),
         ]);
         return { global, packs, projectConfig, project };
     }

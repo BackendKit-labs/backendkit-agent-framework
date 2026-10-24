@@ -95,6 +95,11 @@ export type { FrameworkConfig, ProviderConfig, FrameworkFeatures } from './boots
 // ── Shared utils ───────────────────────────────────────────────────────────────
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';
+export {
+    TRUST_FILE, trustFilePath, canonicalProjectPath, listTrustedProjects, isProjectTrusted, trustProject,
+    untrustProject, projectLayerContents, untrustedLayerWarning,
+} from './trust/workspace-trust';
+export type { TrustStatus, TrustReason, ProjectLayerContents } from './trust/workspace-trust';
 export { ResilientLLMClient } from './shared/llm/resilient-client';
 export type { ResilientLLMClientOptions } from './shared/llm/resilient-client';
 

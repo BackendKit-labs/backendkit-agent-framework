@@ -32,6 +32,8 @@ export interface CommandContext {
     sessionContent?: string;
     /** App name used to locate ~/.{appName}/ (for workspace commands). */
     appName?: string;
+    /** The project directory the engine works in: what /trust acts on. */
+    workingDir?: string;
     /** Inject a message into the agent's active context window. */
     injectContext?: (message: string) => void;
     /**

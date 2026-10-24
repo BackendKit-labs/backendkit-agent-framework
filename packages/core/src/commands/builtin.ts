@@ -5,6 +5,7 @@ import { run, isOk } from '@backendkit-labs/result';
 import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { createSkillManager } from '../skills/manager';
 import { parseMdSkill } from '../skills/parse-md-skill';
+import { assertSafeFileName } from '../skills/safe-name';
 import { getFrameworkDir } from '../shared/utils/project-key';
 import { atomicWrite } from '../shared/utils/atomic-write';
 import {
@@ -253,6 +254,13 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
                     '✗ La respuesta del LLM no tiene el formato esperado.\n' +
                     'Usá /skills create <nombre> para crear la skill manualmente.',
                 );
+                return;
+            }
+
+            try {
+                assertSafeFileName('skill name', skill.name);
+            } catch (err) {
+                ctx.emit(`✗ ${(err as Error).message}`);
                 return;
             }
 

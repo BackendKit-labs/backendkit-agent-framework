@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExecutionContext, ToolDefinition } from '@backendkit-labs/agent-core';
 import {
-    FleetConfigError, Hermes, InProcessConnector, createFleetTools, createHermes, parseFleet,
+    FleetConfigError, Hermes, InProcessConnector, createFleetTools, createHermes, fleetWarnings, parseFleet,
     type AgentConnector, type AuditEvent, type HermesEvent, type Principal, type Provision,
 } from '../index';
 import { until } from './helpers';
@@ -75,6 +75,43 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 }
 const issuesOf = (obj: unknown) => { try { parseFleet(JSON.stringify(obj)); } catch (e) { return (e as FleetConfigError).issues; } throw new Error('expected the file to be refused'); };
 
+describe('a blueprint is not forced to declare a budget nothing enforces (ADR-0007)', () => {
+    it('is valid without limits.budgetUsdPerDay even when the creator has a ceiling, but never above the ceiling', () => {
+        expect(() => parseFleet(JSON.stringify(fleetObject({}, [blueprint({ limits: {} })])))).not.toThrow();
+        const { limits: _limits, ...withoutLimits } = blueprint();
+        expect(() => parseFleet(JSON.stringify(fleetObject({}, [withoutLimits])))).not.toThrow();
+        expect(issuesOf(fleetObject({}, [blueprint({ limits: { budgetUsdPerDay: CREATOR.budgetUsdPerDay + 1 } })])).map(i => i.path))
+            .toContain('blueprints.0.limits.budgetUsdPerDay');
+        expect(() => parseFleet(JSON.stringify(fleetObject({}, [blueprint({ limits: { budgetUsdPerDay: CREATOR.budgetUsdPerDay } })])))).not.toThrow();
+    });
+});
+
+describe('what a blueprint declares that nothing enforces is said out loud (ADR-0007)', () => {
+    it('warns about a declared budget, and about the creator\'s ceiling when the blueprint declares none', () => {
+        const declared = fleetWarnings(parseFleet(JSON.stringify(fleetObject())));
+        expect(declared.map(w => w.path)).toEqual(['blueprints.report-writer.limits.budgetUsdPerDay']);
+        expect(declared[0].message).toContain('1 USD/day is declared, not enforced');
+
+        const none = fleetWarnings(parseFleet(JSON.stringify(fleetObject({}, [blueprint({ limits: { ttlMinutes: 10 } })]))));
+        expect(none).toHaveLength(1);
+        expect(none[0].message).toContain(`ceiling of ${CREATOR.budgetUsdPerDay} USD/day`);
+        expect(none[0].message).toContain('declares no budget');
+    });
+
+    it('does not warn when there is nothing unenforced to say', () => {
+        const { budgetUsdPerDay: _ceiling, ...creatorWithoutBudget } = CREATOR;
+        const fleet = fleetObject({ creator: creatorWithoutBudget }, [blueprint({ limits: { ttlMinutes: 10 } })]);
+        expect(fleetWarnings(parseFleet(JSON.stringify(fleet)))).toEqual([]);
+    });
+
+    it('the audit record of a creation notes that the budget is declared, not enforced', async () => {
+        const rig = await boot({ approver: () => true });
+        await rig.hermes.agentCreate(ops, { blueprint: 'report-writer' });
+        const created = rig.audit.find(e => e.action === 'provision' && e.outcome === 'created')!;
+        expect(created.reason).toContain('budget 1 USD/day (declared, not enforced)');
+    });
+});
+
 describe('blueprints are checked when the file is read', () => {
     it("the spec's bare example `sandbox: { preset: read-only }` is refused, and the message says which field to add", () => {
         const bare = fleetObject({}, [blueprint({ sandbox: { preset: 'read-only' } })]);
@@ -87,7 +124,6 @@ describe('blueprints are checked when the file is read', () => {
     it('refuses tools, budget and sandbox beyond what Hermes may hand out, and blueprints with no creator at all', () => {
         expect(issuesOf(fleetObject({}, [blueprint({ tools: ['read_file', 'run_command'] })])).map(i => i.path)).toContain('blueprints.0.tools');
         expect(issuesOf(fleetObject({}, [blueprint({ limits: { budgetUsdPerDay: 50 } })])).map(i => i.path)).toContain('blueprints.0.limits.budgetUsdPerDay');
-        expect(issuesOf(fleetObject({}, [blueprint({ limits: {} })])).map(i => i.path)).toContain('blueprints.0.limits.budgetUsdPerDay'); // a budget must be set when the creator has one
         expect(issuesOf(fleetObject({}, [blueprint({ sandbox: { preset: 'full' } })])).map(i => i.path)).toContain('blueprints.0.sandbox');
         expect(issuesOf(fleetObject({}, [blueprint({ sandbox: { mode: 'everything' } })])).map(i => i.path)).toContain('blueprints.0.sandbox'); // a typo is an error too
         const noCreator = { ...fleetObject(), policies: {} };

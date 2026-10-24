@@ -7,7 +7,9 @@ export interface Principal {
 export type HermesErrorCode =
     | 'FORBIDDEN' | 'APPROVAL_REQUIRED' | 'AGENT_NOT_FOUND' | 'AGENT_UNAVAILABLE' | 'CAPABILITY_NOT_FOUND' | 'RUN_NOT_FOUND' | 'RUN_FAILED'
     | 'POLICY_WIDER_THAN_PARENT' | 'CONTROL_UNSUPPORTED' | 'INVALID_INPUT'
-    | 'BLUEPRINT_NOT_FOUND' | 'LIMIT_REACHED' | 'PROVISION_FAILED';
+    | 'BLUEPRINT_NOT_FOUND' | 'LIMIT_REACHED' | 'PROVISION_FAILED'
+    /** The agent is at its `limits.maxConcurrent`: try again when one of its runs ends. */
+    | 'AGENT_BUSY';
 
 export class HermesError extends Error {
     constructor(readonly code: HermesErrorCode, message: string, readonly details?: unknown) {

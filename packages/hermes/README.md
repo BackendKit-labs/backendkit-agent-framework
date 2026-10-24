@@ -200,6 +200,19 @@ const { hermes, tools } = createHermes({ fleet: readFileSync('fleet.yaml', 'utf8
 - `ProtocolConnector`: an agent served by `AgentServer` (agent-protocol).
 - `InProcessConnector`: an agent inside the same process (an engine behind a handler, a function, a test double). Declare it in the file as `connector: { kind: in-process }` and register it by id with `inProcess: { ledger: connector }`.
 
+## Limits on an agent
+
+```yaml
+agents:
+  - id: worker
+    connector: { kind: in-process }
+    limits: { maxConcurrent: 2, deadlineMs: 20000, budgetUsdPerDay: 5 }
+```
+
+- **`maxConcurrent` is enforced.** Hermes counts the capability runs going on that agent (flows are not counted). Past the limit a new `run` fails at once with `AGENT_BUSY` instead of waiting in a queue; the caller decides whether to try again. It is checked before asking for an approval and again after it, so nobody is asked to approve what cannot start and a slot is not held while a person thinks. A run that was going when Hermes restarted keeps its slot until it ends. The slot is free as soon as a run reaches a final state.
+- **`deadlineMs`** is how long a call waits for the answer before returning the run still going. It does not limit admission.
+- **`budgetUsdPerDay` is declared, not enforced.** Hermes does not measure the spend of the agents it supervises. `bk-hermes validate` prints a `warning:` (on stderr, exit code unchanged) for every budget the file declares: the agent's, a blueprint's, and `policies.budget`. A blueprint no longer has to declare a budget even when the creator has a ceiling; it still cannot declare more than the ceiling. See ADR-0007.
+
 ## Not here yet
 
-`McpConnector`; concurrency and budget limits (`limits` is accepted, not enforced — only `deadlineMs`, as how long a call waits; a daily budget needs the agents to report what a run cost, which agent-protocol does not carry yet); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.
+`McpConnector`; an enforced daily budget (it needs the agents to report what a run cost, a channel `agent-protocol` does not carry yet: SPEC-0009 §C3b); a `traceparent` shared with the agent (needs a change in agent-core/otel); OpenTelemetry; the chat interface. Cancelling a run that an `AgentServer` hosts marks the task cancelled, but the handler on that server may keep running: the server does not abort it yet.

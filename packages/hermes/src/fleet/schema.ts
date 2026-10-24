@@ -62,10 +62,12 @@ export const agentSchema = z.object({
     description: z.string().optional(),
     connector: connectorConfig,
     tags: z.array(z.string()).optional(),
-    /** Read and kept for what comes next (concurrency and budget are not enforced yet); `deadlineMs` bounds a wait. */
     limits: z.object({
+        /** Capability runs going at once; past it a new run is refused with `AGENT_BUSY`. Enforced (flows are not counted). */
         maxConcurrent: z.number().int().positive().optional(),
+        /** Declared, NOT enforced: Hermes does not measure spend. `bk-hermes validate` warns (ADR-0007). */
         budgetUsdPerDay: z.number().positive().optional(),
+        /** How long `run` waits for the answer before returning the run still going. */
         deadlineMs: z.number().int().positive().optional(),
     }).strict().optional(),
     health: z.object({
@@ -105,7 +107,7 @@ export const fleetSchema = z.object({
     policies: z.object({
         approval: z.object({ default: approval.optional() }).strict().optional(),
         provisioning: provisioningSchema.optional(),
-        /** Accepted and kept; not enforced yet. */
+        /** Accepted and kept; NOT enforced (nothing applies it yet). `bk-hermes validate` warns (ADR-0007). */
         budget: z.object({ perRunUsd: z.number().positive().optional(), perDayUsd: z.number().positive().optional() }).strict().optional(),
     }).strict().optional(),
 }).strict().superRefine((fleet, ctx) => {

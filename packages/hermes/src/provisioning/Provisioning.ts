@@ -220,6 +220,7 @@ export class Provisioning {
 
             const now = new Date();
             const ttl = blueprint.limits?.ttlMinutes;
+            const budget = blueprint.limits?.budgetUsdPerDay;
             const rec: InstanceRecord = {
                 id: instanceId, blueprintId, createdBy: principal.id, createdAt: now.toISOString(), status: 'live', sandbox,
                 ...(ttl ? { expiresAt: new Date(now.getTime() + ttl * 60_000).toISOString() } : {}),
@@ -229,7 +230,7 @@ export class Provisioning {
             this.state.instances[instanceId] = rec;
             if (ttl) this.expireAfter(instanceId, ttl * 60_000);
             await this.save();
-            this.deps.audit.record({ ...base, outcome: 'created', instanceId, reason: `policy ${JSON.stringify(sandbox)}${ttl ? `, ttl ${ttl} min` : ''}` });
+            this.deps.audit.record({ ...base, outcome: 'created', instanceId, reason: `policy ${JSON.stringify(sandbox)}${ttl ? `, ttl ${ttl} min` : ''}${budget !== undefined ? `, budget ${budget} USD/day (declared, not enforced)` : ''}` });
             this.deps.emit({ type: 'fleet.agent.created', instanceId, blueprintId, createdBy: principal.id, ...(request.gapId ? { gapId: request.gapId } : {}) });
             return { ...rec };
         } finally {

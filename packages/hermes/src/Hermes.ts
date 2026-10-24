@@ -75,6 +75,14 @@ export class Hermes {
     readonly store: RunStore;
     private readonly audit: AuditLog;
     private readonly tracked = new Map<string, Tracked>();
+    /**
+     * Capability runs going per agent, from the moment they are admitted until they settle: what `limits.maxConcurrent` is
+     * checked against. Counted here and not read from the store, because the check and the claim must happen in the same
+     * synchronous step; otherwise several calls arriving together all see room and all start.
+     */
+    private readonly slots = new Map<string, number>();
+    /** The release of each run's slot, called when the run reaches a final state (see `settle`). */
+    private readonly runSlots = new Map<string, () => void>();
     private readonly guardrails: Guardrail[];
     readonly provisioning: Provisioning;
     private readonly plugins: PluginHost;
@@ -224,15 +232,20 @@ export class Hermes {
             throw new HermesError('AGENT_UNAVAILABLE', `${agent.id} is down: ${agent.health.detail ?? 'no answer'}`);
         }
         const inputPreview = this.mask(JSON.stringify(input), 500);
+        // Refuse before asking anybody to approve something that cannot start; the claim itself comes after the approval,
+        // because a human may take minutes and the slot must not be held meanwhile (and the room may be gone by then).
+        this.assertRoom(principal, agent, capability);
         await this.requireApproval({ action: 'run', principal, agentId: agent.id, capability, inputPreview }, this.approvalMode(agent, capability));
+        const release = this.claimSlot(principal, agent, capability);
 
         const runId = randomUUID();
+        this.runSlots.set(runId, release);
         const wait = request.wait ?? !(known?.async ?? false);
         const record: RunRecord = {
             runId, agentId: agent.id, capability, inputPreview, status: 'pending', principalId: principal.id,
             ...(request.traceId ? { traceId: request.traceId } : {}), startedAt: new Date().toISOString(),
         };
-        await this.store.put(record);
+        try { await this.store.put(record); } catch (err) { this.freeSlot(runId); throw err; }
 
         let handle: RunHandle;
         try {
@@ -241,12 +254,13 @@ export class Hermes {
                 { signal: this.shutdown.signal, ...(request.traceId ? { traceId: request.traceId } : {}) },
             );
         } catch (err) {
+            this.freeSlot(runId);
             const message = (err as Error).message;
             await this.store.update(runId, { status: 'failed', error: message, finishedAt: new Date().toISOString() });
             this.audit.record({ action: 'run', outcome: 'failed', principalId: principal.id, agentId: agent.id, capability, runId, reason: message });
             throw new HermesError('RUN_FAILED', `${agent.id}.${capability}: ${message}`);
         }
-        await this.store.update(runId, { status: 'running', connectorRunId: handle.connectorRunId });
+        try { await this.store.update(runId, { status: 'running', connectorRunId: handle.connectorRunId }); } catch (err) { this.freeSlot(runId); throw err; }
         this.audit.record({ action: 'run', outcome: 'allowed', principalId: principal.id, agentId: agent.id, capability, runId });
         const settled = this.track(runId, handle);
 
@@ -586,7 +600,11 @@ export class Hermes {
                 const found = await agent.connector.lookup(record.connectorRunId);
                 if (!found.found) { await lost('the agent does not know this run'); continue; }
                 if (found.status === 'pending' || found.status === 'running') {
-                    if (agent.connector.follow) this.track(record.runId, agent.connector.follow(record.connectorRunId, this.shutdown.signal));
+                    if (agent.connector.follow) {
+                        // already going, so it is not checked against the limit, but it does take a slot until it ends
+                        this.runSlots.set(record.runId, this.holdSlot(record.agentId));
+                        void this.track(record.runId, agent.connector.follow(record.connectorRunId, this.shutdown.signal));
+                    }
                 } else {
                     await this.settle(record.runId, { status: found.status, ...(found.output !== undefined ? { output: found.output } : {}), ...(found.error ? { error: found.error } : {}) });
                 }
@@ -598,6 +616,46 @@ export class Hermes {
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
+
+    /**
+     * `limits.maxConcurrent` of an agent counts the capability runs going at once (flows are long business processes and
+     * are not counted). At the limit a new run is refused at once with `AGENT_BUSY` instead of queued: a queue would hide
+     * the load and leave callers waiting on an agent that is not keeping up; the caller decides whether to try again.
+     */
+    private assertRoom(principal: Principal, agent: { id: string; config: { limits?: { maxConcurrent?: number } } }, capability: string): void {
+        const max = agent.config.limits?.maxConcurrent;
+        const running = this.slots.get(agent.id) ?? 0;
+        if (max === undefined || running < max) return;
+        const reason = `${running} run(s) already going, limits.maxConcurrent is ${max}`;
+        this.audit.record({ action: 'run', outcome: 'denied', principalId: principal.id, agentId: agent.id, capability, reason });
+        throw new HermesError('AGENT_BUSY', `${agent.id} is busy: ${reason}. Try again when one of its runs ends.`);
+    }
+
+    /** Checks the limit and takes a slot in the same synchronous step. Returns the release, which is safe to call twice. */
+    private claimSlot(principal: Principal, agent: { id: string; config: { limits?: { maxConcurrent?: number } } }, capability: string): () => void {
+        this.assertRoom(principal, agent, capability);
+        return this.holdSlot(agent.id);
+    }
+
+    /** Frees the slot a run holds, if it holds one. Safe to call more than once. */
+    private freeSlot(runId: string): void {
+        const release = this.runSlots.get(runId);
+        if (!release) return;
+        this.runSlots.delete(runId);
+        release();
+    }
+
+    /** Takes a slot without checking the limit (a run that was already going when Hermes restarted). */
+    private holdSlot(agentId: string): () => void {
+        this.slots.set(agentId, (this.slots.get(agentId) ?? 0) + 1);
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            const left = (this.slots.get(agentId) ?? 1) - 1;
+            if (left > 0) this.slots.set(agentId, left); else this.slots.delete(agentId);
+        };
+    }
 
     /** Follows a run until it ends and writes the outcome to the store as soon as it is known. */
     private track(runId: string, handle: RunHandle): Promise<void> {
@@ -612,6 +670,10 @@ export class Hermes {
     /** Records how a run ended, once: a run that already ended keeps the first answer. */
     private async settle(runId: string, outcome: { status: StoredStatus; output?: unknown; error?: string }): Promise<RunRecord | undefined> {
         const current = this.store.get(runId);
+        // The slot belongs to the run, not to whoever is following it, and it is freed BEFORE the final state is written:
+        // the store shows the new state as soon as the update starts, while its write to disk takes longer, so freeing after
+        // it would leave a window in which a caller that has just seen `done` or `cancelled` still gets AGENT_BUSY.
+        this.freeSlot(runId);
         if (!current || !ACTIVE.includes(current.status)) return current;
         const updated = await this.store.update(runId, {
             status: outcome.status,

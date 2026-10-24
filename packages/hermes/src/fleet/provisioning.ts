@@ -85,12 +85,32 @@ export function checkBlueprint(blueprint: Blueprint, policy: ProvisioningPolicy 
     const outside = blueprint.tools.filter(t => !policy.creator.tools.includes(t));
     if (outside.length) problems.push({ path: 'tools', message: `not in the creator's tools: ${outside.join(', ')}` });
 
+    // A budget above the creator's is refused. A blueprint that declares none is not: nothing enforces a declared budget
+    // (see `unenforcedLimits`), so demanding one only made the operator write a number that controls nothing (ADR-0007).
     const ceiling = policy.creator.budgetUsdPerDay;
     const asked = blueprint.limits?.budgetUsdPerDay;
-    if (ceiling !== undefined && (asked === undefined || asked > ceiling)) {
-        problems.push({ path: 'limits.budgetUsdPerDay', message: asked === undefined ? `must be set, at most ${ceiling} (the creator's budget)` : `${asked} is more than the creator's ${ceiling}` });
+    if (ceiling !== undefined && asked !== undefined && asked > ceiling) {
+        problems.push({ path: 'limits.budgetUsdPerDay', message: `${asked} is more than the creator's ${ceiling}` });
     }
     return problems;
+}
+
+/**
+ * Limits a blueprint declares that nothing enforces. Hermes does not measure the spend of an agent it supervises (it
+ * does not build the engine behind an in-process agent, and a remote agent keeps its own books), so a budget is a
+ * statement of intent, not a stop. Said out loud so nobody reads it as a guarantee.
+ */
+export function blueprintWarnings(blueprint: Blueprint, policy: ProvisioningPolicy | undefined): BlueprintProblem[] {
+    const warnings: BlueprintProblem[] = [];
+    const asked = blueprint.limits?.budgetUsdPerDay;
+    if (asked !== undefined) {
+        warnings.push({ path: 'limits.budgetUsdPerDay', message: `${asked} USD/day is declared, not enforced: Hermes does not measure the spend of the agents it supervises, so nothing stops an instance at this amount` });
+    }
+    const ceiling = policy?.creator.budgetUsdPerDay;
+    if (ceiling !== undefined && asked === undefined) {
+        warnings.push({ path: 'limits.budgetUsdPerDay', message: `the creator has a ceiling of ${ceiling} USD/day and this blueprint declares no budget; the ceiling is not enforced on instances either` });
+    }
+    return warnings;
 }
 
 export const problemText = (problems: BlueprintProblem[]): string => problems.map(p => (p.path ? `${p.path}: ` : '') + p.message).join('; ');

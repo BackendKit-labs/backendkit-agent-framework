@@ -128,6 +128,25 @@ describe('Hermes H0 against real agents', () => {
                 .toEqual(expect.arrayContaining(['reconcile:lost:local', 'reconcile:recovered:remote']));
         });
 
+        it('a recovered run keeps its slot against limits.maxConcurrent until it ends', async () => {
+            const storeFile = join(dir, 'runs.json');
+            const agents = [agentConfig('accountant', agent.url, { limits: { maxConcurrent: 1 } })];
+
+            const first = await boot({ storeFile, agents });
+            const slow = await first.hermes.run(ops, { agentId: 'accountant', capability: 'slow' });
+            expect(slow.status).toBe('running');
+            await first.hermes.stop();
+
+            const second = await boot({ storeFile, agents });
+            expect(second.hermes.status(ops, slow.runId).status).toBe('running'); // picked up again by reconcile
+            // the new Hermes has not started anything itself, yet the agent is not free: that run still takes the one slot
+            expect(await codeOf(second.hermes.run(ops, { agentId: 'accountant', capability: 'quick' }))).toBe('AGENT_BUSY');
+
+            agent.release();
+            await until(() => second.hermes.status(ops, slow.runId).status === 'done', 8000);
+            expect((await second.hermes.run(ops, { agentId: 'accountant', capability: 'quick' })).status).toBe('done');
+        });
+
         it('a run the agent no longer knows becomes lost; one it cannot be asked about waits', async () => {
             const storeFile = join(dir, 'runs.json');
             const first = await boot({ storeFile });

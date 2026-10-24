@@ -113,6 +113,25 @@ describe('bk-hermes validate', () => {
         expect(runCli().status).toBe(0);
     });
 
+    (existsSync(cli) ? it : it.skip)('warns on stderr about a budget nothing enforces, and still exits 0 with the ok line on stdout (ADR-0007)', () => {
+        const file = join(dir, 'budget.yaml');
+        require('node:fs').writeFileSync(file, [
+            'fleet: f',
+            'agents:',
+            '  - { id: a, connector: { kind: protocol, url: "http://localhost:1" }, limits: { budgetUsdPerDay: 5, maxConcurrent: 2 } }',
+            'policies:',
+            '  budget: { perDayUsd: 20 }',
+            '',
+        ].join('\n'));
+        const out = runCli('validate', file);
+        expect(out.status).toBe(0);
+        expect(out.stdout).toContain('ok: fleet "f"');
+        expect(out.stdout).not.toContain('warning');
+        expect(out.stderr).toContain('warning: agents.a.limits.budgetUsdPerDay');
+        expect(out.stderr).toContain('warning: policies.budget.perDayUsd');
+        expect(out.stderr).not.toContain('maxConcurrent'); // enforced, so nothing to warn about
+    });
+
     (existsSync(cli) ? it : it.skip)('also checks the fleet as it will be once presets are merged', () => {
         const fs = require('node:fs');
         const mod = join(__dirname, 'fixtures', 'preset-module.js').split(String.fromCharCode(92)).join('/');

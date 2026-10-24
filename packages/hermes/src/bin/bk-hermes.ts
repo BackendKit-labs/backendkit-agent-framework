@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { FleetConfigError, parseFleet } from '../fleet/schema';
+import { fleetWarnings } from '../fleet/warnings';
 import { FleetRegistry } from '../fleet/FleetRegistry';
 import { applyPreset, loadPresetModule, PresetError } from '../presets/applyPreset';
 
@@ -39,6 +40,9 @@ async function main(argv: string[]): Promise<void> {
                 process.exit(1);
             }
         }
+        // not errors: the file is valid. They say what it declares that nothing enforces (ADR-0007). On stderr so a script
+        // that reads the `ok:` line from stdout is not disturbed.
+        for (const w of fleetWarnings(fleet)) console.error(`warning: ${w.path}: ${w.message}`);
         console.log(`ok: fleet "${fleet.fleet}", ${fleet.agents.length} agent(s)`);
     } else if (command === 'fleet') {
         const fleet = load(file);

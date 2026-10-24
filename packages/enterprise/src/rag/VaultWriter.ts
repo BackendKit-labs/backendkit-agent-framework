@@ -55,6 +55,11 @@ export class VaultWriter {
 
         const filename = `${date}-${slug}.md`;
         const dir      = path.join(this.vaultPath, this.agentFolder);
+        // agentFolder can be built from outside input (a flow id, a run id): the note must stay inside the vault
+        const fromVault = path.relative(path.resolve(this.vaultPath), path.resolve(dir));
+        if (fromVault.startsWith('..') || path.isAbsolute(fromVault)) {
+            throw new Error(`Unsafe agentFolder ${JSON.stringify(this.agentFolder)}: it resolves outside the vault.`);
+        }
         await fs.mkdir(dir, { recursive: true });
 
         const filePath = path.join(dir, filename);

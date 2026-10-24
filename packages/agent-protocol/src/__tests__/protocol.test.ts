@@ -1,3 +1,4 @@
+import * as http from 'node:http';
 import * as net from 'node:net';
 import { AgentServer, AgentClient } from '../index';
 import type { CapabilityDefinition } from '../index';
@@ -144,11 +145,59 @@ describe('AgentServer + AgentClient (HTTP real)', () => {
             await expect(client().run('ghost', {})).rejects.toMatchObject({ status: 404 });
         });
 
-        it('5xx is retried up to maxRetries + 1 attempts', async () => {
+        it('a 5xx is NOT repeated by default: the first attempt may have already run the capability', async () => {
             flakyCalls = 0;
             await expect(client().run('flaky', {})).rejects.toThrow();
+            expect(flakyCalls).toBe(1);
+        });
+
+        it('runAndWait() does not repeat a failed start either', async () => {
+            flakyCalls = 0;
+            await expect(client().runAndWait('flaky', {})).rejects.toThrow();
+            expect(flakyCalls).toBe(1);
+        });
+
+        it('with idempotent: true a 5xx is retried up to maxRetries + 1 attempts', async () => {
+            flakyCalls = 0;
+            await expect(client().run('flaky', {}, { idempotent: true })).rejects.toThrow();
             expect(flakyCalls).toBe(2);
         }, 15_000);
+
+        describe('against a server that misbehaves on the wire', () => {
+            let upstream: http.Server;
+            let base: string;
+            let calls = 0;
+            let mode: 'drop' | '429-then-ok' = 'drop';
+
+            beforeEach(async () => {
+                calls = 0;
+                upstream = http.createServer((req, res) => {
+                    calls++;
+                    req.resume();
+                    if (mode === 'drop') { req.socket.destroy(); return; }
+                    if (calls === 1) { res.writeHead(429, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: { code: 'RATE_LIMITED', message: 'slow down' } })); return; }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true, data: { status: 'done', output: 'ran' } }));
+                });
+                await new Promise<void>(r => upstream.listen(0, '127.0.0.1', r));
+                base = `http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`;
+            });
+            afterEach(async () => { await new Promise<void>(r => upstream.close(() => r())); });
+
+            it('a dropped connection is not repeated by default', async () => {
+                mode = 'drop';
+                const c = new AgentClient({ url: base, maxRetries: 2, circuitBreaker: false });
+                await expect(c.run('anything', {})).rejects.toThrow();
+                expect(calls).toBe(1);
+            }, 30_000);
+
+            it('a 429 is repeated even when the capability is not idempotent: it was refused, not run', async () => {
+                mode = '429-then-ok';
+                const c = new AgentClient({ url: base, maxRetries: 2, circuitBreaker: false });
+                await expect(c.run('anything', {})).resolves.toMatchObject({ status: 'done', output: 'ran' });
+                expect(calls).toBe(2);
+            }, 15_000);
+        });
 
         it('wrong api key is not retried', async () => {
             badInputCalls = 0;

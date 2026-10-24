@@ -229,6 +229,35 @@ describe('ComplianceGate — persist', () => {
         const filePath = await gate.persist(tmpDir);
         expect(filePath).toContain(path.join('auditoria', 'onboarding-empleado', 'run-test'));
     });
+
+    it.each([
+        ['../../../../escaped', 'run-1'],
+        ['flow', '../../../escaped'],
+        ['flow', '..'],
+        ['..', '..'],
+        ['/etc/cron.d', 'C:\\Windows\\Temp'],
+        ['a/b\\c', 'x:y'],
+    ])('flow %j and run %j cannot take the audit record out of the vault', async (flowId, runId) => {
+        const vault = path.join(tmpDir, 'vault');
+        const gate = makeGate({ flowId, runId });
+        gate.reject('auditor', 'incomplete');
+
+        const filePath = await gate.persist(vault);
+
+        const inside = path.relative(path.resolve(vault), path.resolve(filePath));
+        expect(inside.startsWith('..') || path.isAbsolute(inside)).toBe(false);
+        expect(inside.split(path.sep)[0]).toBe('auditoria');
+        // nothing was created next to the vault
+        expect((await fs.readdir(tmpDir)).sort()).toEqual(['vault']);
+        expect(await fs.readFile(filePath, 'utf-8')).toContain('## Gate — preparar-ficha');
+    });
+
+    it('keeps ordinary ids readable', async () => {
+        const gate = makeGate({ flowId: 'onboarding-empleado', runId: 'run-1761300000000' });
+        gate.reject('auditor', 'x');
+        const filePath = await gate.persist(path.join(tmpDir, 'vault'));
+        expect(filePath).toContain(path.join('auditoria', 'onboarding-empleado', 'run-1761300000000'));
+    });
 });
 
 // ── Criterio de salida fase 2 ─────────────────────────────────────────────────

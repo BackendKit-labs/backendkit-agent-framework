@@ -3,6 +3,29 @@ import * as os from 'os';
 import * as path from 'path';
 import { VaultWriter } from '../../rag/VaultWriter';
 
+describe('VaultWriter agentFolder', () => {
+    let root: string;
+    beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-folder-')); });
+    afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+    it.each(['..', '../outside', 'sub/../../outside', path.join('auditoria', '..', '..', 'x')])(
+        'refuses agentFolder %j, which resolves outside the vault',
+        async agentFolder => {
+            const vault = path.join(root, 'vault');
+            await expect(new VaultWriter({ vaultPath: vault, agentFolder }).writeNote({ title: 't', content: 'c', agentId: 'a' }))
+                .rejects.toThrow(/Unsafe agentFolder/);
+            expect(fs.readdirSync(root)).toEqual([]); // not even the vault was created
+        },
+    );
+
+    it('writes a nested folder inside the vault', async () => {
+        const vault = path.join(root, 'vault');
+        const file = await new VaultWriter({ vaultPath: vault, agentFolder: path.join('auditoria', 'f', 'r') })
+            .writeNote({ title: 't', content: 'c', agentId: 'a' });
+        expect(file.startsWith(path.join(vault, 'auditoria', 'f', 'r'))).toBe(true);
+    });
+});
+
 describe('VaultWriter frontmatter', () => {
     let vault: string;
     beforeEach(() => { vault = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-writer-')); });

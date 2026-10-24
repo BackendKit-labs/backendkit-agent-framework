@@ -15,7 +15,7 @@ import type {
 } from '../types';
 import { CircuitBreaker, CircuitBreakerState } from '@backendkit-labs/circuit-breaker';
 import type { CircuitBreakerConfig } from '@backendkit-labs/circuit-breaker';
-import { RetryEngine } from '@backendkit-labs/retry';
+import { RetryEngine, type RetryConfig } from '@backendkit-labs/retry';
 
 export interface AgentClientOptions {
     url:             string;
@@ -38,6 +38,13 @@ export interface AgentClientOptions {
 
 export interface RunOptions {
     async?:          boolean;
+    /**
+     * Whether running the capability twice is harmless (a lookup, a report). Default: false.
+     * Not idempotent: after a 5xx, a timeout or a dropped connection the first attempt may already have run (a payment,
+     * a sent email), so the call is NOT repeated and the error reaches the caller. A 429 is always retried: the request
+     * was refused, not run. With `idempotent: true` a transient failure is retried up to `maxRetries` times.
+     */
+    idempotent?:     boolean;
     context?:        AgentContext;
     pollInterval?:   number;
     maxWait?:        number;
@@ -128,6 +135,8 @@ export class AgentClient {
         path:     string,
         init:     RequestInit = {},
         context?: AgentContext,
+        /** Per-call override of the retry policy (e.g. a call that must not be repeated after a 5xx). */
+        retry?:   Partial<RetryConfig>,
     ): Promise<ProtocolResponse<T>> {
         const contextHeaders: Record<string, string> = {
             ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
@@ -163,7 +172,7 @@ export class AgentClient {
             } finally {
                 clearTimeout(timer);
             }
-        });
+        }, retry);
 
         if (!result.ok) {
             const isCircuitOpen = result.error.type === 'circuit-open';
@@ -201,6 +210,7 @@ export class AgentClient {
             '/v1/agent/run',
             { method: 'POST', body: JSON.stringify(body) },
             opts.context,
+            opts.idempotent ? undefined : { retryIf: e => e.status === 429 },
         );
         return res.data!;
     }
@@ -304,7 +314,7 @@ export class AgentClient {
 
     /**
      * Starts a flow; the answer is the id to follow it by. Sent exactly once, with the run key: a retry after a lost answer
-     * would start a second run of a business flow. (`run()` retries; this does not.)
+     * would start a second run of a business flow. (`run()` repeats only a refused 429 unless the caller says it is idempotent; this never repeats.)
      */
     async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext): Promise<{ flowRunId: string }> {
         const controller = new AbortController();

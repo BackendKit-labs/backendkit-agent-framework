@@ -96,15 +96,24 @@ export class AgentServer {
 
         this.app = Fastify({ logger: opts.logger ?? false });
 
-        // CORS headers
+        // CORS headers. The header carries one origin or '*', never a list: a list is matched against the
+        // request's Origin and that origin is echoed back; an origin that is not listed gets no header.
         const origins = opts.cors ?? '*';
-        this.app.addHook('onSend', async (_req, reply) => {
-            const origin = Array.isArray(origins) ? origins.join(', ') : origins;
-            reply.header('Access-Control-Allow-Origin', origin);
+        const allowOrigin = (requestOrigin: string | undefined): string | undefined => {
+            if (!Array.isArray(origins)) return origins;
+            if (origins.includes('*')) return '*';
+            return requestOrigin && origins.includes(requestOrigin) ? requestOrigin : undefined;
+        };
+        const setAllowOrigin = (req: { headers: { origin?: string } }, reply: { header(name: string, value: string): unknown }): void => {
+            const origin = allowOrigin(req.headers.origin);
+            if (origin) reply.header('Access-Control-Allow-Origin', origin);
+            if (Array.isArray(origins)) reply.header('Vary', 'Origin');
+        };
+        this.app.addHook('onSend', async (req, reply) => {
+            setAllowOrigin(req, reply);
         });
-        this.app.options('*', async (_req, reply) => {
-            const origin = Array.isArray(origins) ? origins.join(', ') : origins;
-            reply.header('Access-Control-Allow-Origin', origin);
+        this.app.options('*', async (req, reply) => {
+            setAllowOrigin(req, reply);
             reply.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
             reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
             reply.code(204).send();

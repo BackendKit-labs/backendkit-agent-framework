@@ -219,6 +219,25 @@ describe('AgentServer', () => {
             expect(status).toBe(204);
         });
 
+        it('with several origins echoes the request origin that is listed, never a joined list', async () => {
+            const { factory: f3 } = makeFactory();
+            const { server: s3, port: p3 } = await startServer({
+                engineFactory: f3,
+                cors: ['https://a.example.com', 'https://b.example.com'],
+            });
+            try {
+                const b = await httpGet(p3, '/health', { Origin: 'https://b.example.com' });
+                expect(b.headers.get('access-control-allow-origin')).toBe('https://b.example.com');
+                expect(b.headers.get('vary')).toMatch(/Origin/i);
+                const other = await httpGet(p3, '/health', { Origin: 'https://evil.example.com' });
+                expect(other.headers.get('access-control-allow-origin')).toBeNull();
+                const none = await httpGet(p3, '/health');
+                expect(none.headers.get('access-control-allow-origin')).toBeNull();
+            } finally {
+                await s3.stop();
+            }
+        });
+
         it('uses custom cors origin when provided', async () => {
             const { factory: f2 } = makeFactory();
             const { server: s2, port: p2 } = await startServer({

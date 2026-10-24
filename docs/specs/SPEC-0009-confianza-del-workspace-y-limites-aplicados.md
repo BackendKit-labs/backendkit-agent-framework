@@ -1,7 +1,7 @@
 # SPEC-0009: Confianza del workspace y límites aplicados
 
 **Fecha:** 2026-10-24
-**Estado:** Borrador
+**Estado:** En curso (C1 implementado, sin publicar)
 **Depende de:** SPEC-0003 y SPEC-0008 (Hermes), SPEC-0006 (política de sandbox), [ADR-0002](../adr/0002-aborto-automatico-por-presupuesto.md) (presupuesto)
 **ADR:** [ADR-0006](../adr/0006-confianza-del-workspace.md) (confianza del workspace), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md) (un límite declarado debe aplicarse)
 **Origen:** la auditoría de 2026-10-24 (lotes #93–#96) y la opinión posterior del auditor sobre el modelo de capacidades, verificada punto por punto contra el código. Este spec recoge lo que esa opinión acierta y descarta lo que no resultó cierto.
@@ -20,7 +20,9 @@
 | Límites del fleet declarados sin aplicar | `hermes/src/fleet/schema.ts:64-70` | Confirmado y documentado en el propio schema. |
 | `budgetUsdPerDay` obligatorio y sin efecto en el blueprint | `hermes/src/fleet/provisioning.ts:88-91` | Confirmado. Es la peor forma: obliga a escribir una cifra que no controla nada. |
 | `ttlMinutes` y `maxLive` | `hermes/src/provisioning/Provisioning.ts:222-233` | **Aplicados.** |
-| `.md` con `model:` pisa el proveedor | `AgentLoader.ts:105` (`if (fm.model) def.provider = fm.model`) | Error de copia: asigna el modelo al campo `provider`. |
+| `.md` con `model:` pisa el proveedor | `AgentLoader.ts` (`if (fm.model) def.provider = fm.model`, y en `applyPromptOverrides` con el comentario `// model maps to provider`) | **Corregido tras implementar C1:** no es un error de copia. Es un alias deliberado desde el commit que introdujo el frontmatter (`40878755`); lo que ocurre es que `AgentProfile.model` existe hoy y el frontmatter no puede fijarlo. Ver C4. |
+| `AgentLoader` calculaba el directorio global con `os.homedir()` | `AgentLoader.ts` (3 sitios) | Confirmado y corregido en C1: el resto del framework usa `getFrameworkDir` (`USERPROFILE ?? HOME ?? homedir()`). Sin esa unificación la confianza y los agentes podían mirar homes distintos. |
+| `AGENT.md` del repositorio entra en el prompt | `coding/src/index.ts` (`buildProjectContext`) | Confirmado. Es otra vía de prompt del repositorio; **no se gatea en C1** (ver §4). |
 | No existe un tipo de agente | búsqueda de `kind` / `AgentType` en `packages/*/src` | Confirmado. `source` es procedencia, no tipo. Se deja así. |
 | Rate limit por agente | no encontrado | Sin verificar que exista. |
 
@@ -35,6 +37,12 @@
 **Tests:** proyecto sin confiar → solo builtin y global, con aviso; confiado → se cargan y el override `.md` funciona; la ruta se normaliza (`..`, enlaces simbólicos, mayúsculas en Windows); `BK_TRUST_PROJECT=1`; un archivo de confianza corrupto cuenta como "nadie confiado", no como "todos"; ni un agente ni una skill pueden escribir en la lista de confianza.
 
 **Salida:** abrir un repositorio con `.bk-agent/agents/general.json` y `.bk-agent/skills/x.md` no los carga hasta confiar la ruta, y el aviso lo dice.
+
+**Implementado (2026-10-24, sin publicar):**
+- `core`: `trust/workspace-trust.ts` (`isProjectTrusted`, `trustProject`, `untrustProject`, `listTrustedProjects`, `projectLayerContents`, `untrustedLayerWarning`), exportado desde el índice; `SkillLoader.loadProject(cwd, trusted?)` y `loadAll(cwd, projectDir, trusted?)`; comando `/trust` (`status`, `add`, `remove`, `list`) y `CommandContext.workingDir` (que `getCommandBindings()` rellena).
+- `coding`: `AgentLoader.load({ trusted })` (no lee la capa de proyecto, no aplica sus overrides `.md` y **no crea directorios dentro del proyecto** si no está confiado), `createCodingEngine({ trustedProject })` decide una vez, lo pasa a agentes y skills y emite el aviso `[Trust]` con lo omitido.
+- Decisiones de implementación: coincidencia por **ruta exacta** (confiar en un directorio no confía en sus hijos); un archivo ausente, ilegible o dañino significa **nadie** confiado; la lectura nunca escribe; `/trust add` recarga las skills al momento y los agentes al siguiente arranque.
+- Límite conocido: el archivo de confianza está en el directorio del usuario y un agente con `run_command` podría escribirlo (`echo ... > ~/.bk-agent/trusted-projects.json` pasa la allowlist, que no vigila el destino de las redirecciones). Lo acota la aprobación de `run_command`, y solo surte efecto en el siguiente arranque.
 
 ### C2 — `delegatesTo: ['*']` explícito · ADR-0006
 - `'*'` resuelve sobre los agentes realmente cargados. Con C1, un agente de proyecto no confiado no existe, así que deja de ser alcanzable.
@@ -52,8 +60,11 @@
 
 **Salida:** ningún campo de límite del schema de Hermes queda sin enforcement o sin aviso; la regla de revisión de ADR-0007 está en la plantilla de PR.
 
-### C4 — Error de copia en `AgentLoader` (coding)
-- `if (fm.model) def.provider = fm.model` debe asignar a `def.model`. Una línea y un test. Comprobar antes si algún usuario depende, por accidente, de ese comportamiento: pasar `model:` en el frontmatter hoy cambia el proveedor.
+### C4 — Alias `model` → `provider` en el frontmatter (coding)
+**Corregido:** esta fase decía "error de copia". No lo es. `model:` en el frontmatter de un `.md` se asigna a `provider` a propósito (`// model maps to provider`, desde el commit del parser, `40878755`), cuando el campo `model` aún no existía en el perfil.
+- **El problema real:** `AgentProfile.model` (override de modelo por agente) existe hoy y el frontmatter no puede fijarlo; quien escribe `model: deepseek-chat` espera el modelo y recibe un cambio de proveedor.
+- **Opciones:** (a) añadir `model` al frontmatter y conservar el alias solo cuando el valor coincide con un id de proveedor configurado; (b) deprecar el alias con un aviso y migrar a `provider:` / `model:` separados. Cualquiera cambia el comportamiento de quien depende del alias, así que no es un arreglo de una línea.
+- **Decisión pendiente**; no se toca en C1.
 
 ### C5 — Tipo `Capability` único (diseño, sin código)
 La propuesta del auditor: un tipo `Capability { tools, roots, budget?, rate? }` que compartan `AgentProfile` y `Blueprint`.
@@ -73,6 +84,8 @@ La propuesta del auditor: un tipo `Capability { tools, roots, budget?, rate? }` 
 3. **¿`general` lista sus especialistas?** (C2).
 4. **¿Rechazar, algún día, los límites no aplicados?** ADR-0007 empieza por avisar.
 5. **¿Los presets y blueprints de Hermes son "capa de proyecto"?** No: los fija el operador. Se deja fuera de la puerta; confirmar.
+6. **¿`AGENT.md` entra en la puerta?** El repositorio lo aporta y `buildProjectContext` lo mete en el prompt: es la misma clase de riesgo (prompt controlado por el repo), pero es su función documentada (instrucciones del proyecto, como un `CLAUDE.md`). Gatearlo rompe el uso principal en repos no confiados; no gatearlo deja una vía abierta. Pendiente de decidir, quizá con un aviso que lo indique en lugar de bloquearlo.
+7. **Dónde se confía en un servicio:** `createCodingEngine({ trustedProject })` y `BK_TRUST_PROJECT=1` cubren a un host que decide por sí mismo; falta decidir si un servicio debe confiar su propio directorio por defecto (pregunta 1).
 
 ## 5. Fuera de este spec
 Pendientes de la misma auditoría, que son decisiones de diseño aparte: autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, `AgentServer` escuchando en `0.0.0.0` por defecto, `WebhookServer` con `secret` opcional.

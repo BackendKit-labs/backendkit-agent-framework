@@ -84,6 +84,9 @@ async function gcal<T>(method: string, path: string, body?: unknown): Promise<T>
             'Content-Type': 'application/json',
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+    }, {
+        // freeBusy is a read done with POST: repeating it is safe. Creating an event is not.
+        idempotent: path === '/freeBusy' ? true : undefined,
     });
 }
 

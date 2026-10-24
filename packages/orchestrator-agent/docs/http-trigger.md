@@ -21,7 +21,8 @@ If either `ORCHESTRATOR_HTTP_PORT` or `ORCHESTRATOR_CONFIG` is missing, the HTTP
 |----------|----------|-------------|
 | `ORCHESTRATOR_HTTP_PORT` | yes (to enable) | Port to listen on (e.g. `3000`) |
 | `ORCHESTRATOR_CONFIG` | yes (to enable) | Absolute path to `orchestrator.yaml` |
-| `ORCHESTRATOR_API_KEY` | recommended | Bearer token; if unset all requests are accepted |
+| `ORCHESTRATOR_HTTP_HOST` | no | Address to bind. Default `127.0.0.1` (loopback only). Any other address (`0.0.0.0`, a LAN IP) requires `ORCHESTRATOR_API_KEY`; without it the HTTP trigger does not start |
+| `ORCHESTRATOR_API_KEY` | required off loopback | Bearer token. On loopback it may be unset and all local requests are accepted |
 
 ## Endpoints
 
@@ -157,7 +158,8 @@ services:
     environment:
       ORCHESTRATOR_CONFIG: /app/orchestrator.yaml
       ORCHESTRATOR_HTTP_PORT: 3000
-      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      ORCHESTRATOR_HTTP_HOST: 0.0.0.0   # inside a container loopback is unreachable from the published port
+      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}   # mandatory because the host is not loopback
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       ORCHESTRATOR_DATA_DIR: /data
     volumes:
@@ -173,6 +175,7 @@ volumes:
 
 ## Security
 
+- The trigger listens on `127.0.0.1` unless you set `ORCHESTRATOR_HTTP_HOST`, and a non-loopback host is refused without `ORCHESTRATOR_API_KEY` (it starts runs with your LLM keys)
 - Always set `ORCHESTRATOR_API_KEY` in production
 - Restrict the port to internal networks (not exposed to the public internet)
 - The API key is passed as `Authorization: Bearer <key>` — HTTPS termination should be handled by a reverse proxy (nginx, Caddy, AWS ALB, etc.)

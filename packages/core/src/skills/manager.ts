@@ -3,6 +3,7 @@ import * as path from 'path';
 import { run, isOk } from '@backendkit-labs/result';
 import { getFrameworkDir } from '../shared/utils/project-key';
 import { atomicWrite } from '../shared/utils/atomic-write';
+import { assertSafeFileName } from './safe-name';
 import { skillToMd } from './parse-md-skill';
 import { GitHubProvider } from './providers/github';
 import { LocalProvider } from './providers/local';
@@ -130,6 +131,10 @@ export class SkillManager {
         await Promise.all(
             skills.map(skill => {
                 const filePath = path.join(installDir, `${skill.name}.md`);
+                // belt and braces: the name was validated in sanitize(); the resolved path must still be inside installDir
+                if (path.dirname(path.resolve(filePath)) !== path.resolve(installDir)) {
+                    throw new Error(`Unsafe skill name ${JSON.stringify(skill.name)}: resolves outside the install directory.`);
+                }
                 return atomicWrite(filePath, skillToMd(skill));
             }),
         );
@@ -202,6 +207,7 @@ export class SkillManager {
     private sanitize(skills: Skill[], source: string): Skill[] {
         const maxBytes = this.trust.maxPromptBytes ?? DEFAULT_MAX_PROMPT_BYTES;
         for (const skill of skills) {
+            assertSafeFileName('skill name', skill.name);
             if (!skill.systemPromptAddition) continue;
             const bytes = Buffer.byteLength(skill.systemPromptAddition, 'utf-8');
             if (bytes > maxBytes) {
@@ -232,7 +238,9 @@ export class SkillManager {
     }
 
     private packDir(packName: string): string {
-        return path.join(this.packsDir, packName.replace(/\//g, '-'));
+        const dirName = packName.replace(/\//g, '-');
+        assertSafeFileName('pack name', dirName);
+        return path.join(this.packsDir, dirName);
     }
 
     private async loadSources(): Promise<SkillPackSource[]> {

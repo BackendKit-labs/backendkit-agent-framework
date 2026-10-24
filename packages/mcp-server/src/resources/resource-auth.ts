@@ -14,8 +14,17 @@ export interface ResourceAuthContext {
 const cache = new Map<string, { patterns: string[]; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 1 minute
 
+/**
+ * Opt-in escape hatch for local development: with BK_ABAC_FAIL_OPEN=1 a request that ABAC cannot judge (no token,
+ * or abac-service unreachable) is allowed. Without it both cases are denied: platform resources are read with the
+ * server's own DIRECTOR_API_KEY, so "no decision" must never mean "everything".
+ */
+function failOpen(): boolean {
+    return process.env.BK_ABAC_FAIL_OPEN === '1';
+}
+
 export async function resolveResourceAuth(bearerToken: string | undefined): Promise<ResourceAuthContext> {
-    if (!bearerToken) return allowAll();
+    if (!bearerToken) return failOpen() ? allowAll() : denyAll();
 
     const token = bearerToken.startsWith('Bearer ') ? bearerToken.slice(7) : bearerToken;
 
@@ -37,9 +46,8 @@ export async function resolveResourceAuth(bearerToken: string | undefined): Prom
         cache.set(token, { patterns, expiresAt: Date.now() + CACHE_TTL_MS });
         return buildContext(patterns);
     } catch {
-        // abac-service unreachable → fail open (allow) in dev, fail closed in prod
-        const isDev = (process.env.NODE_ENV ?? 'development') === 'development';
-        return isDev ? allowAll() : denyAll();
+        // abac-service unreachable → fail closed, unless the operator opted into fail-open for local development
+        return failOpen() ? allowAll() : denyAll();
     }
 }
 

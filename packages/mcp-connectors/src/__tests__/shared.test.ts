@@ -81,6 +81,64 @@ describe('fetchJson', () => {
         } finally { await up.close(); }
     }, 15_000);
 
+    describe('retries only what is safe to repeat', () => {
+        const post = { method: 'POST', body: '{}' };
+
+        it.each([500, 502, 503])('does not repeat a POST after a %i: the first attempt may have been applied', async (status) => {
+            const up = await upstream((_q, res, call) => (call < 2 ? (res.writeHead(status), res.end('fail')) : json(res, 200, { n: call })));
+            try {
+                await expect(fetchJson('Svc', up.url, post)).rejects.toThrow(new RegExp(`${status}: fail`));
+                expect(up.calls()).toBe(1);
+            } finally { await up.close(); }
+        });
+
+        it('does not repeat a POST after a dropped connection or a timeout', async () => {
+            const dropped = await upstream((req, _res, call) => { if (call === 1) req.socket.destroy(); });
+            try {
+                await expect(fetchJson('Svc', dropped.url, post, { maxAttempts: 3 })).rejects.toThrow(/network error/);
+                expect(dropped.calls()).toBe(1);
+            } finally { await dropped.close(); }
+
+            const hung = await upstream(() => { /* never answers */ });
+            try {
+                await expect(fetchJson('Svc', hung.url, post, { timeoutMs: 100, maxAttempts: 3 })).rejects.toThrow(/timed out/);
+                expect(hung.calls()).toBe(1);
+            } finally { await hung.close(); }
+        }, 15_000);
+
+        it('repeats a POST after a 429: the request was refused, not processed', async () => {
+            const up = await upstream((_q, res, call) => (call < 2 ? (res.writeHead(429), res.end('slow down')) : json(res, 200, { n: call })));
+            try {
+                expect(await fetchJson('Svc', up.url, post)).toEqual({ n: 2 });
+                expect(up.calls()).toBe(2);
+            } finally { await up.close(); }
+        }, 15_000);
+
+        it('repeats a POST that the caller marks as idempotent (a JSON-RPC read)', async () => {
+            const up = await upstream((_q, res, call) => (call < 2 ? (res.writeHead(503), res.end('busy')) : json(res, 200, { n: call })));
+            try {
+                expect(await fetchJson('Svc', up.url, post, { idempotent: true })).toEqual({ n: 2 });
+                expect(up.calls()).toBe(2);
+            } finally { await up.close(); }
+        }, 15_000);
+
+        it.each(['PUT', 'DELETE'])('still repeats %s, which is idempotent by definition', async (method) => {
+            const up = await upstream((_q, res, call) => (call < 2 ? (res.writeHead(503), res.end('busy')) : json(res, 200, { n: call })));
+            try {
+                expect(await fetchJson('Svc', up.url, { method })).toEqual({ n: 2 });
+                expect(up.calls()).toBe(2);
+            } finally { await up.close(); }
+        }, 15_000);
+
+        it('a GET the caller marks as non-idempotent is not repeated', async () => {
+            const up = await upstream((_q, res) => { res.writeHead(503); res.end('busy'); });
+            try {
+                await expect(fetchJson('Svc', up.url, {}, { idempotent: false })).rejects.toThrow(/503/);
+                expect(up.calls()).toBe(1);
+            } finally { await up.close(); }
+        });
+    });
+
     it('times out a hung upstream with a clear message', async () => {
         const up = await upstream(() => { /* never answers */ });
         try {

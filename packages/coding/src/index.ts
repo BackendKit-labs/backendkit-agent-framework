@@ -17,6 +17,8 @@ import {
     type MCPServerConfig,
     type ObservabilityConfig,
     getProjectDir,
+    isProjectTrusted,
+    untrustedLayerWarning,
 } from '@backendkit-labs/agent-core';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
@@ -321,6 +323,13 @@ export interface CodingEngineOptions {
     abortOnBudget?: boolean;
     transport?: Transport;
     /**
+     * Whether the project's own agents and skills (`{workingDir}/.{appName}/agents|skills`) load. They are the
+     * repository's content, so by default they load only for a project the user trusted (`/trust add`, stored in
+     * `~/.{appName}/trusted-projects.json`) or with `BK_TRUST_PROJECT=1`. Set it when your host decides trust itself.
+     * Needs agent-core >= 0.34.
+     */
+    trustedProject?: boolean;
+    /**
      * App name used to derive the home config directory (~/.{appName}/).
      * Defaults to 'bk-agent'. Set this to your own app name when building on top of the framework.
      */
@@ -421,7 +430,14 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     const appName = opts.appName ?? 'bk-agent';
 
     // ── Agents (builtins + global + project overrides) ────────────────────────
-    const allAgents = AgentLoader.load({ appName, cwd, builtins: CODING_AGENTS });
+    // The project layer is the repository's own content: it loads only for a trusted project (ADR-0006). Decided once
+    // here so agents and skills agree, and the user is told what was left out.
+    const projectTrusted = opts.trustedProject ?? isProjectTrusted(appName, cwd).trusted;
+    if (!projectTrusted) {
+        const warning = untrustedLayerWarning(appName, cwd);
+        if (warning) opts.transport?.emit({ type: 'system', level: 'warn', text: warning });
+    }
+    const allAgents = AgentLoader.load({ appName, cwd, builtins: CODING_AGENTS, trusted: projectTrusted });
 
     // ── Providers (instantiate from config) ───────────────────────────────────
     const providers: Record<string, LLMProvider> = {};
@@ -522,7 +538,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
     const skillLoader = opts.disablePersistence ? undefined : new SkillLoader(appName);
     const loadSkills = skillLoader
         ? async () => {
-            const loaded = await skillLoader.loadAll(cwd, store?.projectDir);
+            const loaded = await skillLoader.loadAll(cwd, store?.projectDir, projectTrusted);
             return [...loaded.global, ...loaded.packs, ...loaded.projectConfig, ...loaded.project];
         }
         : undefined;

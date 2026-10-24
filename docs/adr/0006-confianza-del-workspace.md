@@ -1,7 +1,8 @@
 # ADR-0006: Confianza del workspace para la capa de proyecto
 
 **Fecha:** 2026-10-24
-**Estado:** Propuesto
+**Estado:** Aceptado
+**Implementado en:** C1 de SPEC-0009 (agent-core, agent-coding; sin publicar)
 **Spec:** [SPEC-0009 §C1](../specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md)
 
 ## Contexto

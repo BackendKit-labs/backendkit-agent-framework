@@ -36,7 +36,7 @@ Un ADR aceptado no se edita para cambiar la decisión: se escribe uno nuevo que 
 | [0003](0003-salida-estructurada.md) | Salida estructurada | Aceptado |
 | [0004](0004-cache-de-prompt-y-razonamiento-anthropic.md) | Caché de prompt y razonamiento en Anthropic | Aceptado |
 | [0005](0005-unificacion-de-providers.md) | Unificación de providers LLM | Aceptado |
-| [0006](0006-confianza-del-workspace.md) | Confianza del workspace para la capa de proyecto | Propuesto |
+| [0006](0006-confianza-del-workspace.md) | Confianza del workspace para la capa de proyecto | Aceptado |
 | [0007](0007-un-limite-declarado-debe-aplicarse.md) | Un límite declarado debe aplicarse | Propuesto |
 
 Specs que los agrupan: [SPEC-0001](../specs/SPEC-0001-agent-core-ola-1.md) (0001–0005) y [SPEC-0009](../specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md) (0006–0007).

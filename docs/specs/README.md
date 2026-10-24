@@ -12,7 +12,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0006](SPEC-0006-agent-sandbox.md) | agent-sandbox: confinamiento y permisos | Borrador |
 | [SPEC-0007](SPEC-0007-agent-testkit-y-agent-autonomy.md) | agent-testkit y agent-autonomy | Borrador |
 | [SPEC-0008](SPEC-0008-hermes-plan-de-implementacion.md) | Hermes: plan de implementación (H0 → H1c) | P1–P6 publicados (hermes 0.2) |
-| [SPEC-0009](SPEC-0009-confianza-del-workspace-y-limites-aplicados.md) | Confianza del workspace y límites aplicados | Borrador |
+| [SPEC-0009](SPEC-0009-confianza-del-workspace-y-limites-aplicados.md) | Confianza del workspace y límites aplicados | En curso (C1 implementado) |
 
 Orden de ejecución propuesto: 0002 → 0007 (testkit) → 0006 → 0005 (one-shot, ACP) → 0003 H0/H1 → 0004 → 0005 (continuables) y 0007 (autonomía) → 0003 H3/H4.
 

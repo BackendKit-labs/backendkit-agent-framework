@@ -8,6 +8,7 @@ import { parseMdSkill } from '../skills/parse-md-skill';
 import { assertSafeFileName } from '../skills/safe-name';
 import { getFrameworkDir } from '../shared/utils/project-key';
 import { atomicWrite } from '../shared/utils/atomic-write';
+import { isProjectTrusted, listTrustedProjects, projectLayerContents, trustProject, untrustProject } from '../trust/workspace-trust';
 import {
     createCheckpoint,
     listCheckpoints,
@@ -428,6 +429,58 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             `Model     : ${ctx.model ?? '—'}`,
             `Iteration : ${ctx.getIterationMode?.() ?? '—'}`,
         ].join('\n'));
+    });
+
+    registry.register('/trust', 'Trust this project so its own agents and skills load: status, add, remove, list', async (ctx) => {
+        const appName = ctx.appName;
+        const project = ctx.workingDir;
+        if (!appName || !project) {
+            ctx.emit('/trust needs the host to pass appName and workingDir.');
+            return;
+        }
+        const [sub = 'status'] = ctx.args.trim().split(/\s+/).filter(Boolean);
+
+        if (sub === 'list') {
+            const all = listTrustedProjects(appName);
+            ctx.emit(all.length ? `Trusted projects:\n${all.map(p => `  ${p}`).join('\n')}` : 'No project is trusted.');
+            return;
+        }
+
+        if (sub === 'add') {
+            const trusted = trustProject(appName, project);
+            await ctx.reloadSkills?.();
+            ctx.emit(
+                `Trusted: ${trusted}\n` +
+                `Its skills load now. Its agents load the next time the agent starts: restart it to apply them.`,
+            );
+            return;
+        }
+
+        if (sub === 'remove') {
+            const removed = untrustProject(appName, project);
+            ctx.emit(removed
+                ? `No longer trusted: ${project}\nThe project's agents and skills stop loading the next time the agent starts.`
+                : `${project} was not trusted.`);
+            return;
+        }
+
+        if (sub !== 'status') {
+            ctx.emit('Usage: /trust [status | add | remove | list]');
+            return;
+        }
+
+        const status = isProjectTrusted(appName, project);
+        const layer = projectLayerContents(appName, project);
+        const holds = [
+            layer.agents.length ? `agents: ${layer.agents.join(', ')}` : '',
+            layer.skills.length ? `skills: ${layer.skills.join(', ')}` : '',
+        ].filter(Boolean).join(' | ') || 'nothing';
+        ctx.emit([
+            `Project : ${status.path}`,
+            `Trusted : ${status.trusted ? `yes (${status.reason === 'env' ? 'BK_TRUST_PROJECT=1' : 'listed'})` : 'no'}`,
+            `Project layer (${layer.dir}): ${holds}`,
+            status.trusted ? '' : 'Run /trust add to load it. Only do it if you trust whoever wrote this repository.',
+        ].filter(Boolean).join('\n'));
     });
 
     registry.register('/iteration', 'Change or show the iteration mode', async (ctx) => {

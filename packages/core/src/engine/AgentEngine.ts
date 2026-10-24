@@ -331,6 +331,7 @@ export class AgentEngine {
      */
     getCommandBindings(): Partial<CommandContext> {
         return {
+            workingDir:       this.opts.workingDir,
             onCwdChange:      (cwd: string, contextMessage?: string) => {
                 this.updateWorkingDir(cwd);
                 if (contextMessage) this.injectContext(contextMessage);

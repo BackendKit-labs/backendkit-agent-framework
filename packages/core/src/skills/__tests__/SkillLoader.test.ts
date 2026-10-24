@@ -2,6 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { SkillLoader } from '../loader';
+import { trustProject, untrustProject } from '../../trust/workspace-trust';
 import type { Skill } from '../types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -31,6 +32,9 @@ beforeEach(async () => {
     tmpCwd = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-loader-cwd-'));
     process.env.USERPROFILE = tmpHome;
     process.env.HOME = tmpHome;
+    delete process.env.BK_TRUST_PROJECT;
+    // the project layer loads only for a trusted project (ADR-0006): these tests are about loading, so trust it
+    trustProject(APP_NAME, tmpCwd);
 });
 
 afterEach(async () => {
@@ -38,6 +42,7 @@ afterEach(async () => {
     await fs.rm(tmpCwd, { recursive: true, force: true });
     delete process.env.USERPROFILE;
     delete process.env.HOME;
+    delete process.env.BK_TRUST_PROJECT;
 });
 
 // ── loadGlobal() ──────────────────────────────────────────────────────────────
@@ -144,6 +149,53 @@ describe('SkillLoader.loadPacks()', () => {
 
         // stray.yaml is at the packs root, not in a subdirectory
         expect(skills).toHaveLength(0);
+    });
+});
+
+// ── workspace trust ───────────────────────────────────────────────────────────
+
+describe('SkillLoader project layer and workspace trust (ADR-0006)', () => {
+    const writeProjectSkill = () =>
+        writeSkillYaml(path.join(tmpCwd, `.${APP_NAME}`, 'skills'), 'repo.yaml', { name: 'repo-skill', triggers: ['x'] });
+
+    it('does not load the repository\'s skills from a project that is not trusted', async () => {
+        await writeProjectSkill();
+        untrustProject(APP_NAME, tmpCwd);
+        const loader = new SkillLoader(APP_NAME);
+        expect(await loader.loadProject(tmpCwd)).toEqual([]);
+        expect((await loader.loadAll(tmpCwd)).project).toEqual([]);
+    });
+
+    it('still loads the layers that are not the repository\'s: global and packs', async () => {
+        await writeSkillYaml(path.join(tmpHome, `.${APP_NAME}`, 'skills', 'global'), 'g.yaml', { name: 'global-skill' });
+        await writeProjectSkill();
+        untrustProject(APP_NAME, tmpCwd);
+        const all = await new SkillLoader(APP_NAME).loadAll(tmpCwd);
+        expect(all.global.map(s => s.name)).toEqual(['global-skill']);
+        expect(all.project).toEqual([]);
+    });
+
+    it('loads them once the project is trusted, and BK_TRUST_PROJECT=1 trusts any path', async () => {
+        await writeProjectSkill();
+        untrustProject(APP_NAME, tmpCwd);
+        const loader = new SkillLoader(APP_NAME);
+        expect(await loader.loadProject(tmpCwd)).toHaveLength(0);
+
+        trustProject(APP_NAME, tmpCwd);
+        expect((await loader.loadProject(tmpCwd)).map(s => s.name)).toEqual(['repo-skill']);
+
+        untrustProject(APP_NAME, tmpCwd);
+        process.env.BK_TRUST_PROJECT = '1';
+        expect((await loader.loadProject(tmpCwd)).map(s => s.name)).toEqual(['repo-skill']);
+    });
+
+    it('a host that already decided can pass its answer', async () => {
+        await writeProjectSkill();
+        const loader = new SkillLoader(APP_NAME);
+        expect(await loader.loadProject(tmpCwd, false)).toEqual([]);          // trusted on disk, host says no
+        untrustProject(APP_NAME, tmpCwd);
+        expect((await loader.loadProject(tmpCwd, true)).map(s => s.name)).toEqual(['repo-skill']);
+        expect((await loader.loadAll(tmpCwd, undefined, true)).project).toHaveLength(1);
     });
 });
 

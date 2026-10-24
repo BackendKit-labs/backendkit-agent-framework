@@ -104,21 +104,26 @@ export class VaultWriter {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** A YAML double-quoted scalar. JSON string escaping is valid YAML, so a quote or a newline cannot break out of the value. */
+function yamlString(value: string): string {
+    return JSON.stringify(value);
+}
+
 function buildNote(p: WriteNoteParams & { date: string }): string {
     const tagsLine = p.tags?.length
-        ? `[${p.tags.map(t => `"${t}"`).join(', ')}]`
+        ? `[${p.tags.map(yamlString).join(', ')}]`
         : '[]';
 
     const lines: string[] = [
         '---',
-        `title: "${p.title}"`,
-        `author: "agent/${p.agentId}"`,
+        `title: ${yamlString(p.title)}`,
+        `author: ${yamlString(`agent/${p.agentId}`)}`,
         `date: ${p.date}`,
         `tags: ${tagsLine}`,
     ];
-    if (p.description) lines.push(`description: "${p.description}"`);
+    if (p.description) lines.push(`description: ${yamlString(p.description)}`);
     if (p.related_notes?.length) {
-        lines.push(`related_notes: [${p.related_notes.map(n => `"${n}"`).join(', ')}]`);
+        lines.push(`related_notes: [${p.related_notes.map(yamlString).join(', ')}]`);
     }
     lines.push('---', '', p.content);
     return lines.join('\n');

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
-import { homedir } from 'os';
+import { getFrameworkDir, isProjectTrusted } from '@backendkit-labs/agent-core';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Agent file format ─────────────────────────────────────────────────────────
@@ -121,6 +121,12 @@ export interface AgentLoaderOptions {
     appName?: string;
     cwd?: string;
     builtins?: AgentProfile[];
+    /**
+     * Whether the project layer (`{cwd}/.{appName}/agents`) may load. Default: asked of the workspace trust
+     * (ADR-0006), i.e. true only for a project the user trusted or with BK_TRUST_PROJECT=1. Pass it when the host
+     * has already decided, so the answer is the same everywhere it matters.
+     */
+    trusted?: boolean;
 }
 
 export class AgentLoader {
@@ -137,16 +143,21 @@ export class AgentLoader {
         const appName = opts.appName ?? 'bk-agent';
         const cwd = opts.cwd ?? process.cwd();
 
-        const globalDir  = join(homedir(), `.${appName}`, 'agents');
+        // Same home directory as the rest of the framework (getFrameworkDir), so trust and agents agree on it.
+        const globalDir  = join(getFrameworkDir(appName), 'agents');
         const projectDir = join(cwd, `.${appName}`, 'agents');
 
-        // Ensure directories exist for discoverability
+        // The project layer is the repository's own content: it loads only when the project is trusted (ADR-0006).
+        // The .md overrides of built-ins are part of it, so an untrusted repo cannot rewrite a built-in prompt either.
+        const trusted = opts.trusted ?? isProjectTrusted(appName, cwd).trusted;
+
+        // Ensure directories exist for discoverability. Never create anything inside a project that is not trusted.
         mkdirSync(globalDir,  { recursive: true });
-        mkdirSync(projectDir, { recursive: true });
+        if (trusted) mkdirSync(projectDir, { recursive: true });
 
         const builtins = (opts.builtins ?? []).map(a => ({ ...a, source: 'builtin' as const }));
         const globals  = readAgentDir(globalDir,  'global');
-        const project  = readAgentDir(projectDir, 'project');
+        const project  = trusted ? readAgentDir(projectDir, 'project') : [];
 
         // Merge: builtins first, then override with global, then project
         const merged = new Map<string, AgentProfile>();
@@ -155,7 +166,7 @@ export class AgentLoader {
         }
 
         // Apply .md-only prompt overrides (no .json counterpart)
-        for (const dir of [globalDir, projectDir]) {
+        for (const dir of trusted ? [globalDir, projectDir] : [globalDir]) {
             applyPromptOverrides(dir, merged);
         }
 
@@ -165,7 +176,7 @@ export class AgentLoader {
     /** Return paths where agents can be defined */
     static dirs(appName = 'bk-agent', cwd = process.cwd()) {
         return {
-            global:  join(homedir(), `.${appName}`, 'agents'),
+            global:  join(getFrameworkDir(appName), 'agents'),
             project: join(cwd, `.${appName}`, 'agents'),
         };
     }
@@ -179,7 +190,7 @@ export class AgentLoader {
         const cwd     = opts.cwd ?? process.cwd();
         const scope   = opts.scope ?? 'project';
         const dir     = scope === 'global'
-            ? join(homedir(), `.${appName}`, 'agents')
+            ? join(getFrameworkDir(appName), 'agents')
             : join(cwd, `.${appName}`, 'agents');
 
         mkdirSync(dir, { recursive: true });

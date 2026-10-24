@@ -289,6 +289,22 @@ Create `~/.bk-agent/agents/my-agent.json`:
 
 Loaded automatically — no code changes needed.
 
+### Project agents and skills need a trusted project
+
+Agents in `{project}/.bk-agent/agents/` and skills in `{project}/.bk-agent/skills/` are the **repository's** content, not yours: a cloned repo could ship an agent that replaces the built-in orchestrator with its own prompt and tools. So they load only for a project you trusted. Your own agents and skills under `~/.bk-agent/` always load.
+
+```text
+/trust              # is this project trusted, and what would its project layer load
+/trust add          # trust it (records the real path in ~/.bk-agent/trusted-projects.json)
+/trust remove       # stop trusting it
+/trust list
+```
+
+- Trust is by **exact path**: trusting `~/code` does not trust a repository cloned inside it.
+- For a project that is not trusted, the engine emits a warning naming what was left out. Skills load right after `/trust add`; agents the next time the agent starts.
+- `BK_TRUST_PROJECT=1` trusts every path (CI, containers). A host that decides by itself can pass `trustedProject: true | false` to `createCodingEngine`.
+- A missing or damaged trust file means nobody is trusted.
+
 ---
 
 ## Built-in tools

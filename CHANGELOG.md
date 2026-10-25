@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.34.0 (2026-10-24)
+
+Confianza del workspace (#99) y límites de Hermes (#100): fases C1 y C3 de [SPEC-0009](docs/specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md), con [ADR-0006](docs/adr/0006-confianza-del-workspace.md) y [ADR-0007](docs/adr/0007-un-limite-declarado-debe-aplicarse.md). Rangos 0.x barridos: `agent-core ^0.34.0` y `agent-coding ^0.28.0` en los paquetes que dependen de ellos y en las plantillas de `create-bk-agent`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.34.0 | confianza del workspace, `/trust` |
+| `agent-coding` | 0.28.0 | agentes de proyecto solo en proyectos confiados; necesita `agent-core >= 0.34` |
+| `hermes` | 0.3.0 | `maxConcurrent` aplicado, avisos de presupuesto |
+| `agent-enterprise` | 0.8.2 | solo el rango de `agent-core` |
+| `orchestrator-agent` | 0.6.1 | solo el rango de `agent-core` |
+| `mcp-server` | 0.18.1 | solo los rangos de `agent-core` y `agent-coding` |
+| `agent-web` | 0.5.1 | solo el rango de `agent-core` |
+| `aval-tools` | 0.1.11 | solo el rango de `agent-core` |
+| `create-bk-agent` | 0.23.2 | plantillas con los rangos nuevos |
+
+`agent-sandbox`, `agent-protocol`, `agent-providers`, `agent-otel`, `agent-testkit`, `curator-codex-agent` y `mcp-connectors` no cambian. Sus peers sobre `agent-core` (`<0.35.0`) ya cubren la 0.34.
+
+**Orden de publicación (obligatorio):** core → hermes → coding → enterprise → orchestrator-agent → (aval-tools, web, mcp-server) → create-bk-agent.
+`agent-coding` 0.28.0 importa `isProjectTrusted` de `agent-core`: publicarlo antes que `agent-core` 0.34.0 rompe las instalaciones. `mcp-server` depende de `agent-coding ^0.28.0`, así que va después de él.
+
+### Cambios de comportamiento (léelos antes de actualizar)
+- **`agent-core` 0.34.0 y `agent-coding` 0.28.0 — los agentes y skills de proyecto ya no cargan solos.** Lo que hay en `{proyecto}/.bk-agent/agents/` y `{proyecto}/.bk-agent/skills/` es contenido del repositorio abierto, no tuyo: un repo clonado podía traer un agente que reemplazaba al orquestador builtin con su propio prompt y herramientas. Ahora esa capa solo carga si confías en el proyecto:
+  - Una vez por proyecto: `/trust add` (también `/trust status`, `remove` y `list`). Se guarda en `~/.bk-agent/trusted-projects.json`. Las skills cargan al momento; los agentes, al siguiente arranque.
+  - Para CI y contenedores: `BK_TRUST_PROJECT=1`. Para un host que decide por sí mismo: `createCodingEngine({ trustedProject: true | false })`.
+  - La confianza es por **ruta exacta**: confiar en `~/code` no confía en un clon dentro. Un archivo de confianza dañado significa que nadie es confiable.
+  - Si el proyecto no está confiado, el engine avisa con `[Trust]` de qué se dejó fuera. Tus agentes y skills globales de `~/.bk-agent/` siguen cargando, y el mecanismo de override `.md` y la precedencia se mantienen para proyectos confiados.
+  - `AgentLoader` ya no crea directorios dentro de un proyecto no confiado, y calcula el directorio global con `getFrameworkDir` como el resto del framework.
+  - **No incluye** `AGENT.md`: el repositorio sigue pudiendo aportarlo al prompt (pregunta abierta nº 6 de SPEC-0009).
+- **`hermes` 0.3.0 — `limits.maxConcurrent` ahora se aplica.** Antes se aceptaba y no hacía nada. Pasado el límite, una llamada nueva falla al instante con `AGENT_BUSY` (no se encola), y quien llama decide si reintenta. Cuenta runs de capabilities, no flows. Un run recuperado tras un reinicio ocupa hueco hasta que termina.
+- **`hermes` 0.3.0 — presupuestos.** El presupuesto de un blueprint ya no es obligatorio cuando el creador tiene techo (declarar más que el techo sigue siendo un error). `bk-hermes validate` imprime un `warning:` en stderr por cada presupuesto declarado que nada aplica (el del agente, el del blueprint, `policies.budget`); el código de salida no cambia. **Los presupuestos siguen siendo solo declarativos**: Hermes no mide el gasto de los agentes que supervisa.
+
+### Detalle
+- **core:** módulo `trust/workspace-trust` (`isProjectTrusted`, `trustProject`, `untrustProject`, `listTrustedProjects`, `projectLayerContents`, `untrustedLayerWarning`); `SkillLoader.loadProject(cwd, trusted?)` y `loadAll(cwd, projectDir, trusted?)`; comando `/trust`; `CommandContext.workingDir`.
+- **hermes:** `fleetWarnings(fleet)` y `blueprintWarnings(...)` exportados; `AGENT_BUSY` en `HermesErrorCode`. El hueco de un run se libera antes de escribir su estado final, para que quien acaba de ver `done` o `cancelled` no reciba `AGENT_BUSY`.
+
+### Pendiente (no entra en esta versión)
+SPEC-0009: C2 (el comodín `delegatesTo: ['*']`, menos urgente tras la confianza), C3b (presupuesto aplicado: exige un canal de coste en los conectores y en `agent-protocol`), C4 (el alias `model` → `provider` del frontmatter es deliberado, queda decidir si se separa) y C5 (tipo `Capability`, solo diseño). Y las decisiones de la auditoría: autenticación del HTTP de `mcp-server`, docker como default de `run_command`, `AgentServer` en `0.0.0.0`, `WebhookServer` con `secret` opcional.
+
 ## v0.33.1 (2026-10-24)
 
 Auditoría de seguridad y robustez en cuatro lotes (#93, #94, #95, #96): 21 arreglos verificados contra el código, cada uno con sus tests. Rangos sin barrido: los parches caben en los `^` existentes; solo se actualizan los de plantillas (`orchestrator-agent ^0.6.0`), los de `create-bk-agent` (`mcp-server ^0.18.0`, `agent-web ^0.5.0`) y el peer de `hermes` sobre `agent-protocol` (`>=0.3.0 <0.5.0`).

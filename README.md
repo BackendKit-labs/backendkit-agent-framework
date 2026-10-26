@@ -99,7 +99,9 @@ import { createBaseEngine } from '@backendkit-labs/agent-core';
 
 ## Templates
 
-Five starter templates in [`packages/templates/`](packages/templates):
+`npx create-bk-agent` generates a project from one of seven architectures in
+[`packages/templates/base/`](packages/templates/base), combined with a deploy mode
+(`packages/templates/deploy/`).
 
 ### coding — complete, ready to run
 
@@ -107,19 +109,21 @@ Five starter templates in [`packages/templates/`](packages/templates):
 your project in `AGENT.md`, and it works. Extend the UI or add extra tools on top.
 Choose this when you want a coding assistant, not when you want to build one from scratch.
 
-### domain-agent — blank multi-agent architecture
+### multi-agent — blank multi-agent architecture
 
 Orchestrator + specialist pattern with no pre-built agents or tools.
 You define the agents, the tools, and the domain. The framework handles
 orchestration, delegation, and parallel execution. Use this to build any type
 of agent: infra, data, customer support, finance — anything that is not about editing code.
 
-| Template | What it gives you | You provide |
-|----------|------------------|-------------|
+| Architecture | What it gives you | You provide |
+|--------------|------------------|-------------|
 | `coding` | 10 agents + all coding tools | LLM key + `AGENT.md` description |
-| `domain-agent` | Orchestration skeleton | Agents + tools for your domain |
+| `multi-agent` | Orchestration skeleton | Agents + tools for your domain |
+| `single` | One agent with tools (pair it with the `mcp-http` deploy mode to serve it as an MCP server) | Tools to expose |
 | `autonomous` | Trigger system (cron/webhook/event) | Agent logic + what to do on trigger |
-| `mcp-server` | MCP server boilerplate | Tools to expose |
+| `enterprise` | Local LLM + Obsidian knowledge base (RAG) | Your vault |
+| `orchestrator` | Multi-step workflows with approval gates | Your flows and specialists |
 | `minimal` | Bare engine | Everything |
 
 ## Multi-project workspaces

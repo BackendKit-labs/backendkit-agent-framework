@@ -191,6 +191,8 @@ export class AgentEngine {
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
+    /** One per in-flight sub-agent LLM call, so abort() reaches delegations that run inside a tool call. */
+    private readonly subAgentControllers = new Set<AbortController>();
     /** One controller per tool call in flight (main agent and sub-agents); see `runToolDef`. */
     private readonly toolControllers = new Set<AbortController>();
     private allSkills: Skill[];
@@ -542,6 +544,7 @@ export class AgentEngine {
         void this.opts.jobs?.cancelAll();
         this.abortController?.abort();
         this.abortController = null;
+        for (const controller of [...this.subAgentControllers]) controller.abort('aborted');
         // Tools already running get their signal too; each one winds down (or is given up on after
         // the grace period) and the model is told the call was aborted.
         for (const controller of [...this.toolControllers]) controller.abort('aborted');
@@ -1177,36 +1180,43 @@ export class AgentEngine {
 
             const chatProvider = this.getProviderForProfile(profile);
             const llmStartedAt = Date.now();
-            await chatProvider.chat(messages, this.getToolsForAgent(profile), {
-                onChunk: (delta) => {
-                    streamContent += delta;
-                    if (holdOutput) heldTokens.push(delta);
-                    else if (!profile.suppressDefaultOutput) {
-                        emit({ type: 'token', content: delta, agent_id: profile.id });
-                    }
-                },
-                onToolCall: (name, args, id) => {
-                    if (!profile.suppressDefaultOutput) {
-                        emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
-                    }
-                    toolCalls.push({ id, name, args });
-                },
-                onDone: (msg) => { finalMessage = msg; },
-                onError: (err) => { throw err; },
-                onMetrics: (inputTokens, outputTokens, usage) => {
-                    totalInputTokens += inputTokens;
-                    totalOutputTokens += outputTokens;
-                    emit(metricsEvent(inputTokens, outputTokens, usage, {
-                        agentId: profile.id,
-                        provider: profile.provider ?? this.opts.defaultProvider,
-                        model: profile.model ?? chatProvider.modelId,
-                        startedAt: llmStartedAt,
-                    }));
-                },
-                model: profile.model,
-            });
+            const subController = new AbortController();
+            this.subAgentControllers.add(subController);
+            try {
+                await chatProvider.chat(messages, this.getToolsForAgent(profile), {
+                    onChunk: (delta) => {
+                        streamContent += delta;
+                        if (holdOutput) heldTokens.push(delta);
+                        else if (!profile.suppressDefaultOutput) {
+                            emit({ type: 'token', content: delta, agent_id: profile.id });
+                        }
+                    },
+                    onToolCall: (name, args, id) => {
+                        if (!profile.suppressDefaultOutput) {
+                            emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
+                        }
+                        toolCalls.push({ id, name, args });
+                    },
+                    onDone: (msg) => { finalMessage = msg; },
+                    onError: (err) => { throw err; },
+                    onMetrics: (inputTokens, outputTokens, usage) => {
+                        totalInputTokens += inputTokens;
+                        totalOutputTokens += outputTokens;
+                        emit(metricsEvent(inputTokens, outputTokens, usage, {
+                            agentId: profile.id,
+                            provider: profile.provider ?? this.opts.defaultProvider,
+                            model: profile.model ?? chatProvider.modelId,
+                            startedAt: llmStartedAt,
+                        }));
+                    },
+                    signal: subController.signal,
+                    model: profile.model,
+                });
+            } finally {
+                this.subAgentControllers.delete(subController);
+            }
 
-            if (!finalMessage) break;
+            if (this.aborted || !finalMessage) break;
             const guardedOut = await this.guardOutput(finalMessage as LLMMessage, profile.id);
             finalMessage = guardedOut.message;
             if (guardedOut.touched) streamContent = guardedOut.text;

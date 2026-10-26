@@ -84,3 +84,28 @@ describe('mapSpan', () => {
         expect(Object.keys(m.attributes).every(k => k.startsWith('gen_ai.') || k.startsWith('bk.'))).toBe(true);
     });
 });
+
+describe('mapSpan — tags leave the process only if listed', () => {
+    const attrsOf = (name: string, tags: Record<string, string | number | boolean>) => mapSpan(span({ name, tags })).attributes;
+
+    it('drops an unlisted tag on every span kind agent-core produces', () => {
+        for (const name of ['run', 'agent_block', 'llm_call', 'tool_call']) {
+            const a = attrsOf(name, { prompt_preview: 'secret text', args: '{"password":"x"}' });
+            expect(Object.keys(a).join(',')).not.toMatch(/prompt_preview|args/);
+        }
+    });
+
+    it('keeps what core sets: guardrail markers on the run, success and outcome on a tool call', () => {
+        expect(attrsOf('run', { 'guardrail.pii.redact': true, error: 'boom' })).toMatchObject({ 'bk.guardrail.pii.redact': true });
+        expect(attrsOf('run', { 'guardrail.pii.redact': true, error: 'boom' })).not.toHaveProperty('bk.error');
+        expect(attrsOf('tool_call', { 'tool.name': 'read_file', success: true, outcome: 'ok' })).toMatchObject({ 'bk.success': true, 'bk.outcome': 'ok' });
+    });
+
+    it('rejects a lookalike guardrail key with extra segments', () => {
+        expect(attrsOf('run', { 'guardrail.a.b.redact': true, 'guardrail.x.unknown': true })).toEqual({ 'bk.trace_id': expect.any(String) });
+    });
+
+    it("spans the application creates itself keep passing their tags through", () => {
+        expect(attrsOf('checkout', { order_id: 'o1' })).toEqual({ 'bk.order_id': 'o1' });
+    });
+});

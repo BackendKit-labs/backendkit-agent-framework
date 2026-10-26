@@ -1,6 +1,6 @@
 {
   "name": "create-bk-agent",
-  "version": "0.23.2",
+  "version": "0.23.3",
   "description": "Create a new BackendKit agent project",
   "main": "dist/src/index.js",
   "bin": {
@@ -28,7 +28,7 @@
     "test": "jest"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.24.0 <0.35.0"
+    "@backendkit-labs/agent-core": ">=0.24.0 <0.36.0"
   },
   "peerDependenciesMeta": {
     "@backendkit-labs/agent-core": {

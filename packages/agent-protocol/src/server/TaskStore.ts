@@ -27,20 +27,22 @@ export class TaskStore {
         if (t && t.status === 'pending') t.status = 'running';
     }
 
-    complete(taskId: string, output: unknown): void {
+    complete(taskId: string, output: unknown, costUsd?: number): void {
         const t = this.tasks.get(taskId);
         if (!t || t.status === 'cancelled') return;
         t.status     = 'done';
         t.output     = output;
+        if (costUsd !== undefined) t.costUsd = costUsd;
         t.finishedAt = new Date().toISOString();
         t.durationMs = Date.now() - new Date(t.startedAt).getTime();
     }
 
-    fail(taskId: string, error: string): void {
+    fail(taskId: string, error: string, costUsd?: number): void {
         const t = this.tasks.get(taskId);
         if (!t || t.status === 'cancelled') return;
         t.status     = 'failed';
         t.error      = error;
+        if (costUsd !== undefined) t.costUsd = costUsd;
         t.finishedAt = new Date().toISOString();
         t.durationMs = Date.now() - new Date(t.startedAt).getTime();
     }

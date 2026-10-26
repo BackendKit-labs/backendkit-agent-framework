@@ -29,6 +29,7 @@ const outcomeOf = (t: TaskRecord): RunOutcome => ({
     status: t.status as RunOutcome['status'],
     ...(t.output !== undefined ? { output: t.output } : {}),
     ...(t.error ? { error: t.error } : {}),
+    ...(t.costUsd !== undefined ? { costUsd: t.costUsd } : {}),
 });
 
 /** Reaches an agent served by `AgentServer` (agent-protocol 1.x). Needs nothing the 1.0 protocol does not have. */
@@ -123,7 +124,7 @@ export class ProtocolConnector implements AgentConnector {
         const response = await this.api().run(request.capability, request.input, { async: wantAsync, context: agentContext });
 
         if (response.status === 'done' || !response.taskId) {
-            const outcome: RunOutcome = { status: 'done', output: response.output };
+            const outcome: RunOutcome = { status: 'done', output: response.output, ...(response.costUsd !== undefined ? { costUsd: response.costUsd } : {}) };
             return { connectorRunId: response.taskId ?? 'inline', result: async () => outcome, status: async () => 'done', cancel: async () => undefined };
         }
         return this.handleFor(response.taskId, context.signal);
@@ -149,7 +150,7 @@ export class ProtocolConnector implements AgentConnector {
     async lookup(connectorRunId: string): Promise<RunLookup> {
         try {
             const task = await this.api().poll(connectorRunId);
-            return { found: true, status: task.status as RunStatus, ...(task.output !== undefined ? { output: task.output } : {}), ...(task.error ? { error: task.error } : {}) };
+            return { found: true, status: task.status as RunStatus, ...(task.output !== undefined ? { output: task.output } : {}), ...(task.error ? { error: task.error } : {}), ...(task.costUsd !== undefined ? { costUsd: task.costUsd } : {}) };
         } catch (err) {
             // The agent answered and does not know the run: lost. Anything else (no connection, 5xx) is not an answer.
             if ((err as { status?: number }).status === 404) return { found: false };

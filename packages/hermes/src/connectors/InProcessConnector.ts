@@ -8,7 +8,7 @@ export interface InProcessCapability extends Partial<Pick<CapabilityInfo, 'descr
     /** Takes long: Hermes starts it and answers with a run id. Default false. */
     async?: boolean;
     /** Does the work. `signal` aborts when the run is cancelled. A throw is a failed run. */
-    handler(input: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+    handler(input: Record<string, unknown>, signal: AbortSignal, run?: { reportCost(usd: number): void }): Promise<unknown>;
 }
 
 export interface InProcessConnectorOptions {
@@ -85,11 +85,14 @@ export class InProcessConnector implements AgentConnector {
         const controller = new AbortController();
         context.signal?.addEventListener('abort', () => controller.abort(), { once: true });
         const live: Live = { controller, status: 'running', done: undefined as unknown as Promise<RunOutcome> };
+        let cost: number | undefined;
+        const reportCost = (usd: number) => { if (Number.isFinite(usd) && usd >= 0) cost = (cost ?? 0) + usd; };
+        const spent = (): { costUsd?: number } => (cost !== undefined ? { costUsd: cost } : {});
         live.done = Promise.resolve()
-            .then(() => capability.handler(request.input, controller.signal))
+            .then(() => capability.handler(request.input, controller.signal, { reportCost }))
             .then<RunOutcome, RunOutcome>(
-                output => ({ status: controller.signal.aborted ? 'cancelled' : 'done', output }),
-                err => ({ status: controller.signal.aborted ? 'cancelled' : 'failed', error: err instanceof Error ? err.message : String(err) }),
+                output => ({ status: controller.signal.aborted ? 'cancelled' : 'done', output, ...spent() }),
+                err => ({ status: controller.signal.aborted ? 'cancelled' : 'failed', error: err instanceof Error ? err.message : String(err), ...spent() }),
             )
             .then(outcome => { live.status = outcome.status; live.outcome = outcome; return outcome; });
 

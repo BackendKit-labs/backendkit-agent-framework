@@ -46,6 +46,8 @@ export interface RunOutcome {
     status: Exclude<RunStatus, 'pending' | 'running'>;
     output?: unknown;
     error?: string;
+    /** USD the run spent, when the agent measures and reports it. Absent = not measured (not zero): that agent's budget cannot be enforced. */
+    costUsd?: number;
 }
 
 /** A started run. `result()` settles when the run ends; it never rejects for a failed run (it resolves with `status: 'failed'`). */
@@ -58,7 +60,7 @@ export interface RunHandle {
 }
 
 /** The answer of an agent about a run Hermes started earlier. `unknown` = the agent has no such run. */
-export type RunLookup = { found: true; status: RunStatus; output?: unknown; error?: string } | { found: false };
+export type RunLookup = { found: true; status: RunStatus; output?: unknown; error?: string; costUsd?: number } | { found: false };
 
 export interface FlowInfo { name: string; description?: string; steps?: string[] }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Sin publicar
+
+Presupuesto diario aplicado (SPEC-0009 C3b, ADR-0007 §5). `limits.budgetUsdPerDay` y `policies.budget.perDayUsd` dejan de ser solo declarativos, para los agentes que informan su coste. Cambio aditivo en `agent-protocol`; un agente que no informa su coste sigue sin límite.
+
+- `agent-protocol`: `AgentContext.reportCost(usd)` en los handlers del `AgentServer`; `costUsd` opcional en `RunResponse` y `TaskRecord`.
+- `hermes`: `RunOutcome.costUsd`, `RunRecord.costUsd` y `RunView.costUsd`; `handler(input, signal, run)` del `InProcessConnector` con `run.reportCost`. El acumulado diario (día UTC del inicio) sale del store de runs, así que sobrevive reinicios. Nuevo error `BUDGET_EXCEEDED` al admitir un run con el presupuesto agotado (tope blando: un run en curso termina). `bk-hermes validate` reformula los avisos de presupuesto; `perRunUsd` sigue sin aplicarse.
+
 ## v0.35.0 (2026-10-26)
 
 Defaults seguros. Tres servidores HTTP arrancaban abiertos por defecto: ahora lo seguro es el default y lo abierto hay que pedirlo. Rangos 0.x barridos: `agent-core ^0.35.0` en los paquetes que dependen de él, peers `<0.36.0` y plantillas de `create-bk-agent`.

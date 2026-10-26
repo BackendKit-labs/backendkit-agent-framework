@@ -1,12 +1,17 @@
 # Changelog
 
-## Sin publicar
+## v0.36.0 (2026-10-26)
 
 Presupuesto diario aplicado (SPEC-0009 C3b, ADR-0007 §5). `limits.budgetUsdPerDay` y `policies.budget.perDayUsd` dejan de ser solo declarativos, para los agentes que informan su coste. Cambio aditivo en `agent-protocol`; un agente que no informa su coste sigue sin límite.
 
 - `agent-protocol`: `AgentContext.reportCost(usd)` en los handlers del `AgentServer`; `costUsd` opcional en `RunResponse` y `TaskRecord`.
 - `hermes`: `RunOutcome.costUsd`, `RunRecord.costUsd` y `RunView.costUsd`; `handler(input, signal, run)` del `InProcessConnector` con `run.reportCost`. El acumulado diario (día UTC del inicio) sale del store de runs, así que sobrevive reinicios. Nuevo error `BUDGET_EXCEEDED` al admitir un run con el presupuesto agotado (tope blando: un run en curso termina). `bk-hermes validate` reformula los avisos de presupuesto; `perRunUsd` sigue sin aplicarse.
 - `hermes`: `engineRunCost(engine)` lee el coste del último run de un `AgentEngine` con `observability`, para pasarlo a `run.reportCost`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-protocol` | 0.6.0 | `reportCost` y `costUsd` (aditivo) |
+| `hermes` | 0.4.0 | presupuesto diario aplicado, `BUDGET_EXCEEDED`, `engineRunCost`; peer de `agent-protocol` ampliado a <0.7.0 |
 
 ## v0.35.0 (2026-10-26)
 

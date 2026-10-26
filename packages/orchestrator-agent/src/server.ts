@@ -299,6 +299,10 @@ async function executeInBackground(
 
     const queue = getSubtaskQueue();
 
+    // Progress writes are chained and drained before any terminal save: a late load→save pair
+    // must not put a finished run back to 'running'.
+    let progressWrites: Promise<void> = Promise.resolve();
+
     const executor = new PlanExecutor({
         config,
         ragSearchFn:  rag?.search,
@@ -311,10 +315,11 @@ async function executeInBackground(
         onProgress: (msg) => {
             const match = msg.match(/\[([^\]]+)\]/);
             if (match) {
-                // fire-and-forget: currentStep update is best-effort progress tracking
-                store.load(runId).then(current => {
+                // best-effort progress tracking, serialized so writes land in order
+                progressWrites = progressWrites.then(async () => {
+                    const current = await store.load(runId);
                     if (current && current.status === 'running') {
-                        return store.save({ ...current, currentStep: { stepId: match[1], agentId: match[1], startedAt: ts() } });
+                        await store.save({ ...current, currentStep: { stepId: match[1], agentId: match[1], startedAt: ts() } });
                     }
                 }).catch(() => {});
             }
@@ -326,6 +331,7 @@ async function executeInBackground(
 
     try {
         const result = await executor.execute(plan as Parameters<typeof executor.execute>[0], priorResults);
+        await progressWrites;
 
         if ('gateRequired' in result) {
             await store.save({
@@ -374,6 +380,7 @@ async function executeInBackground(
             audit.write({ event: 'run.done', runId, task: state.task, status: 'complete', durationMs: Date.now() - startedMs, extra: { steps: result.results.length } });
         }
     } catch (err) {
+        await progressWrites;
         await store.save({
             ...state,
             status:      'failed',

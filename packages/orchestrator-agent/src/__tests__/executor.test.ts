@@ -126,17 +126,33 @@ describe('gates', () => {
         expect(t.order).toEqual(['t1:prior=0', 't2:prior=1']);
     });
 
-    it('parallel steps from the gated batch are not executed again on resume', async () => {
+    it('two gated parallel steps each get their own gate; none runs twice', async () => {
         const t = tracker();
         const ex = new PlanExecutor({ config: config(), dispatchFn: t.dispatchFn });
         const p = plan(st('t1', { gate: true }), st('t2', { gate: true }));
+
         const first = await ex.execute(p) as GateHit;
         expect(first.stepId).toBe('t1');
-        expect(first.completedSoFar.map(r => r.subtask_id)).toEqual(['t1', 't2']);
-        // t2 already ran in the same batch: it must not be dispatched a second time
-        const second = await ex.execute(p, first.completedSoFar);
-        expect(isGate(second)).toBe(false);
+        // t2 is deferred, not silently completed: its output must not be released ungated
+        expect(first.completedSoFar.map(r => r.subtask_id)).toEqual(['t1']);
+        expect(t.order.filter(o => o.startsWith('t2:'))).toHaveLength(0);
+
+        const second = await ex.execute(p, first.completedSoFar) as GateHit;
+        expect(isGate(second)).toBe(true);
+        expect(second.stepId).toBe('t2');
+
+        const third = await ex.execute(p, second.completedSoFar) as PlanExecution;
+        expect(third.complete).toBe(true);
+        expect(t.order.filter(o => o.startsWith('t1:'))).toHaveLength(1);
         expect(t.order.filter(o => o.startsWith('t2:'))).toHaveLength(1);
+    });
+
+    it('ungated parallel steps still run alongside the first gated one', async () => {
+        const t = tracker();
+        const ex = new PlanExecutor({ config: config(), dispatchFn: t.dispatchFn });
+        const first = await ex.execute(plan(st('t1', { gate: true }), st('t2'), st('t3', { gate: true }))) as GateHit;
+        expect(first.stepId).toBe('t1');
+        expect(first.completedSoFar.map(r => r.subtask_id).sort()).toEqual(['t1', 't2']);
     });
 });
 

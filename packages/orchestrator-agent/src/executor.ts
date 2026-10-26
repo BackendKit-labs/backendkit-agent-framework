@@ -155,26 +155,31 @@ export class PlanExecutor {
                 }
             }
 
-            if (ready.length > 1) {
-                this.onProgress(`  ⚡ [parallel] ${ready.map(s => s.id).join(' + ')}`);
+            // A run holds one gate at a time. Only the first gated step joins this batch; the others
+            // stay in `remaining` and run alone on a later pass, so each one gets its own approval
+            // (marking them completed here would let their output through ungated).
+            const firstGated = preps.find(p => p.needsGate);
+            const batch = preps.filter(p => !p.needsGate || p === firstGated);
+
+            if (batch.length > 1) {
+                this.onProgress(`  ⚡ [parallel] ${batch.map(p => p.subtask.id).join(' + ')}`);
             }
 
-            // ── 2. Run all ready steps in parallel ────────────────────────────────
+            // ── 2. Run the batch in parallel ──────────────────────────────────────
             // Gates check the *output*, not whether the step should run — it is safe
-            // to run all ready steps concurrently and gate on the results.
+            // to run these steps concurrently and gate on the results.
             const batchResults = await Promise.all(
-                preps.map(p => this.runSubTask(p.subtask, results)),
+                batch.map(p => this.runSubTask(p.subtask, results)),
             );
 
             // ── 3. Collect results; return first gate hit ─────────────────────────
             // All results are added to `completed` before returning a GateHit so that
             // `completedSoFar` is accurate and the resume path skips them correctly.
-            // If multiple parallel steps need gates, the second fires on the next resume
-            // cycle (it will then appear alone in `ready`, so its gate is not skipped).
+            // Other gated steps were deferred above, so at most one step in the batch can hit a gate.
             let gateHit: GateHit | undefined;
 
-            for (let i = 0; i < preps.length; i++) {
-                const { subtask, needsGate, explicitCriteria, matchedRuleIds, ruleCriteria } = preps[i];
+            for (let i = 0; i < batch.length; i++) {
+                const { subtask, needsGate, explicitCriteria, matchedRuleIds, ruleCriteria } = batch[i];
                 const result = batchResults[i];
 
                 results.push(result);

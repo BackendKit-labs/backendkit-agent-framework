@@ -21,7 +21,7 @@ const myAgent: AgentProfile = {
     name: 'My Agent',
     icon: '🤖',
     description: 'TODO: describe your agent',
-    allowedTools: [],
+    allowedTools: [],   // the tools this agent may call, by name; empty means none (a tool that is registered but not listed here is refused)
     delegatesTo: [],
     systemPrompt: 'TODO: write your system prompt here.',
 };

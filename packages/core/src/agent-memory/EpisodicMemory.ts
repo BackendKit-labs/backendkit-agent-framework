@@ -65,9 +65,10 @@ export class EpisodicMemory {
             .sort((a, b) => b.score - a.score)
             .slice(0, limit);
 
-        for (const { r } of scored) {
-            this.backend.upsert(r.id, { ...r, recallCount: (r.recallCount ?? 0) + 1, lastRecalledAt: now });
-        }
+        // One write for the whole result set, not one per matched episode.
+        const touched = scored.map(({ r }) => ({ ...r, recallCount: (r.recallCount ?? 0) + 1, lastRecalledAt: now }));
+        if (this.backend.upsertMany) this.backend.upsertMany(touched);
+        else for (const t of touched) this.backend.upsert(t.id, t);
 
         return scored.map(x => ({ ...toEpisode(x.r), score: x.score }));
     }
@@ -92,12 +93,12 @@ export class EpisodicMemory {
     // ── Private ────────────────────────────────────────────────────────────────
 
     private async runSummarization(): Promise<void> {
-        const oldest = (this.backend.getAll() as EpisodeRecord[])
-            .slice(0, this.summarizeAfter)
-            .map(toEpisode);
-        if (oldest.length === 0 || !this.summarizeFn) return;
+        const oldestRecords = (this.backend.getAll() as EpisodeRecord[]).slice(0, this.summarizeAfter);
+        if (oldestRecords.length === 0 || !this.summarizeFn) return;
 
-        const summary = await this.summarizeFn(oldest);
+        const summary = await this.summarizeFn(oldestRecords.map(toEpisode));
+        // The summary replaces what it covers; keeping both would make the store grow by one on every pass.
+        this.backend.deleteByIds(oldestRecords.map(r => r.id));
         this.remember(summary, ['summary']);
     }
 }

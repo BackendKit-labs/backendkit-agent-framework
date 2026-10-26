@@ -40,6 +40,13 @@ export class JsonFileStore implements MemoryStoreBackend {
         this.append(JSON.stringify(record));
     }
 
+    upsertMany(records: StoredRecord[]): void {
+        if (records.length === 0) return;
+        const map = this.load();
+        for (const record of records) map.set(record.id, record);
+        this.append(records.map(r => JSON.stringify(r)).join('\n'), records.length);
+    }
+
     getAll(): StoredRecord[] { return [...this.load().values()]; }
 
     deleteOldest(keepNewest: number): void {
@@ -63,9 +70,9 @@ export class JsonFileStore implements MemoryStoreBackend {
         this.append(JSON.stringify({ _del: ids } satisfies DeleteLine));
     }
 
-    private append(line: string): void {
-        appendFileSync(this.path, line + '\n');
-        this.logLines++;
+    private append(lines: string, count = 1): void {
+        appendFileSync(this.path, lines + '\n');
+        this.logLines += count;
         const live = this.load().size;
         if (this.logLines > Math.max(COMPACT_MIN, live * COMPACT_RATIO)) this.compact();
     }

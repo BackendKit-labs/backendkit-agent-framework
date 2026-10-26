@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, extname } from 'path';
-import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
 import type { AgentProfile } from '../types';
 import type { AgentPackageFile } from './types';
+import { getFrameworkDir } from '../shared/utils/project-key';
 
 const REQUIRED_FIELDS = ['id', 'name', 'description', 'systemPrompt', 'allowedTools'] as const;
 
@@ -44,9 +44,27 @@ export function loadAgentsFromDir(
     return agents;
 }
 
-/** Returns the global agents directory: ~/.{appName}/agents/ */
+/**
+ * Returns the global agents directory: ~/.{appName}/agents/. Resolved with getFrameworkDir like the rest of the
+ * framework (trust file, AgentLoader), so every loader looks in the same home.
+ */
 export function globalAgentsDir(appName: string): string {
-    return join(homedir(), `.${appName}`, 'agents');
+    return join(getFrameworkDir(appName), 'agents');
+}
+
+/**
+ * Names of what a directory holds that `loadAgentsFromDir` would load, without opening or parsing any of it.
+ * Used to say what an untrusted project left out.
+ */
+export function listAgentEntries(dir: string): string[] {
+    if (!existsSync(dir)) return [];
+    const names: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'registry') continue;
+        if (entry.isFile() && isYamlOrJson(entry.name)) names.push(entry.name.replace(/\.(yaml|yml|json)$/, ''));
+        else if (entry.isDirectory() && existsSync(join(dir, entry.name, 'agent.yaml'))) names.push(entry.name);
+    }
+    return names.sort();
 }
 
 /** Returns the project-local agents directory: {cwd}/.{appName}/agents/ */

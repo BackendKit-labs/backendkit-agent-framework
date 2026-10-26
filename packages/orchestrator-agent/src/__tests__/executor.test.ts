@@ -72,6 +72,7 @@ describe('PlanExecutor.execute', () => {
         const ex = new PlanExecutor({ config: config() });
         const res = await ex.execute(plan(st('t1', { agent_id: 'ghost' }))) as PlanExecution;
         expect(res.results[0].result).toBe('No agent configured for id: ghost');
+        expect(res.results[0].success).toBe(false);
     });
 
     it('turns a missing provider into success=false with the error text (inline)', async () => {
@@ -221,5 +222,36 @@ describe('ruleToGateCriteria', () => {
 
     it('falls back to a generic criterion naming the policy', () => {
         expect(ruleToGateCriteria({ ...base, then: {} })).toEqual(['Política "Named" aplicada — revisión requerida']);
+    });
+});
+
+describe('subtask isolation', () => {
+    it('a rejecting dispatch fails only that step; siblings keep their results', async () => {
+        const ex = new PlanExecutor({
+            config: config(),
+            dispatchFn: async (subtask) => {
+                if (subtask.id === 't1') throw new Error('queue down');
+                return { subtask_id: subtask.id, agent_id: subtask.agent_id, task: subtask.task, result: 'ok', success: true, duration_ms: 1 };
+            },
+        });
+        const res = await ex.execute(plan(st('t1'), st('t2'))) as PlanExecution;
+        const byId = Object.fromEntries(res.results.map(r => [r.subtask_id, r]));
+        expect(byId.t1).toMatchObject({ success: false, result: 'Error: queue down' });
+        expect(byId.t2).toMatchObject({ success: true, result: 'ok' });
+    });
+
+    it('a hung step fails at subtaskTimeoutMs without discarding its siblings', async () => {
+        const ex = new PlanExecutor({
+            config: config(),
+            subtaskTimeoutMs: 50,
+            dispatchFn: (subtask) => subtask.id === 't1'
+                ? new Promise(() => {})
+                : Promise.resolve({ subtask_id: subtask.id, agent_id: subtask.agent_id, task: subtask.task, result: 'ok', success: true, duration_ms: 1 }),
+        });
+        const res = await ex.execute(plan(st('t1'), st('t2'))) as PlanExecution;
+        const byId = Object.fromEntries(res.results.map(r => [r.subtask_id, r]));
+        expect(byId.t1.success).toBe(false);
+        expect(byId.t1.result).toMatch(/timed out after 50ms/);
+        expect(byId.t2.success).toBe(true);
     });
 });

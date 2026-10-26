@@ -180,12 +180,25 @@ describe('TaskPlanner', () => {
         await expect(p.plan('x', agents)).rejects.toThrow(/TaskPlanner: could not parse plan/);
     });
 
-    it('does not detect dependency cycles at planning time (the executor does)', async () => {
-        const cyclic = { summary: 's', subtasks: [
-            { id: 'a', agent_id: 'dev', task: 't', depends_on: ['b'] },
-            { id: 'b', agent_id: 'dev', task: 't', depends_on: ['a'] },
-        ] };
-        const p = new TaskPlanner(async () => JSON.stringify(cyclic));
-        await expect(p.plan('x', agents)).resolves.toBeDefined();
+    const planOf = (subtasks: unknown[]) => new TaskPlanner(async () => JSON.stringify({ summary: 's', subtasks }));
+    const stk = (id: string, agent_id: string, depends_on: string[] = []) => ({ id, agent_id, task: 't', depends_on });
+
+    it('rejects dependency cycles at planning time, naming the path', async () => {
+        await expect(planOf([stk('a', 'dev', ['b']), stk('b', 'dev', ['a'])]).plan('x', agents)).rejects.toThrow(/Dependency cycle: a → b → a/);
+        await expect(planOf([stk('a', 'dev', ['a'])]).plan('x', agents)).rejects.toThrow(/Dependency cycle: a → a/);
+    });
+
+    it('rejects duplicate sub-task ids', async () => {
+        await expect(planOf([stk('a', 'dev'), stk('a', 'qa')]).plan('x', agents)).rejects.toThrow(/Duplicate sub-task id: a/);
+    });
+
+    it('rejects an agent_id that is not configured, but keeps the "unresolved" marker', async () => {
+        await expect(planOf([stk('a', 'ghost')]).plan('x', agents)).rejects.toThrow(/unknown agent_id: ghost/);
+        await expect(planOf([stk('a', 'unresolved')]).plan('x', agents)).resolves.toBeDefined();
+    });
+
+    it('accepts a diamond (shared dependency is not a cycle)', async () => {
+        const p = planOf([stk('a', 'dev'), stk('b', 'dev', ['a']), stk('c', 'qa', ['a']), stk('d', 'qa', ['b', 'c'])]);
+        expect((await p.plan('x', agents)).subtasks).toHaveLength(4);
     });
 });

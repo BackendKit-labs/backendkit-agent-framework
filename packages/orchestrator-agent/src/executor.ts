@@ -78,6 +78,8 @@ export interface ExecutorOptions {
      * worker completes it (including success/failure and duration).
      */
     dispatchFn?:   (subtask: SubTask, priorResults: ExecutionResult[]) => Promise<ExecutionResult>;
+    /** Per-subtask deadline in ms; a subtask that exceeds it fails instead of holding up its siblings. Default: none. */
+    subtaskTimeoutMs?: number;
     /**
      * Cross-run episodic memory: returns past successful outputs from the same agent
      * for similar tasks. Injected into the agent prompt as examples.
@@ -95,6 +97,7 @@ export class PlanExecutor {
     private readonly reflection:  ReflectionAdapter | undefined;
     private readonly dispatchFn:  ((subtask: SubTask, priorResults: ExecutionResult[]) => Promise<ExecutionResult>) | undefined;
     private readonly episodicFn:  ((agentId: string, task: string) => Promise<string>) | undefined;
+    private readonly subtaskTimeoutMs: number | undefined;
 
     constructor(opts: ExecutorOptions) {
         this.config      = opts.config;
@@ -103,6 +106,7 @@ export class PlanExecutor {
         this.reflection  = opts.reflection;
         this.dispatchFn  = opts.dispatchFn;
         this.episodicFn  = opts.episodicFn;
+        this.subtaskTimeoutMs = opts.subtaskTimeoutMs;
     }
 
     /**
@@ -215,17 +219,26 @@ export class PlanExecutor {
         const agentCfg = this.config.agents.find(a => a.id === subtask.agent_id);
         this.onProgress(`  → [${subtask.id}] ${agentCfg?.name ?? subtask.agent_id}: ${subtask.task.slice(0, 80)}…`);
 
-        // BullMQ dispatch: delegate to worker process via Redis queue
-        if (this.dispatchFn) {
-            return this.dispatchFn(subtask, priorResults);
-        }
-
         const start = Date.now();
-        try {
-            const result = agentCfg
-                ? await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn)
-                : `No agent configured for id: ${subtask.agent_id}`;
+        const failure = (result: string): ExecutionResult => ({
+            subtask_id:  subtask.id,
+            agent_id:    subtask.agent_id,
+            task:        subtask.task,
+            result,
+            success:     false,
+            duration_ms: Date.now() - start,
+        });
 
+        // Whatever the path (queue or inline), a rejection or a hang must become this step's failure:
+        // it must not reject the batch and discard the results of its siblings.
+        const run = async (): Promise<ExecutionResult> => {
+            // BullMQ dispatch: delegate to worker process via Redis queue
+            if (this.dispatchFn) return this.dispatchFn(subtask, priorResults);
+
+            // An unknown agent is a failure, not a success with an apology as output.
+            if (!agentCfg) return failure(`No agent configured for id: ${subtask.agent_id}`);
+
+            const result = await executeSubtask(this.config, agentCfg, subtask, priorResults, this.ragSearchFn, this.episodicFn);
             return {
                 subtask_id:  subtask.id,
                 agent_id:    subtask.agent_id,
@@ -234,15 +247,21 @@ export class PlanExecutor {
                 success:     true,
                 duration_ms: Date.now() - start,
             };
+        };
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const pending = run();
+            if (this.subtaskTimeoutMs === undefined) return await pending;
+            pending.catch(() => {}); // a late rejection after the timeout is already accounted for
+            const deadline = new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`timed out after ${this.subtaskTimeoutMs}ms`)), this.subtaskTimeoutMs);
+            });
+            return await Promise.race([pending, deadline]);
         } catch (err) {
-            return {
-                subtask_id:  subtask.id,
-                agent_id:    subtask.agent_id,
-                task:        subtask.task,
-                result:      `Error: ${err instanceof Error ? err.message : String(err)}`,
-                success:     false,
-                duration_ms: Date.now() - start,
-            };
+            return failure(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            if (timer) clearTimeout(timer);
         }
     }
 

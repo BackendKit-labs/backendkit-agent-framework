@@ -18,6 +18,7 @@ import { FileWatcher } from './indexer/watcher.js';
 import { detectStackFromGraph } from './indexer/stack-detector.js';
 import { registerPlatformResources } from './resources/platform-resources.js';
 import { extraIndexRoots, isLoopbackRequest, resolveInside } from './request-guards.js';
+import { SessionRegistry } from './session-registry.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
@@ -274,7 +275,7 @@ async function startStdio() {
 async function startHttp() {
     // Stateful mode — each client gets a session ID; the McpServer is shared but
     // each transport instance tracks its own protocol state independently.
-    const sessions = new Map<string, StreamableHTTPServerTransport>();
+    const sessions = new SessionRegistry<StreamableHTTPServerTransport>();
 
     async function parseBody(req: IncomingMessage): Promise<unknown> {
         const chunks: Buffer[] = [];
@@ -312,6 +313,12 @@ async function startHttp() {
             if (req.method !== 'POST') {
                 res.writeHead(400);
                 res.end('Session ID required for GET');
+                return;
+            }
+
+            if (sessions.isFull()) {
+                res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+                res.end(JSON.stringify({ error: 'Too many open sessions' }));
                 return;
             }
 

@@ -6,6 +6,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { CallbackTransport, type AgentEngine } from '@backendkit-labs/agent-core';
 import { isLoopbackRequest } from './request-guards.js';
+import { SessionRegistry } from './session-registry.js';
 
 type ZodRawShape = Record<string, z.ZodTypeAny>;
 
@@ -64,6 +65,10 @@ export interface AgentMCPServerOptions {
      * Required when `host` is not a loopback address.
      */
     authToken?: string;
+    /** HTTP mode: a session idle for this long is closed. Default 30 min. */
+    sessionTtlMs?: number;
+    /** HTTP mode: new sessions get 503 once this many are open. Default 1000. */
+    maxSessions?: number;
     tools: AgentToolDef<any>[];
     /**
      * Factory called for every tool invocation.
@@ -94,12 +99,17 @@ export interface AgentMCPServerOptions {
  */
 export class AgentMCPServer {
     private httpServer?: ReturnType<typeof createServer>;
+    private sessionRegistry?: SessionRegistry<StreamableHTTPServerTransport>;
 
     constructor(private readonly opts: AgentMCPServerOptions) {}
 
     /** Start in HTTP mode (StreamableHTTP, stateful sessions). */
     async start(): Promise<void> {
-        const sessions = new Map<string, StreamableHTTPServerTransport>();
+        const sessions = new SessionRegistry<StreamableHTTPServerTransport>({
+            ttlMs: this.opts.sessionTtlMs,
+            maxSessions: this.opts.maxSessions,
+        });
+        this.sessionRegistry = sessions;
 
         const parseBody = async (req: IncomingMessage): Promise<unknown> => {
             const chunks: Buffer[] = [];
@@ -153,6 +163,12 @@ export class AgentMCPServer {
                     res.writeHead(400); res.end('Session ID required for GET'); return;
                 }
 
+                if (sessions.isFull()) {
+                    res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+                    res.end(JSON.stringify({ error: 'Too many open sessions' }));
+                    return;
+                }
+
                 const body = await parseBody(req);
                 const transport = new StreamableHTTPServerTransport({
                     sessionIdGenerator: () => randomUUID(),
@@ -189,6 +205,8 @@ export class AgentMCPServer {
 
     /** Gracefully shut down the HTTP server, force-closing open connections. */
     async stop(): Promise<void> {
+        await this.sessionRegistry?.closeAll();
+        this.sessionRegistry = undefined;
         if (!this.httpServer) return;
         // closeAllConnections() drops keep-alive sockets immediately (Node 18.2+)
         if (typeof this.httpServer.closeAllConnections === 'function') {

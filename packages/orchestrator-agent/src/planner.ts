@@ -16,6 +16,34 @@ export interface TaskPlan {
     subtasks:  SubTask[];
 }
 
+/** Marker the planner emits for a needed capability no agent covers. */
+export const UNRESOLVED_AGENT = 'unresolved';
+
+/** First dependency cycle in the plan as a path (a → b → a), or undefined. */
+function findCycle(subtasks: SubTask[]): string[] | undefined {
+    const deps = new Map(subtasks.map(s => [s.id, s.depends_on]));
+    const state = new Map<string, 'visiting' | 'done'>();
+    const path: string[] = [];
+    const visit = (id: string): string[] | undefined => {
+        if (state.get(id) === 'done') return undefined;
+        if (state.get(id) === 'visiting') return [...path.slice(path.indexOf(id)), id];
+        state.set(id, 'visiting');
+        path.push(id);
+        for (const dep of deps.get(id) ?? []) {
+            const found = visit(dep);
+            if (found) return found;
+        }
+        path.pop();
+        state.set(id, 'done');
+        return undefined;
+    };
+    for (const s of subtasks) {
+        const found = visit(s.id);
+        if (found) return found;
+    }
+    return undefined;
+}
+
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 const PLANNER_SYSTEM = `You are a task decomposition expert.
@@ -88,15 +116,15 @@ export class TaskPlanner {
         ].filter(Boolean).join('\n');
 
         const raw = await this.callLLM(PLANNER_SYSTEM, user);
-        return this.parse(raw);
+        return this.parse(raw, agents);
     }
 
-    private parse(raw: string): TaskPlan {
+    private parse(raw: string, agents: AgentConfig[]): TaskPlan {
         const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
         const jsonStr   = jsonMatch ? jsonMatch[1].trim() : raw.trim();
         try {
             const plan = JSON.parse(jsonStr) as TaskPlan;
-            this.validate(plan);
+            this.validate(plan, agents);
             return plan;
         } catch (err) {
             throw new Error(
@@ -105,7 +133,7 @@ export class TaskPlanner {
         }
     }
 
-    private validate(plan: TaskPlan): void {
+    private validate(plan: TaskPlan, agents: AgentConfig[]): void {
         if (!plan.summary || !Array.isArray(plan.subtasks)) {
             throw new Error('Plan missing required fields: summary, subtasks');
         }
@@ -114,11 +142,25 @@ export class TaskPlanner {
                 throw new Error(`Sub-task malformed: ${JSON.stringify(st)}`);
             }
         }
-        const ids = new Set(plan.subtasks.map(s => s.id));
+        const ids = new Set<string>();
+        for (const st of plan.subtasks) {
+            if (ids.has(st.id)) throw new Error(`Duplicate sub-task id: ${st.id}`);
+            ids.add(st.id);
+        }
         for (const st of plan.subtasks) {
             for (const dep of st.depends_on) {
                 if (!ids.has(dep)) throw new Error(`Sub-task ${st.id} depends on unknown id: ${dep}`);
             }
         }
+        // An id the LLM invented would otherwise run as a no-op and look like success.
+        // "unresolved" is the planner's own marker for a capability gap and stays valid.
+        const agentIds = new Set(agents.map(a => a.id));
+        for (const st of plan.subtasks) {
+            if (st.agent_id !== UNRESOLVED_AGENT && !agentIds.has(st.agent_id)) {
+                throw new Error(`Sub-task ${st.id} uses unknown agent_id: ${st.agent_id}`);
+            }
+        }
+        const cycle = findCycle(plan.subtasks);
+        if (cycle) throw new Error(`Dependency cycle: ${cycle.join(' → ')}`);
     }
 }

@@ -13,7 +13,7 @@ export interface ToolCallBuffer { id: string; name: string; args: string }
 
 /**
  * Shared streaming skeleton: retries transient failures with @backendkit-labs/retry, never retries
- * once content reached the caller or the call was aborted, and reports failures through
+ * once content or reasoning reached the caller or the call was aborted, and reports failures through
  * `callbacks.onError` instead of throwing. Subclasses implement `stream`.
  */
 export abstract class BaseStreamingProvider implements LLMProvider {
@@ -36,6 +36,11 @@ export abstract class BaseStreamingProvider implements LLMProvider {
                     onChunk: (delta) => {
                         contentEmitted = true;
                         callbacks.onChunk?.(delta);
+                    },
+                    // Reasoning is billed and shown like content: a retry after it would pay for it twice.
+                    onReasoning: (delta) => {
+                        contentEmitted = true;
+                        callbacks.onReasoning?.(delta);
                     },
                 }, options),
                 {

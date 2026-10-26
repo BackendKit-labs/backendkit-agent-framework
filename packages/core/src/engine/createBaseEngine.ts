@@ -92,6 +92,9 @@ export interface BaseEngineOptions {
     /** Max parallel agent delegations via ask_agent. Default: 6. */
     maxParallelAgents?: number;
 
+    /** Deepest nesting of ask_agent delegations. Default: 5. */
+    maxDelegationDepth?: number;
+
     /**
      * Called before write/execute tools (write_file, edit_file, run_command) and before
      * package installs. Return 'approve', 'approve_all' (stop prompting for this session) or
@@ -396,6 +399,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.additionalRoots?.length ? { additionalRoots: opts.additionalRoots } : {}),
         maxIterations: opts.maxIterations ?? 100,
         maxParallelAgents: opts.maxParallelAgents ?? 6,
+        ...(opts.maxDelegationDepth !== undefined ? { maxDelegationDepth: opts.maxDelegationDepth } : {}),
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),

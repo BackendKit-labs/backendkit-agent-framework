@@ -27,8 +27,13 @@ export interface DelegationResult {
     error?: string;
 }
 
+/** Default cap on nested delegation: top-level is 0, so agent A → B → C → D is depth 3. */
+export const DEFAULT_MAX_DELEGATION_DEPTH = 5;
+
 export interface DelegationBusOptions {
     maxParallel?: number;
+    /** Deepest nesting allowed for a delegation; deeper requests fail with `max_depth_exceeded`. Default 5. */
+    maxDepth?: number;
     agents: AgentRegistry;
     transport: Transport;
     runAgent(
@@ -91,6 +96,17 @@ export class DelegationBus {
         }
 
         const { depth = 0 } = request;
+        const maxDepth = this.opts.maxDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
+        if (depth > maxDepth) {
+            return {
+                agentId: request.agentId,
+                content: `Error: delegation depth ${depth} exceeds the limit of ${maxDepth}; answer without delegating further`,
+                inputTokens: 0,
+                outputTokens: 0,
+                elapsedMs: 0,
+                error: 'max_depth_exceeded',
+            };
+        }
 
         const execute = () => {
             // agent_switch always goes to the real transport — it tells the renderer

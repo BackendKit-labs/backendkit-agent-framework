@@ -307,7 +307,7 @@ export interface EngineOptions {
      * When exceeded, the oldest messages are dropped at the next user-turn boundary
      * to avoid orphaning tool call / tool result pairs.
      * Emits a 'system' warn event when trimming occurs.
-     * Default: unlimited (undefined).
+     * Default: 200 (not applied when `context` is set, which replaces it). 0 disables the cap.
      *
      * Recommended: 100–200 for interactive agents; 40–60 for long-running autonomous agents.
      */

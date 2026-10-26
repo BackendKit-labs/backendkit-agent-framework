@@ -123,3 +123,30 @@ describe('AgentEngine — context window (trimHistory)', () => {
         await expect(engine.run('follow up')).resolves.toBeUndefined();
     });
 });
+
+describe('AgentEngine — default history cap', () => {
+    function build(extra: { maxContextMessages?: number } = {}) {
+        let lastSeen = 0;
+        const provider = makeInspectingProvider(msgs => { lastSeen = msgs.filter(m => m.role !== 'system').length; });
+        const { agents, tools, providers } = buildRegistries(provider);
+        const { transport, events } = createMockTransport();
+        const engine = new AgentEngine({
+            model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
+            defaultProvider: 'mock', transport, defaultAgentId: 'test-agent', ...extra,
+        });
+        return { engine, events, seen: () => lastSeen };
+    }
+
+    it('caps the history at 200 messages when nothing is configured, and says so', async () => {
+        const { engine, events, seen } = build();
+        for (let i = 0; i < 150; i++) await engine.run(`turn ${i}`); // 300 messages without a cap
+        expect(seen()).toBeLessThanOrEqual(201);
+        expect(events.some(e => e.type === 'system' && JSON.stringify(e).includes('history capped at 200'))).toBe(true);
+    });
+
+    it('maxContextMessages: 0 turns the cap off', async () => {
+        const { engine, seen } = build({ maxContextMessages: 0 });
+        for (let i = 0; i < 150; i++) await engine.run(`turn ${i}`);
+        expect(seen()).toBeGreaterThan(250);
+    });
+});

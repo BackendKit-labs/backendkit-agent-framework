@@ -1,6 +1,6 @@
 import { ApprovalGate } from './ApprovalGate';
 import { AuditLogger } from './AuditLogger';
-import { HistoryManager, sanitizeMessages } from './HistoryManager';
+import { HistoryManager, sanitizeMessages, DEFAULT_MAX_CONTEXT_MESSAGES } from './HistoryManager';
 import { ContextManager, SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from './ContextManager';
 import { resolveSecrets } from './secrets';
 import { isContextOverflowError } from './contextOverflow';
@@ -715,7 +715,9 @@ export class AgentEngine {
     }
 
     private trimHistory(): void {
-        const max = this.opts.maxContextMessages;
+        // Unset: cap at the default, unless token-aware `context` is configured (it replaces the count cap).
+        // 0 turns the cap off explicitly.
+        const max = this.opts.maxContextMessages ?? (this.opts.context ? undefined : DEFAULT_MAX_CONTEXT_MESSAGES);
         if (!max) return;
         const dropped = this.history.trim(max);
         if (dropped > 0) {

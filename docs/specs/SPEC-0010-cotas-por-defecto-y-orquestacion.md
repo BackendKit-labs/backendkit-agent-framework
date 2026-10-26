@@ -1,7 +1,7 @@
 # SPEC-0010: Cotas por defecto, orquestación y tipos de agente
 
 **Fecha:** 2026-10-26
-**Estado:** Borrador (O1 en PR #112–#114; el resto, sin empezar)
+**Estado:** En curso (O1 en PR #112–#114; O2 casi completo en #116–#122; O3–O5 sin empezar)
 **Depende de:** SPEC-0009 (confianza y límites aplicados), SPEC-0006 (sandbox), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md)
 **Origen:** informe del auditor del 2026-10-26 (6 subagentes sobre el SDK ya extraído a bk-platform). Las citas `ruta:línea` son del auditor; **ninguna se ha reverificado salvo las marcadas "verificado"**. Cada fase empieza por reproducir el hallazgo con un test que falle; si no se reproduce, se descarta y se anota aquí.
 **Objetivo:** que ningún bucle, historial, cola o delegación crezca sin techo por defecto, que la orquestación no pueda saltarse una aprobación ni dejar un run colgado, y que haya una sola forma de cargar y describir un agente.
@@ -14,6 +14,13 @@
 | Bypass de gates paralelas en orchestrator-agent | Verificado y corregido en #113 (una gate por paso; las demás se difieren). |
 | Carrera de `onProgress` que deja el run en `running` | Corregido en #113 (escrituras encadenadas y drenadas). Sin test automatizado: vive en `server.ts`. |
 | Sin límite de profundidad de delegación | Verificado y corregido en #114 (`maxDelegationDepth`, 5). Las delegaciones anidadas siguen sin pasar por el bulkhead. |
+| `WorkflowRunner`: skipped no se propaga, ciclos devuelven `completed` | Verificado y corregido en #116. |
+| `TaskPlanner.validate` sin ciclos, ids duplicados ni agente conocido; `agent_id` desconocido = éxito; `Promise.all` descarta hermanos | Corregido en #117 (más `subtaskTimeoutMs` opcional). |
+| `QAService.evaluateReview` por subcadenas; transición muerta `commit_skipped` | Corregido en #118. |
+| Sub-agentes sin `signal` en `abort()` | Corregido en #119. |
+| FSM `approved→implementation` y rework sin tope | Corregido en #120: se quita la transición (nadie la usaba) y `maxRework` por defecto 5; agotado, `qa-orchestrator` rechaza. |
+| `orchestrate().catch(() => undefined)` fail-open | Corregido en #121: `orchestratorFailureMode`, **fail-closed por defecto**. |
+| `approveGate` duplicado MCP/HTTP, la HTTP sin audit trail | Corregido en #122 (`applyGateDecision`); sin test, `server.ts` no es importable. |
 | `model:` del frontmatter pisa `provider` | **Ya recogido en SPEC-0009 (C4):** es un alias deliberado, no un error de copia. |
 | `delegatesTo: ['*']` en `general` | **Ya recogido en SPEC-0009 (C2).** |
 | Corregidos antes y confirmados por el auditor | Path traversal en `skill.name`, webhook con secret obligatorio, `AgentServer` en 127.0.0.1, retry de POST no idempotente, `blockedCommands` efectivo. |
@@ -21,6 +28,8 @@
 ## 2. Fases
 
 ### O2 — Orquestación restante (core, orchestrator-agent)
+**Pendiente de esta fase tras #116–#122:** compactación y recuperación de desbordamiento en sub-agentes; bulkhead para delegaciones anidadas; límite de concurrencia en `WorkflowRunner.executeWave`; atomicidad de la aprobación entre procesos; extraer `applyGateDecision` de `server.ts` para poder testearla. El resto de viñetas de abajo ya está resuelto (ver §1).
+
 - `WorkflowRunner`: los dependientes de un paso fallido o saltado pasan a `skipped` en el resultado (hoy A→B→C con A fallando deja a C fuera de `results`); un `WorkflowDef` con ciclo se rechaza al validar en lugar de devolver `completed` con pasos faltantes.
 - `TaskPlanner.validate`: rechaza ids duplicados, ciclos en `depends_on` y `agent_id` fuera de `agents`; el ejecutor trata un `agent_id` desconocido como fallo, no como éxito (`executor.ts:220-222`).
 - Sub-agentes: propagar `signal` a la llamada LLM de un sub-agente y aplicar compactación y recuperación de desbordamiento (`AgentEngine.ts:1179-1217`).
@@ -69,7 +78,7 @@ O1 (hecho, en revisión) → O2 → O3 → O5 → O4. O4 va último porque rompe
 
 ## 4. Decisiones abiertas
 1. Valor por defecto del historial y qué hacer al alcanzarlo (compactar o recortar).
-2. `orchestrate()` ante error: fail-closed o aviso explícito.
+2. ~~`orchestrate()` ante error~~ — **resuelta:** fail-closed por defecto, `open` opcional (#121).
 3. Formato de `JsonFileStore`: NDJSON con compactación o escritura diferida.
 4. Si O4 se publica con opción transitoria o directamente como cambio incompatible.
 5. Atomicidad de la aprobación de gates entre procesos: Redis con `SET NX` o aceptar un solo proceso.

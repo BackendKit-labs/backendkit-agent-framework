@@ -58,11 +58,17 @@
 
 **Tests:** el semáforo limita la concurrencia real (8 llamadas simultáneas, 2 arrancan), libera al fallar y al cancelar, no retiene el hueco durante una aprobación y lo vuelve a comprobar después, es por agente, y un run recuperado tras reiniciar lo ocupa; `validate` emite el aviso exacto y no falla; un blueprint sin presupuesto es válido y uno por encima del techo no.
 
-### C3b — Presupuesto aplicado (hermes, agent-protocol) · pendiente · ADR-0007 §5
+### C3b — Presupuesto aplicado (hermes, agent-protocol) · diseño decidido, sin implementar · ADR-0007 §5
 **Corrección:** este spec decía que Hermes construiría el engine de un agente en proceso con `observability.budget` y `abortOnBudget`. No es viable: `InProcessConnector` recibe funciones (`handler`), no un engine, y una instancia aprovisionada la construye el provisionador del anfitrión a partir de un `template` que Hermes no interpreta. Hermes no ve el gasto.
 - **Diseño necesario:** un canal de coste. `RunOutcome.costUsd?` opcional que el conector informa (un handler en proceso lo devuelve; `agent-protocol` lo transporta en el resultado de la tarea), un acumulado diario por agente (día UTC) en el store de runs, y rechazo de nuevas ejecuciones con un código claro (`BUDGET_EXCEEDED`) al alcanzar `budgetUsdPerDay`.
 - **Cambia contratos** (`connectors/types`, `agent-protocol`) y exige que cada agente informe de su coste; un agente que no lo informe sigue siendo declarativo y se avisa.
-- **Preguntas abiertas:** ¿el acumulado se persiste (sobrevive reinicios) o es de proceso?; ¿qué hace una ejecución en curso al alcanzarse el límite: termina o se cancela?; ¿`policies.budget.perRunUsd` se aplica aquí o es del engine?
+- **Decisiones (2026-10-26):**
+  1. **El acumulado se persiste.** Vive en el store de runs de Hermes (el mismo que sobrevive reinicios), por agente y día UTC. Uno en memoria se borra al reiniciar: un agente que cae en bucle o un redeploy evadirían el límite, que es la enfermedad que ADR-0007 quiere evitar.
+  2. **Un run en curso termina.** Hermes comprueba el presupuesto **al admitir**, no durante el run: al alcanzar `budgetUsdPerDay` rechaza los siguientes con `BUDGET_EXCEEDED`. Cortar a mitad de un run corresponde a quien ve el gasto en tiempo real, el engine (`abortOnBudget`). El exceso queda acotado por un run por hueco de `maxConcurrent`; se documenta como **tope blando en el borde**, no como tope exacto.
+  3. **`perRunUsd` es del engine, no de Hermes.** Solo el engine puede abortar un run en curso. Hermes aplica únicamente `perDayUsd` / `budgetUsdPerDay`. `policies.budget.perRunUsd` sigue avisando en `bk-hermes validate` (ADR-0007); cuando haya un caso real se saca del schema de Hermes o se documenta como pista para el engine del agente.
+- **Alcance resultante:** (a) `RunOutcome.costUsd?` opcional que el conector informa; (b) campo opcional y **aditivo** en el resultado de la tarea de `agent-protocol`, para no romper agentes ya desplegados; (c) acumulado diario por agente en el store de runs; (d) rechazo `BUDGET_EXCEEDED` al admitir; (e) un agente que no informe su coste sigue siendo declarativo y se avisa.
+- **Release:** cambia el comportamiento de quien declara presupuestos, así que va en su propio release, con CHANGELOG visible.
+- **Pendiente de detalle al implementar:** si el coste de un run recuperado tras reiniciar se suma al día en que empezó o al de su cierre; cómo se redondea el cambio de día UTC con runs que lo cruzan.
 
 **Salida de C3 (parcial):** ningún campo de límite del schema de Hermes queda sin enforcement *o sin aviso*; los presupuestos siguen siendo solo declarativos hasta C3b. La regla de revisión de ADR-0007 en la plantilla de PR sigue pendiente.
 
@@ -94,4 +100,4 @@ La propuesta del auditor: un tipo `Capability { tools, roots, budget?, rate? }` 
 7. **Dónde se confía en un servicio:** `createCodingEngine({ trustedProject })` y `BK_TRUST_PROJECT=1` cubren a un host que decide por sí mismo; falta decidir si un servicio debe confiar su propio directorio por defecto (pregunta 1).
 
 ## 5. Fuera de este spec
-Pendientes de la misma auditoría, que son decisiones de diseño aparte: autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, `AgentServer` escuchando en `0.0.0.0` por defecto, `WebhookServer` con `secret` opcional.
+Pendientes de la misma auditoría, que son decisiones de diseño aparte: autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, ~~`AgentServer` escuchando en `0.0.0.0` por defecto, `WebhookServer` con `secret` opcional~~ (resueltos en la 0.35: `127.0.0.1` por defecto y `secret` obligatorio).

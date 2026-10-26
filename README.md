@@ -3,7 +3,6 @@
 TypeScript SDK for building agents: a model- and transport-agnostic multi-agent engine for coding assistants, autonomous agents, domain specialists, and MCP servers.
 
 - **`packages/`** — the SDK (publishable to npm), including the `create-bk-agent` scaffolder.
-- **`apps/docs`** — documentation site.
 
 The control plane (director-api, cloud-platform, abac, ops agents) and the reference/domain agents (finance, aiops, bk-coder, ...) were moved out to the `bk-platform` and `bk-agents` repos (full history preserved).
 

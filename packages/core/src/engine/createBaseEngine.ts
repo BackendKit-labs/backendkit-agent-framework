@@ -120,7 +120,7 @@ export interface BaseEngineOptions {
      * Maximum number of messages to keep in conversation history (sliding window).
      * Oldest messages are dropped at user-turn boundaries to avoid orphaning tool
      * call / result pairs. A 'system' warn event is emitted when trimming occurs.
-     * Default: unlimited. Recommended: 100 for interactive agents, 40–60 for
+     * Default: 200 (not applied when `context` is set); 0 disables the cap. Recommended: 100 for interactive agents, 40–60 for
      * long-running autonomous agents.
      */
     maxContextMessages?: number;
@@ -414,7 +414,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),
         ...(opts.onStep ? { onStep: opts.onStep } : {}),
-        ...(opts.maxContextMessages ? { maxContextMessages: opts.maxContextMessages } : {}),
+        ...(opts.maxContextMessages !== undefined ? { maxContextMessages: opts.maxContextMessages } : {}),
         ...(opts.context ? { context: opts.context } : {}),
         ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
         ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),

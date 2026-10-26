@@ -3,6 +3,9 @@ import { dirname } from 'path';
 import { atomicWriteSync } from '../shared/utils/atomic-write';
 import type { LLMMessage } from '../types';
 
+/** In-memory history cap when none is configured. Past it, the oldest turns are dropped (with a warn event). */
+export const DEFAULT_MAX_CONTEXT_MESSAGES = 200;
+
 export interface HistoryManagerOptions {
     historyPath?: string;
     maxContextMessages?: number;

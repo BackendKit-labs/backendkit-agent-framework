@@ -13,11 +13,24 @@ const LAYERED: ArchitectureId[] = ['multi-agent', 'single', 'enterprise'];
 
 // ── Provider env var hints ────────────────────────────────────────────────────
 
-const PROVIDER_ENV: Record<ProviderId, { varName: string; placeholder: string; model: string; baseUrl?: string }> = {
-    anthropic: { varName: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...',  model: 'claude-sonnet-4-6' },
-    openai:    { varName: 'OPENAI_API_KEY',    placeholder: 'sk-...',      model: 'gpt-4o',         baseUrl: 'https://api.openai.com/v1' },
-    deepseek:  { varName: 'LLM_API_KEY',       placeholder: 'sk-...',      model: 'deepseek-chat',  baseUrl: 'https://api.deepseek.com/v1' },
-    ollama:    { varName: 'OLLAMA_BASE_URL',   placeholder: 'http://localhost:11434', model: 'llama3.2' },
+/**
+ * What is true of a provider whichever kind of project is generated: its default model and API endpoint.
+ * The two tables below (project .env, orchestrator.yaml) used to repeat these and could drift apart.
+ * Each keeps its own environment-variable naming, which does differ on purpose (a generated project reads
+ * `LLM_API_KEY` for DeepSeek, the orchestrator `DEEPSEEK_API_KEY`).
+ */
+export const PROVIDER_DEFAULTS: Record<ProviderId, { model: string; baseUrl?: string }> = {
+    anthropic: { model: 'claude-sonnet-4-6' },
+    openai:    { model: 'gpt-4o',        baseUrl: 'https://api.openai.com/v1' },
+    deepseek:  { model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1' },
+    ollama:    { model: 'llama3.2' },
+};
+
+export const PROVIDER_ENV: Record<ProviderId, { varName: string; placeholder: string; model: string; baseUrl?: string }> = {
+    anthropic: { varName: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...',             ...PROVIDER_DEFAULTS.anthropic },
+    openai:    { varName: 'OPENAI_API_KEY',    placeholder: 'sk-...',                 ...PROVIDER_DEFAULTS.openai },
+    deepseek:  { varName: 'LLM_API_KEY',       placeholder: 'sk-...',                 ...PROVIDER_DEFAULTS.deepseek },
+    ollama:    { varName: 'OLLAMA_BASE_URL',   placeholder: 'http://localhost:11434', ...PROVIDER_DEFAULTS.ollama },
 };
 
 // ── Copy directory (overlay-safe) ─────────────────────────────────────────────
@@ -164,13 +177,14 @@ function injectSkillPack(targetDir: string, pack: SkillPack): void {
 
 // ── Orchestrator provider block generator ─────────────────────────────────────
 
-type ProviderBlock = { id: string; keyVar: string; model: string; baseUrl?: string };
+export type ProviderBlock = { id: string; keyVar: string; model: string; baseUrl?: string };
 
-const ORCHESTRATOR_PROVIDERS: Record<ProviderId, ProviderBlock> = {
-    deepseek:  { id: 'deepseek',  keyVar: 'DEEPSEEK_API_KEY',  model: 'deepseek-chat',       baseUrl: 'https://api.deepseek.com/v1' },
-    anthropic: { id: 'anthropic', keyVar: 'ANTHROPIC_API_KEY', model: 'claude-sonnet-4-6' },
-    openai:    { id: 'openai',    keyVar: 'OPENAI_API_KEY',    model: 'gpt-4o',              baseUrl: 'https://api.openai.com/v1' },
-    ollama:    { id: 'ollama',    keyVar: '',                  model: 'llama3.2',            baseUrl: 'http://localhost:11434' },
+export const ORCHESTRATOR_PROVIDERS: Record<ProviderId, ProviderBlock> = {
+    deepseek:  { id: 'deepseek',  keyVar: 'DEEPSEEK_API_KEY',  ...PROVIDER_DEFAULTS.deepseek },
+    anthropic: { id: 'anthropic', keyVar: 'ANTHROPIC_API_KEY', ...PROVIDER_DEFAULTS.anthropic },
+    openai:    { id: 'openai',    keyVar: 'OPENAI_API_KEY',    ...PROVIDER_DEFAULTS.openai },
+    // orchestrator.yaml wants an explicit base_url for Ollama; a generated project reads it from OLLAMA_BASE_URL instead
+    ollama:    { id: 'ollama',    keyVar: '',                  ...PROVIDER_DEFAULTS.ollama, baseUrl: 'http://localhost:11434' },
 };
 
 function buildProvidersBlock(provider: ProviderId): string {

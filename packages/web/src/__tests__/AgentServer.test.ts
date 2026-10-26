@@ -97,6 +97,13 @@ describe('AgentServer', () => {
             expect(new AgentServer({ port: 4567, engineFactory: factory }).port).toBe(4567);
         });
 
+        it('binds to loopback unless a host is given', async () => {
+            const { factory } = makeFactory();
+            const srv = new AgentServer({ port: 0, engineFactory: factory });
+            const address = await srv.start();
+            try { expect(address).toContain('127.0.0.1'); } finally { await srv.stop(); }
+        });
+
         it('port defaults to 3000', () => {
             const { factory } = makeFactory();
             expect(new AgentServer({ engineFactory: factory }).port).toBe(3000);

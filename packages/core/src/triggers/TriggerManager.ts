@@ -95,7 +95,7 @@ export class TriggerManager {
                 ? cfg.buildPrompt(body, headers)
                 : `Webhook received at ${cfg.path}:\n${JSON.stringify(body, null, 2)}`;
             void this.safeRun(prompt, `webhook(${cfg.path})`);
-        }, cfg.secret);
+        }, cfg.secret, { allowUnsigned: cfg.allowUnsigned });
     }
 
     private setupEvent(cfg: EventTriggerConfig): void {

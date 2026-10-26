@@ -232,7 +232,7 @@ const agent = createAutonomousAgent({
   memorySystem: memory,
   triggers: [
     { type: 'schedule', cron: '0 9 * * *', task: 'Run daily check and report findings' },
-    { type: 'webhook', path: '/events' },
+    { type: 'webhook', path: '/events', secret: process.env.WEBHOOK_SECRET },
   ],
   webhookPort: 3000,
 });

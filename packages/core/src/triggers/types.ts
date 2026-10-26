@@ -17,6 +17,11 @@ export interface WebhookTriggerConfig {
     /** HMAC-SHA256 secret for GitHub-style signature verification (X-Hub-Signature-256). */
     secret?: string;
     /**
+     * Accept requests without a signature. Required when no `secret` is set; leave it off unless the port is
+     * reachable only by callers you trust.
+     */
+    allowUnsigned?: boolean;
+    /**
      * Build the prompt from the request body and headers.
      * Defaults to a JSON dump of the body prefixed with the path.
      */

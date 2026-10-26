@@ -38,6 +38,7 @@ import { buildEpisodicFn }                         from './episodic.js';
 import { RedisRunStore, redisPrefix }             from './run-store-redis.js';
 import { SubtaskQueue }                           from './subtask-queue.js';
 import { buildRAG }                               from './rag.js';
+import { applyGateDecision as applyGateDecisionWith, type GateDecisionDeps, type GateDecisionInput } from './gate-decision.js';
 import { matchFlow, flowToTaskPlan }              from './static-flow.js';
 import { consolidateRun }                         from './consolidate.js';
 import type { ReflectionAdapter }                 from './executor.js';
@@ -481,74 +482,19 @@ srv.tool(
     },
 );
 
-// ── Gate decision — one implementation for the MCP tool and the HTTP endpoint ──
-// They used to carry two copies that drifted (the HTTP one lost the audit trail).
+// ── Gate decision — one implementation for the MCP tool and the HTTP endpoint (see gate-decision.ts) ──
 
-interface GateDecisionInput {
-    runId:      string;
-    configPath: string;
-    config:     OrchestratorConfig;
-    store:      Awaited<ReturnType<typeof getStore>>;
-    state:      RunState;           // must be waiting_gate
-    approved:   boolean;
-    notes?:     string;
-}
+const gateDeps = (configPath: string): GateDecisionDeps => ({
+    audit:         getAuditLogger(configPath),
+    getReflection: vaultPath => getReflection(vaultPath),
+    buildRAG,
+    dataDir:       resolveDataDir,
+    resume:        executeInBackground,
+    now:           ts,
+});
 
-/**
- * Records the approver's decision: rule outcomes, audit entry, run state, and — when approved —
- * resumes the plan in the background. The caller holds the per-run claim and has already checked
- * that the run is `waiting_gate`.
- */
-async function applyGateDecision(d: GateDecisionInput): Promise<{ gate: NonNullable<RunState['waitingGate']> }> {
-    const { runId, configPath, config, store, state, approved, notes } = d;
-    const gate = state.waitingGate!;
-    const audit = getAuditLogger(configPath);
-
-    // Cable 2: record rule outcomes so the reflection engine tracks effectiveness
-    const reflection = config.orchestrator.vault
-        ? await getReflection(config.orchestrator.vault.path).catch(() => undefined)
-        : undefined;
-    if (reflection && gate.appliedRuleIds?.length) {
-        const outcome: 'success' | 'failure' = approved ? 'success' : 'failure';
-        for (const ruleId of gate.appliedRuleIds) {
-            reflection.recordRuleOutcome(ruleId, outcome).catch(() => { /* best-effort */ });
-        }
-    }
-
-    if (!approved) {
-        await store.save({
-            ...state,
-            status:      'failed',
-            completedAt: ts(),
-            error:       `Gate rejected by approver. Step: ${gate.stepId}. Notes: ${notes ?? '(none)'}`,
-            waitingGate: undefined,
-        });
-        audit.write({ event: 'gate.rejected', runId, task: state.task, stepId: gate.stepId, agentId: gate.agentId, error: notes ?? 'no notes' });
-        return { gate };
-    }
-
-    audit.write({ event: 'gate.approved', runId, task: state.task, stepId: gate.stepId, agentId: gate.agentId, extra: notes ? { notes } : undefined });
-    const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
-
-    // Mark gate as cleared, resume in background
-    await store.save({ ...state, status: 'running', waitingGate: undefined });
-
-    const priorResults: ExecutionResult[] = state.completedSteps.map(s => ({
-        subtask_id:  s.stepId,
-        agent_id:    s.agentId,
-        task:        s.task,
-        result:      s.output,
-        success:     s.success,
-        duration_ms: s.durationMs,
-    }));
-
-    setImmediate(() => {
-        executeInBackground(runId, configPath, config, state.plan, rag, priorResults).catch(async (err) => {
-            const s = await store.load(runId);
-            if (s) await store.save({ ...s, status: 'failed', error: String(err) });
-        });
-    });
-    return { gate };
+function applyGateDecision(d: GateDecisionInput) {
+    return applyGateDecisionWith(d, gateDeps(d.configPath));
 }
 
 // ---------------------------------------------------------------------------

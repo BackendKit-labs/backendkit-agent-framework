@@ -50,6 +50,12 @@ export interface IRunStore {
     load(runId: string): Promise<RunState | null>;
     list(): Promise<RunState[]>;
     prune(maxAgeDays?: number): Promise<number>;
+    /**
+     * Claims a run for a gate decision across processes: the release function, or null if another process
+     * (or call) holds it. The claim expires on its own after `ttlMs` so a crashed holder cannot block a run
+     * forever. Optional: a store without it relies on the in-process claim only.
+     */
+    claim?(runId: string, ttlMs?: number): Promise<(() => Promise<void>) | null>;
 }
 
 // ── Disk-based implementation ─────────────────────────────────────────────────
@@ -102,6 +108,34 @@ export class RunStore implements IRunStore {
         return runs.sort((a, b) =>
             new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
         );
+    }
+
+    /**
+     * A claim is a `<runId>.claim` file created with the exclusive flag, so two processes on the same directory
+     * cannot both create it. One older than `ttlMs` belongs to a crashed holder and is taken over.
+     */
+    async claim(runId: string, ttlMs = 5 * 60_000): Promise<(() => Promise<void>) | null> {
+        if (!/^[A-Za-z0-9_-]+$/.test(runId)) return null;
+        const file = path.join(this.dir, `${runId}.claim`);
+        const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                fs.writeFileSync(file, token, { flag: 'wx' });
+                return async () => {
+                    try {
+                        // free only our own claim: after the ttl another process may have taken the file over
+                        if (fs.readFileSync(file, 'utf-8') === token) fs.unlinkSync(file);
+                    } catch { /* already gone */ }
+                };
+            } catch (err) {
+                if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+                try {
+                    if (Date.now() - fs.statSync(file).mtimeMs <= ttlMs) return null;
+                    fs.unlinkSync(file); // stale: its holder is gone
+                } catch { /* released between the check and here: try again */ }
+            }
+        }
+        return null;
     }
 
     async prune(maxAgeDays = 30): Promise<number> {

@@ -6,8 +6,8 @@
  * A run is claimed for the length of that sequence; whoever finds it claimed is told it is already being decided.
  * Once the first one has saved "running", later calls fail the status check on their own.
  *
- * In-process only: it covers every entry point of one orchestrator process (MCP tool and HTTP endpoint share it).
- * Two orchestrator processes on one run store would need an atomic status change in the store itself.
+ * This one is in-process: it covers every entry point of one orchestrator process (MCP tool and HTTP endpoint share it).
+ * Several processes on one run store also take `IRunStore.claim` (see `claimInStore`) once they have the store.
  */
 const inFlight = new Map<string, symbol>();
 
@@ -20,6 +20,19 @@ export function claimRun(runId: string): (() => void) | null {
     const owner = Symbol(runId);
     inFlight.set(runId, owner);
     return () => { if (inFlight.get(runId) === owner) inFlight.delete(runId); };
+}
+
+/**
+ * The same claim across processes, when the store can provide it (Redis, or the run directory on disk).
+ * Returns the release function, or null when another process holds the run. A store without `claim` gives a
+ * no-op release: it falls back to the in-process claim above.
+ */
+export async function claimInStore(
+    store: { claim?(runId: string, ttlMs?: number): Promise<(() => Promise<void>) | null> },
+    runId: string,
+): Promise<(() => Promise<void>) | null> {
+    if (!store.claim) return async () => undefined;
+    return store.claim(runId);
 }
 
 /** Runs `fn` holding the claim, or `onBusy()` if the run is already claimed. The claim is always released. */

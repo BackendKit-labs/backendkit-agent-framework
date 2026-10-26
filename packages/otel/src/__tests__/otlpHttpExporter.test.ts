@@ -167,3 +167,63 @@ describe('otlpHttpSpanExporter', () => {
         expect(order.join(',')).toBe('start1,end1,start1,end1,start1,end1');
     });
 });
+
+describe('otlpHttpSpanExporter — backpressure', () => {
+    /** A collector that holds every request until released. */
+    function stuckCollector() {
+        const bodies: Array<Array<Record<string, any>>> = [];
+        const releases: Array<() => void> = [];
+        const impl = (async (_url: string, init: RequestInit) => {
+            bodies.push(JSON.parse(String(init.body)).resourceSpans[0].scopeSpans[0].spans);
+            await new Promise<void>(r => releases.push(r));
+            return { ok: true, status: 200 } as Response;
+        }) as unknown as typeof fetch;
+        const releaseAll = async () => {
+            for (let i = 0; i < 50; i++) {
+                while (releases.length) releases.shift()!();
+                await new Promise(r => setImmediate(r));
+            }
+        };
+        return { bodies, impl, releaseAll };
+    }
+
+    it('with a hung collector, keeps at most maxQueuedBatches waiting and reports what it drops', async () => {
+        const c = stuckCollector();
+        const errors: string[] = [];
+        const exp = otlpHttpSpanExporter({ fetch: c.impl, batchSize: 1, flushIntervalMs: 0, maxQueuedBatches: 3, onError: e => errors.push(e.message) });
+
+        for (let i = 0; i < 10; i++) exp(span({ name: 'run', spanId: 's' + i }));
+        await new Promise(r => setImmediate(r));
+
+        // 1 in flight + 3 waiting; the other 6 were dropped, oldest first
+        expect(c.bodies).toHaveLength(1);
+        expect(errors).toHaveLength(6);
+        expect(errors[0]).toMatch(/backlog full \(3 batches\): dropped 1 spans/);
+
+        await c.releaseAll();
+        await exp.shutdown();
+        expect(c.bodies).toHaveLength(4);
+        expect(c.bodies.map(b => b[0].spanId)).toEqual([toSpanId('s0'), toSpanId('s7'), toSpanId('s8'), toSpanId('s9')]);
+    });
+
+    it('sends batches strictly one at a time and in order when nothing is dropped', async () => {
+        const c = stuckCollector();
+        const exp = otlpHttpSpanExporter({ fetch: c.impl, batchSize: 1, flushIntervalMs: 0 });
+        for (let i = 0; i < 4; i++) exp(span({ name: 'run', spanId: 'o' + i }));
+        await new Promise(r => setImmediate(r));
+        expect(c.bodies).toHaveLength(1); // no overlapping requests
+        await c.releaseAll();
+        await exp.shutdown();
+        expect(c.bodies.map(b => b[0].spanId)).toEqual(['o0', 'o1', 'o2', 'o3'].map(toSpanId));
+    });
+
+    it('a batch queued right after the queue drained is still sent', async () => {
+        const { calls, impl } = fakeFetch();
+        const exp = otlpHttpSpanExporter({ fetch: impl, batchSize: 1, flushIntervalMs: 0 });
+        exp(span({ name: 'run', spanId: 'a' }));
+        await exp.flush();
+        exp(span({ name: 'run', spanId: 'b' }));
+        await exp.flush();
+        expect(calls).toHaveLength(2);
+    });
+});

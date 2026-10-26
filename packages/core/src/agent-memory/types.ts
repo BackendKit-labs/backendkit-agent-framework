@@ -80,6 +80,10 @@ export interface ProceduralConfig {
 export interface RetentionConfig {
     /** Maximum number of episodes to keep. Oldest are pruned when exceeded. */
     maxEpisodes?: number;
+    /** Maximum number of semantic-memory entries (oldest are pruned). Default 5000; `Infinity` removes the cap. */
+    maxKnowledge?: number;
+    /** Maximum number of learned patterns (least confirmed, then least recently seen, are pruned). Default 1000; `Infinity` removes the cap. */
+    maxPatterns?: number;
     /**
      * After this many new episodes, trigger summarization (requires summarizeFn).
      * The resulting summary is stored as a new episode tagged 'summary'.

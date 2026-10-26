@@ -1,8 +1,11 @@
 import { randomUUID } from 'crypto';
-import type { MemoryStoreBackend, Pattern, ProceduralConfig, StoredRecord } from './types';
+import type { MemoryStoreBackend, Pattern, ProceduralConfig, RetentionConfig, StoredRecord } from './types';
 import { InMemoryStore } from './stores/InMemoryStore';
 import { JsonFileStore } from './stores/JsonFileStore';
 import { keywordScore } from './scoring';
+
+/** Patterns kept when `retention.maxPatterns` is not set. */
+export const DEFAULT_MAX_PATTERNS = 1_000;
 
 interface PatternRecord extends StoredRecord {
     trigger: string;
@@ -21,8 +24,10 @@ interface PatternRecord extends StoredRecord {
  */
 export class ProceduralMemory {
     private readonly backend: MemoryStoreBackend;
+    private readonly maxPatterns: number;
 
-    constructor(cfg: ProceduralConfig = {}) {
+    constructor(cfg: ProceduralConfig = {}, retention: RetentionConfig = {}) {
+        this.maxPatterns = retention.maxPatterns ?? DEFAULT_MAX_PATTERNS;
         this.backend = cfg.provider === 'json' && cfg.path
             ? new JsonFileStore(cfg.path)
             : new InMemoryStore();
@@ -56,7 +61,19 @@ export class ProceduralMemory {
                 lastSeen: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
             });
+            this.prune();
         }
+    }
+
+    /** Over the cap, drops the patterns that earned the least: fewest confirmations, then longest unseen. */
+    private prune(): void {
+        if (this.maxPatterns === Infinity || this.backend.count() <= this.maxPatterns) return;
+        const all = this.backend.getAll() as PatternRecord[];
+        const doomed = [...all]
+            .sort((a, b) => a.occurrences - b.occurrences || a.lastSeen.localeCompare(b.lastSeen))
+            .slice(0, all.length - this.maxPatterns)
+            .map(r => r.id);
+        if (doomed.length > 0) this.backend.deleteByIds(doomed);
     }
 
     /** Return patterns whose trigger keywords overlap with the given context. */

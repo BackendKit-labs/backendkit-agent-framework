@@ -24,7 +24,16 @@ export class WebhookServer {
         this.maxBodyBytes = opts?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     }
 
-    register(path: string, handler: WebhookHandler, secret?: string): void {
+    /**
+     * Registers a handler. A route needs a `secret`: without one anyone who reaches the port can make the agent
+     * run a prompt. Pass `allowUnsigned: true` only for a port that is not reachable by untrusted callers.
+     */
+    register(path: string, handler: WebhookHandler, secret?: string, opts?: { allowUnsigned?: boolean }): void {
+        if (!secret && !opts?.allowUnsigned) {
+            throw new Error(
+                `Webhook "${path}" has no secret. Set \`secret\` to verify X-Hub-Signature-256, or \`allowUnsigned: true\` to accept unsigned requests.`,
+            );
+        }
         this.routes.push({ path, secret, handler });
     }
 

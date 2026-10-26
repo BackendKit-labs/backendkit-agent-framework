@@ -29,7 +29,7 @@ export interface MetricsOptions extends MetricsCollectorOptions {
 export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics' | 'store'> {
     /** TCP port to listen on. Default: 3000. */
     port?: number;
-    /** Host to bind to. Default: '0.0.0.0'. */
+    /** Host to bind to. Default: '127.0.0.1'; use '0.0.0.0' (with `auth`) to accept remote callers. */
     host?: string;
     /** Optional auth hook — called on every request before route handlers. */
     auth?: AuthHook;
@@ -83,7 +83,7 @@ export class AgentServer {
 
     constructor(opts: AgentServerOptions) {
         this._port = opts.port ?? 3000;
-        this.host = opts.host ?? '0.0.0.0';
+        this.host = opts.host ?? '127.0.0.1';
 
         this.monitor = new MonitorBus();
         this.triggerBus = opts.triggers;

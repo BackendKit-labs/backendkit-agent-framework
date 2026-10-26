@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — defaults seguros
+
+Tres servidores HTTP arrancaban abiertos por defecto. Ahora lo seguro es el default y lo abierto hay que pedirlo.
+
+### Cambios de comportamiento (léelos antes de actualizar)
+- **`WebhookServer` / triggers `webhook` (`agent-core`): `secret` obligatorio.** Sin `secret`, cualquiera que alcance el puerto podía hacer que el agente ejecutara un prompt. `register()` y `TriggerManager.start()` ahora lanzan un error si una ruta no lo tiene. Si de verdad no quieres firma (puerto no alcanzable por terceros), declara `allowUnsigned: true` en el trigger. Arreglo normal: `{ type: 'webhook', path: '/x', secret: process.env.WEBHOOK_SECRET }`.
+- **`AgentServer` (`agent-web` y `agent-protocol`): escucha en `127.0.0.1` por defecto** (antes `0.0.0.0` / todas las interfaces). Para aceptar llamadas remotas, en contenedores o detrás de un proxy en otro host: `host: '0.0.0.0'` (y configura `auth` / `apiKey`). `agent-protocol` gana la opción `host`.
+- Ejemplo `marketing-co`: los agentes leen `HOST` (por defecto `127.0.0.1`); su Dockerfile fija `HOST=0.0.0.0`.
+
 ## v0.34.0 (2026-10-24)
 
 Confianza del workspace (#99) y límites de Hermes (#100): fases C1 y C3 de [SPEC-0009](docs/specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md), con [ADR-0006](docs/adr/0006-confianza-del-workspace.md) y [ADR-0007](docs/adr/0007-un-limite-declarado-debe-aplicarse.md). Rangos 0.x barridos: `agent-core ^0.34.0` y `agent-coding ^0.28.0` en los paquetes que dependen de ellos y en las plantillas de `create-bk-agent`.

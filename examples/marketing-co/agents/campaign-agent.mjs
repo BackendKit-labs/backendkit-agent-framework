@@ -17,6 +17,7 @@ const server = new AgentServer({
     version:     '0.1.0',
     description: 'Designs complete lead-gen campaign strategies: SMART goals, ICP, channel mix, budgets, timelines',
     port:        PORT,
+    host:        process.env.HOST ?? '127.0.0.1',
     apiKey:      process.env.AGENT_API_KEY,
 });
 

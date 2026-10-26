@@ -24,6 +24,7 @@ const server = new AgentServer({
     version:     '0.1.0',
     description: 'Plans content strategy: editorial briefs, angles, buyer personas, content calendars',
     port:        PORT,
+    host:        process.env.HOST ?? '127.0.0.1',
     apiKey:      process.env.AGENT_API_KEY,
 });
 

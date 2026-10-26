@@ -17,6 +17,7 @@ const server = new AgentServer({
     version:     '0.1.0',
     description: 'Optimises content for SEO: meta tags, keyword analysis, on-page improvements, link building',
     port:        PORT,
+    host:        process.env.HOST ?? '127.0.0.1',
     apiKey:      process.env.AGENT_API_KEY,
 });
 

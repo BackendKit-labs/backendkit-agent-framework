@@ -1,7 +1,7 @@
 # SPEC-0009: Confianza del workspace y límites aplicados
 
 **Fecha:** 2026-10-24
-**Estado:** En curso (C1 y C3 implementados sin publicar; C3b pendiente)
+**Estado:** En curso (C1 y C3 implementados y publicados en 0.34; C3b pendiente)
 **Depende de:** SPEC-0003 y SPEC-0008 (Hermes), SPEC-0006 (política de sandbox), [ADR-0002](../adr/0002-aborto-automatico-por-presupuesto.md) (presupuesto)
 **ADR:** [ADR-0006](../adr/0006-confianza-del-workspace.md) (confianza del workspace), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md) (un límite declarado debe aplicarse)
 **Origen:** la auditoría de 2026-10-24 (lotes #93–#96) y la opinión posterior del auditor sobre el modelo de capacidades, verificada punto por punto contra el código. Este spec recoge lo que esa opinión acierta y descarta lo que no resultó cierto.
@@ -38,7 +38,7 @@
 
 **Salida:** abrir un repositorio con `.bk-agent/agents/general.json` y `.bk-agent/skills/x.md` no los carga hasta confiar la ruta, y el aviso lo dice.
 
-**Implementado (2026-10-24, sin publicar):**
+**Implementado (2026-10-24, publicado en 0.34):**
 - `core`: `trust/workspace-trust.ts` (`isProjectTrusted`, `trustProject`, `untrustProject`, `listTrustedProjects`, `projectLayerContents`, `untrustedLayerWarning`), exportado desde el índice; `SkillLoader.loadProject(cwd, trusted?)` y `loadAll(cwd, projectDir, trusted?)`; comando `/trust` (`status`, `add`, `remove`, `list`) y `CommandContext.workingDir` (que `getCommandBindings()` rellena).
 - `coding`: `AgentLoader.load({ trusted })` (no lee la capa de proyecto, no aplica sus overrides `.md` y **no crea directorios dentro del proyecto** si no está confiado), `createCodingEngine({ trustedProject })` decide una vez, lo pasa a agentes y skills y emite el aviso `[Trust]` con lo omitido.
 - Decisiones de implementación: coincidencia por **ruta exacta** (confiar en un directorio no confía en sus hijos); un archivo ausente, ilegible o dañino significa **nadie** confiado; la lectura nunca escribe; `/trust add` recarga las skills al momento y los agentes al siguiente arranque.
@@ -51,7 +51,7 @@
 **Tests:** con un agente de proyecto sin confiar, `general` no lo ve; confiado, sí.
 
 ### C3 — Límites aplicados (hermes, core) · ADR-0007
-**Implementado (2026-10-24, sin publicar):**
+**Implementado (2026-10-24, publicado en 0.34):**
 - `maxConcurrent`: semáforo por agente en `Hermes.run`. **Se rechaza con `AGENT_BUSY`, no se encola** (este spec decía "esperan hasta `deadlineMs`"; `deadlineMs` acota la espera del resultado, no la admisión; ver ADR-0007 §2). Cuenta runs de capabilities, no flows; se comprueba antes de pedir aprobación y se reclama después; comprobar y reclamar es un paso síncrono; un run recuperado tras un reinicio ocupa hueco; el hueco se libera antes de escribir el estado final.
 - Presupuesto del blueprint: deja de ser obligatorio. `creator.budgetUsdPerDay` sigue acotando lo que se declare.
 - `fleetWarnings(fleet)` (exportado) y `bk-hermes validate`, que imprime `warning:` en stderr y sigue saliendo con 0: `agents[].limits.budgetUsdPerDay`, `blueprints[].limits.budgetUsdPerDay` (y el techo del creador si el blueprint no declara ninguno) y **`policies.budget.perRunUsd` / `perDayUsd`**, un tercer campo declarado y no aplicado que este spec no había listado. El registro de auditoría de una creación anota el presupuesto declarado. Los `fleet.yaml` existentes no se rechazan.

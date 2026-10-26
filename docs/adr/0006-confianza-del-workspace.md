@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-24
 **Estado:** Aceptado
-**Implementado en:** C1 de SPEC-0009 (agent-core, agent-coding; sin publicar)
+**Implementado en:** C1 de SPEC-0009 (agent-core 0.34.0, agent-coding 0.28.0; publicado)
 **Spec:** [SPEC-0009 §C1](../specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md)
 
 ## Contexto

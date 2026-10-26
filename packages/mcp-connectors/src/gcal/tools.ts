@@ -19,6 +19,9 @@ interface ServiceAccountKey {
 }
 
 let tokenCache: { token: string; expiresAt: number } | null = null;
+// One exchange in flight at a time: when the cached token expires, every concurrent tool call used to start
+// its own JWT exchange (a burst of identical requests to Google's token endpoint).
+let tokenExchange: Promise<string> | null = null;
 
 async function getToken(): Promise<string> {
     // Return valid cached token (60 s buffer before expiry)
@@ -29,9 +32,14 @@ async function getToken(): Promise<string> {
     const saKeyJson = process.env.GCAL_SERVICE_ACCOUNT_KEY;
     if (saKeyJson) {
         const key: ServiceAccountKey = JSON.parse(saKeyJson);
-        const token = await exchangeServiceAccountToken(key);
-        tokenCache = { token, expiresAt: Date.now() + 3_600_000 };
-        return token;
+        tokenExchange ??= exchangeServiceAccountToken(key)
+            .then(token => {
+                tokenCache = { token, expiresAt: Date.now() + 3_600_000 };
+                return token;
+            })
+            // success or failure, the next caller starts fresh (a failed exchange is retried, not remembered)
+            .finally(() => { tokenExchange = null; });
+        return tokenExchange;
     }
 
     const staticToken = process.env.GCAL_ACCESS_TOKEN;

@@ -16,6 +16,8 @@ export interface OtlpHttpExporterOptions {
     resourceAttributes?: OtelAttributes;
     /** Spans buffered before a send is triggered. Default 64. */
     batchSize?: number;
+    /** Batches allowed to wait for a slow collector before the oldest are dropped (reported via `onError`). Default 32. */
+    maxQueuedBatches?: number;
     /** A partial batch is sent after this long. Default 2000 ms. */
     flushIntervalMs?: number;
     /** Request timeout. Default 10000 ms. */
@@ -87,10 +89,15 @@ export function otlpHttpSpanExporter(options: OtlpHttpExporterOptions = {}): Otl
     const doFetch = options.fetch ?? globalThis.fetch;
     const resourceAttrs: OtelAttributes = { 'service.name': options.serviceName ?? 'agent', ...(options.resourceAttributes ?? {}) };
 
+    const maxQueuedBatches = Math.max(1, options.maxQueuedBatches ?? 32);
+
     let queue: Record<string, unknown>[] = [];
     let timer: ReturnType<typeof setInterval> | undefined;
+    // Batches waiting for the collector. Bounded: with a slow or hung collector the oldest are dropped
+    // instead of piling up without limit.
+    const pending: Record<string, unknown>[][] = [];
     // Sends run one after another so a slow collector never gets overlapping requests.
-    let chain: Promise<void> = Promise.resolve();
+    let draining: Promise<void> | null = null;
 
     const send = async (spans: Record<string, unknown>[]): Promise<void> => {
         try {
@@ -111,13 +118,30 @@ export function otlpHttpSpanExporter(options: OtlpHttpExporterOptions = {}): Otl
         }
     };
 
+    const drain = (): Promise<void> => {
+        if (draining) return draining;
+        if (pending.length === 0) return Promise.resolve();
+        draining = (async () => {
+            try {
+                while (pending.length > 0) await send(pending.shift()!);
+            } finally {
+                // Runs in the same tick as the last emptiness check, so a batch queued later starts a new drain.
+                draining = null;
+            }
+        })();
+        return draining;
+    };
+
     const flush = (): Promise<void> => {
         if (queue.length > 0) {
-            const batch = queue;
+            pending.push(queue);
             queue = [];
-            chain = chain.then(() => send(batch));
+            while (pending.length > maxQueuedBatches) {
+                const dropped = pending.shift()!;
+                options.onError?.(new Error(`OTLP export backlog full (${maxQueuedBatches} batches): dropped ${dropped.length} spans`));
+            }
         }
-        return chain;
+        return drain();
     };
 
     const exporter = ((span: Span): void => {

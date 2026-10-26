@@ -8,7 +8,7 @@ import {
     CallbackTransport,
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
-import { OpenAICompatibleProvider } from './providers/openai-compatible';
+import { OpenAICompatibleProvider } from '@backendkit-labs/agent-providers';
 import { loadConfig } from './config';
 import { MY_AGENT_PROFILE } from './agents/my-agent';
 import { exampleAction, exampleQuery } from './tools/example-tools';

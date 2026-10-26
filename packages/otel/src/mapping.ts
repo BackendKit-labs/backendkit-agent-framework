@@ -28,10 +28,23 @@ function str(v: unknown): string | undefined {
     return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
-function rest(tags: Span['tags'], consumed: string[]): OtelAttributes {
+/**
+ * Extra tags of the spans agent-core itself produces. The exporter used to copy every tag it had not mapped,
+ * so a tag added to core later (a prompt preview, tool arguments) would have been exported silently. Now a tag
+ * leaves the process only if it is mapped above or listed here. Spans with any other name come from the
+ * application's own tracer calls and keep passing their tags through.
+ */
+const EXPORTABLE: Record<string, (key: string) => boolean> = {
+    run: key => /^guardrail\.[^.]+\.(redact|block|error)$/.test(key),
+    agent_block: () => false,
+    llm_call: () => false,
+    tool_call: key => key === 'success' || key === 'outcome',
+};
+
+function rest(tags: Span['tags'], consumed: string[], allow: (key: string) => boolean = () => true): OtelAttributes {
     const out: OtelAttributes = {};
     for (const [k, v] of Object.entries(tags)) {
-        if (!consumed.includes(k)) out[`${VENDOR}${k}`] = v;
+        if (!consumed.includes(k) && allow(k)) out[`${VENDOR}${k}`] = v;
     }
     return out;
 }
@@ -50,7 +63,7 @@ export function mapSpan(span: Span): MappedSpan {
             const message = str(t.error);
             return {
                 name: 'agent.run', kind: 'internal', isError, ...(message ? { errorMessage: message } : {}),
-                attributes: { 'bk.trace_id': span.traceId, ...rest(t, ['error']) },
+                attributes: { 'bk.trace_id': span.traceId, ...rest(t, ['error'], EXPORTABLE.run) },
             };
         }
         case 'agent_block': {
@@ -62,7 +75,7 @@ export function mapSpan(span: Span): MappedSpan {
                     'gen_ai.operation.name': 'invoke_agent',
                     ...(id ? { 'gen_ai.agent.id': id } : {}),
                     ...(name ? { 'gen_ai.agent.name': name } : {}),
-                    ...rest(t, ['agent_id', 'agent_name']),
+                    ...rest(t, ['agent_id', 'agent_name'], EXPORTABLE.agent_block),
                 },
             };
         }
@@ -83,7 +96,7 @@ export function mapSpan(span: Span): MappedSpan {
             Object.assign(attributes, rest(t, [
                 'agent_id', 'provider', 'model', 'input_tokens', 'output_tokens',
                 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'purpose',
-            ]));
+            ], EXPORTABLE.llm_call));
             return {
                 name: `chat ${model ?? 'unknown'}`, kind: 'client', isError, attributes,
             };
@@ -98,7 +111,7 @@ export function mapSpan(span: Span): MappedSpan {
                     'gen_ai.tool.type': 'function',
                     ...(tool ? { 'gen_ai.tool.name': tool } : {}),
                     ...(agent ? { 'gen_ai.agent.id': agent } : {}),
-                    ...rest(t, ['tool.name', 'agent_id']),
+                    ...rest(t, ['tool.name', 'agent_id'], EXPORTABLE.tool_call),
                 },
             };
         }

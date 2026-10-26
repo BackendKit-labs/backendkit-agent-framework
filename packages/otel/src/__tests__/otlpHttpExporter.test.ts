@@ -31,7 +31,7 @@ describe('toOtlpSpan', () => {
         const attrs = Object.fromEntries(o.attributes.map((a: any) => [a.key, a.value]));
         expect(attrs['gen_ai.usage.input_tokens']).toEqual({ intValue: '3' });
         expect(attrs['bk.cost_usd']).toEqual({ doubleValue: 0.5 });
-        expect(attrs['bk.ok']).toEqual({ boolValue: true });
+        expect(attrs).not.toHaveProperty('bk.ok'); // `ok` is not a tag core sets on an llm_call: not exported
         expect(attrs['gen_ai.request.model']).toEqual({ stringValue: 'm' });
     });
 

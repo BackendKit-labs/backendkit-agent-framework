@@ -302,6 +302,8 @@ export interface EngineOptions {
     /** After a tool's signal is aborted, how long to wait for it to wind down before replying. Default 2000. */
     toolTimeoutGraceMs?: number;
     maxParallelAgents?: number;
+    /** Deepest nesting of ask_agent delegations (agent → agent → …). Default 5. */
+    maxDelegationDepth?: number;
     /**
      * Maximum number of messages to keep in the conversation history.
      * When exceeded, the oldest messages are dropped at the next user-turn boundary

@@ -241,6 +241,7 @@ export class AgentEngine {
         });
         this.bus = new DelegationBus({
             maxParallel: opts.maxParallelAgents ?? 6,
+            maxDepth: opts.maxDelegationDepth,
             agents: opts.agents,
             transport: opts.transport,
             runAgent: (id, question, context, depth, buf) => this.runAgentInternal(id, question, context, depth, buf),

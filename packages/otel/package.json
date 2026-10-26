@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-otel",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "OpenTelemetry export for @backendkit-labs/agent-core traces: OTLP/HTTP exporter (no SDK needed) and an adapter for the OpenTelemetry API, with GenAI semantic conventions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
     "test": "jest"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.27.0 <0.36.0",
+    "@backendkit-labs/agent-core": ">=0.27.0 <0.37.0",
     "@opentelemetry/api": ">=1.4.0 <2"
   },
   "peerDependenciesMeta": {

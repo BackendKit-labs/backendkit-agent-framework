@@ -182,6 +182,9 @@ export interface TaskContext {
   /** Estado actual en la FSM */
   status: TaskStatus;
 
+  /** Veces que la tarea entró en rework_required (la FSM lo incrementa y lo acota). */
+  reworkCount?: number;
+
   /** Agentes asignados a la tarea */
   assignedAgents: string[];
 

@@ -30,6 +30,8 @@ export interface WorkflowResult {
 }
 
 export interface WorkflowRunOptions {
+    /** Most steps of one wave running at the same time. Default 8. */
+    maxConcurrency?: number;
     /**
      * Called before a step with requireApproval: true.
      * Return true to proceed, false to reject (aborts the workflow).

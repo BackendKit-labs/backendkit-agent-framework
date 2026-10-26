@@ -7,6 +7,8 @@ import type {
     WorkflowStepResult,
 } from './types';
 
+const DEFAULT_MAX_CONCURRENCY = 8;
+
 type AgentRunner = (agentId: string, input: string, context?: string, stepId?: string) => Promise<{ content: string }>;
 
 interface WorkflowRunnerOptions extends WorkflowRunOptions {
@@ -81,11 +83,21 @@ export class WorkflowRunner {
         const parallel = steps.filter(s => !s.requireApproval);
         const needApproval = steps.filter(s => s.requireApproval);
 
-        await Promise.all(parallel.map(s => this.executeOne(s, results, completed, failed)));
+        await this.runLimited(parallel, s => this.executeOne(s, results, completed, failed));
 
         for (const step of needApproval) {
             await this.executeOne(step, results, completed, failed);
         }
+    }
+
+    /** Runs `fn` over `items` with at most `maxConcurrency` in flight; `fn` never rejects (executeOne handles its errors). */
+    private async runLimited<T>(items: T[], fn: (item: T) => Promise<void>): Promise<void> {
+        const limit = Math.max(1, this.opts.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY);
+        let next = 0;
+        const worker = async (): Promise<void> => {
+            while (next < items.length) await fn(items[next++]);
+        };
+        await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
     }
 
     private async executeOne(

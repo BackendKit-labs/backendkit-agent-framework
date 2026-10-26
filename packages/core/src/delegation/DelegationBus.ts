@@ -41,16 +41,31 @@ export interface DelegationBusOptions {
 }
 
 export class DelegationBus {
-    private readonly bulkhead: Bulkhead;
+    /**
+     * One bulkhead per nesting depth. A single shared one would deadlock (parents holding every slot while
+     * waiting for children that need one); with one per depth a delegation only ever waits on the pool of its
+     * own level, and a chain only descends, so no cycle is possible. Total concurrency is bounded by
+     * maxParallel × (maxDepth + 1).
+     */
+    private readonly bulkheads = new Map<number, Bulkhead>();
 
     constructor(private readonly opts: DelegationBusOptions) {
-        this.bulkhead = new Bulkhead({
-            name: 'delegation-bus',
-            maxConcurrentCalls: opts.maxParallel ?? 6,
-            maxQueueSize: 50,
-            queueTimeoutMs: 120_000, // 2 min — agent calls can be long
-            rejectWhenFull: false,
-        });
+        this.bulkheadFor(0);
+    }
+
+    private bulkheadFor(depth: number): Bulkhead {
+        let bulkhead = this.bulkheads.get(depth);
+        if (!bulkhead) {
+            bulkhead = new Bulkhead({
+                name: depth === 0 ? 'delegation-bus' : `delegation-bus-depth-${depth}`,
+                maxConcurrentCalls: this.opts.maxParallel ?? 6,
+                maxQueueSize: 50,
+                queueTimeoutMs: 120_000, // 2 min — agent calls can be long
+                rejectWhenFull: false,
+            });
+            this.bulkheads.set(depth, bulkhead);
+        }
+        return bulkhead;
     }
 
     /**
@@ -106,10 +121,7 @@ export class DelegationBus {
         };
 
         try {
-            // Nested delegations (depth > 0) skip the bulkhead to prevent starvation.
-            return depth > 0
-                ? await execute()
-                : await this.bulkhead.execute(execute);
+            return await this.bulkheadFor(depth).execute(execute);
         } catch (err) {
             const message =
                 err instanceof BulkheadRejectedError ? 'Delegation rejected: queue is full' :
@@ -127,6 +139,6 @@ export class DelegationBus {
     }
 
     getBulkheadMetrics() {
-        return this.bulkhead.getMetrics();
+        return this.bulkheadFor(0).getMetrics();
     }
 }

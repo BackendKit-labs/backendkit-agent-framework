@@ -4,6 +4,41 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+## v0.38.0 (2026-10-26)
+
+Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.37.0 | `allowedTools` vacío = sin herramientas; `discoverAgents` con confianza del workspace; contexto de sub-agentes |
+| `orchestrator-agent` | 0.7.2 | `applyGateDecision` testeable; aprobación de gates atómica entre procesos |
+| `agent-web` | 0.6.3 | `SessionManager.get` sin escritura por mensaje; `SCAN`/`MGET` en Redis |
+| `agent-enterprise` | 0.8.6 | escaneo del vault sin copias ni `stat` secuencial |
+| `mcp-server` | 0.18.5 | sesiones HTTP con TTL y tope |
+| `mcp-connectors` | 0.2.2 | token de gcal en single-flight |
+| `agent-web-ui` | 0.1.2 | tokens aplicados por fotograma |
+| `create-bk-agent` | 0.23.5 | `add mcp-client`/`add plugin` generan código que compila; plantillas sin código muerto y con `agent-providers` |
+| `agent-coding` | 0.28.3 | solo el rango de `agent-core` |
+| `agent-providers` | 0.3.4 | solo el peer de `agent-core` |
+| `agent-otel` | 0.1.10 | solo el peer de `agent-core` |
+| `agent-sandbox` | 0.1.7 | solo el peer de `agent-core` |
+| `agent-testkit` | 0.1.7 | solo el peer de `agent-core` |
+| `aval-tools` | 0.1.14 | solo el rango de `agent-core` |
+
+`agent-protocol` (0.6.1) y `agent-infra` no cambian.
+
+**Orden de publicación:** core → providers → coding → enterprise → orchestrator-agent → (otel, sandbox, testkit, aval-tools, web, mcp-server, mcp-connectors, web-ui) → create-bk-agent.
+
+### Cambios de comportamiento (léelos antes de actualizar)
+- **INCOMPATIBLE — `allowedTools: []` significa sin herramientas (`agent-core`).** Antes un agente con `allowedTools` vacío y sin `delegatesTo` podía ejecutar cualquier herramienta registrada si el modelo la llamaba por nombre. Ahora solo puede llamar a las que lista. Arreglo: poner en `allowedTools` los nombres de las herramientas que debe usar. Para ganar tiempo: `allowUnlistedTools: true` (en `AgentEngine` y `createBaseEngine`) restaura el comportamiento anterior solo para ese caso; no es para dejarlo puesto. Los perfiles de `agent-coding` y las plantillas `single` / `multi-agent` ya listan sus herramientas.
+- **`discoverAgents` / `createBaseEngine({ agentDiscovery })` (`agent-core`): la capa de proyecto exige confianza del workspace.** Los agentes de `.{app}/agents/` del repositorio no se cargan salvo que el proyecto sea de confianza (`/trust add`, `BK_TRUST_PROJECT=1`) o el host pase `trusted: true`. Si no, no se abre ni se parsea ningún archivo y se avisa con los nombres. Era el mismo hueco que `AgentLoader` ya cerraba (SPEC-0009). Además, con un mismo id en proyecto y global, **gana el proyecto** (antes el global), y el directorio personal y la caché del registro usan `getFrameworkDir`.
+- **Contexto (`agent-core`):** los sub-agentes aplican la compactación por tokens de `context` y reintentan una vez ante un error de contexto demasiado largo. `ContextManager` recorta además los resultados voluminosos de herramientas antiguos **dentro** de un turno largo (`keepRecentToolResults`, 4); afecta también al agente principal.
+- **`orchestrator-agent`:** el claim de la aprobación de un gate también se toma en el store (Redis `SET NX PX`, o un archivo `<run>.claim` en disco, 5 min de TTL); dos procesos ya no pueden aprobar el mismo gate. No se ha probado contra un Redis real.
+- **`agent-web`:** la última actividad de una sesión se persiste como mucho cada 30 s (`activityPersistIntervalMs`); `RedisLike` admite `scan`/`mget` opcionales.
+- **`mcp-server`:** una sesión HTTP inactiva más de 30 min se cierra; con 1000 abiertas, las nuevas reciben 503 (`sessionTtlMs`, `maxSessions`).
+- **`agent-web-ui`:** el texto en streaming llega a la UI hasta ~16 ms más tarde.
+- **`create-bk-agent`:** las plantillas `single` y `multi-agent` generan proyectos que usan `@backendkit-labs/agent-providers` (y ya no fijan `openai ^4`); `add mcp-client` / `add plugin` registran el servidor con `mcpManager` en proyectos con `new AgentEngine`. Se eliminan las plantillas legacy de primer nivel.
+
 ## v0.37.2 (2026-10-26)
 
 Cotas, cachés y exportación acotada ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O3, #136–#139). Solo patches: los rangos de los dependientes ya los cubren, sin barrido ni cambio en `create-bk-agent`.

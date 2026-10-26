@@ -220,12 +220,7 @@ export class MCPClientManager {
             args:    config.args ?? [],
             env:     { ...this.getSafeEnv(), ...(config.env ?? {}) } as Record<string, string>,
         });
-        const client = this.buildClient();
-        const timeoutMs = config.connectTimeoutMs ?? 120_000;
-        await client.connect(transport, { timeout: timeoutMs });
-        const tools = await this.discoverTools(config, client);
-        this.servers.push({ config, client, tools, transportUsed: 'stdio' });
-        client.onclose = () => { this.handleDisconnect(config.name); };
+        await this.establish(config, transport, config.connectTimeoutMs ?? 120_000, 'stdio');
     }
 
     private async connectRemote(config: MCPServerConfig): Promise<void> {
@@ -254,12 +249,7 @@ export class MCPClientManager {
         reqInit: RequestInit | undefined,
     ): Promise<void> {
         const transport = new StreamableHTTPClientTransport(url, { requestInit: reqInit });
-        const client = this.buildClient();
-        const timeoutMs = config.connectTimeoutMs ?? 15_000;
-        await client.connect(transport, { timeout: timeoutMs });
-        const tools = await this.discoverTools(config, client);
-        this.servers.push({ config, client, tools, transportUsed: 'streamable-http' });
-        client.onclose = () => { this.handleDisconnect(config.name); };
+        await this.establish(config, transport, config.connectTimeoutMs ?? 15_000, 'streamable-http');
     }
 
     private async connectSSE(
@@ -268,12 +258,33 @@ export class MCPClientManager {
         reqInit: RequestInit | undefined,
     ): Promise<void> {
         const transport: Transport = new SSEClientTransport(url, { requestInit: reqInit });
+        await this.establish(config, transport, config.connectTimeoutMs ?? 15_000, 'sse');
+    }
+
+    /**
+     * Connects a client over `transport`, discovers its tools and registers the server. If anything fails
+     * the client and transport are closed before the error propagates: a stdio transport has already
+     * spawned its subprocess, and leaving it open orphans one process per failed attempt (reconnectFailed
+     * retries on every run()).
+     */
+    private async establish(
+        config: MCPServerConfig,
+        transport: Transport,
+        timeoutMs: number,
+        transportUsed: string,
+    ): Promise<void> {
         const client = this.buildClient();
-        const timeoutMs = config.connectTimeoutMs ?? 15_000;
-        await client.connect(transport, { timeout: timeoutMs });
-        const tools = await this.discoverTools(config, client);
-        this.servers.push({ config, client, tools, transportUsed: 'sse' });
-        client.onclose = () => { this.handleDisconnect(config.name); };
+        try {
+            await client.connect(transport, { timeout: timeoutMs });
+            const tools = await this.discoverTools(config, client);
+            this.servers.push({ config, client, tools, transportUsed });
+            client.onclose = () => { this.handleDisconnect(config.name); };
+        } catch (err) {
+            client.onclose = undefined;
+            await client.close().catch(() => undefined);
+            await transport.close().catch(() => undefined);
+            throw err;
+        }
     }
 
     private handleDisconnect(serverName: string): void {

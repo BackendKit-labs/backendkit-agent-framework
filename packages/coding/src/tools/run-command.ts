@@ -2,6 +2,7 @@ import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 import { legacySandbox } from './legacy-sandbox';
+import { extractAllBins, extractBin } from './command-parser';
 
 const MAX_OUTPUT = 20_000;
 
@@ -40,30 +41,6 @@ const COMMAND_ALLOWLIST = new Set([
     // Build
     'make', 'act',
 ]);
-
-/** Extract the base binary name from a single command segment. */
-function extractBin(command: string): string {
-    // Strip leading env var assignments like KEY=val CMD ...
-    const stripped = command.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '');
-    const first = stripped.split(/[\s|;&<>]/)[0] ?? '';
-    // Strip any path prefix (e.g. ./node_modules/.bin/jest → jest)
-    return first.split('/').pop()?.split('\\').pop() ?? '';
-}
-
-/**
- * C1: Split a shell command at operator boundaries and return the binary of
- * each segment. Quoted strings are neutralized first so operators inside
- * quotes are not treated as delimiters.
- */
-function extractAllBins(command: string): string[] {
-    const noQuotes = command.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""');
-    // Strip I/O redirects (e.g. 2>&1, >/dev/null, 2>file, >> file) before
-    // splitting so that the target filename is never treated as a command binary.
-    // \s* after >>? consumes optional whitespace before the filename/target.
-    const noRedirects = noQuotes.replace(/[0-9]*>>?\s*(?:&[0-9]*|\S*)/g, '');
-    const segments = noRedirects.split(/&&|\|\||[|;`\r\n]|\$\(|(?<!>)&(?!&)/).map(s => s.trim()).filter(Boolean);
-    return segments.map(extractBin).filter(Boolean);
-}
 
 /**
  * Parse `cd <dir> && <rest>` pattern and return the target cwd + real command.

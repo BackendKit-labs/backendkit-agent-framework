@@ -188,3 +188,37 @@ describe('WorkflowRunner', () => {
         expect(result.steps['a'].status).toBe('failed');
     });
 });
+
+describe('WorkflowRunner — wave concurrency', () => {
+    const wide = (n: number): WorkflowDef => ({ name: 'wide', steps: Array.from({ length: n }, (_, i) => makeStep(`s${i}`)) });
+
+    function runnerWithPeak(def: WorkflowDef, maxConcurrency?: number) {
+        const { transport } = createMockTransport();
+        let running = 0;
+        const state = { peak: 0 };
+        const runner = new WorkflowRunner(def, {
+            transport, maxConcurrency,
+            runAgent: async () => {
+                running++; state.peak = Math.max(state.peak, running);
+                await new Promise(r => setTimeout(r, 10));
+                running--;
+                return { content: 'x' };
+            },
+        });
+        return { runner, state };
+    }
+
+    it('limits parallel steps of a wave to maxConcurrency', async () => {
+        const { runner, state } = runnerWithPeak(wide(10), 3);
+        const result = await runner.run();
+        expect(result.status).toBe('completed');
+        expect(Object.keys(result.steps)).toHaveLength(10);
+        expect(state.peak).toBe(3);
+    });
+
+    it('defaults to 8', async () => {
+        const { runner, state } = runnerWithPeak(wide(20));
+        await runner.run();
+        expect(state.peak).toBe(8);
+    });
+});

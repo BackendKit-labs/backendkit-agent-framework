@@ -188,9 +188,9 @@ describe('1.2 — 3 ask_agent calls: results mapped to correct tool_call_ids', (
     });
 });
 
-// ── 1.3 — nested delegation (depth=1) bypasses bulkhead ──────────────────────
+// ── 1.3 — nested delegation has its own pool, not the depth-0 one ────────────
 
-describe('1.3 — nested delegation: depth > 0 bypasses full bulkhead', () => {
+describe('1.3 — nested delegation: depth > 0 does not wait on a full depth-0 pool', () => {
     it('depth=1 call completes while depth=0 slot is occupied', async () => {
         const completionOrder: number[] = [];
         let unblockSlow!: () => void;

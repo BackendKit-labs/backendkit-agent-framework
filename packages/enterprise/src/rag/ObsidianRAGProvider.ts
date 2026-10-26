@@ -47,12 +47,19 @@ export interface ObsidianRAGOptions {
     stageSize?: number;
     /** Milisegundos de pausa al completar cada etapa (stageSize archivos). Default: 3000ms. */
     stagePacingMs?: number;
+    /**
+     * Tiempo mínimo entre checkpoints del índice durante index(). Cada checkpoint serializa el índice
+     * completo, así que guardar tras cada batch cuesta O(n²) en un vault grande. Un crash pierde como
+     * mucho este intervalo de trabajo. Default: 30000ms. 0 guarda tras cada batch (comportamiento anterior).
+     */
+    checkpointIntervalMs?: number;
 }
 
 const BATCH_SIZE = 10;
 const DEFAULT_BATCH_PACING_MS = 300;
 const DEFAULT_STAGE_SIZE = 50;
 const DEFAULT_STAGE_PACING_MS = 3000;
+const DEFAULT_CHECKPOINT_INTERVAL_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -67,6 +74,7 @@ export class ObsidianRAGProvider {
     private readonly batchPacingMs: number;
     private readonly stageSize: number;
     private readonly stagePacingMs: number;
+    private readonly checkpointIntervalMs: number;
     private indexed = false;
 
     constructor(opts: ObsidianRAGOptions) {
@@ -97,6 +105,7 @@ export class ObsidianRAGProvider {
         this.batchPacingMs = opts.batchPacingMs ?? DEFAULT_BATCH_PACING_MS;
         this.stageSize = opts.stageSize ?? DEFAULT_STAGE_SIZE;
         this.stagePacingMs = opts.stagePacingMs ?? DEFAULT_STAGE_PACING_MS;
+        this.checkpointIntervalMs = opts.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS;
     }
 
     /**
@@ -115,6 +124,7 @@ export class ObsidianRAGProvider {
         }
 
         let indexed = 0;
+        let lastCheckpoint = Date.now();
         for (let i = 0; i < toIndex.length; i += BATCH_SIZE) {
             const batch = toIndex.slice(i, i + BATCH_SIZE);
             const processedSoFar = Math.min(i + BATCH_SIZE, toIndex.length);
@@ -138,11 +148,13 @@ export class ObsidianRAGProvider {
             this.store.addChunks(vectorChunks);
             indexed += vectorChunks.length;
 
-            // Checkpoint per batch, not just at the end — a crash mid-index (e.g. a large
-            // first-time vault reindex) must resume from here instead of re-embedding
-            // everything from scratch. Mirrors the manifest-per-batch pattern already used
-            // for curate_path.
-            await this.store.save();
+            // Checkpoint, not just at the end — a crash mid-index (e.g. a large first-time vault
+            // reindex) must resume from here instead of re-embedding everything from scratch. By time
+            // rather than per batch: each save writes the whole index, so a save per batch is O(n²).
+            if (Date.now() - lastCheckpoint >= this.checkpointIntervalMs) {
+                await this.store.save();
+                lastCheckpoint = Date.now();
+            }
             opts.onProgress?.({ processed: processedSoFar, total: toIndex.length });
 
             if (opts.verbose) {

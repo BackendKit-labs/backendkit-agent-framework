@@ -17,10 +17,14 @@ function qualifiedName(filePath: string, name: string, cwd: string): string {
     return `${rel}::${name}`;
 }
 
+/** Files read and parsed at the same time by indexDirectory. Each holds a file's text and AST in memory. */
+const DEFAULT_INDEX_CONCURRENCY = 16;
+
 export class CodeIndexer {
     constructor(
         private readonly store: GraphStore,
         private readonly cwd: string,
+        private readonly opts: { concurrency?: number } = {},
     ) {}
 
     async indexFile(filePath: string): Promise<{ indexed: boolean; symbols: number }> {
@@ -108,15 +112,20 @@ export class CodeIndexer {
         let totalSymbols = 0;
         let indexedFiles = 0;
 
-        await Promise.all(
-            files.map(async f => {
-                const result = await this.indexFile(f);
+        // A bounded pool, not Promise.all over every file: a large repo would otherwise open every file
+        // and hold every AST at once (file descriptors and memory spike at startup).
+        const limit = Math.max(1, this.opts.concurrency ?? DEFAULT_INDEX_CONCURRENCY);
+        let next = 0;
+        const worker = async (): Promise<void> => {
+            while (next < files.length) {
+                const result = await this.indexFile(files[next++]);
                 if (result.indexed) {
                     indexedFiles++;
                     totalSymbols += result.symbols;
                 }
-            }),
-        );
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(limit, files.length) }, worker));
 
         return { files: indexedFiles, symbols: totalSymbols };
     }

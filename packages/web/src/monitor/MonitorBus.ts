@@ -8,7 +8,12 @@ export type MonitorFrame =
     | ({ sessionId: string } & AgentEvent)
     | { sessionId: string; type: 'run_input'; content: string };
 
+/** Observers are best-effort: past this many unsent bytes their frames are skipped (1 MiB). */
+const MAX_OBSERVER_BUFFERED_BYTES = 1024 * 1024;
+
 export class MonitorBus {
+    /** Frames not delivered to an observer because it was not reading. */
+    droppedFrames = 0;
     /** Observer -> the only user whose sessions it may see (undefined: every session). */
     private monitors = new Map<WebSocket, string | undefined>();
     /** Open session -> its owner (undefined when the session has none, e.g. no auth configured). */
@@ -55,6 +60,8 @@ export class MonitorBus {
         for (const [ws, onlyUserId] of this.monitors) {
             if (onlyUserId !== undefined && !canSee(onlyUserId, sessionId === undefined ? undefined : this.activeSessions.get(sessionId))) continue;
             if (ws.readyState === 1 /* OPEN */) {
+                // A stalled observer must not accumulate every frame of every session in memory.
+                if ((ws.bufferedAmount ?? 0) > MAX_OBSERVER_BUFFERED_BYTES) { this.droppedFrames++; continue; }
                 try { ws.send(data); } catch { /* ignore — socket may be closing */ }
             }
         }

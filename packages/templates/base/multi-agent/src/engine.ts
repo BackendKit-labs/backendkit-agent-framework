@@ -8,7 +8,7 @@ import {
     CallbackTransport,
     createMemorySystem,
 } from '@backendkit-labs/agent-core';
-import { OpenAICompatibleProvider } from './providers/openai-compatible';
+import { OpenAICompatibleProvider } from '@backendkit-labs/agent-providers';
 import { loadConfig } from './config';
 import { ORCHESTRATOR_PROFILE } from './agents/orchestrator';
 import { SPECIALIST_A_PROFILE } from './agents/specialist-a';

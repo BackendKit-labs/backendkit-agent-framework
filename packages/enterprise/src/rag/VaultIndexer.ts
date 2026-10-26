@@ -103,25 +103,28 @@ function chunkBody(body: string): Array<{ section: string; text: string }> {
     return result;
 }
 
-async function collectMdFiles(dir: string): Promise<string[]> {
-    let result: string[] = [];
+/** Appends every .md under `dir` to `out`, depth first. One shared array: no copy of the partial result per directory. */
+async function collectMdFiles(dir: string, out: string[] = []): Promise<string[]> {
     let entries: Dirent[];
     try {
         entries = await fs.readdir(dir, { withFileTypes: true, encoding: 'utf8' });
     } catch {
-        return [];
+        return out;
     }
     for (const entry of entries) {
         if (entry.name.startsWith('.')) continue;
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            result = result.concat(await collectMdFiles(fullPath));
+            await collectMdFiles(fullPath, out);
         } else if (entry.isFile() && entry.name.endsWith('.md')) {
-            result.push(fullPath);
+            out.push(fullPath);
         }
     }
-    return result;
+    return out;
 }
+
+/** stat calls in flight at once while scanning a vault. */
+const STAT_CONCURRENCY = 32;
 
 export interface IndexerOptions {
     vaultPath: string;
@@ -205,15 +208,18 @@ export class VaultIndexer {
 
         const allFiles: Array<{ filePath: string; mtime: number }> = [];
         for (const dir of scanDirs) {
-            const mdFiles = await collectMdFiles(dir);
-            for (const filePath of mdFiles) {
-                if (this.opts.excludeFiles.some(ex => path.basename(filePath) === ex)) continue;
-                try {
-                    const stat = await fs.stat(filePath);
-                    allFiles.push({ filePath, mtime: stat.mtimeMs });
-                } catch {
-                    // archivo desapareció entre escaneo y stat
-                }
+            const mdFiles = (await collectMdFiles(dir))
+                .filter(filePath => !this.opts.excludeFiles.some(ex => path.basename(filePath) === ex));
+            // Bounded parallel stat (it was one await per file); the result keeps the directory order.
+            for (let i = 0; i < mdFiles.length; i += STAT_CONCURRENCY) {
+                const stats = await Promise.all(mdFiles.slice(i, i + STAT_CONCURRENCY).map(async filePath => {
+                    try {
+                        return { filePath, mtime: (await fs.stat(filePath)).mtimeMs };
+                    } catch {
+                        return null; // archivo desapareció entre escaneo y stat
+                    }
+                }));
+                for (const st of stats) if (st) allFiles.push(st);
             }
         }
         return allFiles;

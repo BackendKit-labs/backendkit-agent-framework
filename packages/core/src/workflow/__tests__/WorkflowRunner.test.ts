@@ -150,4 +150,41 @@ describe('WorkflowRunner', () => {
         const result = await runner.run();
         expect(result.steps['x'].content).toBe('expected output');
     });
+
+    it('a failure skips the whole chain, not just the direct dependent (A→B→C)', async () => {
+        const def: WorkflowDef = { name: 'chain', steps: [makeStep('a'), makeStep('b', ['a']), makeStep('c', ['b'])] };
+        const { transport } = createMockTransport();
+        const ran: string[] = [];
+        const runner = new WorkflowRunner(def, {
+            transport,
+            runAgent: async (agentId) => { ran.push(agentId); if (agentId === 'agent-a') throw new Error('boom'); return { content: 'x' }; },
+        });
+        const result = await runner.run();
+        expect(result.status).toBe('failed');
+        expect(result.steps['a'].status).toBe('failed');
+        expect(result.steps['b'].status).toBe('skipped');
+        expect(result.steps['c'].status).toBe('skipped');
+        expect(ran).toEqual(['agent-a']);
+    });
+
+    it('a cycle in a raw WorkflowDef is reported as failed, not completed with missing steps', async () => {
+        const def: WorkflowDef = { name: 'cycle', steps: [makeStep('a', ['b']), makeStep('b', ['a']), makeStep('ok')] };
+        const { runner, executionOrder } = makeRunner(def);
+        const result = await runner.run();
+        expect(result.status).toBe('failed');
+        expect(result.steps['ok'].status).toBe('completed');
+        expect(result.steps['a'].status).toBe('failed');
+        expect(result.steps['a'].error).toMatch(/Unsatisfiable dependencies/);
+        expect(result.steps['b'].status).toBe('failed');
+        expect(Object.keys(result.steps).sort()).toEqual(['a', 'b', 'ok']);
+        expect(executionOrder).toEqual(['agent-ok']);
+    });
+
+    it('a dependency on an unknown step is reported as failed', async () => {
+        const def: WorkflowDef = { name: 'ghost', steps: [makeStep('a', ['nope'])] };
+        const { runner } = makeRunner(def);
+        const result = await runner.run();
+        expect(result.status).toBe('failed');
+        expect(result.steps['a'].status).toBe('failed');
+    });
 });

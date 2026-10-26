@@ -50,15 +50,32 @@ export class WorkflowRunner {
                     status: 'skipped',
                 };
                 remaining.delete(step.id);
+                // Transitive: whatever depends on a skipped step can never run either
+                failed.add(step.id);
             }
 
-            // Guard: cycle detection in builder should prevent this, but be safe
-            if (runnable.length === 0 && remaining.size > 0) break;
+            if (runnable.length === 0) {
+                if (blocked.length > 0) continue; // newly skipped steps may block the next level
+                break;
+            }
 
             // Remove from remaining before executing so the while condition is correct
             for (const step of runnable) remaining.delete(step.id);
 
             await this.executeWave(runnable, results, completed, failed);
+        }
+
+        // Anything left can never run: a cycle or a dependency on an unknown step (a raw WorkflowDef
+        // skips the builder's validation). Report it instead of dropping it from the result.
+        for (const id of remaining) {
+            const step = this.def.steps.find(s => s.id === id)!;
+            results[id] = {
+                stepId: id,
+                agentId: step.agentId,
+                content: '',
+                status: 'failed',
+                error: 'Unsatisfiable dependencies (cycle or unknown step)',
+            };
         }
 
         const anyRejected = Object.values(results).some(r => r.status === 'rejected');

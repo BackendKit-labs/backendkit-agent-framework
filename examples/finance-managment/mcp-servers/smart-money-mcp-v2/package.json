@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@backendkit-labs/mcp-server": "latest",
-    "@backendkit-labs/agent-core": "latest"
+    "@backendkit-labs/agent-core": "latest",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

@@ -58,6 +58,32 @@ const REJECTION_PATTERNS = [
     'casos borde', 'mejorable',
 ];
 
+const escapeRe = (p: string): string => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * One pass over every pattern, longest first, whole words only (optional plural), so that
+ * "broken" does not contain "ok", "también" does not contain "bien", "incorrecto" does not contain
+ * "correcto", and "not approved" is read as one rejection instead of "approved" plus "not".
+ */
+const VERDICT_PATTERNS = [
+    ...APPROVAL_PATTERNS.map(p => ({ p, kind: 'approval' as const })),
+    ...REJECTION_PATTERNS.map(p => ({ p, kind: 'rejection' as const })),
+].sort((a, b) => b.p.length - a.p.length);
+const VERDICT_RE = new RegExp(
+    String.raw`(?<![\p{L}\p{N}])(?:${VERDICT_PATTERNS.map(({ p }) => escapeRe(p)).join('|')})(?:es|s)?(?![\p{L}\p{N}])`,
+    'giu',
+);
+
+function verdictsOf(text: string): { approvals: number; rejections: number } {
+    let approvals = 0;
+    let rejections = 0;
+    for (const m of text.toLowerCase().matchAll(VERDICT_RE)) {
+        const hit = VERDICT_PATTERNS.find(({ p }) => m[0] === p || m[0] === p + 's' || m[0] === p + 'es')!;
+        if (hit.kind === 'approval') approvals++; else rejections++;
+    }
+    return { approvals, rejections };
+}
+
 export class QAService {
     private opts: QAServiceOptions;
     private qaAgentId: string;
@@ -226,21 +252,18 @@ export class QAService {
     }
 
     evaluateReview(review: string): boolean {
-        const lower = review.toLowerCase();
+        const { approvals, rejections } = verdictsOf(review);
 
-        const hasApproval = APPROVAL_PATTERNS.some(p => lower.includes(p));
-        const hasRejection = REJECTION_PATTERNS.some(p => lower.includes(p));
+        if (approvals > 0 && rejections === 0) return true;
+        if (rejections > 0 && approvals === 0) return false;
 
-        if (hasApproval && !hasRejection) return true;
-        if (hasRejection && !hasApproval) return false;
-
-        const positiveLines = review.split('\n').filter(l =>
-            APPROVAL_PATTERNS.some(p => l.toLowerCase().includes(p))
-        ).length;
-        const negativeLines = review.split('\n').filter(l =>
-            REJECTION_PATTERNS.some(p => l.toLowerCase().includes(p))
-        ).length;
-
+        let positiveLines = 0;
+        let negativeLines = 0;
+        for (const line of review.split('\n')) {
+            const v = verdictsOf(line);
+            if (v.approvals > 0) positiveLines++;
+            if (v.rejections > 0) negativeLines++;
+        }
         return positiveLines > negativeLines;
     }
 

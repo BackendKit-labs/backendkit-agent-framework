@@ -11,7 +11,7 @@ const monitorAgent: AgentProfile = {
     name: 'Monitor',
     icon: '👁',
     description: 'Monitors events and executes scheduled tasks',
-    allowedTools: [],
+    allowedTools: [],   // the tools this agent may call, by name; empty means none (a tool that is registered but not listed here is refused)
     delegatesTo: [],
     systemPrompt: `You are an autonomous monitor agent.
 // TODO: describe what this agent monitors and what actions it takes.

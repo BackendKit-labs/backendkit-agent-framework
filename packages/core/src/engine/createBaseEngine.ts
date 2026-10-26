@@ -206,6 +206,12 @@ export interface BaseEngineOptions {
     /** Disable automatic QA reviews even when qaService is configured. */
     noQA?: boolean;
 
+    /**
+     * Legacy escape hatch: let an agent with an empty `allowedTools` and no `delegatesTo` call any registered
+     * tool, as every agent could before. By default an agent can call only the tools it lists.
+     */
+    allowUnlistedTools?: boolean;
+
     /** Called when QA generates an inline review. */
     onQAReview?: (review: string) => void;
 
@@ -431,6 +437,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.orchestratorFailureMode ? { orchestratorFailureMode: opts.orchestratorFailureMode } : {}),
         ...(opts.qaService ? { qaService: opts.qaService } : {}),
         ...(opts.noQA !== undefined ? { noQA: opts.noQA } : {}),
+        ...(opts.allowUnlistedTools ? { allowUnlistedTools: true } : {}),
         ...(opts.onQAReview ? { onQAReview: opts.onQAReview } : {}),
         ...(opts.mcpServers?.length
             ? { mcpManager: new MCPClientManager(opts.mcpServers) }

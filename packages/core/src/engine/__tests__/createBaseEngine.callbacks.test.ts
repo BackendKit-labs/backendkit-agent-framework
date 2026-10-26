@@ -29,7 +29,8 @@ function buildEngine(
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) },
         defaultProvider: 'mock',
-        agents: [testAgent],
+        // the agent lists its tools: an empty allowedTools means no tools, and these tests are about the approval gate
+        agents: [{ ...testAgent, allowedTools: tools.map(t => t.name) }],
         defaultAgent: testAgent.id,
         tools,
         transport,

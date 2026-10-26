@@ -54,6 +54,13 @@ export interface AgentEngineOptions extends EngineOptions {
     defaultAgentId: string;
     /** Optional persistent memory — replaces the default in-memory SessionMemory */
     sessionMemory?: SessionMemoryData;
+    /**
+     * Legacy escape hatch. By default an agent can call ONLY the tools in its `allowedTools`; an empty list means
+     * no tools. Before, an agent with an empty `allowedTools` and no `delegatesTo` could call any registered tool
+     * (it was not offered any, but a call by name ran), so an agent written to have no tools had all of them.
+     * Set true to keep that behavior while the profiles are fixed.
+     */
+    allowUnlistedTools?: boolean;
     /** Orchestrator para clasificacion de tareas, risk scoring y FSM */
     orchestrator?: Orchestrator;
     /**
@@ -1377,10 +1384,12 @@ export class AgentEngine {
             success = false;
         } else if (
             !profile.allowedTools.includes(call.name) &&
-            (profile.allowedTools.length > 0 || (profile.delegatesTo && profile.delegatesTo.length > 0))
+            !(this.opts.allowUnlistedTools && profile.allowedTools.length === 0 && !(profile.delegatesTo && profile.delegatesTo.length > 0))
         ) {
             result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
-                      `Use ask_agent to delegate to a specialist.`;
+                      (profile.delegatesTo && profile.delegatesTo.length > 0
+                          ? `Use ask_agent to delegate to a specialist.`
+                          : `Add it to the agent's allowedTools if it should be able to use it.`);
             success = false;
         } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id)) !== undefined) {
             // The policy refuses this tool outright (e.g. a writer while read-only). Nobody is asked and nothing runs.

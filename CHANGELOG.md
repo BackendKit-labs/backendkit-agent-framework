@@ -6,6 +6,7 @@ Presupuesto diario aplicado (SPEC-0009 C3b, ADR-0007 §5). `limits.budgetUsdPerD
 
 - `agent-protocol`: `AgentContext.reportCost(usd)` en los handlers del `AgentServer`; `costUsd` opcional en `RunResponse` y `TaskRecord`.
 - `hermes`: `RunOutcome.costUsd`, `RunRecord.costUsd` y `RunView.costUsd`; `handler(input, signal, run)` del `InProcessConnector` con `run.reportCost`. El acumulado diario (día UTC del inicio) sale del store de runs, así que sobrevive reinicios. Nuevo error `BUDGET_EXCEEDED` al admitir un run con el presupuesto agotado (tope blando: un run en curso termina). `bk-hermes validate` reformula los avisos de presupuesto; `perRunUsd` sigue sin aplicarse.
+- `hermes`: `engineRunCost(engine)` lee el coste del último run de un `AgentEngine` con `observability`, para pasarlo a `run.reportCost`.
 
 ## v0.35.0 (2026-10-26)
 

@@ -32,6 +32,7 @@ export type { FleetAgent, AgentHealth, AgentState, RegistryOptions, HealthListen
 export { ProtocolConnector } from './connectors/ProtocolConnector';
 export type { ProtocolConnectorOptions } from './connectors/ProtocolConnector';
 export { InProcessConnector } from './connectors/InProcessConnector';
+export { engineRunCost, type CostSource } from './connectors/engineCost';
 export { InProcessFlows, FlowCancelled } from './connectors/InProcessFlows';
 export { serveFlows } from './connectors/serveFlows';
 export type { InProcessFlow, FlowControl } from './connectors/InProcessFlows';

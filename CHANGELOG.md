@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
+
 ## v0.36.0 (2026-10-26)
 
 Presupuesto diario aplicado (SPEC-0009 C3b, ADR-0007 §5). `limits.budgetUsdPerDay` y `policies.budget.perDayUsd` dejan de ser solo declarativos, para los agentes que informan su coste. Cambio aditivo en `agent-protocol`; un agente que no informa su coste sigue sin límite.

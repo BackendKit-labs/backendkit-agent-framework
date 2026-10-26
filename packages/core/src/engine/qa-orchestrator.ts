@@ -179,7 +179,13 @@ async function applyQaDecision(
         }
     } else {
         const rework = orchestrator.transitionTask(orchestrationResult.task, 'rework_required');
-        if (rework.allowed && rework.task) orchestrationResult.task = rework.task;
+        if (rework.allowed && rework.task) {
+            orchestrationResult.task = rework.task;
+        } else if (rework.error?.startsWith('Límite de rework')) {
+            // Rework agotado: la tarea se rechaza en lugar de quedar en qa_review para siempre
+            const rejected = orchestrator.transitionTask(orchestrationResult.task, 'rejected');
+            if (rejected.allowed && rejected.task) orchestrationResult.task = rejected.task;
+        }
     }
 }
 

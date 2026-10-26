@@ -41,7 +41,9 @@ const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   'security_review': ['qa_review', 'design_review', 'implementation', 'rework_required', 'rejected'],
   'qa_review': ['approved', 'rework_required', 'rejected'],
   'rework_required': ['design_review', 'implementation', 'security_review', 'qa_review', 'rejected'],
-  'approved': ['commit_allowed', 'commit_planning', 'implementation', 'rejected'],
+  // Sin 'implementation': un cambio aprobado que se vuelve a editar debe pasar por rework_required,
+  // que repite los gates. Volver directo dejaba llegar a commit_allowed sin nueva revisión.
+  'approved': ['commit_allowed', 'commit_planning', 'rejected'],
   'commit_allowed': ['commit_planning'], // Puede re-planificar desde commit_allowed
   'rejected': [],       // Estado terminal
   // Nuevos estados del commit workflow
@@ -111,7 +113,12 @@ export interface FSMTransitionResult {
 
 // ── TaskFSM ──────────────────────────────────────────────────────────────────
 
+/** Vueltas de rework_required permitidas por tarea antes de exigir rechazo o decisión humana. */
+export const DEFAULT_MAX_REWORK = 5;
+
 export class TaskFSM {
+  constructor(private readonly opts: { maxRework?: number } = {}) {}
+
   /**
    * @description Intenta transicionar una tarea a un nuevo estado.
    * Valida que la transición esté en el mapa de transiciones permitidas
@@ -133,6 +140,17 @@ export class TaskFSM {
       };
     }
 
+    // Tope del ciclo de rework: sin él, QA y revisión pueden alternar indefinidamente
+    const maxRework = this.opts.maxRework ?? DEFAULT_MAX_REWORK;
+    const reworkCount = task.reworkCount ?? 0;
+    if (to === 'rework_required' && reworkCount >= maxRework) {
+      return {
+        allowed: false,
+        error: `Límite de rework alcanzado (${maxRework}): la tarea debe rechazarse o pasar a decisión humana`,
+        availableTransitions: available,
+      };
+    }
+
     // Ejecutar guards
     for (const guard of GUARDS) {
       const error = guard(task, to);
@@ -148,7 +166,9 @@ export class TaskFSM {
     // Transición válida
     return {
       allowed: true,
-      task: transitionTask(task, to),
+      task: to === 'rework_required'
+        ? { ...transitionTask(task, to), reworkCount: reworkCount + 1 }
+        : transitionTask(task, to),
       availableTransitions: this.getAvailableTransitions(to),
     };
   }

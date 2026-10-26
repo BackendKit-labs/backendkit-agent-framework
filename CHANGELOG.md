@@ -4,6 +4,25 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+## v0.37.2 (2026-10-26)
+
+Cotas, cachés y exportación acotada ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O3, #136–#139). Solo patches: los rangos de los dependientes ya los cubren, sin barrido ni cambio en `create-bk-agent`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.36.2 | topes por defecto en memoria semántica (5000) y procedural (1000) |
+| `agent-otel` | 0.1.9 | tags de los spans de core exportados por lista blanca |
+| `agent-enterprise` | 0.8.5 | `ObsidianRAGProvider` guarda el índice por tiempo, no por batch |
+| `orchestrator-agent` | 0.7.1 | cachés del store de runs (episódica) y del índice RAG |
+
+**Orden de publicación:** core → enterprise → orchestrator-agent → otel.
+
+### Cambios de comportamiento
+- **`agent-core`:** `SemanticMemory` conserva las 5000 entradas más nuevas y `ProceduralMemory` 1000 patrones (descarta los menos confirmados). Se ajusta con `retention.maxKnowledge` / `maxPatterns`; `Infinity` quita el tope.
+- **`agent-otel`:** un tag no listado en un span de core (`run`, `agent_block`, `llm_call`, `tool_call`) deja de exportarse. Los spans creados por la propia aplicación siguen pasando sus tags.
+- **`agent-enterprise`:** nueva opción `checkpointIntervalMs` (30 s); `0` restaura el guardado por batch. Un crash pierde como mucho ese intervalo de indexación.
+- **`orchestrator-agent`:** el índice RAG se reutiliza 2 min y la lista de pasos episódicos 60 s; una nota nueva del vault tarda hasta 2 min en verse para runs nuevos.
+
 ## v0.37.1 (2026-10-26)
 
 Cotas y fugas ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O3, #128–#133). Solo patches: los rangos `^0.36`, `^0.3`, `^0.6` y `^0.18` de los dependientes ya los cubren, así que no hay barrido de rangos ni cambio en `create-bk-agent`.

@@ -31,6 +31,12 @@ export interface SessionManagerOptions {
     metrics?: MetricsCollector;
     /** Optional durable store for session metadata (Redis, etc.). */
     store?: SessionMetaStore;
+    /**
+     * Minimum time between writes of one session's `lastActivityAt` to the store. `get()` runs on every
+     * message, and a write per message turned each of them into a store round trip. In-memory activity is
+     * always exact; the stored value lags by at most this much. Default 30000; 0 writes on every `get()`.
+     */
+    activityPersistIntervalMs?: number;
 }
 
 export class SessionManager {
@@ -41,6 +47,8 @@ export class SessionManager {
     private readonly monitorBus: MonitorBus | undefined;
     private readonly metrics: MetricsCollector | undefined;
     private readonly store: SessionMetaStore | undefined;
+    private readonly activityPersistIntervalMs: number;
+    private readonly lastPersisted = new Map<string, number>();
     private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor(opts: SessionManagerOptions) {
@@ -50,6 +58,7 @@ export class SessionManager {
         this.monitorBus = opts.monitorBus;
         this.metrics = opts.metrics;
         this.store = opts.store;
+        this.activityPersistIntervalMs = opts.activityPersistIntervalMs ?? 30_000;
 
         // sweep idle sessions every minute
         this.sweepTimer = setInterval(() => this.sweepIdle(), 60_000);
@@ -90,6 +99,7 @@ export class SessionManager {
         this.sessions.set(id, session);
         this.monitorBus?.notifySessionOpen(id, userId);
         this.metrics?.sessionOpened();
+        this.lastPersisted.set(id, now.getTime());
         this.store?.set(id, {
             id,
             createdAt: now.toISOString(),
@@ -106,12 +116,16 @@ export class SessionManager {
         const session = this.sessions.get(id);
         if (session) {
             session.lastActivityAt = new Date();
-            this.store?.set(id, {
-                id,
-                createdAt: session.createdAt.toISOString(),
-                lastActivityAt: session.lastActivityAt.toISOString(),
-                userId: session.userId,
-            }).catch(() => { /* non-fatal */ });
+            const now = session.lastActivityAt.getTime();
+            if (this.store && now - (this.lastPersisted.get(id) ?? 0) >= this.activityPersistIntervalMs) {
+                this.lastPersisted.set(id, now);
+                this.store.set(id, {
+                    id,
+                    createdAt: session.createdAt.toISOString(),
+                    lastActivityAt: session.lastActivityAt.toISOString(),
+                    userId: session.userId,
+                }).catch(() => { /* non-fatal */ });
+            }
         }
         return session;
     }
@@ -122,6 +136,7 @@ export class SessionManager {
         try { session.engine.abort(); } catch { /* engine may already be idle */ }
         try { session.transport.close(); } catch { /* may already be closed */ }
         this.sessions.delete(id);
+        this.lastPersisted.delete(id);
         this.monitorBus?.notifySessionClose(id);
         this.metrics?.sessionClosed();
         this.store?.delete(id).catch(() => { /* non-fatal */ });

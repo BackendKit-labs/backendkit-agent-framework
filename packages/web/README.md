@@ -86,7 +86,7 @@ interface AgentServerOptions {
 
   // Network
   port?:   number;                    // default: 3000
-  host?:   string;                    // default: '0.0.0.0'
+  host?:   string;                    // default: '127.0.0.1' (use '0.0.0.0', with auth, for remote callers)
   cors?:   string | string[];         // default: '*'
   logger?: boolean | object;          // Fastify logger, default: false
 

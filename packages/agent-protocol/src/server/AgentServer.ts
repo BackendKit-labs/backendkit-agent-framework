@@ -41,6 +41,8 @@ export interface AgentServerOptions {
     version:     string;
     description: string;
     port?:       number;
+    /** Interface to bind. Default `127.0.0.1`; use `0.0.0.0` (and set `apiKey`) to accept remote callers. */
+    host?:       string;
     apiKey?:     string;
     evictIntervalMs?: number; // how often to evict old tasks, default 10 min
     /**
@@ -65,6 +67,7 @@ export class AgentServer {
     private readonly handlers:   Map<string, CapabilityHandler>;
     private readonly info:       AgentInfo;
     private readonly port:       number;
+    private readonly host:       string;
     private readonly apiKey?:    string;
     private readonly controlApiKey?: string;
     private readonly control?:   ControlHandler;
@@ -75,6 +78,7 @@ export class AgentServer {
 
     constructor(opts: AgentServerOptions) {
         this.port      = opts.port ?? 3300;
+        this.host      = opts.host ?? '127.0.0.1';
         this.apiKey    = opts.apiKey;
         this.controlApiKey = opts.controlApiKey;
         this.control   = opts.control;
@@ -373,8 +377,8 @@ export class AgentServer {
 
     async start(): Promise<void> {
         return new Promise(resolve => {
-            this.server = this.app.listen(this.port, () => {
-                console.log(`[agent-protocol] ${this.info.name}@${this.info.version} listening on :${this.port}`);
+            this.server = this.app.listen(this.port, this.host, () => {
+                console.log(`[agent-protocol] ${this.info.name}@${this.info.version} listening on ${this.host}:${this.port}`);
                 resolve();
             });
         });

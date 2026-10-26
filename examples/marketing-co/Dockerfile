@@ -9,6 +9,7 @@ RUN npm install --omit=dev
 COPY agents/ ./agents/
 
 ENV PORT=8080
+ENV HOST=0.0.0.0
 EXPOSE 8080
 
 ARG AGENT_SCRIPT

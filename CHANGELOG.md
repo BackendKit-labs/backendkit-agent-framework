@@ -4,6 +4,26 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+## v0.37.1 (2026-10-26)
+
+Cotas y fugas ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O3, #128–#133). Solo patches: los rangos `^0.36`, `^0.3`, `^0.6` y `^0.18` de los dependientes ya los cubren, así que no hay barrido de rangos ni cambio en `create-bk-agent`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.36.1 | `MCPClientManager` cierra cliente y transport si la conexión falla (sin procesos stdio huérfanos) |
+| `mcp-server` | 0.18.4 | `indexDirectory` con concurrencia acotada (16) |
+| `agent-protocol` | 0.6.1 | `TaskStore` evicta tareas canceladas y las que nunca terminan (24 h) |
+| `agent-providers` | 0.3.3 | sin reintento tras emitir razonamiento |
+| `agent-otel` | 0.1.8 | `otlpHttpExporter` con cola acotada (`maxQueuedBatches`) |
+| `agent-web` | 0.6.2 | backpressure en WebSocket |
+
+**Orden de publicación:** core → providers → agent-protocol → (otel, mcp-server, web).
+
+### Cambios de comportamiento
+- **`agent-web`:** un cliente de sesión que deja más de 8 MiB sin leer se desconecta (código 1013 `slow consumer`); `new WebSocketTransport(socket, { maxBufferedBytes })` lo ajusta. A los observadores del monitor se les omiten frames pasado 1 MiB (`MonitorBus.droppedFrames`).
+- **`agent-otel`:** con un collector lento, los lotes más antiguos por encima de `maxQueuedBatches` (32) se descartan y se avisa por `onError`; antes se acumulaban sin tope.
+- **`agent-protocol`:** `evict(ttlMs, activeTtlMs)` descarta además tareas pending/running con más de 24 h.
+
 ## v0.37.0 (2026-10-26)
 
 Auditoría de orquestación, límites y cotas ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O1–O3, #110–#126) y los ejemplos migrados a zod 4. Rangos 0.x barridos: `agent-core ^0.36.0` y peers `<0.37.0`.

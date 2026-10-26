@@ -38,6 +38,8 @@ export interface StoredRecord {
 export interface MemoryStoreBackend {
     insert(record: StoredRecord): void;
     upsert(id: string, record: StoredRecord): void;
+    /** Replaces (or appends) several records in one write; each record's own `id` is the key. */
+    upsertMany?(records: StoredRecord[]): void;
     getAll(): StoredRecord[];
     deleteOldest(keepNewest: number): void;
     deleteByIds(ids: string[]): void;

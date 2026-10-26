@@ -1,7 +1,16 @@
 import type { MetricsSnapshot } from './types';
 
+/**
+ * Run durations are kept in a fixed-size uniform reservoir (Algorithm R): memory and the cost of a snapshot
+ * stay constant however many runs are recorded. Percentiles are exact up to RESERVOIR_SIZE runs and an
+ * unbiased estimate beyond that; `total` and `totalDurationMs` are always exact.
+ */
+const RESERVOIR_SIZE = 1_024;
+
 export class MetricsCollector {
     private durations: number[] = [];
+    private runCount = 0;
+    private durationSum = 0;
     private errorRuns = 0;
     private totalInput = 0;
     private totalOutput = 0;
@@ -11,7 +20,14 @@ export class MetricsCollector {
     private guardrails = new Map<string, { redacted: number; blocked: number; errors: number }>();
 
     recordRun(durationMs: number, error: boolean): void {
-        this.durations.push(durationMs);
+        this.runCount++;
+        this.durationSum += durationMs;
+        if (this.durations.length < RESERVOIR_SIZE) {
+            this.durations.push(durationMs);
+        } else {
+            const slot = Math.floor(Math.random() * this.runCount);
+            if (slot < RESERVOIR_SIZE) this.durations[slot] = durationMs;
+        }
         if (error) this.errorRuns++;
     }
 
@@ -45,9 +61,9 @@ export class MetricsCollector {
         const sorted = [...this.durations].sort((a, b) => a - b);
         return {
             runs: {
-                total: this.durations.length,
+                total: this.runCount,
                 errors: this.errorRuns,
-                totalDurationMs: this.durations.reduce((s, d) => s + d, 0),
+                totalDurationMs: this.durationSum,
                 p50Ms: this.percentile(sorted, 50),
                 p95Ms: this.percentile(sorted, 95),
                 p99Ms: this.percentile(sorted, 99),

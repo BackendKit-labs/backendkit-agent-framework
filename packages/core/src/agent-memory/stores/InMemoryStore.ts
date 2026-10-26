@@ -13,6 +13,15 @@ export class InMemoryStore implements MemoryStoreBackend {
         else this.records.push(record);
     }
 
+    upsertMany(records: StoredRecord[]): void {
+        const index = new Map(this.records.map((r, i) => [r.id, i]));
+        for (const record of records) {
+            const at = index.get(record.id);
+            if (at !== undefined) this.records[at] = record;
+            else { index.set(record.id, this.records.length); this.records.push(record); }
+        }
+    }
+
     getAll(): StoredRecord[] { return [...this.records]; }
 
     deleteOldest(keepNewest: number): void {

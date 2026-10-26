@@ -1,8 +1,11 @@
 import { randomUUID } from 'crypto';
-import type { Knowledge, MemoryStoreBackend, SemanticConfig, StoredRecord } from './types';
+import type { Knowledge, MemoryStoreBackend, RetentionConfig, SemanticConfig, StoredRecord } from './types';
 import { InMemoryStore } from './stores/InMemoryStore';
 import { JsonFileStore } from './stores/JsonFileStore';
 import { keywordScore, cosine } from './scoring';
+
+/** Entries kept when `retention.maxKnowledge` is not set. Each can carry an embedding of hundreds of floats. */
+export const DEFAULT_MAX_KNOWLEDGE = 5_000;
 
 interface KnowledgeRecord extends StoredRecord {
     content: string;
@@ -19,8 +22,10 @@ interface KnowledgeRecord extends StoredRecord {
 export class SemanticMemory {
     private readonly backend: MemoryStoreBackend;
     private readonly embedFn: SemanticConfig['embedFn'];
+    private readonly maxKnowledge: number;
 
-    constructor(cfg: SemanticConfig = {}) {
+    constructor(cfg: SemanticConfig = {}, retention: RetentionConfig = {}) {
+        this.maxKnowledge = retention.maxKnowledge ?? DEFAULT_MAX_KNOWLEDGE;
         this.backend = cfg.provider === 'json' && cfg.path
             ? new JsonFileStore(cfg.path)
             : new InMemoryStore();
@@ -38,6 +43,7 @@ export class SemanticMemory {
             ...(embedding ? { embedding } : {}),
             createdAt: new Date().toISOString(),
         });
+        if (this.maxKnowledge < Infinity) this.backend.deleteOldest(this.maxKnowledge);
         return id;
     }
 

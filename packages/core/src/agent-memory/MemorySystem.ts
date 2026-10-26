@@ -30,8 +30,8 @@ export class MemorySystem {
 
     constructor(private readonly config: MemorySystemConfig = {}) {
         this.episodic   = new EpisodicMemory(config.episodic, config.retention);
-        this.semantic   = new SemanticMemory(config.semantic);
-        this.procedural = new ProceduralMemory(config.procedural);
+        this.semantic   = new SemanticMemory(config.semantic, config.retention);
+        this.procedural = new ProceduralMemory(config.procedural, config.retention);
     }
 
     /**

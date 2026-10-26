@@ -1,7 +1,7 @@
 # SPEC-0010: Cotas por defecto, orquestación y tipos de agente
 
 **Fecha:** 2026-10-26
-**Estado:** En curso (O1 en PR #112–#114; O2 casi completo en #116–#122; O3–O5 sin empezar)
+**Estado:** Implementado (2026-10-26). O1–O3 en master y publicados (core 0.36.x, v0.37.x); O2 (resto), O3 (menores), O4 y O5 en los PR #141–#155, pendientes de mergear y publicar.
 **Depende de:** SPEC-0009 (confianza y límites aplicados), SPEC-0006 (sandbox), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md)
 **Origen:** informe del auditor del 2026-10-26 (6 subagentes sobre el SDK ya extraído a bk-platform). Las citas `ruta:línea` son del auditor; **ninguna se ha reverificado salvo las marcadas "verificado"**. Cada fase empieza por reproducir el hallazgo con un test que falle; si no se reproduce, se descarta y se anota aquí.
 **Objetivo:** que ningún bucle, historial, cola o delegación crezca sin techo por defecto, que la orquestación no pueda saltarse una aprobación ni dejar un run colgado, y que haya una sola forma de cargar y describir un agente.
@@ -28,6 +28,7 @@
 ## 2. Fases
 
 ### O2 — Orquestación restante (core, orchestrator-agent)
+**Cierre (2026-10-26):** compactación y recuperación de desbordamiento en sub-agentes, y un paso nuevo en `ContextManager` que trunca resultados antiguos **dentro de un turno largo** (#147: antes un bucle de tool calls, que es un solo turno de usuario, no se podía compactar ni en el agente principal); `applyGateDecision` extraída de `server.ts` y testeada (#148); aprobación de gates atómica entre procesos con `IRunStore.claim` (Redis `SET NX PX` + liberación por token, y archivo `wx` en disco) (#149).
 **Pendiente de esta fase tras #116–#122:** compactación y recuperación de desbordamiento en sub-agentes; bulkhead para delegaciones anidadas; límite de concurrencia en `WorkflowRunner.executeWave`; atomicidad de la aprobación entre procesos; extraer `applyGateDecision` de `server.ts` para poder testearla. El resto de viñetas de abajo ya está resuelto (ver §1).
 
 - `WorkflowRunner`: los dependientes de un paso fallido o saltado pasan a `skipped` en el resultado (hoy A→B→C con A fallando deja a C fuera de `results`); un `WorkflowDef` con ciclo se rechaza al validar en lugar de devolver `completed` con pasos faltantes.
@@ -43,7 +44,7 @@
 **Tests:** uno por hallazgo, escrito antes del arreglo.
 
 ### O3 — Cotas por defecto (core, enterprise, otel, web, mcp-server)
-**Estado (2026-10-26):** hechas las viñetas marcadas ✅ (PR #124–#126 y #128–#133). Pendientes: OTel por allowlist, `ObsidianRAGProvider`, orchestrator-agent (episodic/RAG), web-ui y los menores. Decisiones tomadas: historial 200 mensajes, `JsonFileStore` como log append-only con compactación, reservorio de 1024 para métricas, cliente de sesión lento = cierre 1013, observador lento = omitir frames.
+**Estado (2026-10-26):** hecho todo lo de esta fase. PR #124–#126 y #128–#133 (publicados en v0.37.1), #136–#139 (v0.37.2: OTel por lista blanca, checkpoint del RAG por tiempo, cachés episódica y de RAG, topes de memoria semántica y procedural) y los menores en #141–#146 (`SessionManager.get`, `SCAN`/`MGET` en Redis, `VaultIndexer`, sesiones MCP con TTL y tope, gcal en single-flight, tokens de web-ui por fotograma). Sigue sin tope por defecto `maxEpisodes` (`Infinity`). Decisiones tomadas: historial 200 mensajes, `JsonFileStore` como log append-only con compactación, reservorio de 1024 para métricas, cliente de sesión lento = cierre 1013, observador lento = omitir frames.
 Principio (ADR-0007): un recurso que crece con el uso necesita un tope por defecto, y quien lo quita lo hace a propósito.
 - ✅ **Historial:** `maxContextMessages`/`maxTokens` con valor por defecto en `createBaseEngine` (hoy "unlimited": cada iteración reenvía todo, O(n²) en tokens). Decisión: valor y qué pasa al alcanzarlo (compactar o recortar).
 - ✅ **`JsonFileStore`:** dejar de reescribir el archivo entero por mutación (NDJSON con compactación periódica, o escritura diferida con vaciado en cierre). Sin pretty-print por defecto.
@@ -64,22 +65,27 @@ Principio (ADR-0007): un recurso que crece con el uso necesita un tope por defec
 **Salida:** un agente que corre 1000 iteraciones no crece sin techo ni reescribe disco en O(n²).
 
 ### O4 — Modelo de capacidades por defecto (core, coding)
+**Hecho (#155), incompatible:** `allowedTools: []` significa sin herramientas (antes el modelo podía llamar por nombre a cualquier herramienta registrada); `allowUnlistedTools` restaura lo anterior de forma transitoria. Sin hacer: ampliar `AgentProfile` con `budget`/`rate`/`roots`/`temperature` (queda como decisión de diseño aparte, SPEC-0009 ya cubre parte).
 - `allowedTools: []` sin delegación hoy permite cualquier herramienta (`AgentEngine.ts:1320-1322`): pasa a denegar por defecto (cambio incompatible; se anuncia y se ofrece una opción transitoria).
 - Decidir si `AgentProfile` incorpora `budget`/`rate`/`roots`/`temperature` o si se queda como está y las capacidades se componen desde sandbox, presupuesto y perfil (SPEC-0009 ya cubre parte).
 - Perfil `EXEC_TOOLS` (sin `write_file`) con prompt que dice "implement directly": alinear datos y prompt.
 
 ### O5 — Una sola forma de definir un agente (core, coding, create-bk-agent)
+**Hecho:** `add mcp-client` / `add plugin` generan código que compila (#150); 26 archivos de plantillas legacy fuera y README corregido (#151); `single` y `multi-agent` usan `@backendkit-labs/agent-providers` en vez de su copia (#152); una tabla de modelo/endpoint por proveedor en `scaffold.ts` (#153); `discoverAgents` exige confianza del workspace para la capa de proyecto, da precedencia al proyecto y usa el mismo directorio personal (#154; **era un hueco de seguridad**, no solo una divergencia). Los dos **formatos** de agente siguen siendo dos a propósito (`discoverAgents`: yaml/json con el perfil completo; `AgentLoader`: json + md); fusionarlos cambiaría archivos que los usuarios ya tienen. La plantilla `minimal` construye su motor en `src/index.ts` y `add` solo mira `src/engine.ts`: sin arreglar.
 - `AgentLoader` (JSON+MD, proyecto sobre global) y `discoverAgents` (YAML, global sobre proyecto) tienen precedencia opuesta y distinto control de confianza. Unificar en uno; la confianza de SPEC-0009 aplica a ambos.
 - `add mcp-client` / `add plugin` (`create-bk-agent/add/patcher.ts:104-181`) inyectan `mcpServers` en `new AgentEngine({...})`, que no lo acepta: generar código que compile y verificarlo con un test que compile el resultado.
 - Templates: reutilizar `@backendkit-labs/agent-providers` en lugar de tres copias de `openai-compatible.ts`; borrar los ~25 archivos top-level no referenciados (`domain-agent`, `mcp-server` y otros) o conectarlos al scaffolder; una sola tabla de metadatos de proveedor (hoy `PROVIDER_ENV`, `ORCHESTRATOR_PROVIDERS`, `KNOWN_BASE_URLS` con claves env inconsistentes).
 - No se introduce un tipo formal de agente: SPEC-0009 ya decidió dejarlo así.
 
 ## 3. Orden y publicación
-O1 (hecho, en revisión) → O2 → O3 → O5 → O4. O4 va último porque rompe compatibilidad. Cada fase es un PR por tema; los cambios de API de `core` son aditivos salvo O4 y siguen el procedimiento de bump y publicación habitual.
+Orden seguido: O1 → O2 → O3 → O5 → O4. O4 fue último porque rompe compatibilidad. Cada fase es un PR por tema; los cambios de API de `core` son aditivos salvo O4 y siguen el procedimiento de bump y publicación habitual.
 
-## 4. Decisiones abiertas
-1. Valor por defecto del historial y qué hacer al alcanzarlo (compactar o recortar).
-2. ~~`orchestrate()` ante error~~ — **resuelta:** fail-closed por defecto, `open` opcional (#121).
-3. Formato de `JsonFileStore`: NDJSON con compactación o escritura diferida.
-4. Si O4 se publica con opción transitoria o directamente como cambio incompatible.
-5. Atomicidad de la aprobación de gates entre procesos: Redis con `SET NX` o aceptar un solo proceso.
+## 4. Decisiones (tomadas durante la implementación; revisables)
+1. Historial: **200 mensajes** por defecto, recortando en frontera de turno; `maxContextMessages: 0` lo desactiva (#125).
+2. `orchestrate()` ante error: **fail-closed** por defecto, `orchestratorFailureMode: 'open'` opcional (#121).
+3. `JsonFileStore`: **log de líneas JSON con compactación** (#124); lee el formato antiguo y lo convierte.
+4. O4: **cambio incompatible con opción transitoria** `allowUnlistedTools` (#155).
+5. Aprobación entre procesos: **claim en el store** (Redis `SET NX PX`, archivo `wx` en disco), con TTL de 5 min (#149). Sin probar contra un Redis real.
+6. Topes: memoria semántica 5000, procedural 1000, rework 5, profundidad de delegación 5, sesiones MCP 1000 con TTL de 30 min, olas de workflow 8, indexado 16, métricas 1024.
+7. `discoverAgents`: **proyecto > global**, y la capa de proyecto solo con workspace de confianza (#154).
+

@@ -520,6 +520,76 @@ srv.tool(
     },
 );
 
+// ── Gate decision — one implementation for the MCP tool and the HTTP endpoint ──
+// They used to carry two copies that drifted (the HTTP one lost the audit trail).
+
+interface GateDecisionInput {
+    runId:      string;
+    configPath: string;
+    config:     OrchestratorConfig;
+    store:      Awaited<ReturnType<typeof getStore>>;
+    state:      RunState;           // must be waiting_gate
+    approved:   boolean;
+    notes?:     string;
+}
+
+/**
+ * Records the approver's decision: rule outcomes, audit entry, run state, and — when approved —
+ * resumes the plan in the background. The caller holds the per-run claim and has already checked
+ * that the run is `waiting_gate`.
+ */
+async function applyGateDecision(d: GateDecisionInput): Promise<{ gate: NonNullable<RunState['waitingGate']> }> {
+    const { runId, configPath, config, store, state, approved, notes } = d;
+    const gate = state.waitingGate!;
+    const audit = getAuditLogger(configPath);
+
+    // Cable 2: record rule outcomes so the reflection engine tracks effectiveness
+    const reflection = config.orchestrator.vault
+        ? await getReflection(config.orchestrator.vault.path).catch(() => undefined)
+        : undefined;
+    if (reflection && gate.appliedRuleIds?.length) {
+        const outcome: 'success' | 'failure' = approved ? 'success' : 'failure';
+        for (const ruleId of gate.appliedRuleIds) {
+            reflection.recordRuleOutcome(ruleId, outcome).catch(() => { /* best-effort */ });
+        }
+    }
+
+    if (!approved) {
+        await store.save({
+            ...state,
+            status:      'failed',
+            completedAt: ts(),
+            error:       `Gate rejected by approver. Step: ${gate.stepId}. Notes: ${notes ?? '(none)'}`,
+            waitingGate: undefined,
+        });
+        audit.write({ event: 'gate.rejected', runId, task: state.task, stepId: gate.stepId, agentId: gate.agentId, error: notes ?? 'no notes' });
+        return { gate };
+    }
+
+    audit.write({ event: 'gate.approved', runId, task: state.task, stepId: gate.stepId, agentId: gate.agentId, extra: notes ? { notes } : undefined });
+    const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
+
+    // Mark gate as cleared, resume in background
+    await store.save({ ...state, status: 'running', waitingGate: undefined });
+
+    const priorResults: ExecutionResult[] = state.completedSteps.map(s => ({
+        subtask_id:  s.stepId,
+        agent_id:    s.agentId,
+        task:        s.task,
+        result:      s.output,
+        success:     s.success,
+        duration_ms: s.durationMs,
+    }));
+
+    setImmediate(() => {
+        executeInBackground(runId, configPath, config, state.plan, rag, priorResults).catch(async (err) => {
+            const s = await store.load(runId);
+            if (s) await store.save({ ...s, status: 'failed', error: String(err) });
+        });
+    });
+    return { gate };
+}
+
 // ---------------------------------------------------------------------------
 // orchestrator_approve — approve or reject a waiting gate
 // ---------------------------------------------------------------------------
@@ -551,62 +621,15 @@ srv.tool(
             return ok(`Run \`${run_id}\` is not waiting for a gate (current status: ${state.status})`);
         }
 
-        const gate = state.waitingGate!;
-
-        // Cable 2: record rule outcomes so the reflection engine tracks effectiveness
-        const reflection = config.orchestrator.vault
-            ? await getReflection(config.orchestrator.vault.path).catch(() => undefined)
-            : undefined;
-
-        if (reflection && gate.appliedRuleIds?.length) {
-            const outcome: 'success' | 'failure' = approved ? 'success' : 'failure';
-            for (const ruleId of gate.appliedRuleIds) {
-                reflection.recordRuleOutcome(ruleId, outcome).catch(() => { /* best-effort */ });
-            }
-        }
+        const { gate } = await applyGateDecision({ runId: run_id, configPath: config_path, config, store, state, approved, notes });
 
         if (!approved) {
-            await store.save({
-                ...state,
-                status:      'failed',
-                completedAt: ts(),
-                error:       `Gate rejected by approver. Step: ${gate.stepId}. Notes: ${notes ?? '(none)'}`,
-                waitingGate: undefined,
-            });
-            getAuditLogger(config_path).write({ event: 'gate.rejected', runId: run_id, task: state.task, stepId: gate.stepId, agentId: gate.agentId, error: notes ?? 'no notes' });
             return ok([
                 `Gate rejected — run \`${run_id}\` stopped.`,
                 `Step: ${gate.stepId} (${gate.agentId})`,
                 notes ? `Notes: ${notes}` : '',
             ].filter(Boolean).join('\n'));
         }
-
-        getAuditLogger(config_path).write({ event: 'gate.approved', runId: run_id, task: state.task, stepId: gate.stepId, agentId: gate.agentId, extra: notes ? { notes } : undefined });
-        const rag = await buildRAG(config, resolveDataDir(config_path, config)).catch(() => null);
-
-        // Mark gate as cleared, resume in background
-        const resumeState: RunState = {
-            ...state,
-            status:     'running',
-            waitingGate: undefined,
-        };
-        await store.save(resumeState);
-
-        const priorResults: ExecutionResult[] = state.completedSteps.map(s => ({
-            subtask_id:  s.stepId,
-            agent_id:    s.agentId,
-            task:        s.task,
-            result:      s.output,
-            success:     s.success,
-            duration_ms: s.durationMs,
-        }));
-
-        setImmediate(() => {
-            executeInBackground(run_id, config_path, config, state.plan, rag, priorResults).catch(async (err) => {
-                const s = await store.load(run_id);
-                if (s) await store.save({ ...s, status: 'failed', error: String(err) });
-            });
-        });
 
         return ok([
             `Gate approved — run \`${run_id}\` resuming.`,
@@ -1146,44 +1169,10 @@ async function startHttpServer(
                 if (!state)                          { reply(res, 404, { error: `Run not found: ${runId}` }); return; }
                 if (state.status !== 'waiting_gate') { reply(res, 409, { error: `Run not waiting for a gate (status: ${state.status})` }); return; }
 
-                const gate = state.waitingGate!;
-
-                const reflection = config.orchestrator.vault
-                    ? await getReflection(config.orchestrator.vault.path).catch(() => undefined)
-                    : undefined;
-                if (reflection && gate.appliedRuleIds?.length) {
-                    const outcome: 'success' | 'failure' = approved ? 'success' : 'failure';
-                    for (const id of gate.appliedRuleIds) {
-                        reflection.recordRuleOutcome(id, outcome).catch(() => {});
-                    }
-                }
-
-                if (!approved) {
-                    await store.save({
-                        ...state, status: 'failed', completedAt: ts(),
-                        error: `Gate rejected. Step: ${gate.stepId}. Notes: ${notes ?? '(none)'}`,
-                        waitingGate: undefined,
-                    });
-                    reply(res, 200, { runId, status: 'failed', stepId: gate.stepId });
-                    return;
-                }
-
-                await store.save({ ...state, status: 'running', waitingGate: undefined });
-
-                const rag = await buildRAG(config, resolveDataDir(configPath, config)).catch(() => null);
-                const priorResults: ExecutionResult[] = state.completedSteps.map(s => ({
-                    subtask_id: s.stepId, agent_id: s.agentId, task: s.task,
-                    result: s.output, success: s.success, duration_ms: s.durationMs,
-                }));
-
-                setImmediate(() => {
-                    executeInBackground(runId, configPath, config, state.plan, rag, priorResults).catch(async err => {
-                        const s = await store.load(runId);
-                        if (s) await store.save({ ...s, status: 'failed', error: String(err) });
-                    });
-                });
-
-                reply(res, 200, { runId, status: 'running', stepId: gate.stepId });
+                const { gate } = await applyGateDecision({ runId, configPath, config, store, state, approved, notes });
+                reply(res, 200, approved
+                    ? { runId, status: 'running', stepId: gate.stepId }
+                    : { runId, status: 'failed', stepId: gate.stepId });
                 return;
                 } finally {
                     releaseClaim();

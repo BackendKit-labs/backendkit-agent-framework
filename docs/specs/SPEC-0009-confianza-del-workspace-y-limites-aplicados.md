@@ -1,7 +1,7 @@
 # SPEC-0009: Confianza del workspace y límites aplicados
 
 **Fecha:** 2026-10-24
-**Estado:** En curso (C1 y C3 implementados y publicados en 0.34; C3b pendiente)
+**Estado:** En curso (C1 y C3 implementados y publicados en 0.34; C3b implementado en master, sin publicar)
 **Depende de:** SPEC-0003 y SPEC-0008 (Hermes), SPEC-0006 (política de sandbox), [ADR-0002](../adr/0002-aborto-automatico-por-presupuesto.md) (presupuesto)
 **ADR:** [ADR-0006](../adr/0006-confianza-del-workspace.md) (confianza del workspace), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md) (un límite declarado debe aplicarse)
 **Origen:** la auditoría de 2026-10-24 (lotes #93–#96) y la opinión posterior del auditor sobre el modelo de capacidades, verificada punto por punto contra el código. Este spec recoge lo que esa opinión acierta y descarta lo que no resultó cierto.
@@ -58,7 +58,7 @@
 
 **Tests:** el semáforo limita la concurrencia real (8 llamadas simultáneas, 2 arrancan), libera al fallar y al cancelar, no retiene el hueco durante una aprobación y lo vuelve a comprobar después, es por agente, y un run recuperado tras reiniciar lo ocupa; `validate` emite el aviso exacto y no falla; un blueprint sin presupuesto es válido y uno por encima del techo no.
 
-### C3b — Presupuesto aplicado (hermes, agent-protocol) · diseño decidido, sin implementar · ADR-0007 §5
+### C3b — Presupuesto aplicado (hermes, agent-protocol) · implementado, sin publicar · ADR-0007 §5
 **Corrección:** este spec decía que Hermes construiría el engine de un agente en proceso con `observability.budget` y `abortOnBudget`. No es viable: `InProcessConnector` recibe funciones (`handler`), no un engine, y una instancia aprovisionada la construye el provisionador del anfitrión a partir de un `template` que Hermes no interpreta. Hermes no ve el gasto.
 - **Diseño necesario:** un canal de coste. `RunOutcome.costUsd?` opcional que el conector informa (un handler en proceso lo devuelve; `agent-protocol` lo transporta en el resultado de la tarea), un acumulado diario por agente (día UTC) en el store de runs, y rechazo de nuevas ejecuciones con un código claro (`BUDGET_EXCEEDED`) al alcanzar `budgetUsdPerDay`.
 - **Cambia contratos** (`connectors/types`, `agent-protocol`) y exige que cada agente informe de su coste; un agente que no lo informe sigue siendo declarativo y se avisa.

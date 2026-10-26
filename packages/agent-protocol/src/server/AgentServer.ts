@@ -164,13 +164,19 @@ export class AgentServer {
             }
 
             const runAsync = body.async ?? handler.definition.async;
+            // What the handler reports as spent. Only finite, non-negative amounts count; none reported stays undefined.
+            let cost: number | undefined;
+            const runContext: AgentContext = {
+                ...context,
+                reportCost: usd => { if (Number.isFinite(usd) && usd >= 0) cost = (cost ?? 0) + usd; },
+            };
 
             if (!runAsync) {
                 // Synchronous
                 try {
-                    const output = await handler.execute(body.input ?? {}, context);
+                    const output = await handler.execute(body.input ?? {}, runContext);
                     res.json(this.okEnvelope(
-                        { status: 'done', output },
+                        { status: 'done', output, ...(cost !== undefined ? { costUsd: cost } : {}) },
                         { durationMs: Date.now() - start, traceId: context.traceId, agentVersion: this.info.version },
                     ));
                 } catch (err) {
@@ -192,10 +198,10 @@ export class AgentServer {
             setImmediate(async () => {
                 this.taskStore.setRunning(taskId);
                 try {
-                    const output = await handler.execute(body.input ?? {}, context);
-                    this.taskStore.complete(taskId, output);
+                    const output = await handler.execute(body.input ?? {}, runContext);
+                    this.taskStore.complete(taskId, output, cost);
                 } catch (err) {
-                    this.taskStore.fail(taskId, (err as Error).message);
+                    this.taskStore.fail(taskId, (err as Error).message, cost);
                 }
             });
         });

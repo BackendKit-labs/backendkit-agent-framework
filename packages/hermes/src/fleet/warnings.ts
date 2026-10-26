@@ -20,7 +20,7 @@ export function fleetWarnings(fleet: FleetConfig): FleetWarning[] {
         if (budget !== undefined) {
             warnings.push({
                 path: `agents.${agent.id}.limits.budgetUsdPerDay`,
-                message: `${budget} USD/day is declared, not enforced: Hermes does not measure the spend of the agents it supervises, so nothing stops this agent at this amount`,
+                message: `${budget} USD/day is enforced only from the cost this agent reports (costUsd): an agent that reports none is not enforced, and a run already going is never cut`,
             });
         }
     }
@@ -30,7 +30,7 @@ export function fleetWarnings(fleet: FleetConfig): FleetWarning[] {
         warnings.push({ path: 'policies.budget.perRunUsd', message: `${budget.perRunUsd} USD per run is declared, not enforced: it is accepted and kept, nothing applies it yet` });
     }
     if (budget?.perDayUsd !== undefined) {
-        warnings.push({ path: 'policies.budget.perDayUsd', message: `${budget.perDayUsd} USD/day is declared, not enforced: it is accepted and kept, nothing applies it yet` });
+        warnings.push({ path: 'policies.budget.perDayUsd', message: `${budget.perDayUsd} USD/day is enforced only over the cost agents report (costUsd): agents that report none are not counted` });
     }
 
     for (const blueprint of fleet.blueprints ?? []) {

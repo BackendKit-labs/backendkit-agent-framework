@@ -54,6 +54,7 @@ export interface RunView {
     finishedAt?: string;
     output?: string;
     error?: string;
+    costUsd?: number;
 }
 
 /** The guardrails Hermes applies to what agents answer: a result is data from outside, not an instruction. */
@@ -64,6 +65,7 @@ const view = (r: RunRecord): RunView => ({
     ...(r.finishedAt ? { finishedAt: r.finishedAt } : {}),
     ...(r.output !== undefined ? { output: r.output } : {}),
     ...(r.error ? { error: r.error } : {}),
+    ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
 });
 
 interface Tracked { handle: RunHandle; settled: Promise<void> }
@@ -235,7 +237,10 @@ export class Hermes {
         // Refuse before asking anybody to approve something that cannot start; the claim itself comes after the approval,
         // because a human may take minutes and the slot must not be held meanwhile (and the room may be gone by then).
         this.assertRoom(principal, agent, capability);
+        this.assertBudget(principal, agent, capability);
         await this.requireApproval({ action: 'run', principal, agentId: agent.id, capability, inputPreview }, this.approvalMode(agent, capability));
+        // The budget may have been spent while a human decided.
+        this.assertBudget(principal, agent, capability);
         const release = this.claimSlot(principal, agent, capability);
 
         const runId = randomUUID();
@@ -606,7 +611,7 @@ export class Hermes {
                         void this.track(record.runId, agent.connector.follow(record.connectorRunId, this.shutdown.signal));
                     }
                 } else {
-                    await this.settle(record.runId, { status: found.status, ...(found.output !== undefined ? { output: found.output } : {}), ...(found.error ? { error: found.error } : {}) });
+                    await this.settle(record.runId, { status: found.status, ...(found.output !== undefined ? { output: found.output } : {}), ...(found.error ? { error: found.error } : {}), ...(found.costUsd !== undefined ? { costUsd: found.costUsd } : {}) });
                 }
                 this.audit.record({ action: 'reconcile', outcome: 'recovered', agentId: record.agentId, runId: record.runId });
             } catch (err) {
@@ -629,6 +634,32 @@ export class Hermes {
         const reason = `${running} run(s) already going, limits.maxConcurrent is ${max}`;
         this.audit.record({ action: 'run', outcome: 'denied', principalId: principal.id, agentId: agent.id, capability, reason });
         throw new HermesError('AGENT_BUSY', `${agent.id} is busy: ${reason}. Try again when one of its runs ends.`);
+    }
+
+    /**
+     * The daily budget (`limits.budgetUsdPerDay` of the agent, `policies.budget.perDayUsd` for the whole fleet) is checked when
+     * a run is admitted, never in the middle of one: a run going finishes (the engine's own `abortOnBudget` is what cuts a run
+     * short), so the overshoot is bounded by the runs already admitted, a soft cap at the edge. The spend is what agents
+     * reported as `costUsd`, summed per UTC day of the run's start; an agent that reports none is never limited.
+     */
+    private assertBudget(principal: Principal, agent: { id: string; config: { limits?: { budgetUsdPerDay?: number } } }, capability: string): void {
+        const agentCap = agent.config.limits?.budgetUsdPerDay;
+        const fleetCap = this.options.fleet.policies?.budget?.perDayUsd;
+        if (agentCap === undefined && fleetCap === undefined) return;
+        const day = new Date().toISOString().slice(0, 10);
+        let agentSpent = 0;
+        let fleetSpent = 0;
+        for (const r of this.store.list()) {
+            if (r.costUsd === undefined || !r.startedAt.startsWith(day)) continue;
+            fleetSpent += r.costUsd;
+            if (r.agentId === agent.id) agentSpent += r.costUsd;
+        }
+        const over = agentCap !== undefined && agentSpent >= agentCap
+            ? `${agent.id} spent ${agentSpent.toFixed(4)} of its ${agentCap} USD/day`
+            : fleetCap !== undefined && fleetSpent >= fleetCap ? `the fleet spent ${fleetSpent.toFixed(4)} of its ${fleetCap} USD/day` : undefined;
+        if (!over) return;
+        this.audit.record({ action: 'run', outcome: 'denied', principalId: principal.id, agentId: agent.id, capability, reason: over });
+        throw new HermesError('BUDGET_EXCEEDED', `${over}. Try again tomorrow (UTC) or raise the budget.`);
     }
 
     /** Checks the limit and takes a slot in the same synchronous step. Returns the release, which is safe to call twice. */
@@ -668,7 +699,7 @@ export class Hermes {
     }
 
     /** Records how a run ended, once: a run that already ended keeps the first answer. */
-    private async settle(runId: string, outcome: { status: StoredStatus; output?: unknown; error?: string }): Promise<RunRecord | undefined> {
+    private async settle(runId: string, outcome: { status: StoredStatus; output?: unknown; error?: string; costUsd?: number }): Promise<RunRecord | undefined> {
         const current = this.store.get(runId);
         // The slot belongs to the run, not to whoever is following it, and it is freed BEFORE the final state is written:
         // the store shows the new state as soon as the update starts, while its write to disk takes longer, so freeing after
@@ -680,6 +711,7 @@ export class Hermes {
             finishedAt: new Date().toISOString(),
             ...(outcome.output !== undefined ? { output: this.sanitize(outcome.output) } : {}),
             ...(outcome.error ? { error: this.mask(outcome.error, 2000) } : {}),
+            ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}),
         });
         if (updated) this.emitEvent({ type: 'run.done', runId, agentId: updated.agentId, capability: updated.capability, status: updated.status });
         return updated;

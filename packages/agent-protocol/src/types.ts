@@ -6,6 +6,8 @@ export interface AgentContext {
     tenantId?:  string;
     traceId?:   string;
     requestId?: string;
+    /** Adds the USD this run spent. Set by `AgentServer` on capability runs; the total travels in the answer as `costUsd`. */
+    reportCost?: (usd: number) => void;
 }
 
 // ── Capability schema ─────────────────────────────────────────────────────────
@@ -133,6 +135,8 @@ export interface TaskRecord {
     startedAt:   string;
     finishedAt?: string;
     durationMs?: number;
+    /** USD the run spent, when the handler reported it (`context.reportCost`). */
+    costUsd?:    number;
 }
 
 // ── Run ───────────────────────────────────────────────────────────────────────
@@ -147,6 +151,8 @@ export interface RunResponse {
     status:   'done' | 'running';
     output?:  unknown;
     taskId?:  string;
+    /** USD the run spent, when the handler reported it. Absent = not measured, not zero. */
+    costUsd?: number;
 }
 
 // ── Protocol envelope ─────────────────────────────────────────────────────────

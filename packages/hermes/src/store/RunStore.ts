@@ -21,6 +21,8 @@ export interface RunRecord {
     /** The result after guardrails, as text. */
     output?: string;
     error?: string;
+    /** USD the run spent, as the agent reported it. Absent = not measured. Summed per UTC day of `startedAt` for budgets. */
+    costUsd?: number;
 }
 
 export interface RunStore {

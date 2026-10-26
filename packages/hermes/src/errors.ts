@@ -9,7 +9,9 @@ export type HermesErrorCode =
     | 'POLICY_WIDER_THAN_PARENT' | 'CONTROL_UNSUPPORTED' | 'INVALID_INPUT'
     | 'BLUEPRINT_NOT_FOUND' | 'LIMIT_REACHED' | 'PROVISION_FAILED'
     /** The agent is at its `limits.maxConcurrent`: try again when one of its runs ends. */
-    | 'AGENT_BUSY';
+    | 'AGENT_BUSY'
+    /** The agent (or the fleet) spent its daily budget: new runs are refused until the next UTC day. */
+    | 'BUDGET_EXCEEDED';
 
 export class HermesError extends Error {
     constructor(readonly code: HermesErrorCode, message: string, readonly details?: unknown) {

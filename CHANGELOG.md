@@ -1,8 +1,29 @@
 # Changelog
 
-## Unreleased — defaults seguros
+## v0.35.0 (2026-10-26)
 
-Tres servidores HTTP arrancaban abiertos por defecto. Ahora lo seguro es el default y lo abierto hay que pedirlo.
+Defaults seguros. Tres servidores HTTP arrancaban abiertos por defecto: ahora lo seguro es el default y lo abierto hay que pedirlo. Rangos 0.x barridos: `agent-core ^0.35.0` en los paquetes que dependen de él, peers `<0.36.0` y plantillas de `create-bk-agent`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.35.0 | `secret` obligatorio en webhooks |
+| `agent-protocol` | 0.5.0 | `AgentServer` en `127.0.0.1`, opción `host` |
+| `agent-web` | 0.6.0 | `AgentServer` en `127.0.0.1` |
+| `hermes` | 0.3.1 | solo rangos de `agent-core` y `agent-protocol` |
+| `agent-coding` | 0.28.1 | solo el rango de `agent-core` |
+| `agent-enterprise` | 0.8.3 | solo el rango de `agent-core` |
+| `orchestrator-agent` | 0.6.2 | solo el rango de `agent-core` |
+| `mcp-server` | 0.18.2 | solo el rango de `agent-core` |
+| `aval-tools` | 0.1.12 | solo el rango de `agent-core` |
+| `agent-otel` | 0.1.6 | solo el peer de `agent-core` |
+| `agent-providers` | 0.3.1 | solo el peer de `agent-core` |
+| `agent-sandbox` | 0.1.5 | solo el peer de `agent-core` |
+| `agent-testkit` | 0.1.5 | solo el peer de `agent-core` |
+| `create-bk-agent` | 0.23.3 | plantillas con los rangos nuevos |
+
+`agent-infra`, `mcp-connectors`, `curator-codex-agent` y `agent-web-ui` no cambian.
+
+**Orden de publicación:** core → agent-protocol → providers → hermes → coding → enterprise → orchestrator-agent → (otel, sandbox, testkit, aval-tools, web, mcp-server) → create-bk-agent.
 
 ### Cambios de comportamiento (léelos antes de actualizar)
 - **`WebhookServer` / triggers `webhook` (`agent-core`): `secret` obligatorio.** Sin `secret`, cualquiera que alcance el puerto podía hacer que el agente ejecutara un prompt. `register()` y `TriggerManager.start()` ahora lanzan un error si una ruta no lo tiene. Si de verdad no quieres firma (puerto no alcanzable por terceros), declara `allowUnsigned: true` en el trigger. Arreglo normal: `{ type: 'webhook', path: '/x', secret: process.env.WEBHOOK_SECRET }`.

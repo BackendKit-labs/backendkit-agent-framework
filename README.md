@@ -4,7 +4,7 @@ TypeScript SDK for building agents: a model- and transport-agnostic multi-agent 
 
 - **`packages/`** — the SDK (publishable to npm), including the `create-bk-agent` scaffolder.
 
-The control plane (director-api, cloud-platform, abac, ops agents) and the reference/domain agents (finance, aiops, bk-coder, ...) were moved out to the `bk-platform` and `bk-agents` repos (full history preserved).
+The control plane (director-api, cloud-platform, abac, ops agents, hermes, curator agents, infra) and the reference/domain agents (finance, aiops, bk-coder, ...) were moved out to the `bk-platform` and `bk-agents` repos (full history preserved).
 
 Examples live in `examples/` (reference only, outside the workspace build).
 

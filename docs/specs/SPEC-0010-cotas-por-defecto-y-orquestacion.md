@@ -43,20 +43,21 @@
 **Tests:** uno por hallazgo, escrito antes del arreglo.
 
 ### O3 — Cotas por defecto (core, enterprise, otel, web, mcp-server)
+**Estado (2026-10-26):** hechas las viñetas marcadas ✅ (PR #124–#126 y #128–#133). Pendientes: OTel por allowlist, `ObsidianRAGProvider`, orchestrator-agent (episodic/RAG), web-ui y los menores. Decisiones tomadas: historial 200 mensajes, `JsonFileStore` como log append-only con compactación, reservorio de 1024 para métricas, cliente de sesión lento = cierre 1013, observador lento = omitir frames.
 Principio (ADR-0007): un recurso que crece con el uso necesita un tope por defecto, y quien lo quita lo hace a propósito.
-- **Historial:** `maxContextMessages`/`maxTokens` con valor por defecto en `createBaseEngine` (hoy "unlimited": cada iteración reenvía todo, O(n²) en tokens). Decisión: valor y qué pasa al alcanzarlo (compactar o recortar).
-- **`JsonFileStore`:** dejar de reescribir el archivo entero por mutación (NDJSON con compactación periódica, o escritura diferida con vaciado en cierre). Sin pretty-print por defecto.
-- **Memorias:** `EpisodicMemory.recall()` no escribe por episodio y no pierde `recallCount` por carrera lectura-modificación-escritura; la summarization borra lo resumido; tope de entradas por defecto en Semantic/Procedural.
-- **`MetricsCollector`:** histograma o reservorio en lugar de `durations[]` sin tope; sin ordenar completo en cada snapshot.
-- **`indexDirectory`** (mcp-server): concurrencia acotada en lugar de `Promise.all` sobre todos los archivos.
-- **WebSocket y OTLP:** comprobar `bufferedAmount` y cortar o descartar con cliente lento; tope de batches pendientes en `otlpHttpExporter`.
+- ✅ **Historial:** `maxContextMessages`/`maxTokens` con valor por defecto en `createBaseEngine` (hoy "unlimited": cada iteración reenvía todo, O(n²) en tokens). Decisión: valor y qué pasa al alcanzarlo (compactar o recortar).
+- ✅ **`JsonFileStore`:** dejar de reescribir el archivo entero por mutación (NDJSON con compactación periódica, o escritura diferida con vaciado en cierre). Sin pretty-print por defecto.
+- ✅ **Memorias** (parcial): `recall()` en una sola escritura y la summarization reemplaza lo resumido (#126). La "carrera" de `recallCount` no existe dentro de un proceso (el ciclo es síncrono). Sin hacer: tope de entradas por defecto en Semantic/Procedural.
+- ✅ **`MetricsCollector`:** histograma o reservorio en lugar de `durations[]` sin tope; sin ordenar completo en cada snapshot.
+- ✅ **`indexDirectory`** (mcp-server): concurrencia acotada en lugar de `Promise.all` sobre todos los archivos.
+- ✅ **WebSocket y OTLP:** comprobar `bufferedAmount` y cortar o descartar con cliente lento; tope de batches pendientes en `otlpHttpExporter`.
 - **`ObsidianRAGProvider.index`:** checkpoint por tiempo o por tamaño, no por lote de ~10 archivos.
 - **orchestrator-agent:** `buildEpisodicFn` lee los runs una vez, no por subtarea; caché de `buildRAG` por run.
-- **`TaskStore`:** `cancel()` fija `finishedAt`; evicción de pending/running antiguos.
-- **Reasoning:** `contentEmitted` cubre también tokens de razonamiento, para no reintentar tras haber emitido y duplicar coste.
+- ✅ **`TaskStore`:** `cancel()` fija `finishedAt`; evicción de pending/running antiguos.
+- ✅ **Reasoning:** `contentEmitted` cubre también tokens de razonamiento, para no reintentar tras haber emitido y duplicar coste.
 - **OTel:** exportar por lista de atributos permitidos, no por "todo lo no consumido".
 - **web-ui:** agrupar tokens por frame y no re-parsear el markdown completo en cada token.
-- `MCPClientManager`: cerrar el proceso stdio si `connect` falla.
+- ✅ `MCPClientManager`: cerrar el proceso stdio si `connect` falla.
 - Menores (backlog): single-flight en refresh de gcal y RAG; `SessionManager.get()` sin escritura por mensaje; TTL de sesiones HTTP MCP; `KEYS` → `SCAN` en Redis; `VaultIndexer.collectMdFiles`.
 
 **Tests:** cada cota con un test de carga pequeño (N grande, comprobar tope de memoria o número de escrituras), no solo de corrección.

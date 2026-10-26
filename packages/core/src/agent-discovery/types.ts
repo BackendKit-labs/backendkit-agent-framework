@@ -39,6 +39,12 @@ export interface AgentDiscoveryConfig {
     local?: boolean;
     /** Working directory for project-local agent loading. Defaults to process.cwd(). */
     workingDir?: string;
+    /**
+     * Whether the project layer (`{workingDir}/.{appName}/agents`) may load. Default: asked of the workspace trust
+     * (ADR-0006): true only for a project the user trusted or with BK_TRUST_PROJECT=1. The agents of a repository
+     * are the repository's own content, so they load only on the user's say-so. Pass it when the host already decided.
+     */
+    trusted?: boolean;
     /** Remote registry URL (e.g. 'https://registry.backendkit.dev/agents'). */
     remote?: string;
     /** Package names to install/cache from the remote registry. */

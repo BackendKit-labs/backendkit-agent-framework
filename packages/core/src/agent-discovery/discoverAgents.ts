@@ -1,8 +1,9 @@
 import { join } from 'path';
-import { homedir } from 'os';
+import { isProjectTrusted } from '../trust/workspace-trust';
+import { getFrameworkDir } from '../shared/utils/project-key';
 import type { AgentProfile } from '../types';
 import type { AgentDiscoveryConfig } from './types';
-import { loadAgentsFromDir, globalAgentsDir, projectAgentsDir } from './AgentPackageLoader';
+import { loadAgentsFromDir, globalAgentsDir, projectAgentsDir, listAgentEntries } from './AgentPackageLoader';
 import { RemoteAgentRegistry } from './RemoteAgentRegistry';
 
 const DEFAULT_APP_NAME = 'bk-agent';
@@ -12,14 +13,17 @@ const DEFAULT_APP_NAME = 'bk-agent';
  *
  * Local layout (appName = 'bk-agent'):
  *   ~/.bk-agent/agents/                    ← global agents (shared across projects)
- *   {workingDir}/.bk-agent/agents/         ← project-local agents (git-tracked)
+ *   {workingDir}/.bk-agent/agents/         ← project-local agents (git-tracked); only in a TRUSTED project
  *
  * Remote:
  *   Fetch the registry index, download requested packages, cache locally.
  *   Re-running is fast — cached packages are reused until deleted.
  *
- * Deduplication: if the same agent id appears in multiple sources,
- * the first occurrence wins (global → project → registry → static agents).
+ * Deduplication: if the same agent id appears in multiple sources, the first occurrence wins:
+ * project → global → registry → static agents. The project overrides the global one, as in coding's AgentLoader.
+ *
+ * Format: this loader reads `*.yaml|yml|json` and `<name>/agent.yaml` (a full AgentProfile); coding's AgentLoader
+ * reads `*.json` (+ `.md` prompt) from the same directories. They are two formats on purpose, not one divergent copy.
  */
 export async function discoverAgents(config: AgentDiscoveryConfig): Promise<AgentProfile[]> {
     const appName = config.appName ?? DEFAULT_APP_NAME;
@@ -36,15 +40,27 @@ export async function discoverAgents(config: AgentDiscoveryConfig): Promise<Agen
         }
     };
 
-    // 1. Local: global agents
+    // 1. Local: the project first (it overrides), then the global ones
     if (config.local !== false) {
+        const projectDir = projectAgentsDir(cwd, appName);
+        const trusted = config.trusted ?? isProjectTrusted(appName, cwd).trusted;
+        if (trusted) {
+            add(loadAgentsFromDir(projectDir, 'project'));
+        } else {
+            const left = listAgentEntries(projectDir);
+            if (left.length > 0) {
+                console.warn(
+                    `[AgentDiscovery] This project is not trusted, so its own ${left.length} agent(s) (${left.join(', ')}) in ${projectDir} were NOT loaded. ` +
+                    `Trust it with /trust add (or BK_TRUST_PROJECT=1) only if you trust whoever wrote that repository.`,
+                );
+            }
+        }
         add(loadAgentsFromDir(globalAgentsDir(appName), 'global'));
-        add(loadAgentsFromDir(projectAgentsDir(cwd, appName), 'project'));
     }
 
     // 2. Remote: install packages
     if (config.install?.length) {
-        const cacheDir = config.cacheDir ?? join(homedir(), `.${appName}`, 'agents', 'registry');
+        const cacheDir = config.cacheDir ?? join(getFrameworkDir(appName), 'agents', 'registry');
         const registryUrl = config.remote ?? 'https://registry.backendkit.dev/agents';
         const registry = new RemoteAgentRegistry(registryUrl, cacheDir);
 

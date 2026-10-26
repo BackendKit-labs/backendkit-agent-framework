@@ -58,15 +58,22 @@ export class InMemorySessionMetaStore implements SessionMetaStore {
 
 // ── Redis ─────────────────────────────────────────────────────────────────────
 // Duck-typed: works with ioredis, node-redis v4, upstash, etc.
-// The client only needs get / set / del / keys / quit.
+// The client only needs get / set / del / keys / quit. `scan` and `mget` are optional (ioredis shape):
+// when present, list() uses them instead of KEYS (which blocks Redis while it walks the whole keyspace) and
+// instead of one GET per key.
 
 export interface RedisLike {
     get(key: string): Promise<string | null>;
     set(key: string, value: string, expiryMode: string, time: number): Promise<unknown>;
     del(key: string): Promise<unknown>;
     keys(pattern: string): Promise<string[]>;
+    scan?(cursor: string, matchToken: 'MATCH', pattern: string, countToken: 'COUNT', count: number): Promise<[string, string[]]>;
+    mget?(keys: string[]): Promise<Array<string | null>>;
     quit(): Promise<unknown>;
 }
+
+const SCAN_COUNT = 200;
+const MGET_CHUNK = 500;
 
 export class RedisSessionMetaStore implements SessionMetaStore {
     private readonly prefix: string;
@@ -98,11 +105,31 @@ export class RedisSessionMetaStore implements SessionMetaStore {
     }
 
     async list(): Promise<SessionMeta[]> {
-        const keys = await this.redis.keys(`${this.prefix}*`);
-        const results = await Promise.all(keys.map(k => this.redis.get(k)));
-        return results
+        const keys = await this.listKeys();
+        const values: Array<string | null> = [];
+        for (let i = 0; i < keys.length; i += MGET_CHUNK) {
+            const chunk = keys.slice(i, i + MGET_CHUNK);
+            values.push(...(this.redis.mget
+                ? await this.redis.mget(chunk)
+                : await Promise.all(chunk.map(k => this.redis.get(k)))));
+        }
+        return values
             .filter((r): r is string => r !== null)
             .map(r => JSON.parse(r) as SessionMeta);
+    }
+
+    /** SCAN walks the keyspace in small steps; KEYS does it in one blocking call. */
+    private async listKeys(): Promise<string[]> {
+        const pattern = `${this.prefix}*`;
+        if (!this.redis.scan) return this.redis.keys(pattern);
+        const seen = new Set<string>(); // SCAN may return a key more than once
+        let cursor = '0';
+        do {
+            const [next, batch] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', SCAN_COUNT);
+            for (const k of batch) seen.add(k);
+            cursor = next;
+        } while (cursor !== '0');
+        return [...seen];
     }
 
     async close(): Promise<void> {

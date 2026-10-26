@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/orchestrator-agent",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Config-driven orchestration agent — decomposes tasks and coordinates specialist agents via shared vault and configurable LLM providers.",
   "type": "module",
   "main": "dist/index.js",
@@ -42,7 +42,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.35.0",
+    "@backendkit-labs/agent-core": "^0.36.0",
     "@backendkit-labs/agent-enterprise": "^0.8.0",
     "@backendkit-labs/agent-providers": "^0.3.0",
     "@modelcontextprotocol/sdk": "^1.12.0",

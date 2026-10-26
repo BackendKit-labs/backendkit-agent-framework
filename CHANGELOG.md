@@ -4,6 +4,42 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+## v0.37.0 (2026-10-26)
+
+Auditoría de orquestación, límites y cotas ([SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) O1–O3, #110–#126) y los ejemplos migrados a zod 4. Rangos 0.x barridos: `agent-core ^0.36.0` y peers `<0.37.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.36.0 | orquestación, límites y cotas (abajo) |
+| `agent-coding` | 0.28.2 | `run_command` valida los binarios envueltos; rango de `agent-core` |
+| `orchestrator-agent` | 0.7.0 | una gate por paso, plan validado, `approve` unificado |
+| `agent-enterprise` | 0.8.4 | solo el rango de `agent-core` |
+| `mcp-server` | 0.18.3 | solo el rango de `agent-core` |
+| `aval-tools` | 0.1.13 | solo el rango de `agent-core` |
+| `agent-web` | 0.6.1 | solo el rango y el peer de `agent-core` |
+| `agent-otel` | 0.1.7 | solo el peer de `agent-core` |
+| `agent-providers` | 0.3.2 | solo el peer de `agent-core` |
+| `agent-sandbox` | 0.1.6 | solo el peer de `agent-core` |
+| `agent-testkit` | 0.1.6 | solo el peer de `agent-core` |
+| `create-bk-agent` | 0.23.4 | plantillas con los rangos nuevos |
+
+`agent-protocol`, `agent-infra`, `mcp-connectors` y `agent-web-ui` no cambian. Los 8 ejemplos de `examples/` y `finance-managment` pasan a zod ^4.6.6 y core 0.35.
+
+**Orden de publicación:** core → providers → coding → enterprise → orchestrator-agent → (otel, sandbox, testkit, aval-tools, web, mcp-server) → create-bk-agent.
+
+### Cambios de comportamiento (léelos antes de actualizar)
+- **`orchestrate()` falla cerrado (`agent-core`).** Si el orquestador lanza, `run()` falla con `Orchestrator failed; refusing to run without its gates` en vez de ejecutar sin gates en silencio. Para el comportamiento anterior (con aviso `warn`): `orchestratorFailureMode: 'open'`.
+- **Historial en memoria acotado a 200 mensajes por defecto (`agent-core`).** Antes era ilimitado. `maxContextMessages: 0` lo desactiva; no se aplica si configuras `context` (control por tokens).
+- **`JsonFileStore` cambia de formato en disco (`agent-core`).** Pasa de un array JSON a un log de líneas JSON. Los archivos antiguos se leen y se convierten solos en la primera carga; una herramienta externa que lea esos archivos como array dejará de funcionar.
+- **Delegaciones anidadas con tope (`agent-core`).** Un bulkhead por nivel de profundidad (antes las anidadas no esperaban nunca) y `maxDelegationDepth` (5): una delegación más profunda falla con `max_depth_exceeded`. `WorkflowRunner` limita las olas a `maxConcurrency` (8).
+- **FSM de tareas (`agent-core`).** Se quita `approved → implementation` (volver a editar un cambio aprobado pasa por `rework_required`) y el rework tiene tope (`maxRework`, 5; agotado, la tarea se rechaza).
+- **`QAService.evaluateReview` por palabras completas (`agent-core`).** Antes `broken` contenía `ok` y aprobaba. Veredictos de revisiones que antes salían aprobadas por error pueden cambiar.
+- **`WorkflowRunner` (`agent-core`).** Un fallo salta toda la cadena de dependientes; un ciclo o una dependencia desconocida se reporta como `failed` en lugar de `completed` con pasos faltantes.
+- **`abort()` cancela también las llamadas LLM de los sub-agentes (`agent-core`).**
+- **`EpisodicMemory` y `MetricsCollector` (`agent-core`).** La summarization reemplaza los episodios que resume (antes solo añadía el resumen); los percentiles de runs son una estimación sobre un reservorio de 1024 (exactos por debajo).
+- **`run_command` (`agent-coding`)** valida el binario que envuelven `env`, `xargs`, `timeout` y `find -exec`, y rechaza `$(…)`/backticks dentro de comillas dobles. Sigue siendo un guard rail: la contención real es el sandbox.
+- **`orchestrator-agent`:** con varias gates en un mismo lote, cada una se pide por separado (antes solo la primera); el plan se rechaza con ciclos, ids duplicados o `agent_id` desconocido; `subtaskTimeoutMs` opcional; la ruta HTTP de `approve` ahora deja rastro de auditoría.
+
 ## v0.36.0 (2026-10-26)
 
 Presupuesto diario aplicado (SPEC-0009 C3b, ADR-0007 §5). `limits.budgetUsdPerDay` y `policies.budget.perDayUsd` dejan de ser solo declarativos, para los agentes que informan su coste. Cambio aditivo en `agent-protocol`; un agente que no informa su coste sigue sin límite.

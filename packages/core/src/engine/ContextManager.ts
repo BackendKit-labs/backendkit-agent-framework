@@ -17,6 +17,11 @@ export interface ContextOptions {
     keepRecentTurns?: number;
     /** Older tool results longer than this are cut (head + tail). Default 8000 characters. */
     toolResultMaxChars?: number;
+    /**
+     * When one long turn (a tool loop) is over budget by itself, its newest tool results are kept whole and the
+     * bulky ones before them are cut like the older turns'. Default 4.
+     */
+    keepRecentToolResults?: number;
     /** Compaction starts above `threshold * maxTokens` and stops at 70 % of it. Default threshold 0.85. */
     threshold?: number;
     /** Provider/model used to write summaries. Default: the engine's default provider and model. */
@@ -50,6 +55,7 @@ export const SUMMARY_CLOSE = '</conversation_summary>';
 const TARGET_RATIO = 0.7;
 const DEFAULT_KEEP_TURNS = 4;
 const DEFAULT_TOOL_RESULT_MAX = 8000;
+const DEFAULT_KEEP_TOOL_RESULTS = 4;
 const DEFAULT_THRESHOLD = 0.85;
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const TRANSCRIPT_MESSAGE_MAX = 2000;
@@ -116,6 +122,7 @@ export class ContextManager {
     private readonly toolMax: number;
     private readonly threshold: number;
     private readonly strategy: 'drop' | 'summarize';
+    private readonly keepToolResults: number;
 
     constructor(private readonly opts: ContextOptions, private readonly deps: ContextManagerDeps) {
         this.estimate = opts.estimateTokens ?? defaultEstimateTokens;
@@ -123,6 +130,7 @@ export class ContextManager {
         this.toolMax = opts.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX;
         this.threshold = opts.threshold ?? DEFAULT_THRESHOLD;
         this.strategy = opts.strategy ?? 'summarize';
+        this.keepToolResults = Math.max(1, opts.keepRecentToolResults ?? DEFAULT_KEEP_TOOL_RESULTS);
     }
 
     /** Estimated tokens of `messages`, corrected by the ratio learned from real provider usage. */
@@ -206,6 +214,19 @@ export class ContextManager {
             if (cutAt <= 0) continue;
             await this.foldPrefix(messages, cutAt, report);
             if (this.tokens(history.getAll()) <= target) break;
+        }
+
+        // Step 3 — a single long turn (an agent's tool loop) can exceed the budget on its own, and folding turns
+        // cannot touch it: cut the bulky results of all but the newest few tool calls inside it.
+        if (this.tokens(history.getAll()) > target) {
+            const messages = history.getAll();
+            const toolAt = messages.flatMap((m, i) => (m.role === 'tool' ? [i] : []));
+            const protectFrom = toolAt.length > this.keepToolResults ? toolAt[toolAt.length - this.keepToolResults] : 0;
+            const cut = this.truncateOldToolResults(messages, protectFrom);
+            if (cut.count > 0) {
+                history.replaceAll(cut.messages);
+                report.truncatedToolResults += cut.count;
+            }
         }
 
         report.tokensAfter = this.tokens(history.getAll());

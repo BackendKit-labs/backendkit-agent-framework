@@ -1184,8 +1184,28 @@ export class AgentEngine {
 
         emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
 
+        // A sub-agent runs on a local message list that nothing used to bound or recover: a long tool loop
+        // grew it until the provider rejected the request. With `context` configured it gets the same
+        // token-aware compaction as the main loop, run over a throwaway HistoryManager that mirrors the list
+        // (the system message at index 0 is never compacted). Calibration and overflow learning live per run.
+        const subHistory = this.opts.context ? new HistoryManager({}) : undefined;
+        const subContext = this.opts.context && subHistory
+            ? new ContextManager(this.opts.context, {
+                history: subHistory,
+                summarize: (transcript, previous) => this.summarizeForContext(transcript, previous),
+                emit,
+            })
+            : undefined;
+        const compactMessages = async (opts: { force?: boolean } = {}): Promise<void> => {
+            if (!subContext || !subHistory) return;
+            subHistory.replaceAll(messages.slice(1));
+            const report = await subContext.compact(opts);
+            if (report) messages.splice(1, messages.length - 1, ...subHistory.getAll());
+        };
+
         while (iter < maxIter && !this.aborted) {
             iter++;
+            await compactMessages();
 
             let streamContent = '';
             const holdOutput = !!this.guardrails?.has('output') && this.opts.guardrailOutputMode === 'buffer';
@@ -1195,40 +1215,52 @@ export class AgentEngine {
 
             const chatProvider = this.getProviderForProfile(profile);
             const llmStartedAt = Date.now();
-            const subController = new AbortController();
-            this.subAgentControllers.add(subController);
-            try {
-                await chatProvider.chat(messages, this.getToolsForAgent(profile), {
-                    onChunk: (delta) => {
-                        streamContent += delta;
-                        if (holdOutput) heldTokens.push(delta);
-                        else if (!profile.suppressDefaultOutput) {
-                            emit({ type: 'token', content: delta, agent_id: profile.id });
-                        }
-                    },
-                    onToolCall: (name, args, id) => {
-                        if (!profile.suppressDefaultOutput) {
-                            emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
-                        }
-                        toolCalls.push({ id, name, args });
-                    },
-                    onDone: (msg) => { finalMessage = msg; },
-                    onError: (err) => { throw err; },
-                    onMetrics: (inputTokens, outputTokens, usage) => {
-                        totalInputTokens += inputTokens;
-                        totalOutputTokens += outputTokens;
-                        emit(metricsEvent(inputTokens, outputTokens, usage, {
-                            agentId: profile.id,
-                            provider: profile.provider ?? this.opts.defaultProvider,
-                            model: profile.model ?? chatProvider.modelId,
-                            startedAt: llmStartedAt,
-                        }));
-                    },
-                    signal: subController.signal,
-                    model: profile.model,
-                });
-            } finally {
-                this.subAgentControllers.delete(subController);
+            for (let attempt = 0; ; attempt++) {
+                const subController = new AbortController();
+                this.subAgentControllers.add(subController);
+                try {
+                    await chatProvider.chat(messages, this.getToolsForAgent(profile), {
+                        onChunk: (delta) => {
+                            streamContent += delta;
+                            if (holdOutput) heldTokens.push(delta);
+                            else if (!profile.suppressDefaultOutput) {
+                                emit({ type: 'token', content: delta, agent_id: profile.id });
+                            }
+                        },
+                        onToolCall: (name, args, id) => {
+                            if (!profile.suppressDefaultOutput) {
+                                emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
+                            }
+                            toolCalls.push({ id, name, args });
+                        },
+                        onDone: (msg) => { finalMessage = msg; },
+                        onError: (err) => { throw err; },
+                        onMetrics: (inputTokens, outputTokens, usage) => {
+                            totalInputTokens += inputTokens;
+                            totalOutputTokens += outputTokens;
+                            emit(metricsEvent(inputTokens, outputTokens, usage, {
+                                agentId: profile.id,
+                                provider: profile.provider ?? this.opts.defaultProvider,
+                                model: profile.model ?? chatProvider.modelId,
+                                startedAt: llmStartedAt,
+                            }));
+                        },
+                        signal: subController.signal,
+                        model: profile.model,
+                    });
+                    break;
+                } catch (err) {
+                    // The provider said the request was too large: trust the budget less, compact hard, once.
+                    if (attempt === 0 && subContext && !this.aborted && this.opts.context?.overflowRetry !== false && isContextOverflowError(err)) {
+                        subContext.noteOverflow();
+                        streamContent = ''; heldTokens.length = 0; toolCalls.length = 0; finalMessage = null;
+                        await compactMessages({ force: true });
+                        continue;
+                    }
+                    throw err;
+                } finally {
+                    this.subAgentControllers.delete(subController);
+                }
             }
 
             if (this.aborted || !finalMessage) break;

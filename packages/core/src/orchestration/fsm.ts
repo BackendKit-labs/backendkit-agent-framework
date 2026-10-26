@@ -65,8 +65,8 @@ type TransitionGuard = (task: TaskContext, to: TaskStatus) => string | null;
 const GUARDS: TransitionGuard[] = [
   // No se puede saltar a commit_allowed sin pasar por approved o commit_validated
   (task, to) => {
-    if (to === 'commit_allowed' && task.status !== 'approved' && task.status !== 'commit_validated') {
-      return 'Debe estar en estado "approved" o "commit_validated" antes de permitir commit';
+    if (to === 'commit_allowed' && task.status !== 'approved' && task.status !== 'commit_validated' && task.status !== 'commit_skipped') {
+      return 'Debe estar en estado "approved", "commit_validated" o "commit_skipped" antes de permitir commit';
     }
     return null;
   },

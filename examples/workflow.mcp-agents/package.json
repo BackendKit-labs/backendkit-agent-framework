@@ -11,6 +11,6 @@
     "formatter": "node agents/formatter-agent.mjs"
   },
   "dependencies": {
-    "@backendkit-labs/agent-protocol": "^0.1.0"
+    "@backendkit-labs/agent-protocol": "^0.6.0"
   }
 }

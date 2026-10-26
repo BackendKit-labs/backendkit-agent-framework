@@ -7,7 +7,7 @@ beforeEach(() => {
   FakeWebSocket.reset();
   vi.stubGlobal('WebSocket', FakeWebSocket);
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 /** Renders the hook, connects and opens the socket. */
 function connected() {
@@ -104,9 +104,11 @@ describe('useAgentSession — sending', () => {
 
 describe('useAgentSession — streaming', () => {
   it('accumulates tokens into one streaming message and closes it on done', () => {
+    vi.useFakeTimers();
     const { result, emit } = connected();
     emit({ type: 'token', content: 'Hel' });
     emit({ type: 'token', content: 'lo' });
+    act(() => { vi.advanceTimersByTime(20); }); // streamed text is applied once per frame
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0]).toMatchObject({ role: 'assistant', content: 'Hello', isStreaming: true });
     emit({ type: 'done' });
@@ -201,5 +203,67 @@ describe('useAgentSession — tool calls', () => {
     const { result, emit } = connected();
     emit({ type: 'tool_result', name: 'ghost', success: true });
     expect(result.current.messages).toEqual([]);
+  });
+});
+
+describe('useAgentSession — token batching', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** Counts how many times the hook produces a new message list. */
+  function withRenderCount() {
+    let renders = 0;
+    const hook = renderHook(() => { const r = useAgentSession({ url: 'ws://test' }); renders++; return r; });
+    act(() => hook.result.current.connect());
+    act(() => FakeWebSocket.last.open());
+    return { ...hook, renders: () => renders, emit: (frame: unknown) => act(() => FakeWebSocket.last.emit(frame)) };
+  }
+
+  it('100 tokens inside one frame cost one extra render, not 100', () => {
+    const { result, emit, renders } = withRenderCount();
+    emit({ type: 'token', content: 't0 ' }); // opens the message
+    const before = renders();
+    for (let i = 1; i <= 100; i++) emit({ type: 'token', content: `t${i} ` });
+    expect(renders()).toBe(before); // nothing re-rendered while tokens only fill the buffer
+    expect(result.current.messages[0].content).toBe('t0 '); // not applied yet
+
+    act(() => { vi.advanceTimersByTime(20); });
+    expect(renders()).toBe(before + 1);
+    expect(result.current.messages[0].content).toBe(Array.from({ length: 101 }, (_, i) => `t${i} `).join(''));
+  });
+
+  it('a non-token event lands the buffered text first, so order is preserved', () => {
+    const { result, emit } = withRenderCount();
+    emit({ type: 'token', content: 'before ' });
+    emit({ type: 'token', content: 'the tool' });
+    emit({ type: 'tool_call', name: 'read_file', args_preview: '{}' });
+    expect(result.current.messages[0]).toMatchObject({ role: 'assistant', content: 'before the tool', isStreaming: false });
+    expect(result.current.messages[1].toolCalls?.[0].name).toBe('read_file');
+  });
+
+  it('done lands the buffer and leaves no timer behind', () => {
+    const { result, emit } = withRenderCount();
+    emit({ type: 'token', content: 'a' });
+    emit({ type: 'token', content: 'b' });
+    emit({ type: 'done' });
+    expect(result.current.messages[0]).toMatchObject({ content: 'ab', isStreaming: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clearMessages drops buffered text instead of resurrecting it afterwards', () => {
+    const { result, emit } = withRenderCount();
+    emit({ type: 'token', content: 'x' });
+    emit({ type: 'token', content: 'y' });
+    act(() => result.current.clearMessages());
+    act(() => { vi.advanceTimersByTime(50); });
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it('unmounting cancels the pending flush', () => {
+    const { emit, unmount } = withRenderCount();
+    emit({ type: 'token', content: 'x' });
+    emit({ type: 'token', content: 'y' });
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

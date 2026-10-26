@@ -64,6 +64,9 @@ export interface UseAgentSessionReturn {
 let msgCounter = 0;
 const uid = () => `msg-${++msgCounter}`;
 
+/** Streamed text is applied to the message list at most this often (about one frame). */
+const TOKEN_FLUSH_MS = 16;
+
 export function useAgentSession({
   url,
   autoConnect = false,
@@ -81,18 +84,34 @@ export function useAgentSession({
   const pendingToolsRef = useRef<Array<{ id: string; name: string }>>([]);
   // Latest active agent, readable from socket callbacks that were created earlier
   const activeAgentRef = useRef<{ id: string; name?: string; icon?: string } | null>(null);
+  // Token text received but not yet applied. A model streams dozens of tokens a second; applying each one
+  // re-mapped the whole message list and re-rendered (and re-parsed the markdown of) the bubble per token.
+  const pendingTextRef = useRef<{ id: string; text: string } | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Applies the buffered token text in one state update. Called by the timer and before any other event. */
+  const flushTokens = useCallback(() => {
+    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+    const pending = pendingTextRef.current;
+    pendingTextRef.current = null;
+    if (!pending) return;
+    setMessages(prev => prev.map(m => (m.id === pending.id ? { ...m, content: m.content + pending.text } : m)));
+  }, []);
 
   /**
    * Stop the streaming flag on the open assistant message. The id must be captured BEFORE the
    * ref is cleared: setMessages updaters run later, and would otherwise compare against null.
    */
   const closeStreaming = useCallback(() => {
+    flushTokens();
     const id = streamingIdRef.current;
     streamingIdRef.current = null;
     if (id) setMessages(prev => prev.map(m => (m.id === id ? { ...m, isStreaming: false } : m)));
-  }, []);
+  }, [flushTokens]);
 
   const handleEvent = useCallback((evt: AgentEventType) => {
+    // Anything but a token first lands the text buffered before it, so order is preserved.
+    if (evt.type !== 'token') flushTokens();
     switch (evt.type) {
       case 'session_created':
         setSessionId(evt.sessionId);
@@ -115,11 +134,9 @@ export function useAgentSession({
             isStreaming: true,
           }]);
         } else {
-          setMessages(prev => prev.map(m =>
-            m.id === openId
-              ? { ...m, content: m.content + evt.content }
-              : m
-          ));
+          const pending = pendingTextRef.current;
+          pendingTextRef.current = { id: openId, text: (pending?.id === openId ? pending.text : '') + evt.content };
+          flushTimerRef.current ??= setTimeout(flushTokens, TOKEN_FLUSH_MS);
         }
         break;
       }
@@ -201,7 +218,7 @@ export function useAgentSession({
         // Could surface in UI — for now ignored
         break;
     }
-  }, [closeStreaming]);
+  }, [closeStreaming, flushTokens]);
 
   const connect = useCallback(() => {
     if (wsRef.current) {
@@ -256,6 +273,8 @@ export function useAgentSession({
   }, []);
 
   const clearMessages = useCallback(() => {
+    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+    pendingTextRef.current = null;
     setMessages([]);
     streamingIdRef.current = null;
     pendingToolsRef.current = [];
@@ -263,7 +282,10 @@ export function useAgentSession({
 
   useEffect(() => {
     if (autoConnect) connect();
-    return () => { wsRef.current?.close(); };
+    return () => {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      wsRef.current?.close();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { messages, status, isRunning, sessionId, activeAgent, connect, disconnect, sendMessage, abort, clearMessages };

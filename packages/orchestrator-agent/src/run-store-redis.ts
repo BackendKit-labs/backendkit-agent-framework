@@ -1,4 +1,4 @@
-import { createHash }           from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Redis }           from 'ioredis';
 import type { IRunStore, RunState } from './run-store.js';
 
@@ -37,6 +37,20 @@ export class RedisRunStore implements IRunStore {
         const ids    = await this.redis.zrevrange(this.indexKey, 0, -1);
         const states = await Promise.all(ids.map(id => this.load(id)));
         return states.filter((s): s is RunState => s !== null);
+    }
+
+    async claim(runId: string, ttlMs = 5 * 60_000): Promise<(() => Promise<void>) | null> {
+        const key   = `${this.prefix}:claim:${runId}`;
+        const token = randomUUID();
+        const got   = await this.redis.set(key, token, 'PX', ttlMs, 'NX');
+        if (got !== 'OK') return null;
+        // Delete only if the key still holds OUR token: after the ttl another process may own it.
+        return async () => {
+            await this.redis.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1, key, token,
+            );
+        };
     }
 
     async prune(maxAgeDays = 30): Promise<number> {

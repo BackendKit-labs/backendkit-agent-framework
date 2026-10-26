@@ -29,7 +29,7 @@ import { VaultWriter }                            from '@backendkit-labs/agent-e
 import { loadConfig, resolveDataDir, type OrchestratorConfig } from './config.js';
 import { isBearerAuthorized }                     from './auth.js';
 import { resolveHttpBinding }                     from './http-binding.js';
-import { claimRun, withRunClaim }                 from './gate-claims.js';
+import { claimInStore, claimRun, withRunClaim }  from './gate-claims.js';
 import { TaskPlanner }                            from './planner.js';
 import { PlanExecutor, executeSubtask, type ExecutionResult, type ActiveRule, ruleToGateCriteria } from './executor.js';
 import { OpenAICompatibleProvider, callLLM }      from './provider.js';
@@ -576,6 +576,10 @@ srv.tool(
         }
 
         const store = await getStore(config_path, config);
+        // another orchestrator process on the same store may be deciding this gate too
+        const releaseStoreClaim = await claimInStore(store, run_id);
+        if (!releaseStoreClaim) return ok(`Run \`${run_id}\` is already being approved or rejected by another process. Poll with \`orchestrator_status\`.`);
+        try {
         const state = await store.load(run_id);
         if (!state) return ok(`Run not found: ${run_id}`);
         if (state.status !== 'waiting_gate') {
@@ -599,6 +603,9 @@ srv.tool(
             '',
             `Poll with \`orchestrator_status\` to see progress.`,
         ].filter(Boolean).join('\n'));
+        } finally {
+            await releaseStoreClaim();
+        }
       },
     ),
 );
@@ -1126,6 +1133,9 @@ async function startHttpServer(
                 catch (err) { reply(res, 500, { error: `Config error: ${err instanceof Error ? err.message : String(err)}` }); return; }
 
                 const store = await getStore(configPath, config);
+                const releaseStoreClaim = await claimInStore(store, runId);
+                if (!releaseStoreClaim) { reply(res, 409, { error: `Run ${runId} is already being approved or rejected by another process` }); return; }
+                try {
                 const state = await store.load(runId);
                 if (!state)                          { reply(res, 404, { error: `Run not found: ${runId}` }); return; }
                 if (state.status !== 'waiting_gate') { reply(res, 409, { error: `Run not waiting for a gate (status: ${state.status})` }); return; }
@@ -1135,6 +1145,9 @@ async function startHttpServer(
                     ? { runId, status: 'running', stepId: gate.stepId }
                     : { runId, status: 'failed', stepId: gate.stepId });
                 return;
+                } finally {
+                    await releaseStoreClaim();
+                }
                 } finally {
                     releaseClaim();
                 }

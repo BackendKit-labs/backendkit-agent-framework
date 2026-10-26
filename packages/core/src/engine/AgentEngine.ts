@@ -56,6 +56,11 @@ export interface AgentEngineOptions extends EngineOptions {
     sessionMemory?: SessionMemoryData;
     /** Orchestrator para clasificacion de tareas, risk scoring y FSM */
     orchestrator?: Orchestrator;
+    /**
+     * What run() does when the orchestrator throws. 'closed' (default) rethrows: the gates it would have
+     * applied cannot be silently skipped. 'open' warns on the transport and runs without orchestration.
+     */
+    orchestratorFailureMode?: 'closed' | 'open';
     /** QA service para revisar respuestas y registrar gates */
     qaService?: QAService;
     /** Si true, deshabilita las revisiones de QA automaticas */
@@ -514,7 +519,15 @@ export class AgentEngine {
         // Orquestar la tarea para obtener clasificacion, risk scoring y gates requeridos
         let orchestrationResult: OrchestrationResult | undefined;
         if (this.opts.orchestrator) {
-            orchestrationResult = await this.opts.orchestrator.orchestrate(input).catch(() => undefined);
+            try {
+                orchestrationResult = await this.opts.orchestrator.orchestrate(input);
+            } catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
+                if ((this.opts.orchestratorFailureMode ?? 'closed') === 'closed') {
+                    throw new Error(`Orchestrator failed; refusing to run without its gates: ${reason}`);
+                }
+                this.opts.transport.emit({ type: 'system', level: 'warn', text: `[Orchestrator] failed (${reason}); running without classification or gates` });
+            }
         }
 
         this.history.push({ role: 'user', content: input });

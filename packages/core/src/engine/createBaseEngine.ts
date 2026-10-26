@@ -193,6 +193,9 @@ export interface BaseEngineOptions {
      */
     orchestrator?: Orchestrator;
 
+    /** When the orchestrator throws: 'closed' (default) fails the run, 'open' warns and runs without gates. */
+    orchestratorFailureMode?: 'closed' | 'open';
+
     /**
      * QA service for automatic code review after high-risk responses.
      * Requires orchestrator to be set. When active, the qa-engineer agent
@@ -425,6 +428,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.store ? { store: opts.store } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(opts.orchestrator ? { orchestrator: opts.orchestrator } : {}),
+        ...(opts.orchestratorFailureMode ? { orchestratorFailureMode: opts.orchestratorFailureMode } : {}),
         ...(opts.qaService ? { qaService: opts.qaService } : {}),
         ...(opts.noQA !== undefined ? { noQA: opts.noQA } : {}),
         ...(opts.onQAReview ? { onQAReview: opts.onQAReview } : {}),

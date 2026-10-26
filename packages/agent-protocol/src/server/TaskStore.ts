@@ -50,16 +50,24 @@ export class TaskStore {
     cancel(taskId: string): boolean {
         const t = this.tasks.get(taskId);
         if (!t || (t.status !== 'pending' && t.status !== 'running')) return false;
-        t.status = 'cancelled';
+        t.status     = 'cancelled';
+        // Without finishedAt a cancelled task never became eligible for evict() and stayed forever.
+        t.finishedAt = new Date().toISOString();
+        t.durationMs = Date.now() - new Date(t.startedAt).getTime();
         return true;
     }
 
-    // Evict finished tasks older than ttlMs to prevent unbounded memory growth
-    evict(ttlMs = 30 * 60 * 1000): void {
-        const cutoff = Date.now() - ttlMs;
+    /**
+     * Drops finished tasks older than `ttlMs` and, as a backstop, tasks still pending/running after
+     * `activeTtlMs` (a handler that never settles would otherwise keep its record forever).
+     */
+    evict(ttlMs = 30 * 60 * 1000, activeTtlMs = 24 * 60 * 60 * 1000): void {
+        const now = Date.now();
         for (const [id, t] of this.tasks) {
             const done = t.status === 'done' || t.status === 'failed' || t.status === 'cancelled';
-            if (done && t.finishedAt && new Date(t.finishedAt).getTime() < cutoff) {
+            if (done) {
+                if (t.finishedAt && new Date(t.finishedAt).getTime() < now - ttlMs) this.tasks.delete(id);
+            } else if (new Date(t.startedAt).getTime() < now - activeTtlMs) {
                 this.tasks.delete(id);
             }
         }

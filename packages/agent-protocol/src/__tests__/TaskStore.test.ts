@@ -69,4 +69,40 @@ describe('TaskStore', () => {
         expect(store.get('running')).toBeDefined();
         expect(store.get('fresh')).toBeDefined();
     });
+
+    it('cancel() stamps finishedAt and durationMs, so a cancelled task can be evicted', () => {
+        const store = new TaskStore();
+        store.create('c'); store.setRunning('c');
+        expect(store.cancel('c')).toBe(true);
+        const t = store.get('c')!;
+        expect(t.finishedAt).toBeDefined();
+        expect(t.durationMs).toBeGreaterThanOrEqual(0);
+
+        t.finishedAt = new Date(Date.now() - 60_000).toISOString();
+        store.evict(30_000);
+        expect(store.get('c')).toBeUndefined();
+    });
+
+    it('evict() drops a pending/running task that never settled after activeTtlMs, and keeps younger ones', () => {
+        const store = new TaskStore();
+        store.create('stuck'); store.setRunning('stuck');
+        store.create('queued');
+        store.create('young'); store.setRunning('young');
+        store.get('stuck')!.startedAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
+        store.get('queued')!.startedAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
+
+        store.evict(30_000, 3_600_000);
+
+        expect(store.get('stuck')).toBeUndefined();
+        expect(store.get('queued')).toBeUndefined();
+        expect(store.get('young')).toBeDefined();
+    });
+
+    it('a running task is kept by default (active ttl is 24 h)', () => {
+        const store = new TaskStore();
+        store.create('long'); store.setRunning('long');
+        store.get('long')!.startedAt = new Date(Date.now() - 3_600_000).toISOString();
+        store.evict();
+        expect(store.get('long')).toBeDefined();
+    });
 });

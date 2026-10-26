@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-24
 **Estado:** Aceptado
-**Implementado en:** SPEC-0009 §C3 (hermes: `maxConcurrent`, presupuesto del blueprint opcional, avisos); el presupuesto aplicado queda pendiente (§C3b). Sin publicar.
+**Implementado en:** SPEC-0009 §C3 (hermes: `maxConcurrent`, presupuesto del blueprint opcional, avisos); el presupuesto aplicado queda pendiente (§C3b). Publicado en hermes 0.3.0.
 **Spec:** [SPEC-0009 §C3](../specs/SPEC-0009-confianza-del-workspace-y-limites-aplicados.md)
 
 ## Contexto

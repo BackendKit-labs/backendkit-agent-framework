@@ -1,7 +1,7 @@
 # SPEC-0009: Confianza del workspace y límites aplicados
 
 **Fecha:** 2026-10-24
-**Estado:** En curso (C1 y C3 implementados sin publicar; C3b pendiente)
+**Estado:** En curso (C1 y C3 implementados y publicados en 0.34; C3b pendiente)
 **Depende de:** SPEC-0003 y SPEC-0008 (Hermes), SPEC-0006 (política de sandbox), [ADR-0002](../adr/0002-aborto-automatico-por-presupuesto.md) (presupuesto)
 **ADR:** [ADR-0006](../adr/0006-confianza-del-workspace.md) (confianza del workspace), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md) (un límite declarado debe aplicarse)
 **Origen:** la auditoría de 2026-10-24 (lotes #93–#96) y la opinión posterior del auditor sobre el modelo de capacidades, verificada punto por punto contra el código. Este spec recoge lo que esa opinión acierta y descarta lo que no resultó cierto.
@@ -38,7 +38,7 @@
 
 **Salida:** abrir un repositorio con `.bk-agent/agents/general.json` y `.bk-agent/skills/x.md` no los carga hasta confiar la ruta, y el aviso lo dice.
 
-**Implementado (2026-10-24, sin publicar):**
+**Implementado (2026-10-24, publicado en 0.34):**
 - `core`: `trust/workspace-trust.ts` (`isProjectTrusted`, `trustProject`, `untrustProject`, `listTrustedProjects`, `projectLayerContents`, `untrustedLayerWarning`), exportado desde el índice; `SkillLoader.loadProject(cwd, trusted?)` y `loadAll(cwd, projectDir, trusted?)`; comando `/trust` (`status`, `add`, `remove`, `list`) y `CommandContext.workingDir` (que `getCommandBindings()` rellena).
 - `coding`: `AgentLoader.load({ trusted })` (no lee la capa de proyecto, no aplica sus overrides `.md` y **no crea directorios dentro del proyecto** si no está confiado), `createCodingEngine({ trustedProject })` decide una vez, lo pasa a agentes y skills y emite el aviso `[Trust]` con lo omitido.
 - Decisiones de implementación: coincidencia por **ruta exacta** (confiar en un directorio no confía en sus hijos); un archivo ausente, ilegible o dañino significa **nadie** confiado; la lectura nunca escribe; `/trust add` recarga las skills al momento y los agentes al siguiente arranque.
@@ -51,18 +51,24 @@
 **Tests:** con un agente de proyecto sin confiar, `general` no lo ve; confiado, sí.
 
 ### C3 — Límites aplicados (hermes, core) · ADR-0007
-**Implementado (2026-10-24, sin publicar):**
+**Implementado (2026-10-24, publicado en 0.34):**
 - `maxConcurrent`: semáforo por agente en `Hermes.run`. **Se rechaza con `AGENT_BUSY`, no se encola** (este spec decía "esperan hasta `deadlineMs`"; `deadlineMs` acota la espera del resultado, no la admisión; ver ADR-0007 §2). Cuenta runs de capabilities, no flows; se comprueba antes de pedir aprobación y se reclama después; comprobar y reclamar es un paso síncrono; un run recuperado tras un reinicio ocupa hueco; el hueco se libera antes de escribir el estado final.
 - Presupuesto del blueprint: deja de ser obligatorio. `creator.budgetUsdPerDay` sigue acotando lo que se declare.
 - `fleetWarnings(fleet)` (exportado) y `bk-hermes validate`, que imprime `warning:` en stderr y sigue saliendo con 0: `agents[].limits.budgetUsdPerDay`, `blueprints[].limits.budgetUsdPerDay` (y el techo del creador si el blueprint no declara ninguno) y **`policies.budget.perRunUsd` / `perDayUsd`**, un tercer campo declarado y no aplicado que este spec no había listado. El registro de auditoría de una creación anota el presupuesto declarado. Los `fleet.yaml` existentes no se rechazan.
 
 **Tests:** el semáforo limita la concurrencia real (8 llamadas simultáneas, 2 arrancan), libera al fallar y al cancelar, no retiene el hueco durante una aprobación y lo vuelve a comprobar después, es por agente, y un run recuperado tras reiniciar lo ocupa; `validate` emite el aviso exacto y no falla; un blueprint sin presupuesto es válido y uno por encima del techo no.
 
-### C3b — Presupuesto aplicado (hermes, agent-protocol) · pendiente · ADR-0007 §5
+### C3b — Presupuesto aplicado (hermes, agent-protocol) · diseño decidido, sin implementar · ADR-0007 §5
 **Corrección:** este spec decía que Hermes construiría el engine de un agente en proceso con `observability.budget` y `abortOnBudget`. No es viable: `InProcessConnector` recibe funciones (`handler`), no un engine, y una instancia aprovisionada la construye el provisionador del anfitrión a partir de un `template` que Hermes no interpreta. Hermes no ve el gasto.
 - **Diseño necesario:** un canal de coste. `RunOutcome.costUsd?` opcional que el conector informa (un handler en proceso lo devuelve; `agent-protocol` lo transporta en el resultado de la tarea), un acumulado diario por agente (día UTC) en el store de runs, y rechazo de nuevas ejecuciones con un código claro (`BUDGET_EXCEEDED`) al alcanzar `budgetUsdPerDay`.
 - **Cambia contratos** (`connectors/types`, `agent-protocol`) y exige que cada agente informe de su coste; un agente que no lo informe sigue siendo declarativo y se avisa.
-- **Preguntas abiertas:** ¿el acumulado se persiste (sobrevive reinicios) o es de proceso?; ¿qué hace una ejecución en curso al alcanzarse el límite: termina o se cancela?; ¿`policies.budget.perRunUsd` se aplica aquí o es del engine?
+- **Decisiones (2026-10-26):**
+  1. **El acumulado se persiste.** Vive en el store de runs de Hermes (el mismo que sobrevive reinicios), por agente y día UTC. Uno en memoria se borra al reiniciar: un agente que cae en bucle o un redeploy evadirían el límite, que es la enfermedad que ADR-0007 quiere evitar.
+  2. **Un run en curso termina.** Hermes comprueba el presupuesto **al admitir**, no durante el run: al alcanzar `budgetUsdPerDay` rechaza los siguientes con `BUDGET_EXCEEDED`. Cortar a mitad de un run corresponde a quien ve el gasto en tiempo real, el engine (`abortOnBudget`). El exceso queda acotado por un run por hueco de `maxConcurrent`; se documenta como **tope blando en el borde**, no como tope exacto.
+  3. **`perRunUsd` es del engine, no de Hermes.** Solo el engine puede abortar un run en curso. Hermes aplica únicamente `perDayUsd` / `budgetUsdPerDay`. `policies.budget.perRunUsd` sigue avisando en `bk-hermes validate` (ADR-0007); cuando haya un caso real se saca del schema de Hermes o se documenta como pista para el engine del agente.
+- **Alcance resultante:** (a) `RunOutcome.costUsd?` opcional que el conector informa; (b) campo opcional y **aditivo** en el resultado de la tarea de `agent-protocol`, para no romper agentes ya desplegados; (c) acumulado diario por agente en el store de runs; (d) rechazo `BUDGET_EXCEEDED` al admitir; (e) un agente que no informe su coste sigue siendo declarativo y se avisa.
+- **Release:** cambia el comportamiento de quien declara presupuestos, así que va en su propio release, con CHANGELOG visible.
+- **Pendiente de detalle al implementar:** si el coste de un run recuperado tras reiniciar se suma al día en que empezó o al de su cierre; cómo se redondea el cambio de día UTC con runs que lo cruzan.
 
 **Salida de C3 (parcial):** ningún campo de límite del schema de Hermes queda sin enforcement *o sin aviso*; los presupuestos siguen siendo solo declarativos hasta C3b. La regla de revisión de ADR-0007 en la plantilla de PR sigue pendiente.
 
@@ -94,4 +100,4 @@ La propuesta del auditor: un tipo `Capability { tools, roots, budget?, rate? }` 
 7. **Dónde se confía en un servicio:** `createCodingEngine({ trustedProject })` y `BK_TRUST_PROJECT=1` cubren a un host que decide por sí mismo; falta decidir si un servicio debe confiar su propio directorio por defecto (pregunta 1).
 
 ## 5. Fuera de este spec
-Pendientes de la misma auditoría, que son decisiones de diseño aparte: autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, `AgentServer` escuchando en `0.0.0.0` por defecto, `WebhookServer` con `secret` opcional.
+Pendientes de la misma auditoría, que son decisiones de diseño aparte: autenticación del HTTP de `mcp-server` (el header `Authorization` ya es el JWT de ABAC), la allowlist de `run_command` y docker como default, ~~`AgentServer` escuchando en `0.0.0.0` por defecto, `WebhookServer` con `secret` opcional~~ (resueltos en la 0.35: `127.0.0.1` por defecto y `secret` obligatorio).

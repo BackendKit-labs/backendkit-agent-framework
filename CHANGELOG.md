@@ -4,6 +4,11 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+### Modo estricto (opcional, no cambia los valores por defecto)
+- **`agent-web`:** `new AgentServer({ strict: true })` no permite ningún origen CORS salvo los de `cors`, añade `X-Content-Type-Options`, `X-Frame-Options: DENY` y `Referrer-Policy: no-referrer`, y lanza si escucha en una interfaz no local sin `auth`. `new JwtAuth({ allowQueryToken: false })` ignora `?token=`; el navegador envía el JWT como subprotocolo `bearer, <jwt>`. El servidor selecciona `bearer` siempre (hace falta para ese cliente). `JwtAuth` acepta ahora ese subprotocolo también sin `strict`.
+- **`agent-web-ui`:** `useAgentSession` y `useKanbanMonitor` aceptan `token` y lo envían como subprotocolo, nunca en la URL.
+- **`agent-protocol`:** `new AgentServer({ strict: true })` lanza si `host` no es de loopback y no hay `apiKey`. Sin `strict`, esa combinación solo avisa al arrancar.
+
 ## v0.38.0 (2026-10-26)
 
 Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.

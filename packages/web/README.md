@@ -87,7 +87,8 @@ interface AgentServerOptions {
   // Network
   port?:   number;                    // default: 3000
   host?:   string;                    // default: '127.0.0.1' (use '0.0.0.0', with auth, for remote callers)
-  cors?:   string | string[];         // default: '*'
+  cors?:   string | string[];         // default: '*' (none with strict)
+  strict?: boolean;                   // fail-closed defaults, see "Strict mode"
   logger?: boolean | object;          // Fastify logger, default: false
 
   // Auth
@@ -268,6 +269,21 @@ const all = sessions.list(); // SessionMeta[]
 ## JWT authentication
 
 `JwtAuth` validates Bearer tokens in the `Authorization` header or `?token=` query parameter (useful for browser WebSocket connections that can't set custom headers).
+
+### Strict mode
+
+For a server that other people reach, turn on both switches:
+
+```ts
+const auth = new JwtAuth({ secret: process.env.JWT_SECRET!, allowQueryToken: false }).hook();
+new AgentServer({ engineFactory, host: '0.0.0.0', auth, strict: true, cors: ['https://app.example.com'] });
+```
+
+- `allowQueryToken: false` ignores `?token=` (a token in a URL lands in logs, proxies and history). A browser sends the
+  token as the WebSocket subprotocol: `new WebSocket(url, ['bearer', jwt])`; `useAgentSession({ url, token })` in
+  `agent-web-ui` does it for you.
+- `strict: true` allows no CORS origin unless `cors` lists it, adds `X-Content-Type-Options`, `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer`, and refuses (throws) to listen on a non-loopback `host` without `auth`.
 
 ### Setup
 

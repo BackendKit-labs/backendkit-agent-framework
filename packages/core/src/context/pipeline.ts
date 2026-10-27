@@ -143,20 +143,36 @@ async function runStageWithCache<T>(
     return fresh.data;
 }
 
+/**
+ * Files on disk (AGENT.md, USER.md, project context, session notes, lessons) end up inside the
+ * system prompt and anyone who can write a file in the repo can write them. Remove what lets a
+ * file impersonate the conversation: chat-template delimiters ([INST], <<SYS>>, <|im_start|>),
+ * role tags (<system>, <assistant>...) and line-leading role prefixes (SYSTEM:, ASSISTANT:, USER:).
+ * Ordinary markup and generics (Promise<void>, <details>) are kept, and so are the instructions
+ * themselves: AGENT.md is meant to guide the agent.
+ */
+export function sanitizeDiskContent(content: string): string {
+    return content
+        .replace(/\[\/?INST\]|<<\/?SYS>>/g, '')
+        .replace(/<\|[a-z_]+\|>/gi, '')
+        .replace(/<\/?(?:system|assistant|user|human|instructions?|tool_call|function_calls?)\b[^>]*>/gi, '')
+        .replace(/^(?:SYSTEM|ASSISTANT|USER|HUMAN):[ \t]*/gim, '');
+}
+
 export function formatPipelineForPrompt(result: PipelineResult): string[] {
     const sections: string[] = [];
 
     if (result.instructions.agentMd) {
-        sections.push(formatSection('Project Instructions (AGENT.md)', result.instructions.agentMd));
+        sections.push(formatSection('Project Instructions (AGENT.md)', sanitizeDiskContent(result.instructions.agentMd)));
     }
     if (result.instructions.userMd) {
-        sections.push(formatSection('Developer Preferences (USER.md)', result.instructions.userMd));
+        sections.push(formatSection('Developer Preferences (USER.md)', sanitizeDiskContent(result.instructions.userMd)));
     }
     if (result.project.content) {
-        sections.push(formatSection('Project Context', result.project.content));
+        sections.push(formatSection('Project Context', sanitizeDiskContent(result.project.content)));
     }
     if (result.session.content) {
-        sections.push(formatSection('Active Session', result.session.content));
+        sections.push(formatSection('Active Session', sanitizeDiskContent(result.session.content)));
     }
     if (result.lessons.memo) {
         const sanitized = result.lessons.memo

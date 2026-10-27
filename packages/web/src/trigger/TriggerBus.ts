@@ -149,12 +149,35 @@ export class TriggerBus {
 
     /** Register webhook routes on a Fastify instance. Called by AgentServer. */
     registerRoutes(app: FastifyInstance): void {
+        // Senders (GitHub and others) sign the EXACT bytes of the body. Re-serializing the parsed
+        // body changes whitespace and key order and breaks the signature, so keep the raw bytes.
+        if (this.webhookDefs.some(d => d.secret) && typeof app.addContentTypeParser === 'function') {
+            try {
+                app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+                    (req as FastifyRequest & { rawBody?: Buffer }).rawBody = body as Buffer;
+                    const text = (body as Buffer).toString('utf8');
+                    if (text.length === 0) {
+                        done(Object.assign(new Error("Body cannot be empty when content-type is set to 'application/json'"), { statusCode: 400 }), undefined);
+                        return;
+                    }
+                    try {
+                        // The reviver drops "__proto__" keys, as Fastify's own parser refuses them.
+                        done(null, JSON.parse(text, (k, v) => (k === '__proto__' ? undefined : v)));
+                    } catch (err) {
+                        done(Object.assign(err as Error, { statusCode: 400 }), undefined);
+                    }
+                });
+            } catch {
+                // The host already installed its own JSON parser: signatures fall back to the re-serialized body.
+            }
+        }
+
         for (const def of this.webhookDefs) {
             const method = (def.method ?? 'POST').toLowerCase() as 'get' | 'post' | 'put';
             app[method](def.path, async (req: FastifyRequest, reply: FastifyReply) => {
                 if (def.secret) {
                     const sig = (req.headers['x-hub-signature-256'] ?? '') as string;
-                    const rawBody = JSON.stringify(req.body);
+                    const rawBody = (req as FastifyRequest & { rawBody?: Buffer }).rawBody ?? JSON.stringify(req.body) ?? '';
                     if (!verifyHmac(rawBody, sig, def.secret)) {
                         return reply.code(401).send({ error: 'Invalid webhook signature' });
                     }
@@ -309,7 +332,7 @@ export class TriggerBus {
 
 // ── HMAC helper ───────────────────────────────────────────────────────────────
 
-function verifyHmac(body: string, signature: string, secret: string): boolean {
+function verifyHmac(body: string | Buffer, signature: string, secret: string): boolean {
     if (!signature) return false;
     const expected = `sha256=${crypto
         .createHmac('sha256', secret)

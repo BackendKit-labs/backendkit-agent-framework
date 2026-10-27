@@ -1,4 +1,5 @@
 import type { ToolDefinition, ExecutionContext } from '@backendkit-labs/agent-core';
+import { warnIfSecrets } from './secret-scanner';
 
 export const updateSessionTool: ToolDefinition = {
     name: 'update_session',
@@ -46,6 +47,7 @@ export const updateSessionTool: ToolDefinition = {
             learnings?: string[];
         };
         if (!ctx.store) return 'Error: no persistent store configured';
+        warnIfSecrets('update_session', JSON.stringify(updates));
         ctx.store.updateSession(updates);
         return 'Session updated.';
     },

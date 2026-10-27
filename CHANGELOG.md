@@ -6,6 +6,8 @@ El framework queda como SDK para crear agentes; la infraestructura vive en `bk-p
 
 ## v0.38.0 (2026-10-26)
 
+Publicado en npm (los 14 paquetes, cada versión es `latest`) y taggeado `<paquete>@<versión>` sobre el merge del bump (4b74bc83). Sin verificar: el claim de aprobaciones entre procesos contra un Redis real; GitHub Actions no arranca por facturación, así que lo mergeado en 0.37.x–0.38.0 se validó solo en local.
+
 Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.
 
 | Paquete | Versión | |

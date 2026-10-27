@@ -55,21 +55,21 @@ describe('file tools through ctx.sandbox', () => {
         if (!linked) return;
         const sb = service('ask');
         const w = await writeFileTool.execute({ file_path: 'escape/new.txt', content: 'pwned' }, ctx(sb));
-        expect(w).toMatch(/^Error: SANDBOX_DENIED: .*outside the allowed roots/);
+        expect(w).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
         expect(existsSync(join(outside, 'new.txt'))).toBe(false);
 
         const e = await editFileTool.execute({ file_path: 'escape/secret.txt', old_string: 'secret', new_string: 'pwned', replace_all: false }, ctx(sb));
-        expect(e).toMatch(/^Error: SANDBOX_DENIED/);
+        expect(e).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
         expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('secret');
 
-        expect(await readFileTool.execute({ file_path: 'escape/secret.txt' }, ctx(sb))).toMatch(/^Error: SANDBOX_DENIED/);
-        expect(await listDirectoryTool.execute({ path: 'escape', max_depth: 1 }, ctx(sb))).toMatch(/^Error: SANDBOX_DENIED/);
-        expect(await searchFilesTool.execute({ pattern: 'secret', path: 'escape', case_insensitive: false }, ctx(sb))).toMatch(/^Error: SANDBOX_DENIED/);
+        expect(await readFileTool.execute({ file_path: 'escape/secret.txt' }, ctx(sb))).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
+        expect(await listDirectoryTool.execute({ path: 'escape', max_depth: 1 }, ctx(sb))).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
+        expect(await searchFilesTool.execute({ pattern: 'secret', path: 'escape', case_insensitive: false }, ctx(sb))).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
     });
 
-    it('the same link works without a sandbox: that is the hole the sandbox closes', async () => {
+    it('the same link is refused without a sandbox: the tool checks real paths itself', async () => {
         if (!linked) return;
-        expect(await readFileTool.execute({ file_path: 'escape/secret.txt' }, ctx())).toBe('secret');
+        expect(await readFileTool.execute({ file_path: 'escape/secret.txt' }, ctx())).toMatch(/^Error: Access denied/);
     });
 
     it('in full access the workspace limit of the tool itself still holds', async () => {
@@ -89,7 +89,7 @@ describe('file tools through ctx.sandbox', () => {
         const sb = service('read-only');
         expect(await writeFileTool.execute({ file_path: 'b.txt', content: 'x' }, ctx(sb))).toMatch(/^Error: SANDBOX_DENIED: .*read-only/);
         expect(existsSync(join(workspace, 'b.txt'))).toBe(false);
-        expect(await editFileTool.execute({ file_path: 'a.txt', old_string: 'hello', new_string: 'bye', replace_all: false }, ctx(sb))).toMatch(/^Error: SANDBOX_DENIED/);
+        expect(await editFileTool.execute({ file_path: 'a.txt', old_string: 'hello', new_string: 'bye', replace_all: false }, ctx(sb))).toMatch(/^Error: (SANDBOX_DENIED|Access denied)/);
         expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('hello');
         expect(await readFileTool.execute({ file_path: 'a.txt' }, ctx(sb))).toBe('hello');
     });

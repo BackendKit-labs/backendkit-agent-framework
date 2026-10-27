@@ -4,6 +4,10 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+### Correcciones de seguridad (agent-core, agent-coding)
+- **`agent-coding`:** `resolveAndCheck` compara rutas reales: un enlace dentro del directorio de trabajo que apunta fuera ya no escapa del sandbox de las tools de archivo. `search_files` devuelve `Error: ...` en vez de lanzar. Cambio visible: leer por un enlace que sale del workspace ahora falla también sin sandbox.
+- **`agent-core`:** `appName` solo admite letras, dígitos, guion y guion bajo (antes `../x` salía del home). `atomicWrite` usa un temporal único por escritura.
+
 ## v0.38.0 (2026-10-26)
 
 Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.

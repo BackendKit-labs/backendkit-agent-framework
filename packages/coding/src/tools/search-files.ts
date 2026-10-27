@@ -87,7 +87,12 @@ export const searchFilesTool = defineTool({
     }),
     execute: async ({ pattern, path: searchPath, glob, case_insensitive }, ctx) => {
         const cwd        = ctx.workingDir ?? process.cwd();
-        const targetPath = searchPath ? resolveAndCheck(cwd, searchPath) : cwd;
+        let targetPath: string;
+        try {
+            targetPath = searchPath ? resolveAndCheck(cwd, searchPath) : cwd;
+        } catch (err) {
+            return `Error: ${(err as Error).message}`;
+        }
 
         const denied = sandboxPathError(ctx, 'search_files', targetPath, 'read');
         if (denied) return denied;

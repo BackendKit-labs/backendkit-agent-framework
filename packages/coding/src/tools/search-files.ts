@@ -1,11 +1,48 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vm from 'vm';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 import { sandboxPathError } from './sandbox-path';
 
 const MAX_RESULTS  = 200;
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB — skip binary/large files
+
+/**
+ * Budget for the whole search. The pattern comes from the model: a catastrophic one must not hang the agent.
+ * `BK_SEARCH_FILES_TIMEOUT_MS` overrides the 5 s default.
+ */
+const searchBudgetMs = (): number => Number(process.env.BK_SEARCH_FILES_TIMEOUT_MS) || 5_000;
+
+class SearchTimeoutError extends Error {}
+
+// Lines are matched inside a vm context because a regular expression runs synchronously and cannot be
+// interrupted from the outside; the vm `timeout` can. One compiled script, reused for every file.
+const matchContext = vm.createContext({ source: '', flags: '', lines: [] as string[] });
+const matchScript = new vm.Script(
+    '(function () { var r = new RegExp(source, flags); var hits = []; ' +
+    'for (var i = 0; i < lines.length; i++) { if (r.test(lines[i])) hits.push(i); } return hits; })()',
+);
+
+/** Indexes of the lines that match, or SearchTimeoutError once `deadline` (epoch ms) passes. */
+function matchingLines(source: string, flags: string, lines: string[], deadline: number): number[] {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new SearchTimeoutError();
+    const ctx = matchContext as { source: string; flags: string; lines: string[] };
+    ctx.source = source;
+    ctx.flags = flags;
+    ctx.lines = lines;
+    try {
+        return matchScript.runInContext(matchContext, { timeout: left }) as number[];
+    } catch (err) {
+        if ((err as { code?: string }).code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') throw new SearchTimeoutError();
+        throw err;
+    } finally {
+        ctx.lines = [];
+    }
+}
+
+type LineMatcher = (lines: string[]) => number[];
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.next', 'build', 'coverage', '__pycache__', '.venv']);
 
@@ -30,7 +67,7 @@ function matchesGlob(filePath: string, glob: string | undefined): boolean {
 function walkAndSearch(
     dir: string,
     baseDir: string,
-    pattern: RegExp,
+    match: LineMatcher,
     glob: string | undefined,
     results: string[],
 ): void {
@@ -49,7 +86,7 @@ function walkAndSearch(
 
         if (entry.isDirectory()) {
             if (SKIP_DIRS.has(entry.name)) continue;
-            walkAndSearch(fullPath, baseDir, pattern, glob, results);
+            walkAndSearch(fullPath, baseDir, match, glob, results);
         } else if (entry.isFile()) {
             if (!matchesGlob(relPath, glob)) continue;
 
@@ -62,15 +99,17 @@ function walkAndSearch(
             catch { continue; } // binary file
 
             const lines = content.split('\n');
-            for (let i = 0; i < lines.length; i++) {
+            for (const i of match(lines)) {
                 if (results.length >= MAX_RESULTS) break;
-                if (pattern.test(lines[i])) {
-                    results.push(`${relPath}:${i + 1}:${lines[i]}`);
-                }
+                results.push(`${relPath}:${i + 1}:${lines[i]}`);
             }
         }
     }
 }
+
+const timeoutMessage = (pattern: string): string =>
+    `Error: search stopped after ${searchBudgetMs() / 1000}s: the pattern is too expensive to evaluate ` +
+    `(possible catastrophic backtracking): ${pattern}. Use a simpler pattern.`;
 
 export const searchFilesTool = defineTool({
     name: 'search_files',
@@ -92,12 +131,14 @@ export const searchFilesTool = defineTool({
         const denied = sandboxPathError(ctx, 'search_files', targetPath, 'read');
         if (denied) return denied;
 
-        let regex: RegExp;
+        const flags = case_insensitive ? 'i' : '';
         try {
-            regex = new RegExp(pattern, case_insensitive ? 'i' : '');
+            new RegExp(pattern, flags); // syntax check only; it runs inside matchingLines
         } catch {
             return `Error: Invalid regex pattern: ${pattern}`;
         }
+        const deadline = Date.now() + searchBudgetMs();
+        const match: LineMatcher = (lines) => matchingLines(pattern, flags, lines, deadline);
 
         // B3: wrap statSync so a missing path returns a clean error
         let stat: fs.Stats;
@@ -112,13 +153,23 @@ export const searchFilesTool = defineTool({
             try { content = fs.readFileSync(targetPath, 'utf-8'); }
             catch { return `Error: Cannot read file: ${searchPath}`; }
             const relPath  = path.relative(cwd, targetPath);
-            content.split('\n').forEach((line, i) => {
-                if (results.length < MAX_RESULTS && regex.test(line)) {
-                    results.push(`${relPath}:${i + 1}:${line}`);
+            const lines = content.split('\n');
+            try {
+                for (const i of match(lines)) {
+                    if (results.length >= MAX_RESULTS) break;
+                    results.push(`${relPath}:${i + 1}:${lines[i]}`);
                 }
-            });
+            } catch (err) {
+                if (err instanceof SearchTimeoutError) return timeoutMessage(pattern);
+                throw err;
+            }
         } else {
-            walkAndSearch(targetPath, cwd, regex, glob, results);
+            try {
+                walkAndSearch(targetPath, cwd, match, glob, results);
+            } catch (err) {
+                if (err instanceof SearchTimeoutError) return timeoutMessage(pattern);
+                throw err;
+            }
         }
 
         if (results.length === 0) return '(no matches found)';

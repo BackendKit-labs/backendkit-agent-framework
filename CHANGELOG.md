@@ -4,6 +4,16 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+### Correcciones de seguridad, lote 3
+- **`agent-coding` — `search_files`:** el patrón lo escribe el modelo y una expresión con retroceso catastrófico (`(a+)+# Changelog
+
+## Sin publicar
+
+El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
+
+) colgaba al agente varios segundos con 24 caracteres. La búsqueda corre ahora con un plazo de 5 s (`BK_SEARCH_FILES_TIMEOUT_MS`) y devuelve `Error: search stopped...` si lo agota.
+- **`agent-enterprise` — `FlowRunner` (visible):** un paso cuyo gate declara `criteria` pero no se puede evaluar (el flujo no nombra `evaluator`, o falta `onGateRequired`) ahora **falla** con `ComplianceGateError` en vez de pasar en silencio. Un gate con `approval: human` no se bloquea: la persona es la evaluación. Transitorio: `allowUnevaluatedGates: true` restaura el comportamiento anterior.
+
 ## v0.38.0 (2026-10-26)
 
 Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.

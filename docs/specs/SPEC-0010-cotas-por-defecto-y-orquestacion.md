@@ -1,7 +1,7 @@
 # SPEC-0010: Cotas por defecto, orquestación y tipos de agente
 
 **Fecha:** 2026-10-26
-**Estado:** Implementado (2026-10-26). O1–O3 en master y publicados (core 0.36.x, v0.37.x); O2 (resto), O3 (menores), O4 y O5 en los PR #141–#155, pendientes de mergear y publicar.
+**Estado:** Implementado y publicado (2026-10-27). O1–O5 en master (#110–#156); v0.37.x y v0.38.0 (core 0.37.0) en npm y con tags. Pendiente de verificar: el claim entre procesos (#149) solo se probó contra un doble de Redis.
 **Depende de:** SPEC-0009 (confianza y límites aplicados), SPEC-0006 (sandbox), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md)
 **Origen:** informe del auditor del 2026-10-26 (6 subagentes sobre el SDK ya extraído a bk-platform). Las citas `ruta:línea` son del auditor; **ninguna se ha reverificado salvo las marcadas "verificado"**. Cada fase empieza por reproducir el hallazgo con un test que falle; si no se reproduce, se descarta y se anota aquí.
 **Objetivo:** que ningún bucle, historial, cola o delegación crezca sin techo por defecto, que la orquestación no pueda saltarse una aprobación ni dejar un run colgado, y que haya una sola forma de cargar y describir un agente.

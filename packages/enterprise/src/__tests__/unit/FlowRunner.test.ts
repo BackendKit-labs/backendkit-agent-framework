@@ -398,14 +398,44 @@ steps:
         expect(result.steps['ejecutar'].status).toBe('failed');
     });
 
-    it('auto-passes when onGateRequired is not provided', async () => {
+    it('fails closed when the gate declares criteria and onGateRequired is not provided', async () => {
         const runner = new FlowRunner(GATE_FLOW, {
             transport: makeTransport(),
             runAgent: async () => ({ content: 'ok' }),
             // no onGateRequired
         });
         const result = await runner.run();
-        // Gate auto-passed → flow completes (same default as onApprovalRequired)
+        expect(result.status).not.toBe('completed');
+        expect(result.transitions.some(t => t.event === 'gate_failed' && t.stepId === 'ejecutar')).toBe(true);
+    });
+
+    it('fails closed when the gate has criteria but the flow names no evaluator', async () => {
+        const flow = parseFlow(`
+flow: sin-evaluador
+trigger: { type: manual }
+steps:
+  - id: a
+    agent: rrhh
+    prompt: x
+    gate:
+      criteria: ["Resultado documentado"]
+`);
+        const runner = new FlowRunner(flow, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            onGateRequired: async () => { throw new Error('must not be reached'); },
+        });
+        const result = await runner.run();
+        expect(result.status).not.toBe('completed');
+    });
+
+    it('allowUnevaluatedGates lets the step through (transitional escape hatch)', async () => {
+        const runner = new FlowRunner(GATE_FLOW, {
+            transport: makeTransport(),
+            runAgent: async () => ({ content: 'ok' }),
+            allowUnevaluatedGates: true,
+        });
+        const result = await runner.run();
         expect(result.status).toBe('completed');
     });
 

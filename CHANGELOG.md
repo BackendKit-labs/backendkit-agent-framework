@@ -7,6 +7,15 @@ El framework queda como SDK para crear agentes; la infraestructura vive en `bk-p
 ### Correcciones de seguridad (agent-core, agent-coding)
 - **`agent-coding`:** `resolveAndCheck` compara rutas reales: un enlace dentro del directorio de trabajo que apunta fuera ya no escapa del sandbox de las tools de archivo. `search_files` devuelve `Error: ...` en vez de lanzar. Cambio visible: leer por un enlace que sale del workspace ahora falla también sin sandbox.
 - **`agent-core`:** `appName` solo admite letras, dígitos, guion y guion bajo (antes `../x` salía del home). `atomicWrite` usa un temporal único por escritura.
+### Correcciones de seguridad, lote 3
+- **`agent-coding` — `search_files`:** el patrón lo escribe el modelo y una expresión con retroceso catastrófico (`(a+)+# Changelog
+
+## Sin publicar
+
+El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
+
+) colgaba al agente varios segundos con 24 caracteres. La búsqueda corre ahora con un plazo de 5 s (`BK_SEARCH_FILES_TIMEOUT_MS`) y devuelve `Error: search stopped...` si lo agota.
+- **`agent-enterprise` — `FlowRunner` (visible):** un paso cuyo gate declara `criteria` pero no se puede evaluar (el flujo no nombra `evaluator`, o falta `onGateRequired`) ahora **falla** con `ComplianceGateError` en vez de pasar en silencio. Un gate con `approval: human` no se bloquea: la persona es la evaluación. Transitorio: `allowUnevaluatedGates: true` restaura el comportamiento anterior.
 
 ## v0.38.0 (2026-10-26)
 

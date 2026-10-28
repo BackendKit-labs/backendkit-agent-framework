@@ -60,13 +60,21 @@ export interface FlowRunOptions {
      * - `'passed'` → step proceeds
      * - anything else → step is marked failed
      *
-     * If omitted, the gate is auto-passed (same default as `onApprovalRequired`).
+     * A step whose gate declares `criteria` needs this callback and an `evaluator`; without them the step fails
+     * with a `ComplianceGateError` (a declared gate is never skipped silently), unless the gate is a human approval
+     * (`approval: human`): then the person is the evaluation and the criteria are shown to them. `allowUnevaluatedGates` restores
+     * the old behaviour of letting such a step through.
      */
     onGateRequired?: (
         gate: ComplianceGate,
         step: FlowStep,
         stepOutput: string,
     ) => Promise<void>;
+    /**
+     * Let a step through whose gate declares `criteria` but cannot be evaluated (no `evaluator` in the flow, or no
+     * `onGateRequired` here). Default: false, the step fails. Transitional: use it only while you wire the evaluation.
+     */
+    allowUnevaluatedGates?: boolean;
     /** Observer for the append-only transition log. */
     onTransition?: (transition: FlowTransition) => void;
     /**
@@ -114,6 +122,13 @@ export class FlowRunner {
                     // ── ComplianceGate evaluation ────────────────────────────
                     const flowStep = stepsById.get(stepId!);
                     const gate = flowStep?.gate;
+                    if (gate?.criteria?.length && gate.approval !== 'human' && !(gate.evaluator && this.opts.onGateRequired) && !this.opts.allowUnevaluatedGates) {
+                        this.record({ stepId: stepId!, event: 'gate_failed', detail: 'gate cannot be evaluated' });
+                        throw new ComplianceGateError(
+                            `gate for step "${stepId}" declares criteria but cannot be evaluated ` +
+                            `(${gate.evaluator ? 'no onGateRequired callback' : 'no evaluator in the flow'}): refusing to let the step through`,
+                        );
+                    }
                     if (gate?.criteria?.length && gate.evaluator && this.opts.onGateRequired) {
                         this.record({ stepId: stepId!, event: 'gate_evaluation_started' });
                         const complianceGate = new ComplianceGate({

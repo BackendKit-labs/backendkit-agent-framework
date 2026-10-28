@@ -1,4 +1,5 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
+import { warnIfSecrets } from './secret-scanner';
 
 export const saveContextTool = defineTool({
     name: 'save_context',
@@ -8,6 +9,7 @@ export const saveContextTool = defineTool({
     }),
     execute: async ({ content }, ctx) => {
         if (!ctx.store) return 'Error: no persistent store configured';
+        warnIfSecrets('save_context', content); // does not block, but warns
         ctx.store.appendContext(content);
         return 'Context saved.';
     },

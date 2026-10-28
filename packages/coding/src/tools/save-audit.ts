@@ -1,4 +1,5 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
+import { warnIfSecrets } from './secret-scanner';
 
 export const saveAuditTool = defineTool({
     name: 'save_audit',
@@ -9,6 +10,7 @@ export const saveAuditTool = defineTool({
     }),
     execute: async ({ agent_id, content }, ctx) => {
         if (!ctx.store) return 'Error: no persistent store configured';
+        warnIfSecrets('save_audit', content);
         ctx.store.saveAudit(agent_id, content);
         return `Audit saved for agent "${agent_id}".`;
     },

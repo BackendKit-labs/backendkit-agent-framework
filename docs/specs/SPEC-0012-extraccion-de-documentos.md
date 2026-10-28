@@ -60,3 +60,26 @@ Detección por firma (`%PDF`; ZIP con `[Content_Types].xml` y `word/` o `xl/`). 
 - **Excel con cadenas en CDATA** (`cdata.xlsx` de deepseek) devuelve celdas vacías: límite de `read-excel-file`, sin resolver.
 - **Pruebas bajo jest** necesitan `--experimental-vm-modules` (unpdf importa su motor PDF dinámicamente).
 - **Sin publicar:** `npm publish` lo hace el propietario; Steward no puede consumirlo hasta entonces.
+
+## 5. Visión y OCR: lo verificado (2026-10-28)
+**Requisito del propietario:** Hermes en producción puede usar **otro LLM**. Por tanto nada se decide por proveedor ni por un modelo concreto.
+
+### 5.1 Qué admite el modelo de las pruebas (DeepSeek, prueba en vivo)
+- `GET /models` **publica `input_modalities` por modelo**: `deepseek-flash` (V4.1 Flash; `deepseek-v4-flash` resuelve a él) admite `["text","image"]`; **`deepseek-v4-pro` solo `["text"]`**. Dos modelos del mismo proveedor, capacidades distintas: la capacidad es **del modelo**, no del proveedor.
+- Una imagen en formato OpenAI (`image_url` con data URL) **se acepta y se entiende** (imagen azul lisa → respondió "Blue"). El bloque `image` estilo Anthropic se rechaza (422; acepta `text`, `image_url` y `file`).
+- Una parte `file`: la forma que probé (`file_data` como data URL) dio 400; **sin resolver**, no se asume que el modelo lea PDF.
+- Otros proveedores (Anthropic, OpenAI, Ollama con modelos de visión o sin ellos): **no probados**.
+
+### 5.2 OCR sin red (tesseract.js 7, prueba aislada)
+- Con `tesseract.js-core` y los datos de idioma (`@tesseract.js-data/spa`, MIT) desde `node_modules`, `langPath`/`corePath` locales y sin caché: **0 intentos de red** (se interceptaron `http`, `https` y `fetch`).
+- Factura sintética en español (una imagen limpia): confianza 92, ~1 s por imagen con el motor ya cargado, ~1 s de arranque. Acertó importes, NIF, fecha y tildes; errores: `N°` → `N*`, `IVA 21%` → `IVA21%`. **No es una medida sobre escaneos reales** (ruido, inclinación, baja resolución), que serán peores.
+- Peso: núcleo WASM ~30 MB + ~10–14 MB por idioma. Licencias Apache-2.0 y MIT.
+- **Riesgo sin comprobar:** OCR de un **PDF escaneado** necesita convertir páginas a imagen. `unpdf` lo hace con `@napi-rs/canvas` (binario nativo, problema ya conocido en la imagen de Steward). Alternativa a verificar: extraer las imágenes incrustadas del PDF (un escaneo suele ser una imagen por página) y pasárselas al OCR sin lienzo.
+
+### 5.3 Propuesta de diseño: la capacidad decide, no el proveedor
+1. **Capacidad por modelo:** `inputModalities` declarado en la configuración del modelo (y, cuando el proveedor lo publica como DeepSeek, leído de `/models`). Sin dato, se asume solo texto.
+2. **Ruta según capacidad**, la elige el anfitrión (Steward), no el modelo:
+   - Texto del documento (PDF/Word/Excel/CSV) → capa 1, siempre, **con cualquier modelo**.
+   - Imagen o escaneo: si el modelo admite imagen → enviarla (capa 2); si no → OCR (capa 1b) y enviar el texto; si no hay ninguna → `NO_TEXT_LAYER` y se le dice a la persona.
+3. **OCR aunque el modelo vea:** (a) los datos sensibles se enmascaran **como texto** antes de llegar al modelo y una imagen nativa **se salta ese enmascarado**; (b) un entorno aislado sin red o un modelo local de solo texto sigue funcionando; (c) el texto se puede registrar, validar y auditar. Decide el propietario si, con modelo de visión, se prefiere OCR (más control) o imagen (más fidelidad: tablas, sellos, manuscritos).
+4. **Capa 2 en el SDK:** ampliar `LLMMessage.content` a partes (`text` | `image`) y que cada proveedor la traduzca a su formato (`image_url` en los compatibles con OpenAI; bloque `image` en Anthropic). Es un cambio de contrato: va en su propio PR.

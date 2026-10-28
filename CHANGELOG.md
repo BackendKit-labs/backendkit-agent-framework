@@ -6,7 +6,7 @@ El framework queda como SDK para crear agentes; la infraestructura vive en `bk-p
 
 ## v0.38.1 (2026-10-28)
 
-**Preparado, pendiente de publicar.** Correcciones de seguridad portadas desde el fork de Steward (inventario SPEC-0001 de Steward, G1–G10; #159–#162), el paquete nuevo `document-extract` ([SPEC-0012](docs/specs/SPEC-0012-extraccion-de-documentos.md), #163) y el cierre documental de v0.38.0 (#158). Sin cambio incompatible: los valores por defecto del modo estricto no cambian. Sin ejecutar en GitHub Actions (no arranca por facturación): build en el orden del CI, typecheck de todos los paquetes, tests con cobertura, `audit-gate`, `check-resilience` y `madge` se corrieron en local sobre el árbol integrado.
+Publicado en npm (los 7 paquetes de la tabla, cada versión es `latest`) y taggeado `<paquete>@<versión>` sobre el merge del bump (56f43573). Correcciones de seguridad portadas desde el fork de Steward (inventario SPEC-0001 de Steward, G1–G10; #159–#162), el paquete nuevo `document-extract` ([SPEC-0012](docs/specs/SPEC-0012-extraccion-de-documentos.md), #163) y el cierre documental de v0.38.0 (#158). Sin cambio incompatible: los valores por defecto del modo estricto no cambian. Sin ejecutar en GitHub Actions (no arranca por facturación): build en el orden del CI, typecheck de todos los paquetes, tests con cobertura, `audit-gate`, `check-resilience` y `madge` se corrieron en local sobre el árbol integrado.
 
 | Paquete | Versión | |
 |---|---|---|

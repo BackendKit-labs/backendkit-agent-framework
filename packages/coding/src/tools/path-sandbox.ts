@@ -1,4 +1,5 @@
-import { resolve, sep, relative } from 'path';
+import { resolve, dirname, join, sep, relative } from 'path';
+import { realpathSync } from 'fs';
 
 /**
  * Resolves `filePath` relative to `workingDir` and verifies the result
@@ -13,6 +14,9 @@ import { resolve, sep, relative } from 'path';
  * roots: `workingDir` (primary) or any `additionalRoots` (e.g. the agent's
  * memory directory at ~/.{appName}/projects/{key}).
  * Throws on path traversal attempts outside all allowed roots.
+ *
+ * The containment check uses the REAL path: a symlink inside the working dir that
+ * points outside (workingDir/link -> /etc) cannot be used to escape the sandbox.
  */
 export function resolveAndCheck(
     workingDir: string | undefined,
@@ -21,6 +25,10 @@ export function resolveAndCheck(
 ): string {
     const cwd = workingDir ?? process.cwd();
     const abs = resolve(cwd, filePath);
+    // Real paths for the containment check. A target that does not exist yet (a new
+    // file) resolves through its nearest existing ancestor.
+    const absReal = realTarget(abs);
+    const roots = [cwd, ...additionalRoots].map(realpathSafe);
 
     // Normalize separators to forward slashes before comparison so that
     // mixed-slash paths (workingDir passed as C:/... but resolve() returns C:\...)
@@ -32,19 +40,43 @@ export function resolveAndCheck(
 
     const isInside = (root: string) => {
         const prefix = norm(root).endsWith('/') ? norm(root) : norm(root) + '/';
-        return norm(abs) === norm(root) || norm(abs).startsWith(prefix);
+        return norm(absReal) === norm(root) || norm(absReal).startsWith(prefix);
     };
 
-    if (isInside(cwd)) return abs;
-
-    for (const root of additionalRoots) {
-        if (isInside(root)) return abs;
-    }
+    if (roots.some(isInside)) return abs;
 
     throw new Error(
         `Access denied: "${filePath}" resolves outside the working directory. ` +
-        `Path traversal is not allowed.`
+        `Path traversal or symlink escape is not allowed.`
     );
+}
+
+function realpathSafe(p: string): string {
+    try {
+        return realpathSync(p);
+    } catch {
+        return p; // does not exist yet: compare lexically
+    }
+}
+
+/** Real path of the target; when it does not exist, of its nearest existing ancestor. */
+function realTarget(abs: string): string {
+    try {
+        return realpathSync(abs);
+    } catch {
+        /* the target does not exist yet */
+    }
+    let dir = dirname(abs);
+    let prev = '';
+    while (dir !== prev) {
+        prev = dir;
+        try {
+            return join(realpathSync(dir), relative(dir, abs));
+        } catch {
+            dir = dirname(dir);
+        }
+    }
+    return abs;
 }
 
 /**

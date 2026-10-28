@@ -4,7 +4,42 @@
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
+## v0.38.1 (2026-10-28)
+
+**Preparado, pendiente de publicar.** Correcciones de seguridad portadas desde el fork de Steward (inventario SPEC-0001 de Steward, G1–G10; #159–#162), el paquete nuevo `document-extract` ([SPEC-0012](docs/specs/SPEC-0012-extraccion-de-documentos.md), #163) y el cierre documental de v0.38.0 (#158). Sin cambio incompatible: los valores por defecto del modo estricto no cambian. Sin ejecutar en GitHub Actions (no arranca por facturación): build en el orden del CI, typecheck de todos los paquetes, tests con cobertura, `audit-gate`, `check-resilience` y `madge` se corrieron en local sobre el árbol integrado.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.37.1 | `appName` validado, `atomicWrite` con temporal único, saneo del contexto de disco, SSRF en el registro remoto |
+| `agent-coding` | 0.28.4 | `realpath` en el sandbox de archivos, plazo en `search_files`, aviso de secretos en `save_*` |
+| `agent-enterprise` | 0.8.7 | el gate de `FlowRunner` que no se puede evaluar falla en vez de pasar |
+| `agent-web` | 0.6.4 | HMAC del webhook sobre bytes crudos; modo `strict` opcional |
+| `agent-web-ui` | 0.1.3 | el token va como subprotocolo, nunca en la URL |
+| `agent-protocol` | 0.6.2 | modo `strict` opcional; aviso al escuchar fuera de loopback sin `apiKey` |
+| `document-extract` | 0.1.0 | **nuevo**: PDF, Word, Excel, CSV y OCR a texto |
+
+Los demás paquetes no cambian (sus rangos `^0.37.0` y `<0.38.0` cubren `agent-core` 0.37.1).
+
+### Correcciones de seguridad (#159, #160, #162)
+- **`agent-coding`:** `resolveAndCheck` compara rutas reales: un enlace dentro del directorio de trabajo que apunta fuera ya no escapa del sandbox de las tools de archivo. `search_files` devuelve `Error: ...` en vez de lanzar. **Cambio visible:** leer por un enlace que sale del workspace ahora falla también sin sandbox.
+- **`agent-coding` — `search_files`:** el patrón lo escribe el modelo y una expresión con retroceso catastrófico (`(a+)+$`) colgaba al agente varios segundos con 24 caracteres. La búsqueda corre ahora con un plazo de 5 s (`BK_SEARCH_FILES_TIMEOUT_MS`) y devuelve `Error: search stopped...` si lo agota.
+- **`agent-core`:** `appName` solo admite letras, dígitos, guion y guion bajo (antes `../x` salía del home). `atomicWrite` usa un temporal único por escritura.
+- **`agent-core`:** el contexto que se lee de disco (AGENT.md, USER.md, proyecto, sesión) se sanea antes de entrar al prompt: se quitan delimitadores de chat y etiquetas de rol, sin tocar genéricos ni marcado. El registro remoto de agentes valida el protocolo y no sigue a IP privadas distintas de su propio origen (no cubre DNS rebinding).
+- **`agent-coding`:** `save_context`, `save_audit`, `save_learning` y `update_session` avisan si el texto parece contener secretos.
+- **`agent-web`:** el HMAC del webhook se verifica sobre los bytes recibidos y no sobre `JSON.stringify(req.body)`.
+- **`agent-enterprise` — `FlowRunner` (visible):** un paso cuyo gate declara `criteria` pero no se puede evaluar (el flujo no nombra `evaluator`, o falta `onGateRequired`) ahora **falla** con `ComplianceGateError` en vez de pasar en silencio. Un gate con `approval: human` no se bloquea: la persona es la evaluación. Transitorio: `allowUnevaluatedGates: true` restaura el comportamiento anterior.
+
+### Modo estricto (opcional, no cambia los valores por defecto) (#161)
+- **`agent-web`:** `new AgentServer({ strict: true })` no permite ningún origen CORS salvo los de `cors`, añade `X-Content-Type-Options`, `X-Frame-Options: DENY` y `Referrer-Policy: no-referrer`, y lanza si escucha en una interfaz no local sin `auth`. `new JwtAuth({ allowQueryToken: false })` ignora `?token=`; el navegador envía el JWT como subprotocolo `bearer, <jwt>`. El servidor selecciona `bearer` siempre (hace falta para ese cliente). `JwtAuth` acepta ahora ese subprotocolo también sin `strict`.
+- **`agent-web-ui`:** `useAgentSession` y `useKanbanMonitor` aceptan `token` y lo envían como subprotocolo, nunca en la URL.
+- **`agent-protocol`:** `new AgentServer({ strict: true })` lanza si `host` no es de loopback y no hay `apiKey`. Sin `strict`, esa combinación solo avisa al arrancar (`console.warn` nuevo).
+
+### `document-extract` 0.1.0 (#163)
+Texto de PDF con capa de texto, Word (.docx), Excel (.xlsx), CSV y texto, con límites (tamaño, páginas, ZIP descomprimido, caracteres) y errores de código estable; herramienta `read_document` que consulta el sandbox como `read_file`. OCR opcional de imágenes PNG/JPEG y PDF escaneados con `tesseract.js` (instalado, nunca descarga; sin él `OCR_UNAVAILABLE`); `@napi-rs/canvas` opcional para PDF que no son una imagen por página. Node ≥ 22. Límites conocidos en el [README](packages/document-extract/README.md) y en SPEC-0012 §4 y §6.
+
 ## v0.38.0 (2026-10-26)
+
+Publicado en npm (los 14 paquetes, cada versión es `latest`) y taggeado `<paquete>@<versión>` sobre el merge del bump (4b74bc83). Sin verificar: el claim de aprobaciones entre procesos contra un Redis real; GitHub Actions no arranca por facturación, así que lo mergeado en 0.37.x–0.38.0 se validó solo en local.
 
 Cierre de [SPEC-0010](docs/specs/SPEC-0010-cotas-por-defecto-y-orquestacion.md) (O2–O5, #141–#156). **Cambio incompatible en `agent-core`** (#155): un agente solo puede llamar a las herramientas de su `allowedTools`. Rangos 0.x barridos: `agent-core ^0.37.0` y peers `<0.38.0`.
 

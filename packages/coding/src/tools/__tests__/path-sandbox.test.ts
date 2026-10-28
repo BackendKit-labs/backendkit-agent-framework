@@ -1,5 +1,5 @@
 import { resolveAndCheck } from '../path-sandbox';
-import { mkdirSync, rmSync } from 'fs';
+import { mkdirSync, rmSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -47,5 +47,26 @@ describe('resolveAndCheck', () => {
         const abs = resolveAndCheck(BASE, 'sub/dir/file.ts');
         expect(abs).toContain('sub');
         expect(abs).toContain('file.ts');
+    });
+
+    describe('symlink escape', () => {
+        // 'junction' needs no privilege on Windows; on POSIX it is a plain directory symlink.
+        it('rejects a link inside the working dir that points outside', () => {
+            const outside = join(tmpdir(), `bk-sandbox-outside-${randomUUID()}`);
+            mkdirSync(outside, { recursive: true });
+            try {
+                symlinkSync(outside, join(BASE, 'link'), 'junction');
+                expect(() => resolveAndCheck(BASE, 'link/secret.txt')).toThrow(/Access denied/);
+                expect(() => resolveAndCheck(BASE, 'link')).toThrow(/Access denied/);
+            } finally {
+                rmSync(outside, { recursive: true, force: true });
+            }
+        });
+
+        it('allows a link that points inside the working dir', () => {
+            mkdirSync(join(BASE, 'real'), { recursive: true });
+            symlinkSync(join(BASE, 'real'), join(BASE, 'alias'), 'junction');
+            expect(() => resolveAndCheck(BASE, 'alias/new-file.ts')).not.toThrow();
+        });
     });
 });

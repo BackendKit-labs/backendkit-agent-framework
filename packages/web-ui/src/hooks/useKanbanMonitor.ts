@@ -29,6 +29,11 @@ export type MonitorStatus = 'disconnected' | 'connecting' | 'connected';
 
 export interface UseKanbanMonitorOptions {
   url: string;
+  /**
+   * JWT for a server that does not accept `?token=` (JwtAuth `allowQueryToken: false`). It travels as the
+   * WebSocket subprotocol `bearer, <jwt>`, never in the URL.
+   */
+  token?: string;
   autoConnect?: boolean;
 }
 
@@ -54,6 +59,7 @@ function truncate(text: string, max = 80): string {
 
 export function useKanbanMonitor({
   url,
+  token,
   autoConnect = false,
 }: UseKanbanMonitorOptions): UseKanbanMonitorReturn {
   const [runs, setRuns] = useState<KanbanRun[]>([]);
@@ -211,7 +217,7 @@ export function useKanbanMonitor({
       wsRef.current = null;
     }
     setStatus('connecting');
-    const ws = new WebSocket(url);
+    const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => setStatus('connected');
@@ -231,7 +237,7 @@ export function useKanbanMonitor({
     };
 
     ws.onerror = () => setStatus('disconnected');
-  }, [url, handleFrame]);
+  }, [url, token, handleFrame]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();

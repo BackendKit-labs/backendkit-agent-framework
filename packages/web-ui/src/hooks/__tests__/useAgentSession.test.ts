@@ -31,6 +31,19 @@ describe('useAgentSession — connection', () => {
     expect(result.current.status).toBe('disconnected');
   });
 
+  it('sends the token as the bearer subprotocol, never in the URL', () => {
+    const { result } = renderHook(() => useAgentSession({ url: 'ws://test', token: 'jwt-123' }));
+    act(() => result.current.connect());
+    expect(FakeWebSocket.last.url).toBe('ws://test');
+    expect(FakeWebSocket.last.protocols).toEqual(['bearer', 'jwt-123']);
+  });
+
+  it('offers no subprotocol without a token', () => {
+    const { result } = renderHook(() => useAgentSession({ url: 'ws://test' }));
+    act(() => result.current.connect());
+    expect(FakeWebSocket.last.protocols).toBeUndefined();
+  });
+
   it('autoConnect opens a socket on mount and closes it on unmount', () => {
     const { unmount } = renderHook(() => useAgentSession({ url: 'ws://auto', autoConnect: true }));
     expect(FakeWebSocket.instances).toHaveLength(1);

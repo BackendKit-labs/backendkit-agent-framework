@@ -1,5 +1,6 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { routeLearning } from '../store/LearningRouter';
+import { warnIfSecrets } from './secret-scanner';
 
 export const saveLearningTool = defineTool({
     name: 'save_learning',
@@ -17,6 +18,7 @@ export const saveLearningTool = defineTool({
     }),
     execute: async ({ content }, ctx) => {
         if (!ctx.store) return 'Error: no persistent store configured';
+        warnIfSecrets('save_learning', content);
         if (!ctx.llmCall) {
             // Fallback: no LLM available, append to legacy learnings.md
             ctx.store.appendLearning(content);

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { atomicWriteSync } from '../shared/utils/atomic-write';
+import { assertSafeDownloadUrl } from './download-guard';
 import type { AgentProfile } from '../types';
 import type { RemoteRegistryIndex, RemotePackageListing } from './types';
 
@@ -90,7 +91,9 @@ export class RemoteAgentRegistry {
         packageDir: string,
         agentPath: string,
     ): Promise<AgentProfile | null> {
-        const resp = await fetch(pkg.downloadUrl);
+        // downloadUrl comes from the registry index: check it, and refuse redirects (they skip the check).
+        await assertSafeDownloadUrl(pkg.downloadUrl, this.registryUrl);
+        const resp = await fetch(pkg.downloadUrl, { redirect: 'error' });
         if (!resp.ok) {
             throw new Error(`Download failed for "${pkg.name}" (${resp.status}): ${resp.statusText}`);
         }

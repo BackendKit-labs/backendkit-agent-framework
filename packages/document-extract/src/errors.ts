@@ -7,6 +7,7 @@ export type DocumentErrorCode =
     | 'ENCRYPTED'
     | 'CORRUPT'
     | 'NO_TEXT_LAYER'
+    | 'OCR_UNAVAILABLE'
     | 'TIMEOUT';
 
 const RECOVERY: Record<DocumentErrorCode, string> = {
@@ -17,6 +18,7 @@ const RECOVERY: Record<DocumentErrorCode, string> = {
     ENCRYPTED: 'The file is password-protected. Ask the person for an unprotected copy.',
     CORRUPT: 'The file could not be read; it may be damaged or truncated. Ask for the file again.',
     NO_TEXT_LAYER: 'The file has no text to extract (probably a scan or an image). It needs OCR, which is not available here; tell the person.',
+    OCR_UNAVAILABLE: 'OCR is not available on this server (engine or language data missing). Tell the person the file needs to be read by hand.',
     TIMEOUT: 'Reading the file took too long. Ask for a smaller file.',
 };
 

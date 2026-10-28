@@ -1,7 +1,7 @@
 # SPEC-0012: Extracción de documentos a texto (`@backendkit-labs/document-extract`)
 
 **Fecha:** 2026-10-28
-**Estado:** Capa 1 implementada en `packages/document-extract` (sin publicar); OCR y visión pendientes
+**Estado:** Capa 1 y OCR (1b) implementados en `packages/document-extract` (sin publicar); capa 2 (imagen nativa al modelo) pendiente
 **Origen:** Steward SPEC-0006 §7 (consola de Hermes: soltar documentos para analizarlos o procesarlos)
 
 > **Decidido (propietario, 2026-10-28):**
@@ -83,3 +83,11 @@ Detección por firma (`%PDF`; ZIP con `[Content_Types].xml` y `word/` o `xl/`). 
    - Imagen o escaneo: si el modelo admite imagen → enviarla (capa 2); si no → OCR (capa 1b) y enviar el texto; si no hay ninguna → `NO_TEXT_LAYER` y se le dice a la persona.
 3. **OCR aunque el modelo vea:** (a) los datos sensibles se enmascaran **como texto** antes de llegar al modelo y una imagen nativa **se salta ese enmascarado**; (b) un entorno aislado sin red o un modelo local de solo texto sigue funcionando; (c) el texto se puede registrar, validar y auditar. Decide el propietario si, con modelo de visión, se prefiere OCR (más control) o imagen (más fidelidad: tablas, sellos, manuscritos).
 4. **Capa 2 en el SDK:** ampliar `LLMMessage.content` a partes (`text` | `image`) y que cada proveedor la traduzca a su formato (`image_url` en los compatibles con OpenAI; bloque `image` en Anthropic). Es un cambio de contrato: va en su propio PR.
+
+## 6. OCR implementado (2026-10-28)
+- `extractDocument(bytes, { ocr })`: imágenes PNG/JPEG y PDF sin texto, con `tesseract.js` y datos de idioma **instalados** (opcionales; nunca descarga: sin ellos `OCR_UNAVAILABLE`). Pruebas con `http`, `https` y `fetch` interceptados: 0 intentos de red.
+- **Riesgo de §5.2 resuelto en parte:** un escaneo normal (una imagen por página) se lee **sin lienzo**, sacando las imágenes del PDF. Un PDF real "Microsoft Print To PDF" resultó dibujar la página como ~120 trozos del tamaño de un carácter (y vectores): ahí solo sirve **dibujar la página** con `@napi-rs/canvas` (binario nativo, opcional); sin él, `OCR_UNAVAILABLE`. Sobre ese PDF real: 2 páginas en ~7 s, confianza media 92.
+- Acotado por páginas (20), píxeles (40 M, desde la cabecera), tamaño y `signal` (abortar detiene el reconocimiento).
+- **Un fallo real encontrado y corregido:** con la señal ya abortada, el trabajo ya arrancado quedaba huérfano y su rechazo salía como promesa rechazada sin manejar (en producción tumbaría el proceso).
+- **Sin resolver:** calidad sobre escaneos reales con ruido/inclinación (solo se midió una factura sintética y un PDF impreso); formatos WebP/TIFF/GIF; orden de lectura con varias imágenes por página; coste de dibujar páginas grandes (la escala se limita solo por píxeles, comprobados después de dibujar).
+- La decisión de §5.3 (OCR frente a imagen nativa cuando el modelo ve) **sigue abierta**; esto solo deja la ruta OCR disponible.

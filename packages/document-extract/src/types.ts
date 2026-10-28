@@ -1,4 +1,6 @@
-export type DocumentFormat = 'pdf' | 'docx' | 'xlsx' | 'csv' | 'text';
+import type { OcrOptions } from './ocr';
+
+export type DocumentFormat = 'pdf' | 'docx' | 'xlsx' | 'csv' | 'text' | 'image';
 
 export interface ExtractLimits {
     /** Size of the file itself. Default 20 MiB. */
@@ -19,6 +21,11 @@ export interface ExtractOptions {
     signal?: AbortSignal;
     /** Only used to tell CSV from plain text; the format itself is always taken from the bytes. */
     filename?: string;
+    /**
+     * Read images and scanned PDFs with OCR. Off by default: it needs tesseract.js and language data installed, loads a
+     * ~30 MB engine and is slow. Without it an image, or a PDF with no text, fails with NO_TEXT_LAYER.
+     */
+    ocr?: boolean | OcrOptions;
 }
 
 export interface ExtractedDocument {
@@ -28,8 +35,10 @@ export interface ExtractedDocument {
     bytes: number;
     /** Pages of a PDF, or sheets of a workbook. */
     pages?: number;
-    /** Always true for what is returned; a PDF without text fails with NO_TEXT_LAYER instead of returning empty. */
+    /** False when the text came from OCR. A file with nothing to read fails with NO_TEXT_LAYER instead of returning empty. */
     hasTextLayer: boolean;
+    /** Present when the text was read by OCR: the mean confidence (0-100) and the images read. Treat low confidence with care. */
+    ocr?: { confidence: number; images: number };
     truncated: boolean;
 }
 

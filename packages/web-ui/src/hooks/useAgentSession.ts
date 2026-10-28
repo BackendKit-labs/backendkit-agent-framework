@@ -43,6 +43,11 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
 export interface UseAgentSessionOptions {
   url: string;
+  /**
+   * JWT for a server that does not accept `?token=` (JwtAuth `allowQueryToken: false`). It travels as the
+   * WebSocket subprotocol `bearer, <jwt>`, never in the URL.
+   */
+  token?: string;
   autoConnect?: boolean;
 }
 
@@ -69,6 +74,7 @@ const TOKEN_FLUSH_MS = 16;
 
 export function useAgentSession({
   url,
+  token,
   autoConnect = false,
 }: UseAgentSessionOptions): UseAgentSessionReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -226,7 +232,7 @@ export function useAgentSession({
       wsRef.current = null;
     }
     setStatus('connecting');
-    const ws = new WebSocket(url);
+    const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => setStatus('connected');
@@ -252,7 +258,7 @@ export function useAgentSession({
       setMessages(prev => [...prev, { id: uid(), role: 'system', content: 'WebSocket connection error.' }]);
       setStatus('disconnected');
     };
-  }, [url, handleEvent, closeStreaming]);
+  }, [url, token, handleEvent, closeStreaming]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();

@@ -14,9 +14,11 @@ export class FakeWebSocket {
   onerror: (() => void) | null = null;
 
   url: string;
+  protocols?: string | string[];
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string | string[]) {
     this.url = url;
+    this.protocols = protocols;
     FakeWebSocket.instances.push(this);
   }
 

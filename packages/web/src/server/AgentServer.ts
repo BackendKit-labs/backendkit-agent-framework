@@ -42,8 +42,16 @@ export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics
     adminRole?: string;
     /** Fastify logger. Default: false (silent). Pass true for pretty logs in dev. */
     logger?: boolean | object;
-    /** Allowed CORS origins. Default: '*'. */
+    /** Allowed CORS origins. Default: '*', or none when `strict` is set. */
     cors?: string | string[];
+    /**
+     * Fail-closed defaults for a server that other people reach:
+     *  - no CORS origin is allowed unless `cors` lists it (default without `strict`: '*');
+     *  - responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`;
+     *  - the constructor throws when the server listens on a non-loopback `host` without an `auth` hook.
+     * Pair it with `JwtAuth({ allowQueryToken: false })`. Default: false.
+     */
+    strict?: boolean;
     /**
      * Rate limiting per IP.  Requires @fastify/rate-limit to be installed.
      * @example { max: 60, timeWindow: '1 minute' }
@@ -84,6 +92,9 @@ export class AgentServer {
     constructor(opts: AgentServerOptions) {
         this._port = opts.port ?? 3000;
         this.host = opts.host ?? '127.0.0.1';
+        if (opts.strict && !opts.auth && !['127.0.0.1', 'localhost', '::1'].includes(this.host)) {
+            throw new Error(`AgentServer: strict mode refuses to listen on "${this.host}" without an auth hook.`);
+        }
 
         this.monitor = new MonitorBus();
         this.triggerBus = opts.triggers;
@@ -105,7 +116,7 @@ export class AgentServer {
 
         // CORS headers. The header carries one origin or '*', never a list: a list is matched against the
         // request's Origin and that origin is echoed back; an origin that is not listed gets no header.
-        const origins = opts.cors ?? '*';
+        const origins = opts.cors ?? (opts.strict ? [] : '*');
         const allowOrigin = (requestOrigin: string | undefined): string | undefined => {
             if (!Array.isArray(origins)) return origins;
             if (origins.includes('*')) return '*';
@@ -118,6 +129,11 @@ export class AgentServer {
         };
         this.app.addHook('onSend', async (req, reply) => {
             setAllowOrigin(req, reply);
+            if (opts.strict) {
+                reply.header('X-Content-Type-Options', 'nosniff');
+                reply.header('X-Frame-Options', 'DENY');
+                reply.header('Referrer-Policy', 'no-referrer');
+            }
         });
         this.app.options('*', async (req, reply) => {
             setAllowOrigin(req, reply);
@@ -154,7 +170,11 @@ export class AgentServer {
         const metricsPath = opts.metrics?.path;
         const triggers = this.triggerBus;
         this.app.register(async (instance) => {
-            await instance.register(fastifyWebSocket);
+            // A browser that offers the subprotocols `bearer, <jwt>` needs the server to select one of them,
+            // or it drops the connection. Select `bearer`, never the token.
+            await instance.register(fastifyWebSocket, {
+                options: { handleProtocols: (protocols: Set<string>) => (protocols.has('bearer') ? 'bearer' : false) },
+            });
             registerRoutes(instance, sessions, monitor, collector, metricsPath, opts.adminRole);
             triggers?.registerRoutes(instance);
         });

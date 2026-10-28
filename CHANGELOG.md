@@ -16,6 +16,10 @@ El framework queda como SDK para crear agentes; la infraestructura vive en `bk-p
 
 ) colgaba al agente varios segundos con 24 caracteres. La búsqueda corre ahora con un plazo de 5 s (`BK_SEARCH_FILES_TIMEOUT_MS`) y devuelve `Error: search stopped...` si lo agota.
 - **`agent-enterprise` — `FlowRunner` (visible):** un paso cuyo gate declara `criteria` pero no se puede evaluar (el flujo no nombra `evaluator`, o falta `onGateRequired`) ahora **falla** con `ComplianceGateError` en vez de pasar en silencio. Un gate con `approval: human` no se bloquea: la persona es la evaluación. Transitorio: `allowUnevaluatedGates: true` restaura el comportamiento anterior.
+### Modo estricto (opcional, no cambia los valores por defecto)
+- **`agent-web`:** `new AgentServer({ strict: true })` no permite ningún origen CORS salvo los de `cors`, añade `X-Content-Type-Options`, `X-Frame-Options: DENY` y `Referrer-Policy: no-referrer`, y lanza si escucha en una interfaz no local sin `auth`. `new JwtAuth({ allowQueryToken: false })` ignora `?token=`; el navegador envía el JWT como subprotocolo `bearer, <jwt>`. El servidor selecciona `bearer` siempre (hace falta para ese cliente). `JwtAuth` acepta ahora ese subprotocolo también sin `strict`.
+- **`agent-web-ui`:** `useAgentSession` y `useKanbanMonitor` aceptan `token` y lo envían como subprotocolo, nunca en la URL.
+- **`agent-protocol`:** `new AgentServer({ strict: true })` lanza si `host` no es de loopback y no hay `apiKey`. Sin `strict`, esa combinación solo avisa al arrancar.
 
 ## v0.38.0 (2026-10-26)
 

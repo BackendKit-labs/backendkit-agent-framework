@@ -44,6 +44,12 @@ export interface AgentServerOptions {
     /** Interface to bind. Default `127.0.0.1`; use `0.0.0.0` (and set `apiKey`) to accept remote callers. */
     host?:       string;
     apiKey?:     string;
+    /**
+     * Refuse to be reachable without an `apiKey`: the constructor throws when `host` is not a loopback address and
+     * no `apiKey` is set. Without `strict` that combination only logs a warning when the server starts, because
+     * it leaves every capability open to the network. Default: false.
+     */
+    strict?:     boolean;
     evictIntervalMs?: number; // how often to evict old tasks, default 10 min
     /**
      * Key for the control endpoints (`/v1/agent/control`, `/runs`, `/audit`). Deliberately separate from `apiKey`:
@@ -60,6 +66,8 @@ export interface AgentServerOptions {
     /** Runs the flows this agent hosts so a supervisor can start, watch and steer them. Its flows are published in `info.flows`. */
     flowHandler?: FlowHandler;
 }
+
+const isLoopback = (host: string): boolean => host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
 
 export class AgentServer {
     private readonly app:        Express;
@@ -80,6 +88,9 @@ export class AgentServer {
         this.port      = opts.port ?? 3300;
         this.host      = opts.host ?? '127.0.0.1';
         this.apiKey    = opts.apiKey;
+        if (opts.strict && !opts.apiKey && !isLoopback(this.host)) {
+            throw new Error(`AgentServer: strict mode refuses to listen on "${this.host}" without an apiKey.`);
+        }
         this.controlApiKey = opts.controlApiKey;
         this.control   = opts.control;
         this.flowHandler = opts.flowHandler;
@@ -382,6 +393,9 @@ export class AgentServer {
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
     async start(): Promise<void> {
+        if (!this.apiKey && !isLoopback(this.host)) {
+            console.warn(`[agent-protocol] ${this.info.name} listens on ${this.host} without an apiKey: every capability is open to the network. Set apiKey (or strict: true to refuse this).`);
+        }
         return new Promise(resolve => {
             this.server = this.app.listen(this.port, this.host, () => {
                 console.log(`[agent-protocol] ${this.info.name}@${this.info.version} listening on ${this.host}:${this.port}`);

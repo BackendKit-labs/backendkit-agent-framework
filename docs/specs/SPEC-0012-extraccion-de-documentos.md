@@ -1,7 +1,7 @@
 # SPEC-0012: Extracción de documentos a texto (`@backendkit-labs/document-extract`)
 
 **Fecha:** 2026-10-28
-**Estado:** Borrador (capa 1 en implementación)
+**Estado:** Capa 1 implementada en `packages/document-extract` (sin publicar); OCR y visión pendientes
 **Origen:** Steward SPEC-0006 §7 (consola de Hermes: soltar documentos para analizarlos o procesarlos)
 
 > **Decidido (propietario, 2026-10-28):**
@@ -47,6 +47,16 @@ Detección por firma (`%PDF`; ZIP con `[Content_Types].xml` y `word/` o `xl/`). 
 | # | Pregunta | Propuesta |
 |---|---|---|
 | 1 | Paquete nuevo o dentro de `coding` | Paquete nuevo: las librerías pesadas no deben entrar a quien no las usa |
-| 2 | Confinamiento de rutas | `resolveAndCheck` no se exporta desde `coding`; hoy la herramienta lleva una comprobación mínima propia. Ideal: exportarla desde `core` |
+| 2 | Confinamiento de rutas | **Hecho así:** contención propia mínima + la misma consulta `ctx.sandbox.authorizePath` que `read_file` (está en los tipos de core). `resolveAndCheck` no se exporta desde `coding`; ideal: exportarla desde `core` y quitar la copia. Un anfitrión con su propio confinamiento pasa `resolvePath` |
 | 3 | Motor de OCR on-prem | Evaluar `tesseract.js` con datos de idioma locales |
 | 4 | Node mínimo | `unpdf` exige Node ≥ 22; el paquete lo declara |
+
+## 4. Estado y límites conocidos (2026-10-28)
+- **Hecho:** PDF con texto, docx, xlsx, csv y texto; 21 pruebas; probado también en Node llano sobre el paquete compilado y sobre xlsx/docx reales de terceros (hojas con cadenas compartidas, unicode, hojas ocultas).
+- **Un PDF real sin texto** ("Microsoft Print To PDF" de imágenes) da `NO_TEXT_LAYER`, confirmado también con pdf.js directamente.
+- **Tamaños de ZIP: los declarados.** Se revisa el directorio antes de abrir; un archivo que **miente** en su directorio no lo detecta esta comprobación.
+- **PDF:** la descompresión de flujos internos no tiene tope propio; solo lo acota `maxBytes` del archivo, el plazo y el límite de páginas. Un PDF hostil puede gastar memoria dentro de ese margen.
+- **Hojas ocultas:** se leen igual que las visibles (un anfitrión que no quiera exponerlas debe filtrarlas; hoy no hay opción).
+- **Excel con cadenas en CDATA** (`cdata.xlsx` de deepseek) devuelve celdas vacías: límite de `read-excel-file`, sin resolver.
+- **Pruebas bajo jest** necesitan `--experimental-vm-modules` (unpdf importa su motor PDF dinámicamente).
+- **Sin publicar:** `npm publish` lo hace el propietario; Steward no puede consumirlo hasta entonces.

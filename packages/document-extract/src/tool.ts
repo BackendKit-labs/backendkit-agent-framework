@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { extractDocument } from './extract';
 import { DocumentExtractError } from './errors';
-import type { ExtractLimits } from './types';
+import { DEFAULT_LIMITS, type ExtractLimits } from './types';
 
 export interface ReadDocumentToolOptions {
     limits?: Partial<ExtractLimits>;
@@ -42,12 +42,20 @@ export function createReadDocumentTool(options: ReadDocumentToolOptions = {}) {
         execute: async ({ file_path }, ctx) => {
             try {
                 const abs = resolvePath(file_path, ctx);
+                // Same gate as read_file: the engine's sandbox judges where the path really points, after the containment check.
+                const verdict = ctx.sandbox?.authorizePath?.(
+                    { agentId: ctx.agentId, sessionId: ctx.sessionId },
+                    { tool: 'read_document', path: abs, access: 'read', workspace: ctx.workingDir ?? process.cwd(), extraRoots: ctx.additionalRoots ?? [] },
+                );
+                if (verdict && !verdict.ok) return `Error: ${verdict.code}: ${verdict.reason}`;
                 const size = statSync(abs).size;
-                const max = options.limits?.maxBytes;
-                if (max !== undefined && size > max) throw new DocumentExtractError('TOO_LARGE', `${size} bytes, limit ${max}`);
+                const max = options.limits?.maxBytes ?? DEFAULT_LIMITS.maxBytes; // refused BEFORE the file is read into memory
+                if (size > max) throw new DocumentExtractError('TOO_LARGE', `${size} bytes, limit ${max}`);
                 const doc = await extractDocument(readFileSync(abs), { limits: options.limits, signal: ctx.signal, filename: abs });
                 const meta = [`format=${doc.format}`, doc.pages !== undefined ? `pages=${doc.pages}` : '', `truncated=${doc.truncated}`].filter(Boolean).join(' ');
-                return `<document-content ${meta}>\n${doc.text}\n</document-content>`;
+                // A document must not be able to close the tag and have the rest read as if it were outside the data.
+                const safe = doc.text.replace(/<\/document-content/gi, '<\\/document-content');
+                return `<document-content ${meta}>\n${safe}\n</document-content>`;
             } catch (err) {
                 if (err instanceof DocumentExtractError) return `Error: ${err.code}. ${err.recovery}`;
                 return `Error: ${(err as Error).message}`;

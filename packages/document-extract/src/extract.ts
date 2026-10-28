@@ -39,8 +39,9 @@ export async function extractDocument(input: Uint8Array, options: ExtractOptions
 interface Body { text: string; pages?: number }
 
 function detect(bytes: Uint8Array, limits: ExtractLimits, filename?: string): DocumentFormat {
-    const head = Buffer.from(bytes.subarray(0, 1024)).toString('latin1');
-    if (head.includes('%PDF-')) return 'pdf';
+    // The PDF header opens the file (after an optional BOM or blank space); a text file that merely mentions it is text.
+    const start = Buffer.from(bytes.subarray(0, 64)).toString('latin1').replace(/^(\xEF\xBB\xBF|\s)+/, '');
+    if (/^%PDF-\d/.test(start)) return 'pdf';
     if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
         const { names } = listZip(bytes, limits.maxEntries, limits.maxUncompressedBytes);
         if (names.includes('word/document.xml')) return 'docx';

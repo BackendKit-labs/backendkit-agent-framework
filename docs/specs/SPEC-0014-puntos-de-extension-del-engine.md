@@ -259,7 +259,15 @@ Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, monto
   - **Sin nadie a quién preguntar:** si hay `approvals`, la llamada queda pendiente y no se ejecuta; si no, se rechaza.
   - **`approved`:** nunca se toma de los argumentos del modelo.
   - **Tests:** las cuatro reglas de §6.2, cada una con el suyo. Los tests anteriores de aprobación, sandbox y `allowedTools` pasan sin cambios.
-- **F3. Hooks.** `EngineHooks` con los seis puntos y su orden; test que reproduce el pipeline de coding solo con hooks (sin tocar todavía sus opciones).
+- **F3. Hooks. Hecho.**
+  - **Dónde:** `EngineHooks` en `governance/hooks.ts`, con las opciones `hooks` y `maxHookContinues` en el engine y en `createBaseEngine`.
+  - **Orden:** los seis puntos se ejecutan en orden de registro. El `RunContext` (principal, input, `state` y `signal`) se comparte durante todo el turno, y `engine.abort()` aborta su `signal`.
+  - **`systemPrompt`:** añade secciones al prompt del agente activo y al de los delegados.
+  - **`afterTurn`:** solo en el loop principal. Gana el primero que pide `continue`, y puede cambiar de agente y añadir un mensaje. Tiene un tope de 5 pasadas por turno, además de `maxIterations`.
+  - **`beforeTool` y `afterTool`:** solo envuelven las llamadas que la política permitió. `afterTool` recibe el resultado ya pasado por los guardrails.
+  - **Errores:** si un hook lanza, falla el turno y el error nombra el hook y el punto. Si es `beforeTool`, la tool no se ejecuta.
+  - **Criterio de aceptación cumplido:** un test reproduce el pipeline de coding solo con hooks. Clasifica en `beforeRun`, pone el brief en `systemPrompt` solo para el orquestador, y en `afterTurn` hace una revisión de QA con un veredicto guardado en `state`.
+  - **Fuera de F3:** el mapeo real del `Orchestrator` y el `QAService` a hooks es SPEC-0015 F1.
 - **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.
 - **F5. Aprobación durable (opción A).** `ApprovalStore` con implementación en archivo (`atomicWrite`, una sola decisión y una sola ejecución por id), `resumeApproved`, `agentApprover` y `consoleApprover`. Tests:
   - una acción pendiente sobrevive a un reinicio y se ejecuta una sola vez al aprobarse;

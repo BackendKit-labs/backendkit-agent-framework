@@ -26,6 +26,18 @@ Sin cambio incompatible. La ruta nueva se activa solo al configurar `policy`, `a
 - **`approvals`:** si nadie responde en el momento, la llamada queda pendiente en el almacén y no se ejecuta. Si no hay nadie a quién preguntar, se rechaza.
 - **Contexto de cada tool:** `ctx.principal` con el agente, su cadena de delegación y la identidad del engine. La cadena se propaga en las delegaciones.
 
+### `agent-core`: hooks de ciclo de vida (SPEC-0014 F3)
+Sin cambio incompatible: sin `hooks` el engine no cambia.
+- **`hooks: EngineHooks[]`:** seis puntos de enganche.
+  - `beforeRun`: antes de que empiece el turno.
+  - `systemPrompt`: añade secciones al prompt del agente activo y al de los delegados.
+  - `afterTurn`: se llama cuando el modelo responde sin pedir tools. Puede forzar otra pasada con `{ action: 'continue', agentId?, message? }`, con un tope de `maxHookContinues` (5 por defecto).
+  - `beforeTool` y `afterTool`: envuelven solo las llamadas que la política permitió.
+  - `afterRun`: al terminar el turno.
+- **Turno:** los hooks se ejecutan en orden de registro y comparten un `RunContext` (principal, input, `state` y `signal`).
+- **Errores:** un hook que lanza falla el turno, igual que un orquestador en modo `closed`.
+- **Pipeline de coding:** se puede expresar solo con hooks (hay un test que lo demuestra). Se migrará en SPEC-0015.
+
 ## v0.38.2 (2026-11-14)
 
 Publicado en npm (los dos paquetes de la tabla, cada versión es `latest`) y taggeado `agent-core@0.37.2` y `mcp-server@0.18.6` sobre el merge del bump (a833d35e). Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166); arreglo del CI que re-resolvía dependencias al instalar el binario de rolldown (#169). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.

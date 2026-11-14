@@ -12,6 +12,7 @@ import { AuditDispatcher } from '../governance/audit';
 import { combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
 import { packageInstallPolicy } from './package-install';
+import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
 import type {
     ApprovalRequest,
     ApprovalStore,
@@ -181,6 +182,13 @@ export interface AgentEngineOptions extends EngineOptions {
      */
     approvals?: ApprovalStore;
     /**
+     * Lifecycle hooks (SPEC-0014 §3): before/after a turn, system prompt sections, after the model's final answer
+     * (may force another pass), before/after each tool call. Run in registration order; a throwing hook fails the turn.
+     */
+    hooks?: EngineHooks[];
+    /** Most extra passes `afterTurn` hooks may force in one turn. Default 5. */
+    maxHookContinues?: number;
+    /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
      * Should return the new projectContext string built from the new cwd
      * (AGENT.md, session.md, store context, detected stack, etc.).
@@ -266,6 +274,12 @@ export class AgentEngine {
     private readonly approver?: Approver;
     /** Set when the approver is the adapted onToolApproval callback, so disable/enableToolApproval reach it. */
     private readonly callbackApprover?: CallbackApprover;
+    private readonly hooks: EngineHooks[];
+    /** Context shared by the hooks of the turn in progress; undefined between turns. */
+    private runCtx?: RunContext;
+    private runController?: AbortController;
+    /** Last final answer of the model in the current turn (for afterRun). */
+    private lastAnswer = '';
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
@@ -308,6 +322,7 @@ export class AgentEngine {
             type: 'system', level: 'warn',
             text: `[audit] a sink failed to record a tool call: ${err instanceof Error ? err.message : String(err)}`,
         }));
+        this.hooks = opts.hooks ?? [];
         this.governed = !!(opts.policy || opts.approver || opts.approvals);
         if (this.governed) {
             const someoneToAsk = !!(opts.approver || opts.approvals || opts.onToolApproval);
@@ -626,10 +641,63 @@ export class AgentEngine {
             }
         }
 
-        this.history.push({ role: 'user', content: input });
-        await this.runLoop(profile, orchestrationResult);
-        this.saveHistory();
+        // Hooks of this turn share one context (SPEC-0014 F3). A throwing hook fails the turn.
+        this.runController = new AbortController();
+        this.lastAnswer = '';
+        this.runCtx = {
+            principal: this.principalFor(profile.id),
+            input,
+            state: new Map(),
+            signal: this.runController.signal,
+            emit: (event) => this.opts.transport.emit(event),
+        };
+        try {
+            await runHooks(this.hooks, 'beforeRun', h => h.beforeRun!(this.runCtx!));
+
+            this.history.push({ role: 'user', content: input });
+            await this.runLoop(profile, orchestrationResult);
+            this.saveHistory();
+
+            const finished = this.runCtx;
+            await runHooks(this.hooks, 'afterRun', h => h.afterRun!(finished, { text: this.lastAnswer }));
+        } finally {
+            this.runCtx = undefined;
+            this.runController = undefined;
+        }
         this.opts.transport.emit({ type: 'done' });
+    }
+
+    /** Sections the `systemPrompt` hooks add for `profile`. */
+    private async hookPromptSections(profile: AgentProfile): Promise<string[]> {
+        if (!this.runCtx || !this.hooks.some(h => h.systemPrompt)) return [];
+        const ctx = this.runCtx;
+        const sections = await runHooks(this.hooks, 'systemPrompt', h => h.systemPrompt!(ctx, profile));
+        return sections.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    }
+
+    /** The first `afterTurn` hook that asks to continue wins; the rest still run (they may only observe). */
+    private async afterTurnHooks(profile: AgentProfile, text: string): Promise<ContinueTurn | undefined> {
+        if (!this.runCtx || !this.hooks.some(h => h.afterTurn)) return undefined;
+        const ctx = this.runCtx;
+        const answers = await runHooks(this.hooks, 'afterTurn', h => h.afterTurn!(ctx, { text, profile }));
+        return answers.find((a): a is ContinueTurn => !!a && (a as ContinueTurn).action === 'continue');
+    }
+
+    /** Arguments the model produced, as an object (anything else becomes `{}`). */
+    private parseArgs(raw: string): Record<string, unknown> {
+        try {
+            const parsed = JSON.parse(raw) as unknown;
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+        } catch {
+            return {};
+        }
+    }
+
+    /** Context for a tool hook: the turn's context with the principal of the agent that makes the call. */
+    private toolHookContext(principal: Principal): RunContext {
+        return this.runCtx
+            ? { ...this.runCtx, principal }
+            : { principal, input: '', state: new Map(), signal: new AbortController().signal, emit: (e) => this.opts.transport.emit(e) };
     }
 
     async runWorkflow(
@@ -650,6 +718,7 @@ export class AgentEngine {
 
     abort(): void {
         this.aborted = true;
+        this.runController?.abort('aborted');
         void this.opts.jobs?.cancelAll();
         this.abortController?.abort();
         this.abortController = null;
@@ -901,7 +970,7 @@ export class AgentEngine {
         return parts.join('\n');
     }
 
-    private buildSystemPrompt(profile: AgentProfile, orchestrationResult?: OrchestrationResult): string {
+    private buildSystemPrompt(profile: AgentProfile, orchestrationResult?: OrchestrationResult, hookSections: string[] = []): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
@@ -922,6 +991,7 @@ export class AgentEngine {
         if (isOrchestrator && orchestrationResult) {
             parts.push(this.buildOrchestrationBrief(orchestrationResult));
         }
+        parts.push(...hookSections);
         return parts.join('\n\n');
     }
 
@@ -1011,6 +1081,7 @@ export class AgentEngine {
         this.iterationManager.reset();
         const iterManager = this.iterationManager;
         let overflowRetries = 0;
+        let hookContinues = 0;
 
         this.opts.transport.emit({
             type: 'block_start',
@@ -1027,7 +1098,10 @@ export class AgentEngine {
             this.announceFinishedJobs(currentProfile.id);
             await this.prepareContext();
 
-            const systemMsg: LLMMessage = { role: 'system', content: this.buildSystemPrompt(currentProfile, orchestrationResult) };
+            const systemMsg: LLMMessage = {
+                role: 'system',
+                content: this.buildSystemPrompt(currentProfile, orchestrationResult, await this.hookPromptSections(currentProfile)),
+            };
             const tools = this.getToolsForAgent(currentProfile);
             const safeHistory = this.history.sanitized();
             if (this.contextManager) {
@@ -1264,7 +1338,25 @@ export class AgentEngine {
                 }
             }
 
-            if (toolResults.length === 0) break;
+            if (toolResults.length === 0) {
+                // The model answered without tools: afterTurn hooks may force another pass (SPEC-0014 F3).
+                this.lastAnswer = streamBuffer;
+                const next = await this.afterTurnHooks(currentProfile, streamBuffer);
+                if (!next) break;
+                const cap = this.opts.maxHookContinues ?? DEFAULT_MAX_HOOK_CONTINUES;
+                if (hookContinues >= cap) {
+                    this.opts.transport.emit({ type: 'system', level: 'warn', text: `[hooks] afterTurn asked for more than ${cap} extra passes; stopping` });
+                    break;
+                }
+                hookContinues++;
+                if (next.agentId) {
+                    const nextProfile = this.opts.agents.get(next.agentId);
+                    if (!nextProfile) throw new Error(`afterTurn hook asked to continue as unknown agent "${next.agentId}"`);
+                    currentProfile = nextProfile;
+                }
+                if (next.message) this.history.push({ role: 'user', content: next.message });
+                continue;
+            }
             this.history.pushAll(toolResults);
         }
 
@@ -1295,7 +1387,7 @@ export class AgentEngine {
         }
 
         const messages: LLMMessage[] = [
-            { role: 'system', content: this.buildSystemPrompt(profile) },
+            { role: 'system', content: this.buildSystemPrompt(profile, undefined, await this.hookPromptSections(profile)) },
             ...historySlice,
             { role: 'user', content: context ? `${question}\n\nContext:\n${context}` : question },
         ];
@@ -1580,6 +1672,10 @@ export class AgentEngine {
                 } else {
                     ran = true;
                     approval = verdict.approval;
+                    const toolHooks = this.hooks.some(h => h.beforeTool || h.afterTool);
+                    const hookCall: ToolCall | undefined = toolHooks ? { tool: toolDef, args: this.parseArgs(effective.args) } : undefined;
+                    const hookCtx = toolHooks ? this.toolHookContext(principal) : undefined;
+                    if (hookCall && hookCtx) await runHooks(this.hooks, 'beforeTool', h => h.beforeTool!(hookCtx, hookCall));
                     ({ result, success, outcome } = await this.runToolDef(
                         effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run',
                     ));
@@ -1588,6 +1684,10 @@ export class AgentEngine {
                         result = checked.blocked
                             ? `[Tool result withheld by guardrail "${checked.blocked.guardrail}": ${checked.blocked.reason}]`
                             : checked.content;
+                    }
+                    if (hookCall && hookCtx) {
+                        const finalResult = { text: result, success };
+                        await runHooks(this.hooks, 'afterTool', h => h.afterTool!(hookCtx, hookCall, finalResult));
                     }
                 }
             }
@@ -1659,15 +1759,8 @@ export class AgentEngine {
     private async decideGoverned(
         tool: ToolDefinition, rawArgs: string, principal: Principal, sandboxDecisions: AuditSandboxDecision[],
     ): Promise<GovernedVerdict> {
-        let args: Record<string, unknown>;
-        try {
-            const parsed = JSON.parse(rawArgs) as unknown;
-            args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-        } catch {
-            args = {};
-        }
         // `approved` is never taken from what the model sent: only whoever holds a stored approval sets it.
-        const call: ToolCall = { tool, args };
+        const call: ToolCall = { tool, args: this.parseArgs(rawArgs) };
         const sandboxAsk = this.opts.sandbox?.approvalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool.name) === 'ask';
 
         let d = await evaluatePolicies(this.policies, principal, call);

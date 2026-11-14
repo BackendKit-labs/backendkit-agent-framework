@@ -24,9 +24,18 @@ jobs:
 
       # npm bug #4828: package-lock.json was generated on Windows and only records the win32
       # rolldown binding, so `npm ci` on Linux leaves vite/vitest (web-ui) without its native
-      # binding. Install the Linux one at the locked rolldown version, without touching the lock.
+      # binding. Unpack the Linux one at the locked rolldown version straight into node_modules.
+      # Not `npm install --no-package-lock`: that re-resolves the whole tree against the registry and
+      # replaced locked transitive deps (light-my-request 6.8.1 -> cookie 2, ESM-only, broke agent-web's Jest).
       - name: Install rolldown native binding (linux)
-        run: npm install --no-save --no-package-lock "@rolldown/binding-linux-x64-gnu@$(node -p "require('rolldown/package.json').version")"
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('rolldown/package.json').version")
+          tgz=$(npm pack "@rolldown/binding-linux-x64-gnu@${version}" --silent)
+          mkdir -p node_modules/@rolldown/binding-linux-x64-gnu
+          tar -xzf "$tgz" -C node_modules/@rolldown/binding-linux-x64-gnu --strip-components=1
+          rm -f "$tgz"
+          node -e "require('@rolldown/binding-linux-x64-gnu'); console.log('rolldown linux binding', '${version}', 'ok')"
 
       # ── Build (dependency order) ──────────────────────────────────────────────
       - name: Build agent-protocol

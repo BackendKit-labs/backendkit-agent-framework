@@ -319,23 +319,43 @@ export class MCPClientManager {
     private wrapTool(
         config: MCPServerConfig,
         client: Client,
-        mcpTool: { name: string; description?: string; inputSchema: unknown; annotations?: { readOnlyHint?: boolean } },
+        mcpTool: {
+            name: string;
+            title?: string;
+            description?: string;
+            inputSchema: unknown;
+            annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
+            _meta?: Record<string, unknown>;
+        },
     ): ToolDefinition {
         // Function names must match ^[a-zA-Z0-9_-]+$ — replace ':' and use '__' as separator
         const safeName   = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
         const namespacedName = `mcp__${safeName}__${mcpTool.name}`;
         const timeoutMs = config.timeoutMs ?? 30_000;
 
+        // What the server says about its tools (annotations, _meta) is a claim, not a fact: only copy it over
+        // when the config says this server is trusted. `title` carries no authority and is always kept.
+        const claims: Partial<ToolDefinition> = {};
+        if (config.trustAnnotations) {
+            const a = mcpTool.annotations;
+            if (a?.readOnlyHint === true) { claims.concurrencySafe = true; claims.readOnly = true; }
+            if (a?.destructiveHint !== undefined) claims.destructive = a.destructiveHint;
+            if (a?.idempotentHint !== undefined) claims.idempotent = a.idempotentHint;
+            if (a?.openWorldHint !== undefined) claims.openWorld = a.openWorldHint;
+            if (mcpTool._meta && Object.keys(mcpTool._meta).length > 0) claims.meta = { ...mcpTool._meta };
+        }
+
         return {
             name: namespacedName,
             description: mcpTool.description
                 ? `[MCP:${config.name}] ${mcpTool.description}`
                 : `[MCP:${config.name}] ${mcpTool.name}`,
+            ...(mcpTool.title ? { title: mcpTool.title } : {}),
             parameters: (mcpTool.inputSchema as Record<string, unknown>) ?? {
                 type: 'object',
                 properties: {},
             },
-            ...(config.trustAnnotations && mcpTool.annotations?.readOnlyHint === true ? { concurrencySafe: true } : {}),
+            ...claims,
             execute: async (args, ctx) => {
                 let timerId: ReturnType<typeof setTimeout> | undefined;
                 const timer = new Promise<never>((_, reject) => {

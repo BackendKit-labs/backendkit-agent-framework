@@ -6,17 +6,83 @@ export { z };
 
 // ── Typed tool definition ─────────────────────────────────────────────────────
 
-export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
+/** Declarative facts about a tool that the engine and MCP clients use to decide how to treat it. */
+export interface ToolMetadata {
+    /** Human-readable name for UIs and MCP clients. */
+    title?: string;
+    /** Mutates nothing. Implies `concurrencySafe`; incompatible with `destructive`. MCP: `readOnlyHint`. */
+    readOnly?: boolean;
+    /** A write that cannot be undone from the outside. MCP: `destructiveHint`. */
+    destructive?: boolean;
+    /** Calling it again with the same arguments has no additional effect. MCP: `idempotentHint`. */
+    idempotent?: boolean;
+    /** Talks to entities outside the system. MCP: `openWorldHint`. */
+    openWorld?: boolean;
+    /** Free-form metadata for governance clients (never read by the engine). MCP: `_meta`. */
+    meta?: Record<string, unknown>;
+}
+
+export interface TypedToolOptions<TInput extends z.ZodTypeAny> extends ToolMetadata {
     name: string;
     description: string;
     /** Zod schema for the tool's input. Used for validation and JSON Schema generation. */
     input: TInput;
-    /** Safe to run in parallel with other concurrencySafe tools. Default false. */
+    /** Safe to run in parallel with other concurrencySafe tools. Default false (true when `readOnly`). */
     concurrencySafe?: boolean;
     /** Time limit for one call in ms (overrides the engine's `toolTimeoutMs`). Default: none. */
     timeoutMs?: number;
     /** Type-safe execute handler — args are already validated and typed. */
     execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
+}
+
+/** A tool whose declared facts contradict each other (thrown at definition time, never at call time). */
+export class ToolDefinitionError extends Error {
+    constructor(readonly toolName: string, message: string) {
+        super(`Tool "${toolName}": ${message}`);
+        this.name = 'ToolDefinitionError';
+    }
+}
+
+/**
+ * Checks that a tool's declared facts are consistent. `defineTool` calls it; call it yourself on a hand-written
+ * `ToolDefinition` before exposing it (the MCP tool server does).
+ *
+ * - `readOnly` and `destructive` cannot both be true.
+ * - `concurrencySafe` means "read-only, order-independent", so a `destructive` tool cannot declare it.
+ * - `timeoutMs`, when present, must be a positive number.
+ * - `parameters` must describe an object.
+ */
+export function validateToolDefinition(tool: ToolDefinition): void {
+    if (!tool.name) throw new ToolDefinitionError(tool.name ?? '', 'name is required');
+    if (tool.readOnly && tool.destructive) {
+        throw new ToolDefinitionError(tool.name, 'cannot be both readOnly and destructive');
+    }
+    if (tool.destructive && tool.concurrencySafe) {
+        throw new ToolDefinitionError(tool.name, 'a destructive tool cannot be concurrencySafe');
+    }
+    if (tool.timeoutMs !== undefined && !(Number.isFinite(tool.timeoutMs) && tool.timeoutMs > 0)) {
+        throw new ToolDefinitionError(tool.name, `timeoutMs must be a positive number (got ${String(tool.timeoutMs)})`);
+    }
+    if (tool.parameters && tool.parameters.type !== undefined && tool.parameters.type !== 'object') {
+        throw new ToolDefinitionError(tool.name, `parameters must describe an object (got type "${String(tool.parameters.type)}")`);
+    }
+}
+
+// Zod schema of each tool created by defineTool, so the MCP tool server can register the exact schema instead of
+// converting the JSON Schema back. A WeakMap keeps ToolDefinition a plain, serialisable object.
+const inputSchemas = new WeakMap<ToolDefinition, z.ZodTypeAny>();
+
+/** The Zod schema a tool was defined with, or undefined for a hand-written ToolDefinition. */
+export function getToolInputSchema(tool: ToolDefinition): z.ZodTypeAny | undefined {
+    return inputSchemas.get(tool);
+}
+
+/**
+ * Converts a Zod schema to the plain JSON Schema sent to LLMs (tool parameters, structured output):
+ * OpenAPI 3 flavour, no `$ref`s, without the top-level `$schema` / `definitions` meta.
+ */
+export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
+    return stripTopLevelMeta(z.toJSONSchema(schema, { target: 'openapi-3.0', unrepresentable: 'any', io: 'input' }) as Record<string, unknown>);
 }
 
 /**
@@ -26,10 +92,14 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
  * validated at runtime before being passed to the execute handler.
  * Validation errors are returned as tool result strings (not thrown).
  *
+ * Declared facts (`readOnly`, `destructive`, `idempotent`, `openWorld`, `meta`, `title`) are checked for
+ * consistency here and throw `ToolDefinitionError` at definition time. `readOnly: true` implies `concurrencySafe`.
+ *
  * @example
  * const readFileTool = defineTool({
  *   name: 'read_file',
  *   description: 'Read a file from disk',
+ *   readOnly: true,
  *   input: z.object({
  *     path:     z.string().describe('Absolute path to the file'),
  *     encoding: z.enum(['utf-8', 'base64']).default('utf-8'),
@@ -40,25 +110,24 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> {
  *   },
  * });
  */
-/**
- * Converts a Zod schema to the plain JSON Schema sent to LLMs (tool parameters, structured output):
- * OpenAPI 3 flavour, no `$ref`s, without the top-level `$schema` / `definitions` meta.
- */
-export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
-    return stripTopLevelMeta(z.toJSONSchema(schema, { target: 'openapi-3.0', unrepresentable: 'any', io: 'input' }) as Record<string, unknown>);
-}
-
 export function defineTool<TInput extends z.ZodTypeAny>(
     opts: TypedToolOptions<TInput>,
 ): ToolDefinition {
     const parameters = zodToParameters(opts.input);
+    const concurrencySafe = opts.concurrencySafe || opts.readOnly === true;
 
-    return {
+    const tool: ToolDefinition = {
         name: opts.name,
         description: opts.description,
         parameters,
-        ...(opts.concurrencySafe ? { concurrencySafe: true } : {}),
+        ...(opts.title !== undefined ? { title: opts.title } : {}),
+        ...(concurrencySafe ? { concurrencySafe: true } : {}),
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
+        ...(opts.destructive !== undefined ? { destructive: opts.destructive } : {}),
+        ...(opts.idempotent !== undefined ? { idempotent: opts.idempotent } : {}),
+        ...(opts.openWorld !== undefined ? { openWorld: opts.openWorld } : {}),
+        ...(opts.meta !== undefined ? { meta: opts.meta } : {}),
         execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
             const result = opts.input.safeParse(rawArgs);
             if (!result.success) {
@@ -70,6 +139,10 @@ export function defineTool<TInput extends z.ZodTypeAny>(
             return opts.execute(result.data, ctx);
         },
     };
+
+    validateToolDefinition(tool);
+    inputSchemas.set(tool, opts.input);
+    return tool;
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────

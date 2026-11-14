@@ -49,10 +49,12 @@ export { StdoutTransport } from './transport/StdoutTransport';
 export { CallbackTransport } from './transport/CallbackTransport';
 
 // ── Typed tools ────────────────────────────────────────────────────────────────
-export { defineTool, z, zodToParameters } from './tools/defineTool';
+export { defineTool, z, zodToParameters, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from './tools/defineTool';
+export { createToolContext, createInMemorySessionMemory } from './tools/createToolContext';
 export { generateObject, generateObjectWith, StructuredOutputError } from './structured/generateObject';
 export type { GenerateObjectOptions, StructuredChat } from './structured/generateObject';
-export type { TypedToolOptions } from './tools/defineTool';
+export type { TypedToolOptions, ToolMetadata } from './tools/defineTool';
+export type { ToolContextOptions } from './tools/createToolContext';
 
 // ── Skills ─────────────────────────────────────────────────────────────────────
 export { SkillLoader } from './skills/loader';
@@ -119,6 +121,14 @@ export type {
 // ── MCP client — MCPClientManager in AgentEngineOptions, MCPServerConfig in coding config ─
 export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
+
+// ── MCP tool server — ToolDefinitions served directly over MCP, no model in between
+export { createToolServer, createToolServerFactory, createToolRegistrar, hashArgs } from './mcp/tool-server';
+export type { ToolServerOptions, ToolCallInfo, ToolCallRecord, ToolCallOutcome } from './mcp/tool-server';
+export { startToolServerHttp, isBearerAuthorized, isLoopbackRequest } from './mcp/tool-server-http';
+export type { ToolServerHttpOptions, RunningToolServer } from './mcp/tool-server-http';
+export { runToolServer, parseToolServerArgs, toolServerUsage } from './mcp/tool-server-cli';
+export type { ToolServerCliArgs, ToolServerCliOptions, RunningToolServerCli } from './mcp/tool-server-cli';
 
 // ── Workflow — WorkflowBuilder/Def in AgentEngine.runWorkflow public API ────────
 export { workflow, agent, WorkflowBuilder } from './workflow/WorkflowBuilder';

@@ -57,6 +57,8 @@ export interface ToolDefinition {
     name: string;
     description: string;
     parameters: JSONSchema;
+    /** Human-readable name for UIs and MCP clients. Default: none (clients fall back to `name`). */
+    title?: string;
     /** Safe to run alongside other concurrencySafe tools in the same turn (read-only, order-independent). Default false. */
     concurrencySafe?: boolean;
     /**
@@ -64,6 +66,26 @@ export interface ToolDefinition {
      * `ctx.signal` is aborted and the model gets a `TOOL_TIMEOUT` error. Default: none.
      */
     timeoutMs?: number;
+    /**
+     * The tool mutates nothing. Implies `concurrencySafe` and is incompatible with `destructive`.
+     * Exposed to MCP clients as `readOnlyHint`. Default: unknown (the field is absent).
+     */
+    readOnly?: boolean;
+    /**
+     * The tool performs a write that cannot be undone from the outside (pay, delete, post, send).
+     * A server that exposes such a tool directly must authorize every call (see `createToolServer`).
+     * Exposed to MCP clients as `destructiveHint`.
+     */
+    destructive?: boolean;
+    /** Calling it again with the same arguments has no additional effect. Exposed as `idempotentHint`. */
+    idempotent?: boolean;
+    /** Interacts with entities outside the system (the web, third parties). Exposed as `openWorldHint`. */
+    openWorld?: boolean;
+    /**
+     * Free-form metadata for governance clients (autonomy level, ERP operation, version...). The engine never
+     * reads it. Exposed to MCP clients as `_meta`, and read back from MCP servers only with `trustAnnotations`.
+     */
+    meta?: Record<string, unknown>;
     execute(args: unknown, ctx: ExecutionContext): Promise<string>;
 }
 

@@ -1,4 +1,5 @@
-import { defineTool, z } from '../defineTool';
+import { defineTool, z, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from '../defineTool';
+import type { ToolDefinition } from '../../types';
 
 const echoTool = defineTool({
     name: 'echo',
@@ -54,5 +55,94 @@ describe('defineTool', () => {
     it('z export is Zod', () => {
         const schema = z.string();
         expect(schema.parse('hello')).toBe('hello');
+    });
+});
+
+describe('defineTool metadata', () => {
+    it('leaves the new fields absent when not declared (existing tools unchanged)', () => {
+        expect(echoTool).not.toHaveProperty('readOnly');
+        expect(echoTool).not.toHaveProperty('destructive');
+        expect(echoTool).not.toHaveProperty('meta');
+        expect(echoTool).not.toHaveProperty('title');
+        expect(echoTool).not.toHaveProperty('concurrencySafe');
+    });
+
+    it('copies declared facts and makes readOnly imply concurrencySafe', () => {
+        const tool = defineTool({
+            name: 'balances',
+            title: 'Balances at date',
+            description: 'Read balances',
+            readOnly: true,
+            idempotent: true,
+            openWorld: false,
+            meta: { autonomyLevel: 0, erpOperation: 'query' },
+            input: z.object({ date: z.string() }),
+            execute: async () => '{}',
+        });
+        expect(tool).toMatchObject({
+            title: 'Balances at date',
+            readOnly: true,
+            concurrencySafe: true,
+            idempotent: true,
+            openWorld: false,
+            meta: { autonomyLevel: 0, erpOperation: 'query' },
+        });
+    });
+
+    it('keeps the Zod schema reachable for the MCP tool server', () => {
+        const schema = getToolInputSchema(echoTool);
+        expect(schema).toBeDefined();
+        expect(schema!.safeParse({ message: 'x' }).success).toBe(true);
+        expect(getToolInputSchema({ name: 'raw', description: '', parameters: {}, execute: async () => '' })).toBeUndefined();
+    });
+
+    it('rejects readOnly + destructive at definition time', () => {
+        expect(() => defineTool({
+            name: 'bad',
+            description: '',
+            readOnly: true,
+            destructive: true,
+            input: z.object({}),
+            execute: async () => '',
+        })).toThrow(ToolDefinitionError);
+    });
+
+    it('rejects destructive + concurrencySafe', () => {
+        expect(() => defineTool({
+            name: 'pay',
+            description: '',
+            destructive: true,
+            concurrencySafe: true,
+            input: z.object({}),
+            execute: async () => '',
+        })).toThrow(/cannot be concurrencySafe/);
+    });
+});
+
+describe('validateToolDefinition', () => {
+    const base: ToolDefinition = { name: 't', description: '', parameters: { type: 'object', properties: {} }, execute: async () => '' };
+
+    it('accepts a plain tool', () => {
+        expect(() => validateToolDefinition(base)).not.toThrow();
+    });
+
+    it('rejects a non-object parameters schema', () => {
+        expect(() => validateToolDefinition({ ...base, parameters: { type: 'string' } })).toThrow(/must describe an object/);
+    });
+
+    it('rejects a non-positive timeout', () => {
+        expect(() => validateToolDefinition({ ...base, timeoutMs: 0 })).toThrow(/timeoutMs/);
+        expect(() => validateToolDefinition({ ...base, timeoutMs: -5 })).toThrow(/timeoutMs/);
+    });
+
+    it('names the tool in the error', () => {
+        try {
+            validateToolDefinition({ ...base, name: 'wire', readOnly: true, destructive: true });
+            fail('expected to throw');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ToolDefinitionError);
+            expect((err as ToolDefinitionError).toolName).toBe('wire');
+            expect((err as Error).message).toMatch(/^Tool "wire":/);
+        }
     });
 });

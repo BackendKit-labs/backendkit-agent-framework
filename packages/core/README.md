@@ -19,6 +19,7 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 - [Transports](#transports)
 - [SessionMemory](#sessionmemory)
 - [MCP client](#mcp-client)
+- [MCP tool server (tools without a model)](#mcp-tool-server-tools-without-a-model)
 - [Workflow engine](#workflow-engine)
 - [Advanced memory system](#advanced-memory-system)
 - [Observability](#observability)
@@ -199,6 +200,52 @@ const lookupUserTool = defineTool({
     return JSON.stringify(user);
   },
 });
+```
+
+### Declared facts: readOnly, destructive, meta
+
+A tool can say what it does so the engine and MCP clients can treat it accordingly. The fields are optional and absent unless declared, so existing tools are unaffected.
+
+```typescript
+const balancesTool = defineTool({
+  name:        'balances_at',
+  title:       'Balances at date',
+  description: 'Account balances at the end of a day',
+  readOnly:    true,                       // implies concurrencySafe; MCP readOnlyHint
+  idempotent:  true,                       // MCP idempotentHint
+  meta:        { autonomyLevel: 0, erpOperation: 'query' }, // MCP _meta, for governance clients
+  input:       z.object({ date: z.string() }),
+  execute:     async ({ date }) => JSON.stringify(await ledger.balances(date)),
+});
+
+const payTool = defineTool({
+  name:        'pay_invoice',
+  description: 'Pay an approved invoice',
+  destructive: true,                       // MCP destructiveHint; a direct MCP server must authorize every call
+  input:       z.object({ invoiceId: z.string(), approvalId: z.string() }),
+  execute:     async (args) => JSON.stringify(await treasury.pay(args)),
+});
+```
+
+| Field | Meaning | MCP |
+|---|---|---|
+| `title` | Human-readable name | `title` |
+| `readOnly` | Mutates nothing. Implies `concurrencySafe`; cannot be combined with `destructive`. | `readOnlyHint` |
+| `destructive` | A write that cannot be undone from the outside. Cannot be `concurrencySafe`. | `destructiveHint` |
+| `idempotent` | Same arguments again, no additional effect | `idempotentHint` |
+| `openWorld` | Talks to entities outside the system | `openWorldHint` |
+| `meta` | Free-form, never read by the engine | `_meta` |
+
+Contradictions throw `ToolDefinitionError` at definition time, not at call time. For a hand-written `ToolDefinition`, call `validateToolDefinition(tool)` yourself; the MCP tool server does. When the **client** side consumes an MCP server (`MCPClientManager`), these facts are copied from the server's annotations only with `trustAnnotations: true`: what a server says about its tools is a claim.
+
+### Running a tool outside an engine
+
+`createToolContext()` builds the `ExecutionContext` a tool expects, with in-memory session memory and an `askAgent` that rejects. Use it in tests, scripts, cron jobs or anywhere there is no `AgentEngine`:
+
+```typescript
+import { createToolContext } from '@backendkit-labs/agent-core';
+
+const out = await balancesTool.execute({ date: '2026-10-31' }, createToolContext({ workingDir: process.cwd() }));
 ```
 
 ---
@@ -628,6 +675,46 @@ mcp.setDisconnectHandler((serverName) => {
   // Re-attempt connection on next engine.run() call
 });
 ```
+
+---
+
+## MCP tool server (tools without a model)
+
+`createToolServer` exposes `ToolDefinition`s as MCP tools that run **directly**: the arguments the client sends are the arguments `execute` receives, with no language model in between. Use it for anything a caller already knows how to ask for (a balance at a date, post this draft, run this check), where a model would only add latency, cost and the chance of a rewritten amount. For requests that need interpretation, `AgentMCPServer` in `@backendkit-labs/mcp-server` turns each call into a prompt for an engine. Both can coexist, and a prompt tool may itself call direct tools.
+
+Each call gets: validation against the tool's schema before anything runs (the SDK answers invalid arguments with `isError` and a `-32602` message), an optional `authorize` gate, an `ExecutionContext` whose `signal` aborts on client cancellation or `timeoutMs`, an output cap, and an `audit` record. Tools from `defineTool` are registered with their own Zod schema, so what the client validates against is exactly what `execute` validates against; a hand-written `ToolDefinition` goes through `z.fromJSONSchema`, which fails loudly on constructs it cannot express.
+
+```typescript
+import { createToolServer, startToolServerHttp, runToolServer } from '@backendkit-labs/agent-core';
+// also available from '@backendkit-labs/agent-core/mcp'
+
+const options = {
+  name:    'ledger',
+  version: '1.0.0',
+  tools:   [balancesTool, payTool],
+  // Required because payTool is destructive: a direct tool skips the engine's allowedTools, gates and budget.
+  authorize: async ({ tool, args, sessionId }) =>
+    !tool.destructive || approvals.isValid(args.approvalId as string),
+  audit: record => fs.appendFile('tool-calls.ndjson', JSON.stringify(record) + '\n'),
+  context: { workingDir: process.cwd() },   // or a function that builds the whole context per call
+  maxOutputChars: 1_048_576,                 // default
+};
+
+// 1. Any transport: one McpServer with the tools registered.
+const server = createToolServer(options);
+await server.connect(new StdioServerTransport());
+
+// 2. Streamable HTTP, stateless: one server and transport per request, bearer required, loopback-only by default.
+const running = await startToolServerHttp(options, { port: 3100, authToken: process.env.LEDGER_TOKEN });
+// running.url → http://127.0.0.1:3100/mcp
+
+// 3. The usual command line: stdio by default, `--http --port 3100 --host 0.0.0.0 --token <t>`, `--help`.
+await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });
+```
+
+**Error contract.** `isError: true` means the call did not run to completion: denied by `authorize`, timed out, threw (message only, no stack), or returned more than `maxOutputChars`. Whatever the tool *returned* is payload, even a JSON `{ ok: false }` that encodes a business failure. The `audit` hook receives one record per call, including denied and failed ones, with a SHA-256 of the arguments rather than the arguments themselves; if the hook throws, the failure goes to stderr and the result does not change (the tool has already run).
+
+**HTTP guards.** Without `authToken` the server refuses to listen anywhere but loopback. Bound to loopback, requests whose `Host` or `Origin` is not loopback get 403 (DNS rebinding, cross-site POST). Only `POST <path>` is served: a stateless server has no SSE stream to open and no session to delete. Bodies above `maxBodyBytes` (1 MiB) get 413.
 
 ---
 

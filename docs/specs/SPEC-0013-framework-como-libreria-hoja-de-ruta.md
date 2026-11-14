@@ -58,7 +58,7 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 | # | Módulo | Idea genérica | Amarre | Resuelve |
 |---|---|---|---|---|
 | M1 | `orchestration` (4,3k) | ciclo de vida de una tarea con gates, riesgo, enrutado | estados `design_review`/`qa_review`/`commit_*`, `ActionType` de coding, informes de auditoría de CI | 0015 F2 (se mueve entero a coding) |
-| M2 | `reflection` (4,6k) | aprender de fallos | dominios `audit/test/commit/agent/bootstrap`, `.appName/manifest.yaml`, hook `.ps1` | 0015 F2 (se mueve a coding); 0017 decide si sube un núcleo genérico |
+| M2 | `reflection` (4,6k) | autoaprendizaje: aprender de fallos | dominios `audit/test/commit/agent/bootstrap`, `FailureRecord` con campos de auditoría de código, `.appName/manifest.yaml`, hook `.ps1`, `autoPromote` | 0017 F6 (núcleo genérico en core, **decidido**) + 0015 F2 (dominios de coding al vertical como plugin) |
 | M3 | `qa` | revisión por un juez LLM | prompts de revisión de código | 0015 F2 |
 | M4 | `context` | instrucciones por capas | `~/.appName`, `AGENT.md`, `USER.md` | 0016 F1 |
 | M5 | `skills` | instrucciones empaquetadas, activación por disparador | detección de stack; fuentes GitHub, skills.sh y Obsidian en core | 0016 F2 |
@@ -75,6 +75,7 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 | D3 | Auditoría | `AuditLogger`, `ToolCallRecord` del servidor de tools, `orchestration/audit`, `AuditEvent` de Steward | 0014 (contrato), 0017 F3 |
 | D4 | Memoria | `SessionMemory`, `agent-memory` (`MemoryStoreBackend`), `ProjectStoreData`, `coding/store` | 0015 F4, 0017 F4 |
 | D5 | RAG e indexado | `enterprise/rag`, lance-rag de `orchestrator-agent`, indexer de `mcp-server` | 0017 F5 |
+| D7 | Autoaprendizaje | `reflection` (catálogo de fallos, patrones, promoción a regla, memo de lecciones) y `agent-memory/ProceduralMemory` (patrones `trigger → action → outcome` inyectados en el contexto) | 0017 F6 |
 | D6 | `isLoopbackRequest` | core (`mcp/tool-server-http.ts`), `mcp-server/request-guards.ts`, `mcp-connectors/shared/server-runner.ts` | 0014 F0 (una sola copia en core) |
 
 ### 3.4 Pendientes sueltos de la sesión del 2026-11-14
@@ -110,5 +111,7 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 ## 7. Decisiones abiertas (del usuario)
 
 1. Modelo de aprobación durable: reenvío o suspensión del loop (SPEC-0014 §6).
-2. Si `reflection` deja un núcleo genérico en core o sale entero a coding (SPEC-0017 §F6).
+2. ~~Si `reflection` deja un núcleo genérico en core~~ **Decidido (2026-11-14):** el autoaprendizaje es una capacidad de core para cualquier agente; los dominios de coding son un plugin (SPEC-0017 F6).
 3. Nombre y ubicación del vertical de coding: dentro de `agent-coding` o un paquete nuevo (SPEC-0015 §2).
+4. Si #166 se publica tal cual o se alinea antes con el contrato de SPEC-0014 (SPEC-0014 §8).
+5. Regla de aprobación por defecto: `write_file` como `destructive`, o "no `readOnly` ⇒ pedir aprobación" (SPEC-0014 §4).

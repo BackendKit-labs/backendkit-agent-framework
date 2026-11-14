@@ -11,7 +11,7 @@
 | Pieza | Ubicación hoy | Líneas | Destino |
 |---|---|---|---|
 | `orchestration/` completo (FSM, intent detector, risk scorer, policy engine, gate resolver, audit reporter, config loader) | `core/src/orchestration` | 4.307 | vertical de coding |
-| `reflection/` completo | `core/src/reflection` | 4.578 | vertical de coding (ver SPEC-0017 F6 sobre un núcleo genérico) |
+| `reflection/`: dominios (`audit`, `test`, `commit`, `bootstrap`, `agent`), hooks, `historical-loader`, `policy-promoter` a `manifest.yaml` y comandos de dominio | `core/src/reflection` | ~3.500 de 4.578 | vertical de coding, como plugin del autoaprendizaje. El núcleo (catálogo, detector de patrones, registro de dominios) se queda en core y se rediseña en SPEC-0017 F6 |
 | `qa/qa-service.ts` | `core/src/qa` | 322 | vertical de coding |
 | `engine/qa-orchestrator.ts` | `core/src/engine` | 234 | vertical de coding, reescrito como hook |
 | `engine/package-install.ts` | `core/src/engine` | 111 | vertical de coding, como `ToolPolicy` |
@@ -20,7 +20,7 @@
 | `WRITE_TOOLS` y `requiresAlwaysAsk` | `ApprovalGate.ts:14`, `:72-83` | — | `defaultToolPolicy` de core (SPEC-0014 §4) + `ToolPolicy` de coding |
 | Subpaths `./orchestration` y `./reflection` de core | `core/package.json` `exports` | — | se eliminan |
 
-`enterprise` importa `agent-core/reflection` (2 imports): pasa a importarlo del vertical, o se reevalúa en SPEC-0017 F6.
+`enterprise` importa `agent-core/reflection` (2 imports): pasa al módulo de autoaprendizaje de core (SPEC-0017 F6). Si F6 aún no está, se mantiene el núcleo actual en core hasta que lo esté.
 
 ## 2. Ubicación del vertical (decisión abierta)
 

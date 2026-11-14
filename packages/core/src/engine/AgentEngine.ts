@@ -7,6 +7,17 @@ import { isContextOverflowError } from './contextOverflow';
 import { GuardrailRunner } from '../guardrails/GuardrailRunner';
 import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
+import { AuditDispatcher } from '../governance/audit';
+import type {
+    AuditDecision,
+    AuditEvent,
+    AuditOutcome,
+    AuditSandboxDecision,
+    AuditSink,
+    Identity,
+    Principal,
+} from '../governance/types';
+import { hashArgs } from '../shared/utils/canonical-json';
 import type {
     AgentProfile,
     EngineOptions,
@@ -122,8 +133,18 @@ export interface AgentEngineOptions extends EngineOptions {
      * Path to an append-only NDJSON file for tool call audit records.
      * Each executed tool call is appended as one JSON line with: ts, session, agent, tool, inputPreview, success, durationMs.
      * Directory is created automatically. Optional — no audit file written when absent.
+     * @deprecated Writes up to 200 characters of the arguments in clear. Use `audit` (an `AuditSink`, e.g.
+     * `new NdjsonAuditSink(path)` or `new HashChainAuditSink(path)`), whose events carry only a hash of the
+     * arguments. Kept unchanged, same file format, until 0.40.
      */
     auditLog?: string;
+    /**
+     * Where every tool call (and every `ask_agent` delegation) is recorded, accepted or refused: exactly one
+     * `AuditEvent` per call, arguments as a SHA-256 only. Several sinks receive the same events in the same order.
+     */
+    audit?: AuditSink | AuditSink[];
+    /** Who this engine acts for (tenant, user, roles...). Becomes part of the `Principal` of every call. */
+    identity?: Identity;
     /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
      * Should return the new projectContext string built from the new cwd
@@ -200,6 +221,7 @@ export class AgentEngine {
     /** Uncalibrated token estimate of the last request sent by runLoop, to calibrate against real usage. */
     private lastRequestEstimate = 0;
     private readonly auditLogger: AuditLogger;
+    private readonly audit: AuditDispatcher;
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
@@ -237,6 +259,11 @@ export class AgentEngine {
             });
         }
         this.auditLogger = new AuditLogger(opts.auditLog);
+        // A sink that fails must not change what the agent already did, but it must not fail silently either.
+        this.audit = new AuditDispatcher(opts.audit, (err) => this.opts.transport.emit({
+            type: 'system', level: 'warn',
+            text: `[audit] a sink failed to record a tool call: ${err instanceof Error ? err.message : String(err)}`,
+        }));
         this.mcpRegistrar = new MCPRegistrar({
             mcpManager: opts.mcpManager,
             tools:      opts.tools,
@@ -1043,13 +1070,23 @@ export class AgentEngine {
                 const validCalls = askAgentCalls.filter(c => c.agentId !== currentProfile.id);
                 const selfCalls  = askAgentCalls.filter(c => c.agentId === currentProfile.id);
 
+                // Delegations are audited like any tool call: one event each (SPEC-0014 F1).
+                const delegationArgs = (c: { agentId: string; question: string; context?: string }) =>
+                    ({ agent_id: c.agentId, question: c.question, ...(c.context !== undefined ? { context: c.context } : {}) });
+
                 for (const call of selfCalls) {
+                    const startedAt = Date.now();
                     const msg = `Self-delegation blocked: agent "${currentProfile.id}" cannot delegate to itself. Execute the task directly.`;
                     this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: false, preview: msg });
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
+                    await this.recordAudit({
+                        startedAt, agentId: currentProfile.id, tool: 'ask_agent', rawArgs: delegationArgs(call),
+                        decision: 'not_allowed', reason: 'self-delegation',
+                    });
                 }
 
                 if (validCalls.length > 0) {
+                    const startedAt = Date.now();
                     const requests = validCalls.map(c => ({
                         agentId:     c.agentId,
                         question:    c.question,
@@ -1067,6 +1104,11 @@ export class AgentEngine {
                         const content = result.error ? `Error: ${result.error}` : result.content;
                         this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: !result.error, preview: content.slice(0, 120) });
                         toolResults.push({ role: 'tool', tool_call_id: call.id, content });
+                        await this.recordAudit({
+                            startedAt, agentId: currentProfile.id, tool: 'ask_agent', rawArgs: delegationArgs(call),
+                            decision: 'allow', ...(result.error ? { reason: result.error } : {}),
+                            outcome: result.error ? 'error' : 'ok',
+                        });
                     }
                 }
             }
@@ -1311,22 +1353,23 @@ export class AgentEngine {
      * outcome is reported on THIS engine's transport and audit log. A runner shared by several engines therefore
      * never leaks one engine's decisions to another.
      */
-    private sandboxFor(agentId: string): import('../sandbox/types').SandboxRunner {
+    private sandboxFor(agentId: string, collect?: AuditSandboxDecision[]): import('../sandbox/types').SandboxRunner {
         const real = this.opts.sandbox!;
         return Object.assign(Object.create(real), {
             run: async (caller: import('../sandbox/types').SandboxCaller, req: import('../sandbox/types').SandboxExecRequest) => {
                 const out = await real.run(caller, req);
                 this.reportSandboxDecision(out.ok
                     ? { outcome: 'allowed', tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend }
-                    : { outcome: out.code, tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend, reason: out.reason });
+                    : { outcome: out.code, tool: req.tool, agentId, mode: out.mode, network: out.network, backend: out.backend, reason: out.reason },
+                collect);
                 return out;
             },
             ...(real.authorizePath ? {
                 authorizePath: (caller: import('../sandbox/types').SandboxCaller, req: import('../sandbox/types').SandboxPathRequest) => {
                     const verdict = real.authorizePath!(caller, req);
                     // Allowed reads are not reported (every file read would be an event); denials and writes are.
-                    if (!verdict.ok) this.reportSandboxDecision({ outcome: verdict.code, tool: req.tool, agentId, reason: verdict.reason });
-                    else if (req.access === 'write') this.reportSandboxDecision({ outcome: 'allowed', tool: req.tool, agentId });
+                    if (!verdict.ok) this.reportSandboxDecision({ outcome: verdict.code, tool: req.tool, agentId, reason: verdict.reason }, collect);
+                    else if (req.access === 'write') this.reportSandboxDecision({ outcome: 'allowed', tool: req.tool, agentId }, collect);
                     return verdict;
                 },
             } : {}),
@@ -1334,18 +1377,27 @@ export class AgentEngine {
     }
 
     /** The message for the model when the sandbox policy refuses `tool` for `agentId`; undefined when allowed. */
-    private sandboxRefusal(tool: string, agentId: string): string | undefined {
+    private sandboxRefusal(tool: string, agentId: string, collect?: AuditSandboxDecision[]): string | undefined {
         const verdict = this.opts.sandbox?.authorizeTool?.({ agentId, sessionId: this.opts.sessionId ?? 'default' }, tool);
         if (!verdict || verdict.ok) return undefined;
-        this.reportSandboxDecision({ outcome: verdict.code, tool, agentId, reason: verdict.reason });
+        this.reportSandboxDecision({ outcome: verdict.code, tool, agentId, reason: verdict.reason }, collect);
         return `Tool call "${tool}" refused by the sandbox policy (${verdict.code}): ${verdict.reason}`;
     }
 
+    /**
+     * Reports a sandbox decision on the transport and the legacy audit log, and, when `collect` is given, adds it to
+     * the decisions the single `AuditEvent` of the current tool call will carry.
+     */
     private reportSandboxDecision(d: {
         outcome: 'allowed' | 'SANDBOX_DENIED' | 'SANDBOX_UNAVAILABLE'; tool: string;
         mode?: import('../sandbox/types').SandboxMode; network?: import('../sandbox/types').SandboxNetwork;
         agentId: string; backend?: string; reason?: string;
-    }): void {
+    }, collect?: AuditSandboxDecision[]): void {
+        collect?.push({
+            outcome: d.outcome,
+            ...(d.mode ? { mode: d.mode } : {}), ...(d.network ? { network: d.network } : {}),
+            ...(d.backend ? { backend: d.backend } : {}), ...(d.reason ? { reason: d.reason } : {}),
+        });
         this.opts.transport.emit({
             type: 'sandbox', outcome: d.outcome, tool: d.tool, agent_id: d.agentId,
             ...(d.mode ? { mode: d.mode } : {}), ...(d.network ? { network: d.network } : {}),
@@ -1378,10 +1430,16 @@ export class AgentEngine {
         let success: boolean;
         let outcome: 'timeout' | 'aborted' | undefined;
         let sandboxRefusal: string | undefined;
+        // What the single audit event of this call records (SPEC-0014 F1).
+        let decision: AuditDecision = 'allow';
+        let reason: string | undefined;
+        let ran = false;
+        const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
             result  = `Tool "${call.name}" not found`;
             success = false;
+            decision = 'not_found';
         } else if (
             !profile.allowedTools.includes(call.name) &&
             !(this.opts.allowUnlistedTools && profile.allowedTools.length === 0 && !(profile.delegatesTo && profile.delegatesTo.length > 0))
@@ -1391,10 +1449,14 @@ export class AgentEngine {
                           ? `Use ask_agent to delegate to a specialist.`
                           : `Add it to the agent's allowedTools if it should be able to use it.`);
             success = false;
-        } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id)) !== undefined) {
+            decision = 'not_allowed';
+            reason = `not in the allowedTools of agent "${profile.id}"`;
+        } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id, sandboxDecisions)) !== undefined) {
             // The policy refuses this tool outright (e.g. a writer while read-only). Nobody is asked and nothing runs.
             result  = sandboxRefusal;
             success = false;
+            decision = 'sandbox_denied';
+            reason = sandboxDecisions[sandboxDecisions.length - 1]?.reason;
         } else {
             // Guardrails on the arguments run before approval: nobody is asked to approve a blocked call.
             let effective = call;
@@ -1415,18 +1477,25 @@ export class AgentEngine {
 
             if (withheld) {
                 result = withheld; success = false;
+                decision = 'guardrail_blocked';
+                reason = withheld;
                 onArgsRefused?.();
             } else {
                 const gateDecision = await this.checkGateSerial(effective, profile.id);
                 if (gateDecision === 'rejected') {
                     result = `Tool call "${call.name}" was rejected by the user.`; success = false;
+                    decision = 'deny';
+                    reason = 'rejected by the approver';
                 } else if (gateDecision === 'no-approver') {
-                    const reason = `tool "${call.name}" needs approval under the sandbox policy and no approver is configured`;
-                    this.reportSandboxDecision({ outcome: 'SANDBOX_DENIED', tool: call.name, agentId: profile.id, reason });
+                    const noApprover = `tool "${call.name}" needs approval under the sandbox policy and no approver is configured`;
+                    this.reportSandboxDecision({ outcome: 'SANDBOX_DENIED', tool: call.name, agentId: profile.id, reason: noApprover }, sandboxDecisions);
                     result = `Tool call "${call.name}" refused (SANDBOX_DENIED): needs approval under the sandbox policy and no approver is configured.`;
                     success = false;
+                    decision = 'sandbox_denied';
+                    reason = noApprover;
                 } else {
-                    ({ result, success, outcome } = await this.runToolDef(effective, toolDef, profile.id, depth));
+                    ran = true;
+                    ({ result, success, outcome } = await this.runToolDef(effective, toolDef, profile.id, depth, sandboxDecisions));
                     if (this.guardrails?.has('tool_result')) {
                         const checked = await this.guard('tool_result', result, profile.id, call.name);
                         result = checked.blocked
@@ -1439,6 +1508,17 @@ export class AgentEngine {
         }
 
         await this.auditLogger.log({ agentId: profile.id, tool: call.name, inputPreview: call.args, success, durationMs: Date.now() - callStart, sessionId: this.opts.sessionId });
+        await this.recordAudit({
+            startedAt: callStart,
+            agentId: profile.id,
+            tool: call.name,
+            rawArgs: call.args,
+            decision,
+            reason,
+            outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : undefined,
+            sandbox: sandboxDecisions,
+            meta: toolDef?.meta,
+        });
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
@@ -1466,6 +1546,7 @@ export class AgentEngine {
         toolDef: import('../types').ToolDefinition,
         agentId: string,
         depth = 0,
+        sandboxDecisions?: AuditSandboxDecision[],
     ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted' }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
@@ -1474,7 +1555,7 @@ export class AgentEngine {
             ...this.buildContext(agentId, depth),
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
-            ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId) } : {}),
+            ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId, sandboxDecisions) } : {}),
             signal: controller.signal,
         };
         const timeoutMs = toolDef.timeoutMs ?? this.opts.toolTimeoutMs;
@@ -1541,6 +1622,51 @@ export class AgentEngine {
     /** Re-enable approval gate (e.g. after /iteration manual). */
     enableToolApproval(): void { this.approvalGate.enable(); }
 
+
+    /** The principal of a call: this engine's identity, the executing agent and its delegation chain. */
+    private principalFor(agentId: string, chain?: string[]): Principal {
+        return {
+            ...this.opts.identity,
+            agentId,
+            sessionId: this.opts.sessionId ?? 'default',
+            chain: chain && chain.length > 0 ? chain : [agentId],
+        };
+    }
+
+    /**
+     * Writes the single `AuditEvent` of a tool call (or delegation). Arguments only as a hash: the raw JSON string
+     * the model produced is parsed when it can be (so equal arguments hash equal whatever their key order) and
+     * hashed as text when it cannot.
+     */
+    private async recordAudit(c: {
+        startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
+        decision: AuditDecision; reason?: string; outcome?: AuditOutcome; sandbox?: AuditSandboxDecision[];
+        meta?: Record<string, unknown>;
+    }): Promise<void> {
+        if (!this.audit.enabled) return;
+        let args: unknown = c.rawArgs;
+        if (typeof c.rawArgs === 'string') {
+            try { args = JSON.parse(c.rawArgs); } catch { args = c.rawArgs; }
+        }
+        const p = this.principalFor(c.agentId, c.chain);
+        const event: AuditEvent = {
+            at: new Date(c.startedAt).toISOString(),
+            principal: {
+                agentId: p.agentId, sessionId: p.sessionId, chain: p.chain,
+                ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}),
+                ...(p.userId !== undefined ? { userId: p.userId } : {}),
+            },
+            tool: c.tool,
+            argsHash: hashArgs(args),
+            decision: c.decision,
+            ...(c.reason !== undefined ? { reason: c.reason } : {}),
+            ...(c.outcome !== undefined ? { outcome: c.outcome } : {}),
+            durationMs: Date.now() - c.startedAt,
+            ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
+            ...(c.meta ? { meta: c.meta } : {}),
+        };
+        await this.audit.write(event);
+    }
 
     private buildContext(agentId?: string, depth = 0): ExecutionContext {
         const id = agentId ?? this.currentAgentId;

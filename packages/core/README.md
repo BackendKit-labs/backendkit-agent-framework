@@ -1011,17 +1011,30 @@ const tracer = new Tracer({
 });
 ```
 
-### Audit log (NDJSON)
+### Audit (one event per tool call)
 
-Every tool call can be logged to a newline-delimited JSON file:
+Give the engine one or more `AuditSink`s and it records **exactly one `AuditEvent` per tool call**, whether it ran or was refused (not found, not in `allowedTools`, blocked by a guardrail or the sandbox, rejected by the approver), plus one per `ask_agent` delegation. Arguments are recorded only as a SHA-256 of their canonical JSON, never in clear.
 
 ```typescript
-const engine = new AgentEngine({
+import { createBaseEngine, HashChainAuditSink, NdjsonAuditSink, verifyAuditChain } from '@backendkit-labs/agent-core';
+
+const engine = createBaseEngine({
   ...opts,
-  auditLog: '/var/log/agent-audit.ndjson',
-  // Each line: { ts, agentId, toolName, args, result, durationMs }
+  identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },   // part of every event's principal
+  audit: [
+    new NdjsonAuditSink('/var/log/agent/events.ndjson'),                 // plain, one JSON line per event
+    new HashChainAuditSink('/var/log/agent/chain.log', { secret: process.env.AUDIT_KEY }), // tamper-evident
+  ],
 });
+
+// Later, or on another host:
+verifyAuditChain('/var/log/agent/chain.log', { secret: process.env.AUDIT_KEY });
+// → { ok: true, entries, head } or { ok: false, brokenAt, reason }
 ```
+
+An event carries `at`, `principal` (agent, session, delegation chain, tenant, user), `tool`, `argsHash`, `decision` (`allow`, `deny`, `ask`, `not_found`, `not_allowed`, `sandbox_denied`, `guardrail_blocked`), `outcome` when it ran (`ok`, `error`, `timeout`, `aborted`), `durationMs`, the sandbox decisions taken during the call and the tool's `meta`. Sinks receive events one at a time in call order; a failing sink is reported on the transport (`system` warning) and never changes the result. `HashChainAuditSink` links every entry to the previous one, so editing, removing or reordering entries is detected; with a `secret` a log rewritten by someone without it does not verify either. It refuses to extend a log that is already broken.
+
+`auditLog: '/path.ndjson'` (the older option) still works unchanged but is deprecated: it writes up to 200 characters of the arguments in clear. It will be removed in 0.40.
 
 ---
 

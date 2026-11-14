@@ -1,5 +1,19 @@
 # Changelog
 
+## Sin publicar
+
+### `agent-core`: contratos de gobernanza y auditoría por llamada ([SPEC-0014](docs/specs/SPEC-0014-puntos-de-extension-del-engine.md) F0–F1)
+Sin cambio incompatible: todo es opcional y el engine se comporta igual si no se configura.
+- **Contratos** (exportados desde la raíz): `Principal`, `Identity`, `ToolCall`, `PolicyDecision`, `ToolPolicy`, `ApproverRef`, `ApprovalSubject`, `ApprovalRequest`, `ApprovalOutcome`, `Approver`, `ApprovalStore`, `AuditEvent` y `AuditSink`. La política y la aprobación se conectan al engine en F2.
+- **`audit` en `createBaseEngine` y `AgentEngine`:** uno o varios `AuditSink` reciben exactamente un `AuditEvent` por llamada a tool, sea permitida, fallida, con timeout, inexistente, no autorizada, rechazada o bloqueada por guardrail o por el sandbox. También reciben uno por cada delegación `ask_agent`.
+  - Los argumentos van solo como SHA-256 del JSON canónico.
+  - Las decisiones del sandbox durante la llamada van dentro del mismo evento.
+  - Si un sink falla, se avisa en el transport y el resultado no cambia.
+- **`identity`:** tenant, usuario y roles que forman parte del principal de cada llamada.
+- **Sinks:** `MemoryAuditSink`, `NdjsonAuditSink` y `HashChainAuditSink`. Este último encadena hashes con HMAC opcional y se verifica con `verifyAuditChain` y `verifyAuditSegment`; es el mismo esquema que la gobernanza de Steward. Se rechaza extender un log que ya está alterado.
+- **`auditLog` (ruta a NDJSON) queda obsoleto** sin cambiar su formato: sigue escribiendo hasta 200 caracteres de argumentos en claro. Se retira en 0.40.
+- **Base común (F0):** `hashArgs` y `canonicalJson` en un solo módulo; `isLoopbackRequest` en un solo sitio, que `mcp-server` reexporta.
+
 ## v0.38.2 (2026-11-14)
 
 Publicado en npm (los dos paquetes de la tabla, cada versión es `latest`) y taggeado `agent-core@0.37.2` y `mcp-server@0.18.6` sobre el merge del bump (a833d35e). Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166); arreglo del CI que re-resolvía dependencias al instalar el binario de rolldown (#169). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.

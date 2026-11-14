@@ -28,6 +28,7 @@ import { discoverAgents } from '../agent-discovery/discoverAgents';
 import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
+import type { AuditSink, Identity } from '../governance/types';
 import type { Guardrail } from '../guardrails/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
@@ -303,8 +304,19 @@ export interface BaseEngineOptions {
      * Each tool execution appends one JSON line: ts, session, agent, tool, input (truncated), success, durationMs.
      * The directory is created automatically if it doesn't exist.
      * When absent, no audit file is written.
+     * @deprecated Writes up to 200 characters of the arguments in clear. Use `audit` (e.g. `new NdjsonAuditSink(path)`
+     * or `new HashChainAuditSink(path)`). Kept unchanged until 0.40.
      */
     auditLog?: string;
+
+    /**
+     * Where every tool call and delegation is recorded, accepted or refused: one `AuditEvent` per call, with the
+     * arguments as a SHA-256 only. See `NdjsonAuditSink`, `HashChainAuditSink`, `MemoryAuditSink`.
+     */
+    audit?: AuditSink | AuditSink[];
+
+    /** Who the engine acts for (tenant, user, roles, scopes...). Part of the `Principal` of every call. */
+    identity?: Identity;
 
     /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
@@ -445,6 +457,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(obsManager ? { observabilityManager: obsManager } : {}),
         ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
         ...(opts.auditLog ? { auditLog: opts.auditLog } : {}),
+        ...(opts.audit ? { audit: opts.audit } : {}),
+        ...(opts.identity ? { identity: opts.identity } : {}),
         ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
         ...(opts.agentDiscovery
             ? {

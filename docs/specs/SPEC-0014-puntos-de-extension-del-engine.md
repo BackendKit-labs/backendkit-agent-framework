@@ -63,8 +63,8 @@ interface Principal {
 interface ToolCall {
   tool: ToolDefinition;        // con sus hechos: readOnly, destructive, idempotent, openWorld, meta
   args: Record<string, unknown>;
-  /** Una persona ya aprobó exactamente esta llamada (reenvío, §6 opción A). */
-  approved?: { by: string; approvalId: string };
+  /** Alguien ya aprobó exactamente esta llamada (reenvío, §6). Solo lo pone quien guarda la aprobación al ejecutarla. */
+  approved?: { by: ApproverRef; approvalId: string };
 }
 type PolicyDecision =
   | { effect: 'allow'; reason?: string;
@@ -72,7 +72,11 @@ type PolicyDecision =
        *  'dry_run' ejecuta con ctx.dryRun = true (la tool simula y no escribe). Por defecto 'run'. */
       mode?: 'run' | 'sandboxed' | 'dry_run' }
   | { effect: 'deny'; reason: string }
-  | { effect: 'ask'; reason: string; approver?: string };   // approver: rol o nivel, libre
+  | { effect: 'ask'; reason: string;
+      /** A quién se dirige: rol, nivel o departamento. Libre; lo interpreta quien enruta (p. ej. Hermes). */
+      approver?: string;
+      /** Qué tipos de aprobador valen. Por defecto, cualquiera. Lo `destructive` exige ['human'] (§6.2). */
+      accepts?: ApproverKind[] };
 // ExecutionContext.dryRun?: boolean   (nuevo; una tool que escribe y no lo soporta debe rechazar dry_run)
 interface ToolPolicy {
   decide(principal: Principal, call: ToolCall): PolicyDecision | Promise<PolicyDecision>;
@@ -80,20 +84,34 @@ interface ToolPolicy {
 // AgentEngineOptions.policy?: ToolPolicy | ToolPolicy[]   (varias: deny gana, después ask, después allow)
 
 // ── Aprobación ────────────────────────────────────────────────────────────────
-// Genérica: cualquier acción que necesite el visto bueno de una persona, no solo una llamada a tool.
+// Genérica en dos sentidos: qué se aprueba (cualquier acción, no solo una tool) y quién aprueba
+// (una persona, otro agente o un servicio como Hermes).
+type ApproverKind = 'human' | 'agent' | 'service';
+interface ApproverRef {
+  kind: ApproverKind;
+  id: string;                 // usuario, agentId o nombre del servicio
+  chain?: string[];           // si es un agente: su cadena de delegación
+}
 type ApprovalSubject =
   | { kind: 'tool_call'; call: ToolCall }                                    // cualquier tool de cualquier dominio
   | { kind: 'workflow_step'; workflow: string; step: string; input: unknown }  // SPEC-0017 F1
   | { kind: 'rule_proposal'; rule: unknown; evidence: string }               // autoaprendizaje, SPEC-0017 F6
   | { kind: string; payload: unknown; summary: string };                     // abierto: un vertical define los suyos
-interface ApprovalRequest { id: string; principal: Principal; subject: ApprovalSubject; reason: string; approver?: string; createdAt: string }
-type ApprovalOutcome = { decision: 'approve' | 'reject'; by: string; note?: string };
+interface ApprovalRequest {
+  id: string; principal: Principal; subject: ApprovalSubject; reason: string;
+  approver?: string; accepts?: ApproverKind[]; createdAt: string;
+}
+type ApprovalOutcome = { decision: 'approve' | 'reject'; by: ApproverRef; reason?: string; at: string };
 interface Approver {
-  /** Resuelve en el momento (CLI, UI conectada). Sin approver y con 'ask', la llamada se rechaza (fail-closed). */
+  /** Quién es este aprobador. Se usa para comprobar las reglas de §6.2 antes de aceptar su respuesta. */
+  readonly ref?: ApproverRef;
+  /** Resuelve en el momento (CLI, UI conectada, agente supervisor). Sin approver y con 'ask', la acción queda pendiente en el ApprovalStore (§6). */
   request(req: ApprovalRequest): Promise<ApprovalOutcome>;
 }
 // AgentEngineOptions.approver?: Approver
-// Durable: ver §6.
+// AgentEngineOptions.approvals?: ApprovalStore   (§6)
+// Implementaciones en core: consoleApprover (persona por CLI), agentApprover(engine, agentId) (otro agente vía delegación),
+// approverFromCallback(onToolApproval) (compatibilidad). Hermes implementa ApprovalStore y/o Approver como servicio.
 
 // ── Auditoría ─────────────────────────────────────────────────────────────────
 interface AuditEvent {
@@ -105,7 +123,7 @@ interface AuditEvent {
   reason?: string;
   outcome?: 'ok' | 'error' | 'timeout' | 'aborted' | 'too_large';
   durationMs: number;
-  approval?: { id: string; by: string };
+  approval?: { id: string; by: ApproverRef };   // siempre con el tipo: persona, agente o servicio
   meta?: Record<string, unknown>;      // lo que declare la tool en `meta`
 }
 interface AuditSink { write(event: AuditEvent): void | Promise<void> }
@@ -136,7 +154,7 @@ interface RunContext { principal: Principal; input: string; state: Map<string, u
 Sin `policy` configurada se aplica `defaultToolPolicy`. Ya no depende de nombres de tools:
 - `readOnly: true` → `allow`.
 - Todo lo demás → `ask`, si hay `approver` y el modo de iteración pide aprobación. Esto incluye las tools `destructive` y las que no declaran nada. Sin `approver`, se mantiene el comportamiento actual: se ejecuta, salvo que la política del sandbox exija aprobación.
-- `destructive: true` → `ask` **siempre**, también en el modo "aprobar todo" (como hoy la instalación de paquetes). Lo irreversible nunca se aprueba en bloque.
+- `destructive: true` → `ask` con `accepts: ['human']`, **siempre**, también en el modo "aprobar todo" (como hoy la instalación de paquetes). Lo irreversible nunca se aprueba en bloque ni lo aprueba un agente o un servicio.
 
 **Decisión del usuario: regla "no `readOnly` ⇒ pedir aprobación".** `write_file` no se marca `destructive`: escribir un archivo se puede deshacer. Las tools de coding declaran `readOnly` cuando corresponde (`read_file`, `search_files`, `list_directory`...). Si alguien olvida declarar los hechos de una tool, se pregunta de más, nunca de menos.
 
@@ -149,7 +167,7 @@ La detección de instalación de paquetes (`package-install.ts`) no es una regla
 - `hashArgs` sigue siendo el de core.
 - **Hay que decidir si #166 se publica tal cual o se alinea antes con este contrato.** Ver §8.
 
-## 6. Aprobación durable (decisión abierta)
+## 6. Aprobación durable (decidida el 2026-11-14: opción A, reenvío)
 
 Vale para **cualquier** `ApprovalSubject` (§3): una llamada a tool de cualquier dominio, un paso de workflow, una regla propuesta por el autoaprendizaje o lo que defina un vertical. El problema es el mismo en todos los casos: la persona que debe aprobar no está en el momento en que el agente lo pide.
 
@@ -169,7 +187,29 @@ interface ApprovalStore {
 }
 ```
 
-La recomendación es la opción A ahora, dejando abierta la B para cuando SPEC-0004 exista. **La decisión es del usuario.**
+### 6.1 Decisión: opción A
+
+**Decisión del usuario: opción A, reenvío.** Cuando una acción necesita aprobación y nadie responde en el momento, se guarda la `ApprovalRequest` en el `ApprovalStore` y el turno sigue o termina. El modelo recibe "pendiente de aprobación (id)". Cuando llega la decisión, quien guarda la aprobación ejecuta la acción con `approved` (para `tool_call`) o reanuda lo que corresponda (paso de workflow, alta de regla). La política vuelve a decidir con `approved` puesto. Solo se salta el `ask`; el resto de comprobaciones se repiten (alcances, cuotas, sandbox), igual que en Steward.
+
+Razones:
+- Funciona con aprobadores asíncronos: una persona que tarda horas, otro agente u Hermes.
+- Hermes ya trabaja así (`hermes-server/src/actions.ts`, `pg-approvals.ts`: pendientes persistidos, decisión única por id, reasignación y prueba firmada).
+- No depende de SPEC-0004.
+
+La opción B (suspender y reanudar) queda descartada por ahora. Se reconsidera solo si SPEC-0004 llega a existir y aparece un caso que el reenvío no cubra.
+
+**Quién ejecuta lo aprobado:** el SDK expone `resumeApproved(store, id, engineOrRunner)` para ejecutar una acción ya aprobada. En Steward lo hace Hermes. Ejecutar dos veces la misma aprobación es imposible: el store marca la petición como ejecutada de forma atómica (en archivo con `atomicWrite` y, en Hermes, en Postgres).
+
+### 6.2 Quién puede aprobar y reglas de seguridad
+
+Aprobador puede ser una persona (`human`), otro agente (`agent`) o un servicio como Hermes (`service`). El engine valida cada `ApprovalOutcome` antes de aceptarla, y si una regla falla la trata como `reject` y lo audita:
+
+1. **Tipo aceptado:** `by.kind` debe estar en `accepts` de la decisión `ask`. `defaultToolPolicy` pone `accepts: ['human']` para lo `destructive`: lo irreversible solo lo aprueba una persona.
+2. **Nadie se aprueba a sí mismo:** `by.id` no puede ser el agente que pidió la acción ni nadie de su `principal.chain`.
+3. **Un agente no aprueba más de lo que puede hacer:** si `by.kind === 'agent'`, la política se evalúa también con ese agente como principal sobre el mismo `subject`. Si a él no le daría `allow` (o un `ask` que él mismo satisface), su aprobación no vale. Es la regla de Steward: el delegado nunca supera al que delega.
+4. **Trazabilidad:** toda aprobación queda en la auditoría con `by` completo (tipo, id y cadena si es un agente) y su motivo. Las aprobaciones de un agente se auditan igual que las de una persona.
+
+Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, montos menores a un umbral) o derivar la petición a una persona o a un agente. Las reglas 1 a 4 se aplican igual: un servicio no aprueba lo que `accepts` reserva a personas.
 
 ## 7. Migración de los consumidores reales
 
@@ -185,10 +225,13 @@ La recomendación es la opción A ahora, dejando abierta la B para cuando SPEC-0
 
 - **F0. Base común.** `hashArgs` y `isLoopbackRequest` en un solo sitio de core; `mcp-server` y `mcp-connectors` los importan (D6).
 - **F1. Contratos y `AuditSink`.** Tipos de §3; `NdjsonAuditSink`, `MemoryAuditSink` y `HashChainAuditSink` con `verifyAuditChain`; el engine escribe `AuditEvent` en todos los resultados, incluidos los rechazos. Adaptador de `auditLog`.
-- **F2. Política y aprobación.** `policy.decide` en la ruta de §2, `defaultToolPolicy` (§4, se cierra la pregunta abierta), `Approver`, adaptador de `onToolApproval`, `ExecutionContext.principal` y propagación de `chain` en `ask_agent`.
+- **F2. Política y aprobación.** `policy.decide` en la ruta de §2, `defaultToolPolicy` (§4), `Approver` con `ApproverRef`, adaptador de `onToolApproval`, `ExecutionContext.principal` y propagación de `chain` en `ask_agent`. Validación de las cuatro reglas de §6.2, cada una con su test: tipo no aceptado, autoaprobación, agente que aprueba más de lo que puede, y auditoría con `by` completo.
 - **F3. Hooks.** `EngineHooks` con los seis puntos y su orden; test que reproduce el pipeline de coding solo con hooks (sin tocar todavía sus opciones).
 - **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.
-- **F5. Aprobación durable** según la opción elegida en §6.
+- **F5. Aprobación durable (opción A).** `ApprovalStore` con implementación en archivo (`atomicWrite`, una sola decisión y una sola ejecución por id), `resumeApproved`, `agentApprover` y `consoleApprover`. Tests:
+  - una acción pendiente sobrevive a un reinicio y se ejecuta una sola vez al aprobarse;
+  - un agente supervisor aprueba un paso no destructivo y no puede aprobar uno `destructive`.
+  - Comparación en papel con el `ApprovalStore` de Hermes (`hermes-server/src/pg-approvals.ts`).
 
 **#166 se publica como está (decidido el 2026-11-14).**
 - **Compatibilidad verificada:** los 12 paquetes de Steward que dependen de `agent-core` compilan contra el core de #166. Se comprobó con un `tsconfig` temporal que resuelve el core local. Los paquetes son `governed-agent`, `knowledge`, `hermes`, `hermes-server`, `agent-accounting` y los 7 agentes contables.

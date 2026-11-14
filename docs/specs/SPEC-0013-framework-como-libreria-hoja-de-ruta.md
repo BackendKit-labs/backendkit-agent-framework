@@ -110,7 +110,7 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 
 ## 7. Decisiones abiertas (del usuario)
 
-1. **Abierta:** cómo se hace durable una aprobación de cualquier acción, por reenvío o suspendiendo el loop (SPEC-0014 §6).
+1. **Decidido (2026-11-14): opción A, reenvío.** La aprobación es genérica en qué se aprueba (cualquier acción) y en quién aprueba: una persona, otro agente o un servicio como Hermes. Hay cuatro reglas de seguridad: tipo aceptado, nadie se aprueba a sí mismo, un agente no aprueba más de lo que puede hacer, y todo queda auditado (SPEC-0014 §6).
 2. **Decidido (2026-11-14):** el autoaprendizaje es una capacidad de core para cualquier agente, y los dominios de coding son un plugin (SPEC-0017 F6).
 3. **Decidido (2026-11-14):** el vertical va en `agent-coding/pipeline` y la app de terminal en `agent-coding/cli` (SPEC-0015 §2, SPEC-0016 §1).
 4. **Decidido (2026-11-14):** #166 se publica como está. La compatibilidad con Steward está verificada: 12 paquetes compilan contra el core nuevo (SPEC-0014 §8).

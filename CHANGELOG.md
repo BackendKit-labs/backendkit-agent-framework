@@ -1,6 +1,15 @@
 # Changelog
 
-## Sin publicar
+## v0.38.2 (pendiente de publicar)
+
+Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.37.2 | hechos declarados en `ToolDefinition`, `createToolContext`, servidor MCP de tools directas (`createToolServer`, `startToolServerHttp`, `runToolServer`, `createToolRegistrar`) |
+| `mcp-server` | 0.18.6 | `AgentMCPServer` con `directTools`; `engineFactory` opcional; requiere `agent-core` ^0.37.2 |
+
+Los demás paquetes no cambian.
 
 El framework queda como SDK para crear agentes; la infraestructura vive en `bk-platform` (mismos nombres npm, versiones sin cambio). Salen de este repo: `hermes` (0.4.0), `curator-codex-agent`, `dataset-curator-agent` e `infra`; las specs SPEC-0003 y SPEC-0008 pasan a `bk-platform/docs/hermes`. `orchestrator-agent` sigue aqui hasta que `bk-platform` migre a zod 4. Tambien salen `apps/docs` y `apps/bk-agent`.
 
@@ -18,7 +27,7 @@ Sin cambio incompatible: los campos nuevos son opcionales y están ausentes si n
 Sin cambio incompatible: `tools: AgentToolDef[]` y `buildPrompt` no cambian.
 - **`directTools?: ToolDefinition[]`** junto a `tools`, con `authorize`, `audit`, `context`, `maxOutputChars` y `toolTimeoutMs`; se registran con `createToolRegistrar` de `agent-core` en el servidor de cada sesión (el `audit` recibe el id de sesión MCP).
 - **`engineFactory` opcional**: un servidor solo con tools directas no necesita engine. El constructor lanza si hay tools de prompt sin `engineFactory`, si un nombre está en las dos listas o si una tool directa `destructive` no tiene `authorize`.
-- **Requiere `agent-core` con `createToolRegistrar`** (el rango de la dependencia se ajusta en el bump).
+- **Requiere `agent-core` ^0.37.2** (`createToolRegistrar`).
 
 ## v0.38.1 (2026-10-28)
 

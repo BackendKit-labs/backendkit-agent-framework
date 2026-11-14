@@ -39,8 +39,10 @@ describe('resolveInside', () => {
     });
     afterEach(() => { fs.rmSync(path.dirname(root), { recursive: true, force: true }); });
 
+    // resolveInside uses fs.promises.realpath (native). On Windows the JS fs.realpathSync does not expand 8.3 short
+    // names (C:\Users\NAME~1), so expectations must use the native variant to compare like with like.
     it('accepts the root itself and directories inside it, relative or absolute', async () => {
-        const real = fs.realpathSync(root);
+        const real = fs.realpathSync.native(root);
         expect(await resolveInside([root], '.')).toBe(real);
         expect(await resolveInside([root], 'src')).toBe(path.join(real, 'src'));
         expect(await resolveInside([root], path.join(root, 'src'))).toBe(path.join(real, 'src'));
@@ -72,7 +74,7 @@ describe('resolveInside', () => {
 
     it('accepts an extra root and still refuses the rest', async () => {
         await expect(resolveInside([root], outside)).rejects.toThrow(/Access denied/);
-        expect(await resolveInside([root, outside], outside)).toBe(fs.realpathSync(outside));
+        expect(await resolveInside([root, outside], outside)).toBe(fs.realpathSync.native(outside));
     });
 
     it('a directory that does not exist is an error, not an allow', async () => {

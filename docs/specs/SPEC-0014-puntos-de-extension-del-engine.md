@@ -151,7 +151,20 @@ interface RunContext { principal: Principal; input: string; state: Map<string, u
 
 ## 4. Regla de aprobación por defecto, por hechos (decidida el 2026-11-14)
 
-Sin `policy` configurada se aplica `defaultToolPolicy`. Ya no depende de nombres de tools:
+**Precedencia (implementada en F2).** La ruta nueva se activa al configurar `policy`, `approver` o `approvals`. Sin ninguna de las tres, la ruta legada sigue exactamente como estaba, para no cambiar qué pregunta la CLI de coding mientras sus tools no declaran `readOnly` (eso se hace en SPEC-0015 F3).
+
+| Configurado | Ruta | Quién decide qué se pregunta |
+|---|---|---|
+| Ninguno de `policy`, `approver`, `approvals` (con o sin `onToolApproval`) | Legada, `ApprovalGate` sin cambios | `WRITE_TOOLS` e instalación de paquetes |
+| `policy`, `approver` o `approvals` | Nueva | La `policy` dada; sin ella, `defaultToolPolicy` si hay a quién preguntar |
+
+En la ruta nueva:
+- **Aprobador:** se usa `opts.approver`. Si no se configura, se adapta `onToolApproval`.
+- **Instalación de paquetes:** `packageInstallPolicy` siempre se combina, y siempre pregunta a una persona. Se moverá a coding en SPEC-0015 F3.
+- **Sandbox:** un `approvalFor() === 'ask'` del sandbox suma un `ask`. Si no hay aprobador, la llamada queda en `SANDBOX_DENIED`.
+- **"Aprobar todo"** del callback: lo guarda el adaptador, y nunca cubre lo `destructive` ni lo que solo acepta personas.
+
+`defaultToolPolicy` ya no depende de nombres de tools:
 - `readOnly: true` → `allow`.
 - Todo lo demás → `ask`, si hay `approver` y el modo de iteración pide aprobación. Esto incluye las tools `destructive` y las que no declaran nada. Sin `approver`, se mantiene el comportamiento actual: se ejecuta, salvo que la política del sandbox exija aprobación.
 - `destructive: true` → `ask` con `accepts: ['human']`, **siempre**, también en el modo "aprobar todo" (como hoy la instalación de paquetes). Lo irreversible nunca se aprueba en bloque ni lo aprueba un agente o un servicio.
@@ -236,7 +249,16 @@ Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, monto
   - **`auditLog`:** sin cambios (§7).
   - **Fallos de un sink:** se avisan en el transport y no alteran el resultado.
   - En F1 la cadena del principal es `[agentId]`; F2 la propaga en las delegaciones.
-- **F2. Política y aprobación.** `policy.decide` en la ruta de §2, `defaultToolPolicy` (§4), `Approver` con `ApproverRef`, adaptador de `onToolApproval`, `ExecutionContext.principal` y propagación de `chain` en `ask_agent`. Validación de las cuatro reglas de §6.2, cada una con su test: tipo no aceptado, autoaprobación, agente que aprueba más de lo que puede, y auditoría con `by` completo.
+- **F2. Política y aprobación. Hecho.**
+  - **Ruta de §2:** la política decide sobre los argumentos ya pasados por los guardrails. Las decisiones `ask` van en serie y en orden de llamada.
+  - **Piezas:** `defaultToolPolicy`, `combineDecisions` y `evaluatePolicies` (una política que lanza error deniega), además de `approverFromCallback` y `approvalProblem`.
+  - **Contexto de cada tool:** `ExecutionContext.principal` y `ExecutionContext.dryRun`.
+  - **Cadena de delegación:** se propaga por `DelegationBus` (`chain`), `runAgentInternal` y `ctx.askAgent`. La cadena lista solo agentes; `userId` va en su propio campo.
+  - **Delegaciones:** `ask_agent` también pasa por la política. Se declara `readOnly`, así que la política por defecto la deja pasar.
+  - **Modo `sandboxed`:** sin sandbox configurado se deniega.
+  - **Sin nadie a quién preguntar:** si hay `approvals`, la llamada queda pendiente y no se ejecuta; si no, se rechaza.
+  - **`approved`:** nunca se toma de los argumentos del modelo.
+  - **Tests:** las cuatro reglas de §6.2, cada una con el suyo. Los tests anteriores de aprobación, sandbox y `allowedTools` pasan sin cambios.
 - **F3. Hooks.** `EngineHooks` con los seis puntos y su orden; test que reproduce el pipeline de coding solo con hooks (sin tocar todavía sus opciones).
 - **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.
 - **F5. Aprobación durable (opción A).** `ApprovalStore` con implementación en archivo (`atomicWrite`, una sola decisión y una sola ejecución por id), `resumeApproved`, `agentApprover` y `consoleApprover`. Tests:

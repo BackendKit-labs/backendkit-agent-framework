@@ -16,7 +16,13 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0010](SPEC-0010-cotas-por-defecto-y-orquestacion.md) | Cotas por defecto, orquestación y tipos de agente | Implementado (O1–O5 publicados; core 0.37.0, v0.38.0) |
 | [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) | Tools directas (sin LLM) servidas por MCP | D1–D4 implementados (`agent-core` y `mcp-server`, sin publicar); D5 (migrar Steward) aplazado |
 | [SPEC-0012](SPEC-0012-extraccion-de-documentos.md) | Extracción de documentos a texto (`document-extract`) | Capa 1 y OCR implementados (sin publicar); capa 2 pendiente |
+| [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) | El framework como librería: hoja de ruta y trazabilidad | Borrador |
+| [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) | Puntos de extensión del engine: hooks, política, aprobación y auditoría | Borrador |
+| [SPEC-0015](SPEC-0015-extraer-coding-de-los-contratos-de-core.md) | Extraer el vertical de coding de los contratos de core | Borrador |
+| [SPEC-0016](SPEC-0016-desamarrar-modulos-mixtos.md) | Desamarrar los módulos mixtos (contexto, skills, comandos, app de terminal) | Borrador |
+| [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) | Un contrato por concepto: workflow, política, auditoría, memoria, RAG | Borrador |
+| [SPEC-0018](SPEC-0018-plantilla-de-agente-de-negocio-y-scaffolder.md) | Plantilla de agente de negocio y scaffolder | Borrador |
 
-Orden de ejecución propuesto: 0002 → 0007 (testkit) → 0006 → 0005 (one-shot, ACP) → 0003 H0/H1 → 0004 → 0005 (continuables) y 0007 (autonomía) → 0003 H3/H4.
+Orden de ejecución vigente: SPEC-0013 §4 (prerrequisitos) → 0014 → 0015 y 0016 (mismo minor) → 0017 por fases → 0018. Ver [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) para la tabla de trazabilidad. Los borradores anteriores (0002, 0004 a 0007) se reevalúan contra ADR-0008 antes de retomarlos. SPEC-0004 es dependencia de la opción B de aprobación durable (SPEC-0014 §6).
 
 Estados: Borrador, En revisión, Aprobado, Implementado.

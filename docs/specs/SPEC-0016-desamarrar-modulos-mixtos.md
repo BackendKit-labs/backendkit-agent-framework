@@ -17,7 +17,7 @@
 | `workspace` (250), `checkpoint` (218), `trust` (150), `bootstrap` (372) | — | app de terminal. `trust` sigue aplicándose: la app lo implementa como un `InstructionSource` y un `SkillSource` que filtran por proyecto de confianza (ADR-0006) |
 | `shared/utils/project-key.ts`, `git.ts` | `atomicWrite` | `project-key` y `git` a la app |
 
-**Dónde va "la app de terminal":** hoy no existe como paquete. Propuesta: `agent-coding/cli`, que es donde ya vive `TerminalTransport` y el REPL que consume estos comandos. **Decisión del usuario**, ligada a SPEC-0015 §2.
+**Dónde va la app de terminal (decidido el 2026-11-14):** en `agent-coding/cli`, junto a `TerminalTransport` y el REPL que consume estos comandos. Va de la mano de SPEC-0015 §2 (`agent-coding/pipeline`).
 
 ## 2. Cómo se enganchan
 

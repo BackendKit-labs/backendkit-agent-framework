@@ -110,8 +110,8 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 
 ## 7. Decisiones abiertas (del usuario)
 
-1. Modelo de aprobación durable: reenvío o suspensión del loop (SPEC-0014 §6).
-2. ~~Si `reflection` deja un núcleo genérico en core~~ **Decidido (2026-11-14):** el autoaprendizaje es una capacidad de core para cualquier agente; los dominios de coding son un plugin (SPEC-0017 F6).
-3. Nombre y ubicación del vertical de coding: dentro de `agent-coding` o un paquete nuevo (SPEC-0015 §2).
-4. Si #166 se publica tal cual o se alinea antes con el contrato de SPEC-0014 (SPEC-0014 §8).
-5. Regla de aprobación por defecto: `write_file` como `destructive`, o "no `readOnly` ⇒ pedir aprobación" (SPEC-0014 §4).
+1. **Abierta:** cómo se hace durable una aprobación de cualquier acción, por reenvío o suspendiendo el loop (SPEC-0014 §6).
+2. **Decidido (2026-11-14):** el autoaprendizaje es una capacidad de core para cualquier agente, y los dominios de coding son un plugin (SPEC-0017 F6).
+3. **Decidido (2026-11-14):** el vertical va en `agent-coding/pipeline` y la app de terminal en `agent-coding/cli` (SPEC-0015 §2, SPEC-0016 §1).
+4. **Decidido (2026-11-14):** #166 se publica como está. La compatibilidad con Steward está verificada: 12 paquetes compilan contra el core nuevo (SPEC-0014 §8).
+5. **Decidido (2026-11-14):** la regla por defecto es "lo que no es `readOnly` pide aprobación", y lo `destructive` nunca se aprueba en bloque (SPEC-0014 §4).

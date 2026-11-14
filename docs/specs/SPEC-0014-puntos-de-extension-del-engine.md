@@ -67,16 +67,26 @@ interface ToolCall {
   approved?: { by: string; approvalId: string };
 }
 type PolicyDecision =
-  | { effect: 'allow'; reason?: string }
+  | { effect: 'allow'; reason?: string;
+      /** Cómo se ejecuta lo permitido. 'sandboxed' fuerza el SandboxRunner aunque la tool no lo pida;
+       *  'dry_run' ejecuta con ctx.dryRun = true (la tool simula y no escribe). Por defecto 'run'. */
+      mode?: 'run' | 'sandboxed' | 'dry_run' }
   | { effect: 'deny'; reason: string }
   | { effect: 'ask'; reason: string; approver?: string };   // approver: rol o nivel, libre
+// ExecutionContext.dryRun?: boolean   (nuevo; una tool que escribe y no lo soporta debe rechazar dry_run)
 interface ToolPolicy {
   decide(principal: Principal, call: ToolCall): PolicyDecision | Promise<PolicyDecision>;
 }
 // AgentEngineOptions.policy?: ToolPolicy | ToolPolicy[]   (varias: deny gana, después ask, después allow)
 
 // ── Aprobación ────────────────────────────────────────────────────────────────
-interface ApprovalRequest { id: string; principal: Principal; call: ToolCall; reason: string; approver?: string; createdAt: string }
+// Genérica: cualquier acción que necesite el visto bueno de una persona, no solo una llamada a tool.
+type ApprovalSubject =
+  | { kind: 'tool_call'; call: ToolCall }                                    // cualquier tool de cualquier dominio
+  | { kind: 'workflow_step'; workflow: string; step: string; input: unknown }  // SPEC-0017 F1
+  | { kind: 'rule_proposal'; rule: unknown; evidence: string }               // autoaprendizaje, SPEC-0017 F6
+  | { kind: string; payload: unknown; summary: string };                     // abierto: un vertical define los suyos
+interface ApprovalRequest { id: string; principal: Principal; subject: ApprovalSubject; reason: string; approver?: string; createdAt: string }
 type ApprovalOutcome = { decision: 'approve' | 'reject'; by: string; note?: string };
 interface Approver {
   /** Resuelve en el momento (CLI, UI conectada). Sin approver y con 'ask', la llamada se rechaza (fail-closed). */
@@ -121,14 +131,14 @@ interface RunContext { principal: Principal; input: string; state: Map<string, u
 
 **Límites del hook `afterTurn`:** cuenta contra `maxIterations` y respeta el mismo tope de vueltas que hoy tiene la QA (`maxRework`, SPEC-0010).
 
-## 4. Regla de aprobación por defecto, por hechos
+## 4. Regla de aprobación por defecto, por hechos (decidida el 2026-11-14)
 
-Sin `policy` configurada se aplica `defaultToolPolicy`, que reproduce el comportamiento actual sin nombres de tools:
+Sin `policy` configurada se aplica `defaultToolPolicy`. Ya no depende de nombres de tools:
 - `readOnly: true` → `allow`.
-- `destructive: true` → `ask`.
-- Sin hechos declarados → `ask`, solo si hay `approver` y el modo de iteración lo exige (hoy `WRITE_TOOLS`).
+- Todo lo demás → `ask`, si hay `approver` y el modo de iteración pide aprobación. Esto incluye las tools `destructive` y las que no declaran nada. Sin `approver`, se mantiene el comportamiento actual: se ejecuta, salvo que la política del sandbox exija aprobación.
+- `destructive: true` → `ask` **siempre**, también en el modo "aprobar todo" (como hoy la instalación de paquetes). Lo irreversible nunca se aprueba en bloque.
 
-**Pregunta abierta (decidir en F2 con un test):** ¿`write_file` es `destructive`? `destructive` implica que no se puede deshacer y prohíbe `concurrencySafe`. Escribir un archivo del workspace no encaja del todo. La alternativa es una regla "no `readOnly` ⇒ `ask`" y que las tools de coding declaren `readOnly` cuando corresponda. Lo que se decida queda documentado aquí.
+**Decisión del usuario: regla "no `readOnly` ⇒ pedir aprobación".** `write_file` no se marca `destructive`: escribir un archivo se puede deshacer. Las tools de coding declaran `readOnly` cuando corresponde (`read_file`, `search_files`, `list_directory`...). Si alguien olvida declarar los hechos de una tool, se pregunta de más, nunca de menos.
 
 La detección de instalación de paquetes (`package-install.ts`) no es una regla por hechos: pasa a ser una `ToolPolicy` del vertical de coding (SPEC-0015 F3).
 
@@ -140,6 +150,8 @@ La detección de instalación de paquetes (`package-install.ts`) no es una regla
 - **Hay que decidir si #166 se publica tal cual o se alinea antes con este contrato.** Ver §8.
 
 ## 6. Aprobación durable (decisión abierta)
+
+Vale para **cualquier** `ApprovalSubject` (§3): una llamada a tool de cualquier dominio, un paso de workflow, una regla propuesta por el autoaprendizaje o lo que defina un vertical. El problema es el mismo en todos los casos: la persona que debe aprobar no está en el momento en que el agente lo pide.
 
 | | Opción A: reenvío | Opción B: suspender y reanudar el loop |
 |---|---|---|
@@ -178,7 +190,10 @@ La recomendación es la opción A ahora, dejando abierta la B para cuando SPEC-0
 - **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.
 - **F5. Aprobación durable** según la opción elegida en §6.
 
-**Decisión pendiente antes de F4:** si #166 se publica como está (con `authorize` y `ToolCallRecord`) y F4 los adapta, o si se alinea antes de publicar. Lo primero publica ya algo que se va a marcar obsoleto; lo segundo retrasa la publicación.
+**#166 se publica como está (decidido el 2026-11-14).**
+- **Compatibilidad verificada:** los 12 paquetes de Steward que dependen de `agent-core` compilan contra el core de #166. Se comprobó con un `tsconfig` temporal que resuelve el core local. Los paquetes son `governed-agent`, `knowledge`, `hermes`, `hermes-server`, `agent-accounting` y los 7 agentes contables.
+- **Coste de migración:** ningún consumidor usa todavía `authorize` ni `ToolCallRecord`. Cuando F4 los adapte, nadie tendrá que migrar.
+- **Correspondencia con Steward:** el vocabulario de hechos coincide con sus manifiestos (`readOnly`, `idempotent`). Sus modos `sandboxed` y `dry_run` (`governance/types.ts:10`) se cubren con `PolicyDecision.allow.mode` (§3).
 
 ## 9. Criterios de aceptación
 

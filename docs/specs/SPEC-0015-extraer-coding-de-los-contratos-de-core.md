@@ -17,19 +17,19 @@
 | `engine/package-install.ts` | `core/src/engine` | 111 | vertical de coding, como `ToolPolicy` |
 | Opciones `orchestrator`, `orchestratorFailureMode`, `qaService`, `noQA`, `onQAReview` | `AgentEngineOptions`, `BaseEngineOptions` | — | se eliminan |
 | `buildOrchestrationBrief` | `AgentEngine.ts:844` | — | hook `systemPrompt` del vertical |
-| `WRITE_TOOLS` y `requiresAlwaysAsk` | `ApprovalGate.ts:14`, `:72-83` | — | `defaultToolPolicy` de core (SPEC-0014 §4) + `ToolPolicy` de coding |
+| `WRITE_TOOLS` y `requiresAlwaysAsk` | `ApprovalGate.ts:14`, `:72-83` | — | `defaultToolPolicy` de core (regla "no `readOnly` ⇒ pedir aprobación", SPEC-0014 §4) + `packageInstallPolicy` de coding; las tools de lectura de coding declaran `readOnly: true` |
 | Subpaths `./orchestration` y `./reflection` de core | `core/package.json` `exports` | — | se eliminan |
 
 `enterprise` importa `agent-core/reflection` (2 imports): pasa al módulo de autoaprendizaje de core (SPEC-0017 F6). Si F6 aún no está, se mantiene el núcleo actual en core hasta que lo esté.
 
-## 2. Ubicación del vertical (decisión abierta)
+## 2. Ubicación del vertical (decidida el 2026-11-14: `agent-coding/pipeline`)
 
 | Opción | Pros | Contras |
 |---|---|---|
 | Dentro de `agent-coding` (`agent-coding/pipeline`) | un paquete menos; coding ya depende de core | agent-coding crece cerca de 9k líneas; quien solo quiere las tools de archivos se lleva el pipeline |
 | Paquete nuevo `agent-coding-pipeline` | `agent-coding` queda como tools y perfiles | un paquete más que versionar |
 
-La recomendación es un subpath `agent-coding/pipeline`. **La decisión es del usuario.**
+**Decisión del usuario:** subpath `agent-coding/pipeline` dentro del paquete existente. La app de terminal va en `agent-coding/cli` (SPEC-0016).
 
 ## 3. Limpieza de `ExecutionContext` y `AgentEngineOptions`
 

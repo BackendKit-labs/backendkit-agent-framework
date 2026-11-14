@@ -716,6 +716,48 @@ export class AgentEngine {
         return runner.run();
     }
 
+    /**
+     * Runs a tool call that was stored as pending and has since been approved (SPEC-0014 §6, resubmission).
+     *
+     * - At most once: the store marks it executed atomically before it runs; a second call throws.
+     * - Everything is checked again (allowedTools, sandbox, guardrails, policies); the stored approval only
+     *   satisfies an `ask`, and only if its approver is one that ask accepts. An approval that turns out not to be
+     *   valid is consumed and audited as `deny`.
+     * - The result is returned to the caller (e.g. Hermes or a UI); it is not added to the conversation.
+     */
+    async runApproved(approvalId: string): Promise<string> {
+        const store = this.opts.approvals;
+        if (!store) throw new Error('runApproved needs an approvals store');
+        await this.mcpRegistrar.ensureInitialized();
+        await this.ensureAgentsLoaded();
+        const item = await store.get(approvalId);
+        if (!item) throw new Error(`approval "${approvalId}" does not exist`);
+        if (item.status === 'executed') throw new Error(`approval "${approvalId}" was already executed`);
+        if (item.status !== 'approved' || !item.outcome) throw new Error(`approval "${approvalId}" is ${item.status}, not approved`);
+        const subject = item.subject;
+        if (subject.kind !== 'tool_call' || !('call' in subject)) {
+            throw new Error(`approval "${approvalId}" is a ${subject.kind}; only tool calls are resumed by the engine`);
+        }
+        const profile = this.opts.agents.get(item.principal.agentId);
+        if (!profile) throw new Error(`agent "${item.principal.agentId}" of approval "${approvalId}" is not registered`);
+        if (!(await store.markExecuted(approvalId))) throw new Error(`approval "${approvalId}" was already executed`);
+        return this.executeToolCall(
+            { name: subject.call.tool.name, args: JSON.stringify(subject.call.args) },
+            profile, 0, undefined, undefined, item.principal.chain,
+            { by: item.outcome.by, approvalId },
+        );
+    }
+
+    /**
+     * Puts one question to an agent outside the conversation and returns its answer (its tool calls are governed
+     * like any other). Used by `agentApprover` to let a supervising agent approve or reject requests.
+     */
+    async consultAgent(agentId: string, question: string): Promise<string> {
+        await this.ensureAgentsLoaded();
+        const result = await this.runAgentInternal(agentId, question, undefined, 0, undefined, [agentId]);
+        return result.content;
+    }
+
     abort(): void {
         this.aborted = true;
         this.runController?.abort('aborted');
@@ -1601,6 +1643,8 @@ export class AgentEngine {
         onArgsRefused?: () => void,
         /** Delegation chain of `profile`, oldest first. Default `[profile.id]`. */
         chain?: string[],
+        /** Set only by `runApproved`: this exact call was approved and stored (resubmission, SPEC-0014 §6). */
+        approved?: ToolCall['approved'],
     ): Promise<string> {
         const emitEvent = emit ?? ((e) => this.opts.transport.emit(e));
         const callStart = Date.now();
@@ -1663,7 +1707,7 @@ export class AgentEngine {
                 onArgsRefused?.();
             } else {
                 const verdict = this.governed
-                    ? await this.decideGoverned(toolDef, effective.args, principal, sandboxDecisions)
+                    ? await this.decideGoverned(toolDef, effective.args, principal, sandboxDecisions, approved)
                     : await this.decideLegacy(effective, profile.id, sandboxDecisions);
                 if (!verdict.run) {
                     result = verdict.message; success = false;
@@ -1758,9 +1802,10 @@ export class AgentEngine {
      */
     private async decideGoverned(
         tool: ToolDefinition, rawArgs: string, principal: Principal, sandboxDecisions: AuditSandboxDecision[],
+        approved?: ToolCall['approved'],
     ): Promise<GovernedVerdict> {
-        // `approved` is never taken from what the model sent: only whoever holds a stored approval sets it.
-        const call: ToolCall = { tool, args: this.parseArgs(rawArgs) };
+        // `approved` is never taken from what the model sent: only `runApproved`, which holds a stored approval, sets it.
+        const call: ToolCall = { tool, args: this.parseArgs(rawArgs), ...(approved ? { approved } : {}) };
         const sandboxAsk = this.opts.sandbox?.approvalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool.name) === 'ask';
 
         let d = await evaluatePolicies(this.policies, principal, call);
@@ -1774,9 +1819,23 @@ export class AgentEngine {
                 const reason = 'the policy requires a sandbox and none is configured';
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" denied by policy: ${reason}` };
             }
-            return { run: true, ...(d.mode ? { mode: d.mode } : {}) };
+            return { run: true, ...(d.mode ? { mode: d.mode } : {}), ...(approved ? { approval: { id: approved.approvalId, by: approved.by } } : {}) };
         }
-        return this.serialize(() => this.resolveAsk(principal, call, d as Extract<PolicyDecision, { effect: 'ask' }>, sandboxAsk, sandboxDecisions));
+        const ask = d as Extract<PolicyDecision, { effect: 'ask' }>;
+        if (approved) {
+            // A stored approval satisfies the ask, but only if its approver is one this ask accepts (§6.2).
+            const problem = await approvalProblem(
+                { decision: 'approve', by: approved.by, at: new Date().toISOString() },
+                { principal, ...(ask.accepts ? { accepts: ask.accepts } : {}) },
+                (by) => this.agentCanPerform(by, call),
+            );
+            if (problem) {
+                const reason = `invalid approval: ${problem}`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
+            }
+            return { run: true, approval: { id: approved.approvalId, by: approved.by } };
+        }
+        return this.serialize(() => this.resolveAsk(principal, call, ask, sandboxAsk, sandboxDecisions));
     }
 
     private async resolveAsk(

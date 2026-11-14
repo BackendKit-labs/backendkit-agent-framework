@@ -14,7 +14,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0008](https://github.com/BackendKit-labs/bk-platform/blob/master/docs/hermes/SPEC-0008-hermes-plan-de-implementacion.md) | Hermes: plan de implementación (H0 → H1c) | P1–P6 publicados (hermes 0.2) |
 | [SPEC-0009](SPEC-0009-confianza-del-workspace-y-limites-aplicados.md) | Confianza del workspace y límites aplicados | En curso (C1 y C3 implementados; C3b pendiente) |
 | [SPEC-0010](SPEC-0010-cotas-por-defecto-y-orquestacion.md) | Cotas por defecto, orquestación y tipos de agente | Implementado (O1–O5 publicados; core 0.37.0, v0.38.0) |
-| [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) | Tools directas (sin LLM) servidas por MCP | D1–D4 implementados (`agent-core` y `mcp-server`, sin publicar); D5 (migrar Steward) aplazado |
+| [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) | Tools directas (sin LLM) servidas por MCP | D1–D4 publicados (core 0.37.2, mcp-server 0.18.6, v0.38.2); D5 (migrar Steward) aplazado hasta SPEC-0014 |
 | [SPEC-0012](SPEC-0012-extraccion-de-documentos.md) | Extracción de documentos a texto (`document-extract`) | Capa 1 y OCR implementados (sin publicar); capa 2 pendiente |
 | [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) | El framework como librería: hoja de ruta y trazabilidad | Borrador |
 | [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) | Puntos de extensión del engine: hooks, política, aprobación y auditoría | Borrador |

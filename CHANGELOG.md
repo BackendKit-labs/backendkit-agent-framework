@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.38.2 (pendiente de publicar)
+## v0.38.2 (2026-11-14)
 
-Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.
+Publicado en npm (los dos paquetes de la tabla, cada versión es `latest`) y taggeado `agent-core@0.37.2` y `mcp-server@0.18.6` sobre el merge del bump (a833d35e). Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166); arreglo del CI que re-resolvía dependencias al instalar el binario de rolldown (#169). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.
 
 | Paquete | Versión | |
 |---|---|---|

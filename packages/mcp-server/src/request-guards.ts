@@ -1,24 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
 /**
  * The HTTP server binds to 127.0.0.1, but a web page in the user's browser can still reach it (DNS rebinding,
- * cross-site POST). Reject requests whose Host or Origin is not loopback.
- *
- * Same rule as `isLoopbackRequest` in @backendkit-labs/mcp-connectors (shared/server-runner). It is repeated
- * here because mcp-server must not depend on the connectors package; keep the two in step.
+ * cross-site POST). The rule lives once in agent-core (SPEC-0013 D6); re-exported here for existing imports.
  */
-export function isLoopbackRequest(host: string | undefined, origin: string | undefined): boolean {
-    if (!host || !LOOPBACK_HOSTS.has(host.replace(/:\d+$/, '').toLowerCase())) return false;
-    if (origin === undefined) return true; // non-browser clients send no Origin
-    try {
-        return LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase().replace(/^(::1)$/, '[::1]'));
-    } catch {
-        return false;
-    }
-}
+export { isLoopbackRequest } from '@backendkit-labs/agent-core';
 
 /** Extra directories that may be indexed besides the server's working directory (BK_INDEX_ROOTS, path-delimited). */
 export function extraIndexRoots(env: Record<string, string | undefined> = process.env): string[] {

@@ -6,6 +6,13 @@ import type { AddressInfo } from 'node:net';
 import { AgentMCPServer } from '../agent-server';
 import { extraIndexRoots, isLoopbackRequest, resolveInside } from '../request-guards';
 
+describe('isLoopbackRequest (single copy in agent-core)', () => {
+    it('is the agent-core function, not a copy', async () => {
+        const core = await import('@backendkit-labs/agent-core');
+        expect(isLoopbackRequest).toBe(core.isLoopbackRequest);
+    });
+});
+
 describe('isLoopbackRequest', () => {
     it.each([
         ['127.0.0.1:3001', undefined, true],

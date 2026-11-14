@@ -123,7 +123,7 @@ export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
 
 // ── MCP tool server — ToolDefinitions served directly over MCP, no model in between
-export { createToolServer, createToolServerFactory, hashArgs } from './mcp/tool-server';
+export { createToolServer, createToolServerFactory, createToolRegistrar, hashArgs } from './mcp/tool-server';
 export type { ToolServerOptions, ToolCallInfo, ToolCallRecord, ToolCallOutcome } from './mcp/tool-server';
 export { startToolServerHttp, isBearerAuthorized, isLoopbackRequest } from './mcp/tool-server-http';
 export type { ToolServerHttpOptions, RunningToolServer } from './mcp/tool-server-http';

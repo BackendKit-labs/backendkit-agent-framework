@@ -15,6 +15,7 @@ MCP (Model Context Protocol) server that exposes code intelligence, skills manag
 - [Connecting via agent-core](#connecting-via-agent-core)
 - [Connecting via Claude Desktop](#connecting-via-claude-desktop)
 - [HTTP mode](#http-mode)
+- [AgentMCPServer: serve your own agent over MCP](#agentmcpserver-serve-your-own-agent-over-mcp)
 - [Environment variables](#environment-variables)
 
 ---
@@ -313,6 +314,50 @@ await mcp.connectStreamableHTTP({
   baseUrl: 'http://localhost:3100',
 });
 ```
+
+---
+
+## AgentMCPServer: serve your own agent over MCP
+
+`AgentMCPServer` exposes an agent as an MCP server (stdio or Streamable HTTP with sessions). It serves two kinds of tools, and one server may mix them:
+
+| | Prompt tools (`tools`) | Direct tools (`directTools`) |
+|---|---|---|
+| What runs | `buildPrompt(args)` becomes a prompt for a fresh engine from `engineFactory` | The tool's own `execute(args)`; no model |
+| Use for | Requests that need interpretation ("explain this module", "review this diff") | Anything the caller can state exactly: queries, postings, checks |
+| Cost | One or more LLM calls per invocation | None beyond the tool itself |
+| Guards | The engine's `allowedTools`, gates and budget | `authorize`, `audit`, output cap, `timeoutMs` (from agent-core's `createToolRegistrar`) |
+
+```typescript
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+import { defineTool, z } from '@backendkit-labs/agent-core';
+
+const balances = defineTool({
+  name: 'balances_at', description: 'Balances at a date', readOnly: true,
+  input: z.object({ date: z.string() }),
+  execute: async ({ date }) => JSON.stringify(await ledger.balances(date)),
+});
+const pay = defineTool({
+  name: 'pay_invoice', description: 'Pay an approved invoice', destructive: true,
+  input: z.object({ invoiceId: z.string(), approvalId: z.string() }),
+  execute: async (args) => JSON.stringify(await treasury.pay(args)),
+});
+
+const server = new AgentMCPServer({
+  name: 'finance', port: 3010, authToken: process.env.FINANCE_TOKEN,
+  // prompt tools: need an engine
+  tools: [{ name: 'explain_variance', description: 'Explain a budget variance',
+            schema: { account: z.string() }, buildPrompt: ({ account }) => `Explain the variance in ${account}` }],
+  engineFactory: (transport) => createEngine(transport),
+  // direct tools: no model; `authorize` is required because pay_invoice is destructive
+  directTools: [balances, pay],
+  authorize: async ({ tool, args }) => !tool.destructive || approvals.isValid(args.approvalId as string),
+  audit: (record) => auditLog.append(record),
+});
+await server.start();
+```
+
+Rules checked in the constructor: prompt tools need `engineFactory` (a server with only direct tools does not); a name may not appear in both lists; a `destructive` direct tool needs `authorize`. Direct tools list with `annotations` (`readOnlyHint`, `destructiveHint`...) and `_meta` from what `defineTool` declared, and their `audit` records carry the MCP session id. For a direct-only server that does not need this package's code-intelligence dependencies, use `createToolServer` / `startToolServerHttp` from `@backendkit-labs/agent-core` instead (stateless HTTP, no SQLite or tree-sitter).
 
 ---
 

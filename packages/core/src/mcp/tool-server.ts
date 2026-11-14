@@ -90,12 +90,27 @@ interface PreparedTool {
 }
 
 /**
- * Validates the tools once (names, declared facts, schemas) and returns a factory that builds a connected-ready
- * `McpServer` per call. The stateless HTTP transport needs a fresh server per request; stdio needs one.
+ * Validates the tools once (names, declared facts, schemas) and returns a function that registers them, with
+ * the per-call guarantees above, on any `McpServer`: one that also serves prompt tools, resources or prompts
+ * of its own. `createToolServerFactory` is this plus a fresh `McpServer` per call.
+ */
+export function createToolRegistrar(opts: ToolServerOptions): (server: McpServer) => void {
+    const prepared = prepareTools(opts);
+    const maxOutputChars = opts.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
+    return server => registerTools(server, opts, prepared, maxOutputChars);
+}
+
+/**
+ * Validates the tools once and returns a factory that builds a connected-ready `McpServer` per call. The
+ * stateless HTTP transport needs a fresh server per request; stdio needs one.
  */
 export function createToolServerFactory(opts: ToolServerOptions): () => McpServer {
-    const prepared = prepareTools(opts);
-    return () => buildServer(opts, prepared);
+    const register = createToolRegistrar(opts);
+    return () => {
+        const server = new McpServer({ name: opts.name, version: opts.version ?? '1.0.0' });
+        register(server);
+        return server;
+    };
 }
 
 /** One `McpServer` with every tool registered. Connect it to any MCP server transport. */
@@ -155,10 +170,7 @@ function annotationsOf(tool: ToolDefinition): PreparedTool['annotations'] {
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
-function buildServer(opts: ToolServerOptions, prepared: PreparedTool[]): McpServer {
-    const server = new McpServer({ name: opts.name, version: opts.version ?? '1.0.0' });
-    const maxOutputChars = opts.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
-
+function registerTools(server: McpServer, opts: ToolServerOptions, prepared: PreparedTool[], maxOutputChars: number): void {
     for (const { tool, schema, annotations } of prepared) {
         server.registerTool(
             tool.name,
@@ -174,7 +186,6 @@ function buildServer(opts: ToolServerOptions, prepared: PreparedTool[]): McpServ
             (async (args: any, extra: any) => runCall(opts, tool, maxOutputChars, args, extra)) as never,
         );
     }
-    return server;
 }
 
 interface CallExtra {

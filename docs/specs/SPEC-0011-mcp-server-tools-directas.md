@@ -1,7 +1,7 @@
 # SPEC-0011: tools directas (sin LLM) servidas por MCP
 
 **Fecha:** 2026-10-28. Revisada el 2026-11-14 tras verificar el uso real en Steward.
-**Estado:** **D1–D3 implementados en `agent-core`** (rama `feat/spec-0011-tool-server`, sin publicar). D4 pendiente.
+**Estado:** **D1–D4 implementados** (rama `feat/spec-0011-tool-server`, sin publicar). D5 (migrar Steward) aplazado por decisión del usuario.
 **Depende de:** [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md), SPEC-0009 (confianza y límites)
 **Origen:** propuesta de Steward (Fase 7). Verificado contra el código el 2026-10-28; disparador cumplido el 2026-11-14.
 **Objetivo:** que el SDK sirva tools deterministas (`execute` directo, sin pasar por el engine) por MCP con transporte, auth y guards propios, para que ningún consumidor tenga que reimplementar el servidor.
@@ -26,7 +26,9 @@ La SPEC decía "esperar un segundo consumidor". En `../steward` hay **siete** ag
 
 ## 2. Diseño (como quedó implementado)
 
-**Decisión que cambia respecto al borrador:** el servidor de tools directas vive en **`@backendkit-labs/agent-core`** (`src/mcp/tool-server*.ts`, exportado desde la raíz y desde `agent-core/mcp`), no en `mcp-server`. Razones: `agent-core` ya depende del SDK de MCP y los consumidores ya dependen de `agent-core`; así se resuelve el punto 6 sin crear un paquete ni podar `mcp-server` (lo que rompería el bin `bk-mcp` de código). `AgentMCPServer` queda intacto y en D4 delegará a esto para `kind: 'direct'`.
+**Decisión que cambia respecto al borrador:** el servidor de tools directas vive en **`@backendkit-labs/agent-core`** (`src/mcp/tool-server*.ts`, exportado desde la raíz y desde `agent-core/mcp`), no en `mcp-server`. Razones: `agent-core` ya depende del SDK de MCP y los consumidores ya dependen de `agent-core`; así se resuelve el punto 6 sin crear un paquete ni podar `mcp-server` (lo que rompería el bin `bk-mcp` de código).
+
+**Segunda desviación (D4):** `AgentMCPServer` no usa `kind: 'prompt' | 'direct'` en una unión. Recibe un campo **separado** `directTools?: ToolDefinition[]` (más `authorize`, `audit`, `context`, `maxOutputChars`, `toolTimeoutMs`) y delega en `createToolRegistrar` de core. `tools: AgentToolDef[]` no cambia de tipo; `engineFactory` pasa a opcional y el constructor lanza si hay tools de prompt sin él, si un nombre está en las dos listas o si una tool directa `destructive` no tiene `authorize`.
 
 ### 2.1 Hechos declarados en `ToolDefinition` (raíz del punto 1)
 
@@ -97,8 +99,8 @@ Ninguno. Campos nuevos opcionales y ausentes si no se declaran; `AgentToolDef` d
 1. **D1: tipo y registro.** Hecho (en `agent-core`, no en `mcp-server`).
 2. **D2: seguridad.** Hecho: `authorize` obligatorio para `destructive`, `audit`, tope de salida, `ExecutionContext` con `signal` y `timeoutMs`.
 3. **D3: guardia de conversión.** Hecho por diseño: cero conversión para `defineTool`; fallo fuerte para el resto.
-4. **D4: `AgentMCPServer` con `kind: 'direct'`** delegando a `createToolServerFactory`, sin tocar `AgentToolDef`; `mcp-server` importa `isLoopbackRequest` de core en vez de duplicarlo. Documentación de `mcp-server` y release.
-5. **D5: migración de Steward.** `procuretopay-agent` primero: `HerramientaP2P` pasa a `defineTool({ readOnly, destructive, meta: { nivelAutonomia, operacionErp, version } })`, `servidor.ts`/`http.ts`/`cli.ts` se borran, `authorize` valida la `Aprobacion` del gate. Después los otros seis.
+4. **D4: `AgentMCPServer` con `directTools`.** Hecho: campo separado, `createToolRegistrar` registra las tools directas en el `McpServer` de cada sesión (el `audit` recibe el id de sesión MCP real). Sección nueva en el README de `mcp-server`. No se deduplicó `isLoopbackRequest` (opcional; ambas copias siguen la misma regla). Release pendiente.
+5. **D5: migración de Steward (aplazada).** `procuretopay-agent` primero: `HerramientaP2P` pasa a `defineTool({ readOnly, destructive, meta: { nivelAutonomia, operacionErp, version } })`, `servidor.ts`/`http.ts`/`cli.ts` se borran, `authorize` valida la `Aprobacion` del gate. Después los otros seis.
 
 ## 5. Fuera de alcance
 

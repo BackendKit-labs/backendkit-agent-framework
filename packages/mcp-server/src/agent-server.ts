@@ -4,7 +4,13 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { CallbackTransport, type AgentEngine } from '@backendkit-labs/agent-core';
+import {
+    CallbackTransport,
+    createToolRegistrar,
+    type AgentEngine,
+    type ToolDefinition,
+    type ToolServerOptions,
+} from '@backendkit-labs/agent-core';
 import { isLoopbackRequest } from './request-guards.js';
 import { SessionRegistry } from './session-registry.js';
 
@@ -69,19 +75,38 @@ export interface AgentMCPServerOptions {
     sessionTtlMs?: number;
     /** HTTP mode: new sessions get 503 once this many are open. Default 1000. */
     maxSessions?: number;
-    tools: AgentToolDef<any>[];
+    /** Prompt tools: each call becomes a natural-language prompt run by a fresh engine. */
+    tools?: AgentToolDef<any>[];
     /**
-     * Factory called for every tool invocation.
+     * Factory called for every prompt-tool invocation.
      * Receives a fresh CallbackTransport so the agent's output can be captured.
+     * Required when `tools` is not empty; a server with only `directTools` needs no engine.
      */
-    engineFactory: AgentEngineFactory;
+    engineFactory?: AgentEngineFactory;
+    /**
+     * Direct tools: `ToolDefinition`s (usually from `defineTool`) that run with no model in between. Served
+     * by `createToolRegistrar` from agent-core, so they get the same guarantees as `createToolServer`:
+     * schema validation, `authorize`, `audit`, output cap and `timeoutMs`. A name may not appear in both lists.
+     */
+    directTools?: ToolDefinition[];
+    /** Gate for direct tools. Required when any direct tool is `destructive`. */
+    authorize?: ToolServerOptions['authorize'];
+    /** One record per direct-tool call (arguments as a hash). */
+    audit?: ToolServerOptions['audit'];
+    /** Context fields (or a builder) for direct tools. */
+    context?: ToolServerOptions['context'];
+    /** Output cap for direct tools. Default 1 048 576 characters. */
+    maxOutputChars?: number;
+    /** Time limit for direct tools that declare none. */
+    toolTimeoutMs?: number;
 }
 
 /**
  * Wraps an AgentEngine as a full MCP server.
  *
- * Each registered tool translates its arguments into a natural-language prompt,
- * runs it through the engine, and returns the accumulated text response.
+ * Prompt tools (`tools`) translate their arguments into a natural-language prompt,
+ * run it through the engine, and return the accumulated text response. Direct tools
+ * (`directTools`) run their `execute` with the validated arguments, no model involved.
  *
  * Supports two modes:
  * - **HTTP** (`start()`) — `StreamableHTTPServerTransport`, stateful sessions
@@ -100,8 +125,40 @@ export interface AgentMCPServerOptions {
 export class AgentMCPServer {
     private httpServer?: ReturnType<typeof createServer>;
     private sessionRegistry?: SessionRegistry<StreamableHTTPServerTransport>;
+    private readonly promptTools: AgentToolDef<any>[];
+    private readonly registerDirectTools?: (server: McpServer) => void;
 
-    constructor(private readonly opts: AgentMCPServerOptions) {}
+    constructor(private readonly opts: AgentMCPServerOptions) {
+        this.promptTools = opts.tools ?? [];
+        const directTools = opts.directTools ?? [];
+
+        if (this.promptTools.length > 0 && !opts.engineFactory) {
+            throw new Error(`[${opts.name}] prompt tools need an engineFactory`);
+        }
+        const promptNames = new Set<string>();
+        for (const tool of this.promptTools) {
+            if (promptNames.has(tool.name)) throw new Error(`[${opts.name}] duplicate tool name "${tool.name}"`);
+            promptNames.add(tool.name);
+        }
+        for (const tool of directTools) {
+            if (promptNames.has(tool.name)) {
+                throw new Error(`[${opts.name}] tool "${tool.name}" is declared both as a prompt tool and as a direct tool`);
+            }
+        }
+        if (directTools.length > 0) {
+            // Validates now (names, declared facts, schemas, authorize for destructive tools), not at start().
+            this.registerDirectTools = createToolRegistrar({
+                name: opts.name,
+                version: opts.version,
+                tools: directTools,
+                authorize: opts.authorize,
+                audit: opts.audit,
+                context: opts.context,
+                maxOutputChars: opts.maxOutputChars,
+                toolTimeoutMs: opts.toolTimeoutMs,
+            });
+        }
+    }
 
     /** Start in HTTP mode (StreamableHTTP, stateful sessions). */
     async start(): Promise<void> {
@@ -226,7 +283,9 @@ export class AgentMCPServer {
             version: this.opts.version ?? '1.0.0',
         });
 
-        for (const tool of this.opts.tools) {
+        this.registerDirectTools?.(srv);
+
+        for (const tool of this.promptTools) {
             srv.tool(tool.name, tool.description, tool.schema, async (args: Record<string, unknown>) => {
                 const start   = Date.now();
                 const preview = JSON.stringify(args).slice(0, 80);
@@ -253,7 +312,7 @@ export class AgentMCPServer {
                 if (event.type === 'done')  resolve(output.trim() || '(no output)');
                 if (event.type === 'error') reject(new Error(event.message));
             });
-            const engine = this.opts.engineFactory(transport);
+            const engine = this.opts.engineFactory!(transport);
             engine.run(prompt).catch(reject);
         });
     }

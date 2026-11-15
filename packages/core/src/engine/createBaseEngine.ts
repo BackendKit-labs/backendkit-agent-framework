@@ -29,6 +29,7 @@ import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
 import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
+import type { EngineHooks } from '../governance/hooks';
 import type { Guardrail } from '../guardrails/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
@@ -332,6 +333,15 @@ export interface BaseEngineOptions {
     approvals?: ApprovalStore;
 
     /**
+     * Lifecycle hooks (SPEC-0014): beforeRun, systemPrompt, afterTurn (may force another pass), beforeTool,
+     * afterTool, afterRun. Registration order; a throwing hook fails the turn.
+     */
+    hooks?: EngineHooks[];
+
+    /** Most extra passes `afterTurn` hooks may force in one turn. Default 5. */
+    maxHookContinues?: number;
+
+    /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
      * Should return the new projectContext string built from the new cwd
      * (AGENT.md, session.md, store context, detected stack, etc.).
@@ -475,6 +485,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.policy ? { policy: opts.policy } : {}),
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
+        ...(opts.hooks?.length ? { hooks: opts.hooks } : {}),
+        ...(opts.maxHookContinues !== undefined ? { maxHookContinues: opts.maxHookContinues } : {}),
         ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
         ...(opts.agentDiscovery
             ? {

@@ -138,6 +138,8 @@ export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from '
 export { defaultToolPolicy, combineDecisions, evaluatePolicies } from './governance/policy';
 export { approverFromCallback, approvalProblem } from './governance/approval';
 export type { CallbackApprover } from './governance/approval';
+export { DEFAULT_MAX_HOOK_CONTINUES } from './governance/hooks';
+export type { EngineHooks, RunContext, ContinueTurn } from './governance/hooks';
 export { canonicalJson } from './shared/utils/canonical-json';
 
 // ── MCP tool server — ToolDefinitions served directly over MCP, no model in between

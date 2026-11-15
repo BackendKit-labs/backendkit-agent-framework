@@ -1,6 +1,6 @@
 import type { ToolApprovalDecision } from '../types';
 import type {
-    ApprovalOutcome, ApprovalRequest, Approver, ApproverKind, ApproverRef, PolicyDecision, Principal,
+    ApprovalOutcome, ApprovalRequest, Approver, ApproverKind, ApproverRef, Principal,
 } from './types';
 
 /**
@@ -76,11 +76,3 @@ export function approverFromCallback(
         },
     };
 }
-
-/** What `ask` resolved to, for the engine's single audit event. */
-export type AskResolution =
-    | { run: true; approval: { id: string; by: ApproverRef } }
-    | { run: false; decision: 'deny' | 'ask' | 'sandbox_denied'; reason: string; message: string };
-
-/** Picks the reason text of a decision for messages. */
-export const reasonOf = (d: PolicyDecision): string => d.reason ?? (d.effect === 'allow' ? 'allowed' : d.effect);

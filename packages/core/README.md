@@ -1074,6 +1074,34 @@ const engine = createBaseEngine({
 - **`allow` can carry a mode.** `mode: 'dry_run'` runs the tool with `ctx.dryRun = true`. `mode: 'sandboxed'` requires a configured sandbox.
 - **Opt-in.** Setting `policy`, `approver` or `approvals` switches to this path. Without them, `onToolApproval` behaves exactly as before. With them, `onToolApproval` is adapted as the approver: "approve all" never covers destructive tools or package installs.
 
+### Lifecycle hooks
+
+Hooks let a vertical plug into a turn without new engine options. Every hook of one turn shares a `RunContext`: the principal, the input, a `state` map and an abort `signal`.
+
+```typescript
+import { createBaseEngine, type EngineHooks } from '@backendkit-labs/agent-core';
+
+const review: EngineHooks = {
+  name: 'review',
+  beforeRun: (ctx) => ctx.state.set('task', classify(ctx.input)),
+  systemPrompt: (ctx, profile) => profile.id === 'general' ? `## Task\n${describe(ctx.state.get('task'))}` : undefined,
+  afterTurn: (ctx, turn) => !ctx.state.get('reviewed') && turn.profile.id === 'general'
+    ? { action: 'continue', agentId: 'reviewer', message: 'Review the answer above.' }   // another pass, as another agent
+    : undefined,
+  beforeTool: (ctx, call) => metrics.start(call.tool.name),
+  afterTool: (ctx, call, result) => metrics.end(call.tool.name, result.success),
+  afterRun: (ctx, result) => store.save(ctx.state.get('task'), result.text),
+};
+
+const engine = createBaseEngine({ ...opts, hooks: [review], maxHookContinues: 3 });
+```
+
+- **Order.** Hooks run in registration order.
+- **`systemPrompt`** adds sections to the active agent and to delegates.
+- **`afterTurn`** runs when the model answers without asking for tools. The first hook that asks to `continue` wins. The number of extra passes is capped by `maxHookContinues` (default 5) and by `maxIterations`.
+- **`beforeTool` / `afterTool`** wrap only the calls the policy allowed.
+- **Errors.** A hook that throws fails the turn, and the error names the hook and the point.
+
 ---
 
 ## Skills and slash commands

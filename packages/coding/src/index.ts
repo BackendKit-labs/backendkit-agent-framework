@@ -9,13 +9,14 @@ import {
     type Transport,
     type Skill,
     type MCPServerConfig,
+    type Learning,
     type ObservabilityConfig,
     getProjectDir,
 } from '@backendkit-labs/agent-core';
 import { SkillLoader, runGlobalSeed, isProjectTrusted, untrustedLayerWarning } from './cli';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
-import { Orchestrator, QAService, codingPipelineHooks, type CapabilityMatrix, type PolicyRule } from './pipeline';
+import { Orchestrator, QAService, codingPipelineHooks, createCodingLearning, type CapabilityMatrix, type PolicyRule } from './pipeline';
 import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
@@ -285,6 +286,18 @@ export interface OrchestrationOptions {
      * Requiere que `orchestration` esté habilitado.
      */
     reflection?: boolean | ReflectionEngine;
+    /**
+     * Aprendizaje de core (SPEC-0017 F6). Los hallazgos de la auditoría y las llamadas a tools que fallan una y otra
+     * vez pasan a ser lecciones en el prompt del agente, y un patrón de hallazgos propone una regla para el
+     * orquestador que **espera la aprobación de una persona**: nunca se aplica sola.
+     *
+     * - `true` (por defecto con `orchestration`) — aprendizaje en archivos de `~/.{appName}/projects/<proyecto>/learning/`
+     * - `Learning` — la instancia que tú creaste (`createCodingLearning`), para aprobar o rechazar propuestas
+     * - `false` — sin aprendizaje
+     *
+     * Sustituye a `reflection`, que queda obsoleto y ya no está activo por defecto.
+     */
+    learning?: boolean | Learning;
 }
 
 export interface CodingEngineOptions {
@@ -544,6 +557,7 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
 
     // ── Orchestrator (optional — activated via opts.orchestration) ────────────
     let orchestrator: Orchestrator | undefined;
+    let learning: Learning | undefined;
     let qaService: QAService | undefined;
     let noQA: boolean | undefined;
     let onQAReview: ((r: string) => void) | undefined;
@@ -567,9 +581,16 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
             customRules: orchOpts.customRules,
         });
 
-        // reflection defaults to true when orchestration is on — the feedback loop
-    // (findings → catalog → patterns → manifest.yaml → PolicyStep) is now complete.
-    const reflectionOpt = orchOpts.reflection ?? true;
+        // The learning module is on by default: findings → experiences → patterns → a proposed rule that a person
+        // approves → the orchestrator policies. The Reflection Engine (deprecated) is opt-in: it promoted rules on its own.
+        const learningOpt = orchOpts.learning ?? true;
+        if (learningOpt) {
+            learning = typeof learningOpt === 'object'
+                ? learningOpt
+                : createCodingLearning({ appName, projectRoot: cwd });
+            orchestrator.connectLearning(learning);
+        }
+        const reflectionOpt = orchOpts.reflection ?? false;
         if (reflectionOpt) {
             const re = reflectionOpt instanceof ReflectionEngine
                 ? reflectionOpt
@@ -641,8 +662,10 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
         ...(auditLog ? { auditLog } : {}),
+        ...(learning ? { audit: learning.sink } : {}),
         hooks: [
             codingContextHooks({ store, workingDir: cwd }),
+            ...(learning ? [learning.hooks] : []),
             ...(orchestrator ? [codingPipelineHooks({ orchestrator, qaService, noQA, onQAReview, defaultAgentId: opts.defaultAgent ?? 'general' })] : []),
         ],
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),

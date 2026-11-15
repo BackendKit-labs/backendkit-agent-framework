@@ -23,6 +23,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import * as yaml from 'yaml';
+import type { Learning, RuleStore } from '@backendkit-labs/agent-core';
+import { approvedPolicyRules } from '../learning';
 import { pipeline, Ok, Err } from '@backendkit-labs/pipeline';
 import type { PipelineStep, StepResult } from '@backendkit-labs/pipeline';
 
@@ -170,6 +172,7 @@ export class Orchestrator {
   private fsm: TaskFSM;
   private auditReporter: AuditReporter;
   private appName: string;
+  private approvedRules?: RuleStore;
 
   constructor(options?: {
     client?: LLMChatClient;
@@ -270,6 +273,15 @@ export class Orchestrator {
    * @description Obtiene la instancia del AuditReporter para registrar gates
    * desde el AgentLoop u otros componentes.
    */
+  /**
+   * @description Conecta el módulo de aprendizaje (SPEC-0017 F6): los hallazgos de la auditoría alimentan el
+   * aprendizaje y las reglas que una persona aprobó se suman a las del policy engine en cada orchestrate().
+   */
+  connectLearning(learning: Learning): void {
+    this.approvedRules = learning.rules;
+    this.auditReporter.connectLearning(learning);
+  }
+
   getAuditReporter(): AuditReporter {
     return this.auditReporter;
   }
@@ -457,6 +469,12 @@ export class Orchestrator {
    * fusionan con las customRules en cada orchestrate().
    */
   private async loadManifestPolicyRules(): Promise<PolicyRule[]> {
+    const approved = this.approvedRules ? await approvedPolicyRules(this.approvedRules).catch(() => []) : [];
+    return [...await this.loadLegacyManifestRules(), ...approved];
+  }
+
+  /** Reglas que el Reflection Engine (obsoleto) promovió a manifest.yaml. */
+  private async loadLegacyManifestRules(): Promise<PolicyRule[]> {
     try {
       const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
       const manifestPath = path.join(home, `.${this.appName}`, 'manifest.yaml');

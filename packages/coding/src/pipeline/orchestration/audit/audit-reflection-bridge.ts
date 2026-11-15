@@ -9,7 +9,8 @@
  * @see AuditHook para la implementación concreta del reporte.
  */
 
-import { ReflectionEngine } from '@backendkit-labs/agent-core';
+import { ReflectionEngine, type Learning } from '@backendkit-labs/agent-core';
+import { recordAuditFindings } from '../../learning';
 import { AuditHook } from '../../reflection/hooks/audit-hook';
 import { LessonsMemoGenerator } from '../../reflection/lessons-memo-generator';
 import { GateRecord } from './types';
@@ -19,6 +20,7 @@ import { GateRecord } from './types';
 export class AuditReflectionBridge {
   private hook: AuditHook | null = null;
   private engine: ReflectionEngine | null = null;
+  private learning: Learning | null = null;
 
   /**
    * @description Conecta con el Reflection Engine.
@@ -29,18 +31,27 @@ export class AuditReflectionBridge {
   }
 
   /**
-   * @description Desconecta del Reflection Engine.
+   * @description Conecta con el módulo de aprendizaje de core (SPEC-0017 F6): los hallazgos pasan a ser
+   * experiencias y un patrón repetido propone una regla que espera aprobación.
+   */
+  connectLearning(learning: Learning): void {
+    this.learning = learning;
+  }
+
+  /**
+   * @description Desconecta del Reflection Engine y del módulo de aprendizaje.
    */
   disconnect(): void {
     this.hook = null;
     this.engine = null;
+    this.learning = null;
   }
 
   /**
    * @description Indica si está conectado.
    */
   get isConnected(): boolean {
-    return this.hook !== null;
+    return this.hook !== null || this.learning !== null;
   }
 
   /**
@@ -53,10 +64,15 @@ export class AuditReflectionBridge {
    *   3. LessonsMemoGenerator.persist() → actualiza lecciones-aprendidas.md
    */
   async reportFindings(gates: GateRecord[]): Promise<void> {
-    if (!this.hook || !this.engine) return;
+    if (!this.hook && !this.learning) return;
 
     const gatesWithFindings = gates.filter(g => g.hallazgos.length > 0);
     if (gatesWithFindings.length === 0) return;
+
+    if (this.learning) {
+      for (const gate of gatesWithFindings) await recordAuditFindings(this.learning, gate.hallazgos, gate.gate);
+    }
+    if (!this.hook || !this.engine) return;
 
     for (const gate of gatesWithFindings) {
       await this.hook.reportFindings(gate.hallazgos, gate.gate, 'audit');

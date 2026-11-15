@@ -31,7 +31,7 @@ import * as fs from 'fs/promises';
 import { TaskContext } from './task-context';
 import { cwdToProjectKey } from '@backendkit-labs/agent-core';
 import { sanitizeFilename } from '@backendkit-labs/agent-core';
-import { ReflectionEngine } from '@backendkit-labs/agent-core';
+import { ReflectionEngine, type Learning } from '@backendkit-labs/agent-core';
 import {
   AuditReportVersionManager,
   AuditReportRenderer,
@@ -341,6 +341,13 @@ export class AuditReporter {
    */
   connectReflectionEngine(engine: ReflectionEngine): void {
     this.reflectionBridge.connect(engine);
+  }
+
+  /**
+   * @description Conecta el módulo de aprendizaje de core (SPEC-0017 F6).
+   */
+  connectLearning(learning: Learning): void {
+    this.reflectionBridge.connectLearning(learning);
   }
 
   /**

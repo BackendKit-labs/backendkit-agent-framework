@@ -6,7 +6,7 @@ import type { ExecutionContext, ToolDefinition } from '../types';
 import { createToolContext } from '../tools/createToolContext';
 import { getToolInputSchema, validateToolDefinition } from '../tools/defineTool';
 import { AuditDispatcher } from '../governance/audit';
-import { evaluatePolicies } from '../governance/policy';
+import { agentCouldPerform, evaluatePolicies } from '../governance/policy';
 import { approvalProblem } from '../governance/approval';
 import type {
     ApprovalRequest, Approver, ApproverRef, AuditDecision, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
@@ -394,7 +394,7 @@ async function resolveAsk(
     if (answer.decision !== 'approve') return { ok: false, reason: answer.reason ?? 'rejected by the approver' };
     const problem = await approvalProblem(answer, request, async (by) => {
         const asAgent = await evaluatePolicies(gov.policies, { ...principal, agentId: by.id, chain: by.chain ?? [by.id] }, { tool, args });
-        return asAgent.effect === 'allow';
+        return agentCouldPerform(asAgent);
     });
     if (problem) return { ok: false, reason: `invalid approval: ${problem}` };
     return { ok: true, approval: { id: request.id, by: answer.by } };

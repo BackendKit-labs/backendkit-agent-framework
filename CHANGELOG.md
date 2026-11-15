@@ -38,6 +38,21 @@ Sin cambio incompatible: sin `hooks` el engine no cambia.
 - **Errores:** un hook que lanza falla el turno, igual que un orquestador en modo `closed`.
 - **Pipeline de coding:** se puede expresar solo con hooks (hay un test que lo demuestra). Se migrará en SPEC-0015.
 
+### `agent-core`: servidor de tools con los mismos contratos, y aprobación durable (SPEC-0014 F4–F5)
+Sin cambio incompatible.
+- **`createToolServer`** acepta `policy`, `approver`, `identity` y `auditSink`.
+  - `auditSink` recibe el mismo `AuditEvent` que el engine.
+  - Un `ask` sin aprobador se rechaza.
+  - Una tool `destructive` arranca con `authorize` o con `policy`.
+  - Cada tool recibe `ctx.principal`, y `ctx.dryRun` cuando la política pide simular.
+  - `audit(ToolCallRecord)` queda obsoleto, sin cambios.
+- **`FileApprovalStore`:** guarda las aprobaciones pendientes en un directorio. Admite una sola decisión y una sola ejecución por id. Cada paso es atómico entre procesos, sin locks, y la petición sobrevive a reinicios.
+- **`engine.runApproved(id)`:** ejecuta, como mucho una vez, una llamada que quedó pendiente y luego fue aprobada. Repite todas las comprobaciones, y la aprobación solo cuenta si su aprobador es de un tipo aceptado.
+- **`engine.consultAgent(id, pregunta)`:** permite preguntarle algo a otro agente.
+- **`agentApprover`:** un agente supervisor como aprobador. Responde APPROVE o REJECT.
+- **`consoleApprover`:** una persona en la terminal como aprobador, con y/N.
+- **Regla 3 precisada:** un agente aprueba si la política, evaluada con él como principal, le daría `allow`, o un `ask` que un agente puede satisfacer.
+
 ## v0.38.2 (2026-11-14)
 
 Publicado en npm (los dos paquetes de la tabla, cada versión es `latest`) y taggeado `agent-core@0.37.2` y `mcp-server@0.18.6` sobre el merge del bump (a833d35e). Tools directas (sin LLM) servidas por MCP, [SPEC-0011](docs/specs/SPEC-0011-mcp-server-tools-directas.md) D1–D4 (#166); arreglo del CI que re-resolvía dependencias al instalar el binario de rolldown (#169). Patch en los dos paquetes: el cambio es aditivo y los rangos `^0.37.0` existentes (paquetes, templates, consumidores) toman `agent-core` 0.37.2 sin editar nada.

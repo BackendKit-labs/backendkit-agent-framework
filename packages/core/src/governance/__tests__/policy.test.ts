@@ -1,4 +1,4 @@
-import { combineDecisions, defaultToolPolicy, evaluatePolicies } from '../policy';
+import { agentCouldPerform, combineDecisions, defaultToolPolicy, evaluatePolicies } from '../policy';
 import { approvalProblem, approverFromCallback } from '../approval';
 import type { ApprovalRequest, Principal, ToolCall } from '../types';
 import type { ToolDefinition } from '../../types';
@@ -39,6 +39,16 @@ describe('combineDecisions', () => {
     it('a policy that throws denies (fail-closed)', async () => {
         const d = await evaluatePolicies([{ decide: () => { throw new Error('PDP down'); } }, { decide: () => ({ effect: 'allow' }) }], principal, call());
         expect(d).toEqual({ effect: 'deny', reason: 'policy failed: PDP down' });
+    });
+});
+
+describe('agentCouldPerform (rule 3)', () => {
+    it('allow or an ask an agent may satisfy: yes; deny or an ask reserved for people: no', () => {
+        expect(agentCouldPerform({ effect: 'allow' })).toBe(true);
+        expect(agentCouldPerform({ effect: 'ask', reason: 'r' })).toBe(true);
+        expect(agentCouldPerform({ effect: 'ask', reason: 'r', accepts: ['agent', 'human'] })).toBe(true);
+        expect(agentCouldPerform({ effect: 'ask', reason: 'r', accepts: ['human'] })).toBe(false);
+        expect(agentCouldPerform({ effect: 'deny', reason: 'r' })).toBe(false);
     });
 });
 

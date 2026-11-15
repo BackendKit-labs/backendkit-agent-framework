@@ -1074,6 +1074,32 @@ const engine = createBaseEngine({
 - **`allow` can carry a mode.** `mode: 'dry_run'` runs the tool with `ctx.dryRun = true`. `mode: 'sandboxed'` requires a configured sandbox.
 - **Opt-in.** Setting `policy`, `approver` or `approvals` switches to this path. Without them, `onToolApproval` behaves exactly as before. With them, `onToolApproval` is adapted as the approver: "approve all" never covers destructive tools or package installs.
 
+### Durable approvals
+
+If nobody can answer an `ask` right now, give the engine an `approvals` store. The call is stored as pending, the model is told it did not run, and whoever decides later runs it with `runApproved`.
+
+```typescript
+import { createBaseEngine, FileApprovalStore, agentApprover, consoleApprover } from '@backendkit-labs/agent-core';
+
+const approvals = new FileApprovalStore('/var/lib/agent/approvals');
+const engine = createBaseEngine({ ...opts, approvals });
+
+await engine.run('pay the October invoices');          // asks become pending requests
+
+// Later, maybe in another process (a UI, Hermes, a CLI):
+const [req] = await approvals.list({ status: 'pending' });
+await approvals.resolve(req.id, { decision: 'approve', by: { kind: 'human', id: 'ana' }, at: new Date().toISOString() });
+const result = await engine.runApproved(req.id);       // runs once; a second call throws
+
+// Approvers that answer right away:
+createBaseEngine({ ...opts, approver: consoleApprover() });                                    // a person at the terminal
+createBaseEngine({ ...opts, approver: agentApprover((id, q) => engine.consultAgent(id, q), 'supervisor') }); // another agent
+```
+
+- **One decision and one execution per request.** `FileApprovalStore` allows exactly one decision and one execution per request, even across processes that share the directory.
+- **Everything is checked again.** `runApproved` repeats every check. A stored approval only satisfies an `ask` whose `accepts` admits the approver: an approval from an agent never covers a destructive tool.
+- **An invalid approval is spent.** If the approval turns out not to be valid, it is consumed and audited as `deny`.
+
 ### Lifecycle hooks
 
 Hooks let a vertical plug into a turn without new engine options. Every hook of one turn shares a `RunContext`: the principal, the input, a `state` map and an abort `signal`.

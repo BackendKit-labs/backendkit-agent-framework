@@ -135,7 +135,7 @@ export {
     verifyAuditChain, verifyAuditSegment, GENESIS_HASH,
 } from './governance/audit';
 export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from './governance/audit';
-export { defaultToolPolicy, combineDecisions, evaluatePolicies } from './governance/policy';
+export { defaultToolPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem } from './governance/approval';
 export type { CallbackApprover } from './governance/approval';
 export { FileApprovalStore } from './governance/approval-store';

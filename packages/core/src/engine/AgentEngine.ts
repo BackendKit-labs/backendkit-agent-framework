@@ -9,7 +9,7 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
-import { combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
+import { agentCouldPerform, combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
 import { packageInstallPolicy } from './package-install';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
@@ -1899,7 +1899,7 @@ export class AgentEngine {
         if (!approverProfile) return false;
         if (!approverProfile.allowedTools.includes(call.tool.name)) return false;
         const d = await evaluatePolicies(this.policies, this.principalFor(by.id, by.chain ?? [by.id]), { tool: call.tool, args: call.args });
-        return d.effect === 'allow';
+        return agentCouldPerform(d);
     }
 
     private async runToolDef(

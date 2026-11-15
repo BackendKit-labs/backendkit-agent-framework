@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.40.0 (sin publicar)
+## v0.40.0 (2026-11-15)
 
 [SPEC-0015](docs/specs/SPEC-0015-extraer-coding-de-los-contratos-de-core.md) F1–F4 (#179): el pipeline de coding sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.38` no cubre 0.39, así que se barrieron los rangos de todos los paquetes y templates: `^0.39.0`, y en los peers `<0.41.0`.
 

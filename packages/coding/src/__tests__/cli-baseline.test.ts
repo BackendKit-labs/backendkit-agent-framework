@@ -38,6 +38,9 @@ jest.mock('@backendkit-labs/agent-core', () => {
     };
 });
 
+// The first-run seed is fire-and-forget: it would still write after the test removes its home.
+jest.mock('../cli/bootstrap/GlobalSeed', () => ({ runGlobalSeed: jest.fn(async () => undefined) }));
+
 import { createCodingEngine } from '../index';
 import { detectStack } from '../cli';
 

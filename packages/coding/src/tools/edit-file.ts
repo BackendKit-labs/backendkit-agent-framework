@@ -6,6 +6,7 @@ import { warnIfSecrets } from './secret-scanner';
 
 export const editFileTool = defineTool({
     name: 'edit_file',
+    readOnly: false,
     description: 'Replace an exact string in a file. Safer than write_file for partial edits.',
     input: z.object({
         file_path:   z.string().describe('Path to the file'),

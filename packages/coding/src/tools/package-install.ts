@@ -1,6 +1,6 @@
 /**
  * Whether a shell command installs or removes packages. Installing runs third-party code (postinstall scripts),
- * so ApprovalGate asks about it even after the user chose "approve all".
+ * so `run_command` declares it with `alwaysAsk` and a person is asked even after choosing "approve all".
  *
  * The check works on what the shell will actually run, not on how the line starts: the command is split at
  * `&&`, `||`, `;`, `|`, `&`, newlines, `$(`, backticks and parentheses; each segment loses its leading
@@ -108,18 +108,3 @@ function bin(token: string | undefined): string {
     const base = token.split('/').pop()!.split('\\').pop()!.toLowerCase();
     return base.replace(/\.(cmd|exe|bat|ps1)$/, '');
 }
-
-/**
- * The package-install rule as a `ToolPolicy` (SPEC-0014 §4): a `run_command` that installs or removes packages
- * always asks a person, whatever "approve all" says. It belongs to the coding vertical and moves there with
- * SPEC-0015 F3; until then the engine composes it into the policy path so opting into `policy`/`approver` never
- * loses this check.
- */
-export const packageInstallPolicy: import('../governance/types').ToolPolicy = {
-    decide(_principal, call) {
-        if (call.tool.name !== 'run_command') return { effect: 'allow' };
-        const command = (call.args as { command?: unknown }).command;
-        if (typeof command !== 'string' || !requiresInstallApproval(command)) return { effect: 'allow' };
-        return { effect: 'ask', reason: 'installs or removes packages (runs third-party code)', accepts: ['human'] };
-    },
-};

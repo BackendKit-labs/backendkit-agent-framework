@@ -1,6 +1,5 @@
 import type { Transport } from '../transport/Transport';
-import type { ToolApprovalDecision } from '../types';
-import { requiresInstallApproval } from './package-install';
+import type { ToolApprovalDecision, ToolDefinition } from '../types';
 
 export interface ApprovalGateOptions {
     onToolApproval?: (toolName: string, agentId: string, argsPreview: string) => Promise<ToolApprovalDecision>;
@@ -9,8 +8,6 @@ export interface ApprovalGateOptions {
 
 export class ApprovalGate {
     private disabled = false;
-
-    private static readonly WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
 
     constructor(private readonly opts: ApprovalGateOptions) {}
 
@@ -26,6 +23,8 @@ export class ApprovalGate {
         agentId: string,
         /** What the sandbox policy says about this tool. Absent: the built-in list of tools that ask applies. */
         sandbox?: 'none' | 'ask',
+        /** The facts the tool declares: `readOnly: false` asks, `alwaysAsk` asks even after "approve all". */
+        tool?: Pick<ToolDefinition, 'readOnly' | 'alwaysAsk'>,
     ): Promise<'run' | 'rejected' | 'no-approver'> {
         // The policy wants a human and there is none: refuse. Never "run because nobody can be asked".
         // Not even disableToolApproval() lifts this: without an approver that flag can only come from code,
@@ -35,7 +34,7 @@ export class ApprovalGate {
 
         const preview = call.args.slice(0, 200);
 
-        if (this.requiresAlwaysAsk(call)) {
+        if (this.requiresAlwaysAsk(call, tool)) {
             this.opts.transport.emit({
                 type: 'tool_approval_request',
                 tool_name: call.name,
@@ -47,7 +46,7 @@ export class ApprovalGate {
         }
 
         // With a sandbox policy in charge, it alone decides which tools ask.
-        const asks = sandbox !== undefined ? sandbox === 'ask' : ApprovalGate.WRITE_TOOLS.has(call.name);
+        const asks = sandbox !== undefined ? sandbox === 'ask' : tool?.readOnly === false;
         if (!this.disabled && asks) {
             this.opts.transport.emit({
                 type: 'tool_approval_request',
@@ -66,14 +65,11 @@ export class ApprovalGate {
     disable(): void { this.disabled = true; }
     enable(): void  { this.disabled = false; }
 
-    private requiresAlwaysAsk(call: { name: string; args: string }): boolean {
-        if (call.name !== 'run_command') return false;
+    private requiresAlwaysAsk(call: { name: string; args: string }, tool?: Pick<ToolDefinition, 'alwaysAsk'>): boolean {
+        if (!tool?.alwaysAsk) return false;
         try {
-            const { command } = JSON.parse(call.args) as { command?: string };
-            if (!command) return false;
-            // Installing or removing packages always asks, regardless of iteration mode or the disabled flag: it
-            // runs third-party code. Judged on what each shell segment runs, not on how the line starts.
-            return requiresInstallApproval(command);
+            const args = JSON.parse(call.args) as unknown;
+            return typeof args === 'object' && args !== null && tool.alwaysAsk(args as Record<string, unknown>);
         } catch {
             return false;
         }

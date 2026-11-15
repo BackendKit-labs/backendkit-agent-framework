@@ -72,6 +72,11 @@ export interface ToolDefinition {
      */
     readOnly?: boolean;
     /**
+     * Decides per call whether a person must approve it even in "approve all" mode (for example a command that
+     * installs third-party code). Evaluated on the parsed arguments. Default: never.
+     */
+    alwaysAsk?: (args: Record<string, unknown>) => boolean;
+    /**
      * The tool performs a write that cannot be undone from the outside (pay, delete, post, send).
      * A server that exposes such a tool directly must authorize every call (see `createToolServer`).
      * Exposed to MCP clients as `destructiveHint`.

@@ -18,6 +18,20 @@ export const defaultToolPolicy: ToolPolicy = {
     },
 };
 
+/**
+ * Enforces what a tool declares with `alwaysAsk`: a call it flags asks a person, whatever "approve all" says.
+ * The engine composes it into the policy path, so opting into `policy`/`approver` never loses a tool's own check.
+ */
+export const declaredAskPolicy: ToolPolicy = {
+    decide(_principal: Principal, call: ToolCall): PolicyDecision {
+        const ask = call.tool.alwaysAsk;
+        if (!ask || typeof call.args !== 'object' || call.args === null) return { effect: 'allow' };
+        return ask(call.args as Record<string, unknown>)
+            ? { effect: 'ask', reason: `"${call.tool.name}" is flagged by the tool as needing a person`, accepts: ['human'] }
+            : { effect: 'allow' };
+    },
+};
+
 /** Kinds accepted by both sets; `undefined` means any. An empty result means nobody can approve. */
 function intersectAccepts(a: ApproverKind[] | undefined, b: ApproverKind[] | undefined): ApproverKind[] | undefined {
     if (!a) return b;

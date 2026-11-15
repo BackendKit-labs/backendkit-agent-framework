@@ -113,6 +113,7 @@ const timeoutMessage = (pattern: string): string =>
 
 export const searchFilesTool = defineTool({
     name: 'search_files',
+    readOnly: true,
     concurrencySafe: true,
     description:
         'Search for text patterns across files. ' +

@@ -5,6 +5,7 @@ import { sandboxPathError } from './sandbox-path';
 
 export const readFileTool = defineTool({
     name: 'read_file',
+    readOnly: true,
     concurrencySafe: true,
     description: [
         'Read the contents of a file.',

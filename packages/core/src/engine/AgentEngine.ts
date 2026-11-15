@@ -9,9 +9,8 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
-import { agentCouldPerform, combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
+import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
-import { packageInstallPolicy } from './package-install';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
 import type {
     ApprovalRequest,
@@ -305,10 +304,10 @@ export class AgentEngine {
         if (this.governed) {
             const someoneToAsk = !!(opts.approver || opts.approvals || opts.onToolApproval);
             const configured = opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [];
-            // Package installs always ask a person; it moves to the coding vertical with SPEC-0015 F3.
+            // What a tool declares with `alwaysAsk` always asks a person, whatever the configured policy says.
             this.policies = [
                 ...(configured.length > 0 ? configured : someoneToAsk ? [defaultToolPolicy] : []),
-                packageInstallPolicy,
+                declaredAskPolicy,
             ];
             if (opts.approver) {
                 this.approver = opts.approver;
@@ -1662,7 +1661,7 @@ export class AgentEngine {
         const sandboxAsk = this.opts.sandbox?.approvalFor
             ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name)
             : undefined;
-        const gate = await this.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk));
+        const gate = await this.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk, this.opts.tools.get(call.name)));
         if (gate === 'rejected') {
             return { run: false, decision: 'deny', reason: 'rejected by the approver', message: `Tool call "${call.name}" was rejected by the user.` };
         }

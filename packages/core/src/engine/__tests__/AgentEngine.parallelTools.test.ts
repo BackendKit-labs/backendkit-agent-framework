@@ -8,6 +8,7 @@ function tool(name: string, ms: number, safe: boolean, log: string[] = []): Tool
     return {
         name, description: name, parameters: { type: 'object', properties: {} },
         ...(safe ? { concurrencySafe: true } : {}),
+        ...(name === 'write_file' ? { readOnly: false } : {}),
         execute: async () => { await sleep(ms); log.push(name); return `out-${name}`; },
     };
 }

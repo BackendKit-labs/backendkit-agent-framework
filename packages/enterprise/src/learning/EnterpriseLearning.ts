@@ -1,9 +1,9 @@
 import * as path from 'node:path';
 import {
-    createLearning, FileApprovalStore, JsonFileStore,
+    createLearning, FileApprovalStore, FileLessonStore, JsonFileStore,
 } from '@backendkit-labs/agent-core';
 import type {
-    ApprovedRule, ApproverRef, Experience, LearnedPattern, Learning, MemoryStoreBackend, ApprovalStore, StoredApproval,
+    TaughtLesson, TeachInput, ApprovedRule, ApproverRef, Experience, LearnedPattern, Learning, MemoryStoreBackend, ApprovalStore, StoredApproval,
 } from '@backendkit-labs/agent-core';
 import type { GateRecord } from '../flow/ComplianceGate';
 import { ENTERPRISE_DOMAINS, SEVERITY_THRESHOLD } from '../reflection/domains';
@@ -82,6 +82,7 @@ export class EnterpriseLearning {
             store: opts.store ?? new JsonFileStore(path.join(base, 'experiences.json')),
             approvals: opts.approvals ?? new FileApprovalStore(path.join(base, 'proposals')),
             rules: this.rules,
+            lessonStore: new FileLessonStore(path.join(base, 'taught-lessons.json')),
             thresholdFor: e => SEVERITY_THRESHOLD[e.severity] ?? 3,
             ruleFor,
         });
@@ -151,6 +152,29 @@ export class EnterpriseLearning {
 
     rejectPromotion(id: string, approver: string | ApproverRef, reason: string): Promise<void> {
         return this.learning.reject(id, asApprover(approver), reason);
+    }
+
+    // ── TEACH (a person says something specific) ─────────────────────────────
+
+    /**
+     * Teaches the agents of this vault something specific, without waiting for a failure to repeat: a lesson in their
+     * prompt from now on. Stays inside the tenant of this `EnterpriseLearning`, if it has one.
+     */
+    teach(input: Omit<TeachInput, 'tenantId'>, by: string | ApproverRef): Promise<TaughtLesson> {
+        return this.learning.teach({ ...input, ...(this.tenantId ? { tenantId: this.tenantId } : {}) }, asApprover(by));
+    }
+
+    taught(): Promise<TaughtLesson[]> {
+        return this.learning.taught(this.tenantId ? { tenantId: this.tenantId } : {});
+    }
+
+    forget(lessonId: string): Promise<boolean> {
+        return this.learning.forget(lessonId);
+    }
+
+    /** Adds a rule by hand, attributed to a person, and writes it to the vault with the others. */
+    addRule(rule: unknown, by: string | ApproverRef, reason?: string): Promise<ApprovedRule> {
+        return this.learning.addRule({ rule, ...(this.tenantId ? { tenantId: this.tenantId } : {}), ...(reason ? { reason } : {}) }, asApprover(by));
     }
 
     // ── KNOWLEDGE (consumed by the executor) ──────────────────────────────────

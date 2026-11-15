@@ -150,3 +150,32 @@ describe('EnterpriseLearning: tenant', () => {
         expect((await el.activeRules())[0].tenantId).toBe('acme');
     });
 });
+
+describe('EnterpriseLearning: teaching', () => {
+    it('a person teaches a lesson with just a name, and it stays inside the tenant of the vault', async () => {
+        const el = new EnterpriseLearning({ vaultPath: vault, tenantId: 'acme' });
+        const lesson = await el.teach({ text: 'Contracts over 50k need two signatures.', tools: ['sign_contract'] }, 'ana');
+        expect(lesson).toMatchObject({ tenantId: 'acme', by: { kind: 'human', id: 'ana' } });
+        expect(await el.taught()).toHaveLength(1);
+        expect(await el.learning.lessonsFor('legal-agent', 'acme', ['sign_contract'])).toContain('two signatures');
+        expect(await el.learning.lessonsFor('legal-agent', 'other', ['sign_contract'])).toBeUndefined();
+
+        // Another process opening the same vault finds it.
+        expect(await new EnterpriseLearning({ vaultPath: vault, tenantId: 'acme' }).taught()).toHaveLength(1);
+        expect(await el.forget(lesson.id)).toBe(true);
+        expect(await el.taught()).toEqual([]);
+    });
+
+    it('adds a rule by hand to the vault, attributed to a person', async () => {
+        const el = new EnterpriseLearning({ vaultPath: vault });
+        const rule = await el.addRule({ if: { keywords: ['despido'] }, then: { requireQaApproval: true }, name: 'Layoffs' }, 'ana', 'HR policy');
+        expect(rule).toMatchObject({ approvedBy: { id: 'ana' }, reason: 'HR policy' });
+        const doc = yaml.parse(fs.readFileSync(manifest(), 'utf8'));
+        expect(doc.policyRules[0]).toMatchObject({ id: rule.id, name: 'Layoffs', approvedBy: { id: 'ana' } });
+    });
+
+    it('an agent cannot teach', async () => {
+        const el = new EnterpriseLearning({ vaultPath: vault });
+        await expect(el.teach({ text: 'x' }, { kind: 'agent', id: 'bot' })).rejects.toThrow(/human/);
+    });
+});

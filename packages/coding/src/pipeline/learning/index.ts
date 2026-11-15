@@ -5,7 +5,7 @@
  */
 import { join } from 'node:path';
 import {
-    createLearning, FileApprovalStore, FileRuleStore, JsonFileStore, getProjectDir,
+    createLearning, FileApprovalStore, FileLessonStore, FileRuleStore, JsonFileStore, getProjectDir,
     type ApprovedRule, type AuditFinding, type LearnedPattern, type Learning, type RuleStore,
 } from '@backendkit-labs/agent-core';
 import type { PolicyRule } from '../orchestration/types';
@@ -94,7 +94,7 @@ export interface CodingLearningOptions {
 
 /**
  * The learning of a coding project, kept in `~/.{appName}/projects/<key>/learning/`: the experiences, the proposed
- * rules (one file set per proposal) and the approved ones. Several processes may open the same directory, so a person
+ * rules (one file set per proposal), the approved ones and the lessons a person taught. Several processes may open the same directory, so a person
  * can approve from another terminal.
  */
 export function createCodingLearning(options: CodingLearningOptions): Learning {
@@ -103,6 +103,7 @@ export function createCodingLearning(options: CodingLearningOptions): Learning {
         store: new JsonFileStore(join(dir, 'experiences.json')),
         approvals: new FileApprovalStore(join(dir, 'proposals')),
         rules: new FileRuleStore(join(dir, 'rules.json')),
+        lessonStore: new FileLessonStore(join(dir, 'lessons.json')),
         ruleFor: policyRuleFor,
         ...(options.threshold !== undefined ? { threshold: options.threshold } : {}),
     });

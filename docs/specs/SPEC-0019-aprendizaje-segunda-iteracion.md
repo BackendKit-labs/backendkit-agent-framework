@@ -47,6 +47,16 @@ Cada una condiciona una fase. La columna "propuesta" es la recomendación; no es
 | D8 | ¿Dónde se aprueba? | (a) tools estándar (`learning_list_proposals`, `learning_decide`) que el integrador registra; (b) un comando `/learning` en `agent-coding/cli`; (c) ambas | **(c)**. La tool de decidir exige `accepts: ['human']` |
 | D9 | ¿Se mide el resultado de una regla en core? | (a) sí: cada vez que la regla hace preguntar, se cuenta si la persona aprobó o rechazó la llamada; (b) no | **(a)**. Una regla cuya pregunta siempre se aprueba es candidata a retirarse; ya está en `enterprise` |
 
+### D10. Enseñar algo concreto (resuelta e implementada el 2026-11-15)
+
+Un aprendizaje escrito a mano no existía: `record` solo guardaba una experiencia, que necesita tres repeticiones para llegar al prompt. El usuario pidió incluirlo en el primer bloque. Hecho:
+
+- `learning.teach({ text, agentId?, tenantId?, tools? }, by)`: lección sin umbral, con autor y fecha. Sección `Taught lessons` del prompt, antes de las aprendidas. Saneada, máximo 500 caracteres.
+- `learning.taught()`, `learning.forget(id)` y `learning.addRule(...)` (regla validada y atribuida).
+- Solo una persona (`approverKinds`): un agente no se enseña a sí mismo.
+- Estricta por tenant, como el resto. Una lección para todos los tenants a la vez sería una decisión de producto aparte (§5).
+- Una lección enseñada no caduca: solo `forget` la retira. Si D5 (caducidad) se decide, aplica solo a las aprendidas.
+
 ## 3. Fases
 
 Cada fase lleva su test de aceptación antes de tocar código y no cambia el comportamiento por defecto salvo donde se indica.

@@ -4,18 +4,21 @@ import { MemoryApprovalStore } from '../governance/approval-store';
 import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
-import { MemoryRuleStore } from './stores';
+import { MemoryLessonStore, MemoryRuleStore } from './stores';
 import type {
-    ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, Severity, ToolRule,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, Severity, TaughtLesson,
+    TeachInput, ToolRule,
 } from './types';
 
-export { FileRuleStore, MemoryRuleStore } from './stores';
+export { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 export type {
-    ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, RuleStore, Severity, ToolRule,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, RuleStore, Severity,
+    TaughtLesson, TeachInput, ToolRule,
 } from './types';
 
 const SEVERITIES: Severity[] = ['low', 'medium', 'high', 'critical'];
 const TOOL_FAILURES = new Set(['tool_error', 'tool_timeout', 'tool_too_large']);
+const MAX_TAUGHT_CHARS = 500;
 const PROPOSER = { agentId: 'learning', sessionId: 'learning', chain: ['learning'] };
 
 const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject'>): string =>
@@ -109,6 +112,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const store = options.store ?? new InMemoryStore();
     const approvals = options.approvals ?? new MemoryApprovalStore();
     const rules = options.rules ?? new MemoryRuleStore();
+    const lessonStore = options.lessonStore ?? new MemoryLessonStore();
     const base = options.threshold ?? 3;
     const threshold = options.thresholdFor ?? (() => base);
     const maxExperiences = options.maxExperiences ?? 1000;
@@ -171,7 +175,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
         return experience;
     });
 
-    async function lessonsFor(agentId: string, tenantId?: string): Promise<string | undefined> {
+    // What the patterns say is cached while the experiences do not change; what people taught is read each time, because
+    // it may be changed from another process.
+    function learnedText(agentId: string, tenantId: string | undefined): string | undefined {
         const count = store.count();
         const scope = `${tenantId ?? ''}\u0000${agentId}`;
         const cached = lessonCache.get(scope);
@@ -188,11 +194,33 @@ export function createLearning(options: LearningOptions = {}): Learning {
                 }
                 return line;
             });
-        const text = lines.length
-            ? composeInstructionLayers([{ title: 'Lessons learned', content: lines.join('\n'), maxChars }])
-            : undefined;
+        const text = lines.length ? lines.join('\n') : undefined;
         lessonCache.set(scope, { count, text });
         return text;
+    }
+
+    async function taughtText(agentId: string, tenantId: string | undefined, available: string[] | undefined): Promise<string | undefined> {
+        const mine = (await lessonStore.list())
+            .filter(l => l.tenantId === tenantId
+                && (!l.agentId || l.agentId === agentId)
+                && (!l.tools?.length || (available ?? []).some(t => l.tools!.includes(t))))
+            .sort((x, y) => x.at.localeCompare(y.at) || x.id.localeCompare(y.id));
+        return mine.length ? mine.map(l => `- ${oneLine(l.text, MAX_TAUGHT_CHARS)}`).join('\n') : undefined;
+    }
+
+    async function lessonsFor(agentId: string, tenantId?: string, availableTools?: string[]): Promise<string | undefined> {
+        const layers = [];
+        const taught = await taughtText(agentId, tenantId, availableTools);
+        if (taught) layers.push({ title: 'Taught lessons', content: taught, maxChars });
+        const learned = learnedText(agentId, tenantId);
+        if (learned) layers.push({ title: 'Lessons learned', content: learned, maxChars });
+        return layers.length ? composeInstructionLayers(layers) : undefined;
+    }
+
+    function requireAuthor(by: ApproverRef, what: string): void {
+        if (!approverKinds.includes(by.kind)) {
+            throw new Error(`${what} needs ${approverKinds.join(' or ')}, not ${by.kind}`);
+        }
     }
 
     async function resolve(id: string, by: ApproverRef, decision: 'approve' | 'reject', reason?: string) {
@@ -230,7 +258,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         hooks: {
             name: 'learning',
-            systemPrompt: (ctx, profile) => lessonsFor(profile.id, ctx.principal.tenantId),
+            systemPrompt: (ctx, profile) => lessonsFor(profile.id, ctx.principal.tenantId, profile.allowedTools),
         },
         record,
         async experiences(filter = {}) {
@@ -261,5 +289,43 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
+        async teach(input, by) {
+            requireAuthor(by, 'Teaching a lesson');
+            const text = input.text?.replace(/\s+/g, ' ').trim();
+            if (!text) throw new Error('A lesson needs a text');
+            if (text.length > MAX_TAUGHT_CHARS) throw new Error(`A lesson is at most ${MAX_TAUGHT_CHARS} characters; this one has ${text.length}`);
+            const lesson: TaughtLesson = {
+                id: `lesson-${randomUUID()}`, text,
+                ...(input.agentId ? { agentId: input.agentId } : {}),
+                ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+                ...(input.tools?.length ? { tools: input.tools } : {}),
+                by, at: new Date().toISOString(),
+            };
+            await lessonStore.add(lesson);
+            return lesson;
+        },
+        async taught(filter = {}) {
+            return (await lessonStore.list()).filter(l => (!filter.agentId || l.agentId === filter.agentId)
+                && (filter.tenantId === undefined || l.tenantId === filter.tenantId));
+        },
+        forget: id => lessonStore.remove(id),
+        async addRule(input, by) {
+            requireAuthor(by, 'Adding a rule');
+            const rule = input.rule as Partial<ToolRule> | null;
+            if (!rule || typeof rule !== 'object') throw new Error('A rule must be an object');
+            if ('tool' in rule || 'effect' in rule) {
+                if (typeof rule.tool !== 'string' || !rule.tool) throw new Error('A tool rule names its tool');
+                if (rule.effect !== 'ask' && rule.effect !== 'deny') throw new Error("A tool rule's effect is 'ask' or 'deny'");
+            }
+            const approved: ApprovedRule = {
+                id: `manual-${randomUUID()}`,
+                rule: 'tool' in rule ? { reason: `Added by ${by.id}`, ...rule } : input.rule,
+                ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+                approvedBy: by, approvedAt: new Date().toISOString(),
+                source: `Added by ${by.id}`, ...(input.reason ? { reason: input.reason } : {}),
+            };
+            await rules.add(approved);
+            return approved;
+        },
     };
 }

@@ -78,6 +78,45 @@ export interface RuleStore {
     remove(id: string): Promise<boolean>;
 }
 
+/** A lesson a person wrote: no threshold, no inference. */
+export interface TaughtLesson {
+    id: string;
+    text: string;
+    /** Only this agent gets it. Without it, every agent of the tenant does. */
+    agentId?: string;
+    tenantId?: string;
+    /** Only an agent that has at least one of these tools in the turn gets it. */
+    tools?: string[];
+    /** Who taught it. */
+    by: ApproverRef;
+    /** ISO time. */
+    at: string;
+}
+
+export interface LessonStore {
+    add(lesson: TaughtLesson): Promise<void>;
+    list(): Promise<TaughtLesson[]>;
+    /** Removes a lesson; false when it did not exist. */
+    remove(id: string): Promise<boolean>;
+}
+
+/** What `teach` takes. */
+export interface TeachInput {
+    /** What the agent should know, in a sentence or two. Sanitized and capped when it joins the prompt. */
+    text: string;
+    agentId?: string;
+    tenantId?: string;
+    tools?: string[];
+}
+
+/** What `addRule` takes: a rule a person writes, without waiting for a pattern. */
+export interface AddRuleInput {
+    /** A `ToolRule` (checked), or any rule of a vertical (opaque). */
+    rule: unknown;
+    tenantId?: string;
+    reason?: string;
+}
+
 /** The rule `learning.policy` enforces: calls to `tool` ask (or are denied). */
 export interface ToolRule {
     tool: string;
@@ -107,7 +146,12 @@ export interface LearningOptions {
      * that fails, `{ tool, effect: 'ask' }`.
      */
     ruleFor?: (pattern: LearnedPattern) => unknown | undefined;
-    /** Who may approve a proposed rule. Default `['human']`: a learned rule never applies itself. */
+    /** Where the lessons people teach live. Default: in memory. */
+    lessonStore?: LessonStore;
+    /**
+     * Who may approve a proposed rule, teach a lesson or add a rule. Default `['human']`: nothing an agent learns, and
+     * nothing it is taught on its own, applies without a person.
+     */
     approverKinds?: ApproverKind[];
 }
 
@@ -131,7 +175,22 @@ export interface Learning {
      * The lessons text of an agent within a tenant (or within no tenant), or `undefined` when it has learned
      * nothing yet. The text of a lesson does not change once written, so the system prompt stays cacheable.
      */
-    lessonsFor(agentId: string, tenantId?: string): Promise<string | undefined>;
+    lessonsFor(agentId: string, tenantId?: string, availableTools?: string[]): Promise<string | undefined>;
+    /**
+     * Teaches an agent something specific, without waiting for it to fail three times: a lesson in its prompt from now
+     * on. Only whoever `approverKinds` allows may teach (default: a person). Sanitized and capped when it joins the
+     * prompt, never expires, and stays inside its tenant. Rejects an empty text or one over 500 characters.
+     */
+    teach(input: TeachInput, by: ApproverRef): Promise<TaughtLesson>;
+    /** The lessons people taught. Without `tenantId`, every tenant's. */
+    taught(filter?: { agentId?: string; tenantId?: string }): Promise<TaughtLesson[]>;
+    /** Withdraws a taught lesson. */
+    forget(lessonId: string): Promise<boolean>;
+    /**
+     * Adds a rule without waiting for a pattern to propose it: validated (a `ToolRule` must name its tool and an effect),
+     * attributed to a person and stored with the rules that came from proposals.
+     */
+    addRule(input: AddRuleInput, by: ApproverRef): Promise<ApprovedRule>;
     /** Proposed rules still waiting for a decision (or those with `status`). Without `tenantId`, every tenant's. */
     proposals(filter?: { status?: StoredApproval['status']; tenantId?: string }): Promise<StoredApproval[]>;
     approve(id: string, by: ApproverRef, reason?: string): Promise<ApprovedRule>;

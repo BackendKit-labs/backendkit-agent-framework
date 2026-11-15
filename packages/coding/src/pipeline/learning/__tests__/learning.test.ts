@@ -112,3 +112,15 @@ describe('createCodingLearning', () => {
         expect(await approvedPolicyRules(createCodingLearning({ appName: APP, projectRoot: root }).rules)).toHaveLength(1);
     });
 });
+
+describe('lessons a person teaches a coding project', () => {
+    it('stay with the project, so a later process gives them to the agent', async () => {
+        const root = path.join(tmpHome, 'repo-teach');
+        await fs.mkdir(root);
+        await createCodingLearning({ appName: APP, projectRoot: root }).teach({ text: 'Run npm test before every commit.' }, HUMAN);
+
+        const later = createCodingLearning({ appName: APP, projectRoot: root });
+        expect(await later.lessonsFor('general')).toContain('Run npm test before every commit.');
+        expect(await later.taught()).toHaveLength(1);
+    });
+});

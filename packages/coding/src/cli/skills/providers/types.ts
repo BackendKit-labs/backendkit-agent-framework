@@ -1,4 +1,4 @@
-import type { Skill } from '../types';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 export interface FetchOptions {
     /** Only fetch this specific skill by name */

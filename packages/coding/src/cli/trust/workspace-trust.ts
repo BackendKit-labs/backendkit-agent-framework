@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getFrameworkDir } from '../shared/utils/project-key';
-import { atomicWriteSync } from '../shared/utils/atomic-write';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
+import { atomicWriteSync } from '@backendkit-labs/agent-core';
 
 /**
  * Workspace trust (ADR-0006).

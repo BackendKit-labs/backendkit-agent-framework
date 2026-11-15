@@ -1,6 +1,7 @@
-import { SkillManager } from '@backendkit-labs/agent-core';
+import { SkillManager } from '@backendkit-labs/agent-coding/cli';
 import { GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@backendkit-labs/agent-coding';
-import type { Skill, InstalledPack } from '@backendkit-labs/agent-core';
+import type { Skill } from '@backendkit-labs/agent-core';
+import type { InstalledPack } from '@backendkit-labs/agent-coding/cli';
 
 export interface PackSummary {
     pack: string;

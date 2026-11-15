@@ -1,15 +1,16 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { run, isOk } from '@backendkit-labs/result';
-import { getFrameworkDir } from '../shared/utils/project-key';
-import { atomicWrite } from '../shared/utils/atomic-write';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
+import { atomicWrite } from '@backendkit-labs/agent-core';
 import { assertSafeFileName } from './safe-name';
 import { skillToMd } from './parse-md-skill';
 import { GitHubProvider } from './providers/github';
 import { LocalProvider } from './providers/local';
 import { SkillsShProvider } from './providers/skills-sh';
 import type { SkillSourceProvider } from './providers/types';
-import type { Skill, SkillPackSource, TrustConfig } from './types';
+import type { Skill } from '@backendkit-labs/agent-core';
+import type { SkillPackSource, TrustConfig } from './types';
 
 export interface InstallOptions {
     /** Only install this specific skill from the source (by name) */

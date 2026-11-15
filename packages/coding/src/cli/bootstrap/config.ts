@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getFrameworkDir } from '../shared/utils/project-key';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
 
 // ── Framework config shape ────────────────────────────────────────────────────
 

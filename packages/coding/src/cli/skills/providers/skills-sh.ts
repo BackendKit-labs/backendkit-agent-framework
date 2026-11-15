@@ -1,6 +1,6 @@
 import { GitHubProvider } from './github';
 import type { FetchOptions, SkillSourceProvider } from './types';
-import type { Skill } from '../types';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 /**
  * Fetches skills from the skills.sh registry.

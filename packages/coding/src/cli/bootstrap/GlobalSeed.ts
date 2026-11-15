@@ -1,11 +1,11 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { getFrameworkDir, cwdToProjectKey } from '../shared/utils/project-key';
+import { getFrameworkDir, cwdToProjectKey } from '@backendkit-labs/agent-core';
 import { DEFAULT_CONFIG } from './config';
 import { skillToMd } from '../skills/parse-md-skill';
-import type { Skill } from '../skills/types';
-import type { AgentProfile } from '../types';
+import type { Skill } from '@backendkit-labs/agent-core';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

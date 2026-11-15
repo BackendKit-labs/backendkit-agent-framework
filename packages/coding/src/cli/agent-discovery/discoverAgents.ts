@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { isProjectTrusted } from '@backendkit-labs/agent-core';
+import { isProjectTrusted } from '../trust/workspace-trust';
 import { getFrameworkDir } from '@backendkit-labs/agent-core';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
 import type { AgentDiscoveryConfig } from './types';

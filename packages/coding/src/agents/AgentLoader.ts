@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
-import { getFrameworkDir, isProjectTrusted } from '@backendkit-labs/agent-core';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
+import { isProjectTrusted } from '../cli/trust/workspace-trust';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Agent file format ─────────────────────────────────────────────────────────

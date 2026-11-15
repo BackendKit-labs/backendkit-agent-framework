@@ -39,6 +39,7 @@ jest.mock('@backendkit-labs/agent-core', () => {
 });
 
 import { createCodingEngine } from '../index';
+import { detectStack } from '../cli';
 
 const normalize = (s: string) =>
     s.split(CWD).join('<CWD>').split(HOME).join('<HOME>')
@@ -75,10 +76,10 @@ describe('SPEC-0016 baseline: CLI de coding', () => {
             { name: 'go-only', description: 'c', triggers: ['express'], language: ['go'], prompt: 'C', source: 'builtin' },
             { name: 'for-agent', description: 'd', agents: ['general'], prompt: 'D', source: 'builtin' },
         ] as unknown as core.Skill[];
-        const stack = await activator.detectStack(CWD);
+        const stack = await detectStack(CWD);
         const active = activator.activate('configura Express', skills, stack);
         expect({
-            stack,
+            stack: [...stack].sort(), // the detection order depends on which fs.access finishes first
             active: active.map(s => s.name),
             forAgent: activator.getAgentSkills('general', skills, stack).map(s => s.name),
             addition: activator.buildSystemPromptAddition(active),

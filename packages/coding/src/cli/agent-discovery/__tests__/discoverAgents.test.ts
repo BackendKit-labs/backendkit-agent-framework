@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverAgents } from '../discoverAgents';
 import { globalAgentsDir, listAgentEntries } from '../AgentPackageLoader';
-import { trustProject } from '@backendkit-labs/agent-core';
+import { trustProject } from '../../trust/workspace-trust';
 
 const APP = 'disc-test';
 let root: string;

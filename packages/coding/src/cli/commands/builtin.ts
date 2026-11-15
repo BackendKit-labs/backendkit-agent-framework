@@ -2,12 +2,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { run, isOk } from '@backendkit-labs/result';
-import { SlashCommandRegistry } from './SlashCommandRegistry';
+import { SlashCommandRegistry } from '@backendkit-labs/agent-core';
 import { createSkillManager } from '../skills/manager';
 import { parseMdSkill } from '../skills/parse-md-skill';
 import { assertSafeFileName } from '../skills/safe-name';
-import { getFrameworkDir } from '../shared/utils/project-key';
-import { atomicWrite } from '../shared/utils/atomic-write';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
+import { atomicWrite } from '@backendkit-labs/agent-core';
 import { isProjectTrusted, listTrustedProjects, projectLayerContents, trustProject, untrustProject } from '../trust/workspace-trust';
 import {
     createCheckpoint,

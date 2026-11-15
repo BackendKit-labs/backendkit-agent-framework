@@ -5,7 +5,7 @@ import {
     canonicalProjectPath, isProjectTrusted, listTrustedProjects, projectLayerContents, trustFilePath, trustProject,
     untrustedLayerWarning, untrustProject,
 } from '../workspace-trust';
-import { SlashCommandRegistry } from '../../commands/SlashCommandRegistry';
+import { SlashCommandRegistry } from '@backendkit-labs/agent-core';
 import { registerBuiltinCommands } from '../../commands/builtin';
 
 const APP = 'trust-test';

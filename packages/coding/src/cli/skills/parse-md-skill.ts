@@ -1,5 +1,5 @@
 import * as yaml from 'yaml';
-import type { Skill } from './types';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 

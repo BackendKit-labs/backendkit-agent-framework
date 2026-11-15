@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as yaml from 'yaml';
 import { run, isOk } from '@backendkit-labs/result';
 import { parseMdSkill } from '../parse-md-skill';
-import type { Skill } from '../types';
+import type { Skill } from '@backendkit-labs/agent-core';
 import type { FetchOptions, SkillSourceProvider } from './types';
 
 /**

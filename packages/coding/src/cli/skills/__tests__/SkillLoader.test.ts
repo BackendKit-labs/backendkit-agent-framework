@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { SkillLoader } from '../loader';
 import { trustProject, untrustProject } from '../../trust/workspace-trust';
-import type { Skill } from '../types';
+import type { Skill } from '@backendkit-labs/agent-core';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -291,7 +291,7 @@ describe('SkillLoader.loadAll()', () => {
 
 describe('Skill scope precedence — loadAll + buildSystemPromptAddition', () => {
     it('project > pack > global when merged in ascending order and deduplicated last-wins', async () => {
-        const { SkillActivator } = await import('../activator');
+        const { SkillActivator } = await import('@backendkit-labs/agent-core');
         const activator = new SkillActivator();
 
         const globalDir = path.join(tmpHome, `.${APP_NAME}`, 'skills', 'global');

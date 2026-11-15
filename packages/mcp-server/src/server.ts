@@ -62,9 +62,8 @@ t(
     },
     async ({ cwd: _cwd }: { cwd?: string }) => {
         const graphTech = detectStackFromGraph(store);
-        const { SkillActivator } = await import('@backendkit-labs/agent-core');
-        const activator = new SkillActivator();
-        const fileTech = await activator.detectStack(CWD);
+        const { detectStack } = await import('@backendkit-labs/agent-coding/cli');
+        const fileTech = await detectStack(CWD);
         const all = [...new Set([...fileTech, ...graphTech])].sort();
         return {
             content: [{
@@ -89,9 +88,8 @@ t(
     },
     async ({ query, cwd }: { query: string; cwd?: string }) => {
         // Merge file-based + graph-based stack detection
-        const { SkillActivator } = await import('@backendkit-labs/agent-core');
-        const activator = new SkillActivator();
-        const fileTech = await activator.detectStack(cwd ?? CWD);
+        const { detectStack } = await import('@backendkit-labs/agent-coding/cli');
+        const fileTech = await detectStack(cwd ?? CWD);
         const graphTech = detectStackFromGraph(store);
         const enrichedStack = [...new Set([...fileTech, ...graphTech])];
 

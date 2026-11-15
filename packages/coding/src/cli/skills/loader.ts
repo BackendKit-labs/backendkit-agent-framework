@@ -2,10 +2,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as yaml from 'yaml';
 import { run, isOk, fromThrowable } from '@backendkit-labs/result';
-import { getFrameworkDir } from '../shared/utils/project-key';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
 import { isProjectTrusted } from '../trust/workspace-trust';
 import { parseMdSkill } from './parse-md-skill';
-import type { Skill, SkillScope } from './types';
+import type { Skill, SkillScope } from '@backendkit-labs/agent-core';
 
 export interface LoadedSkills {
     global: Skill[];

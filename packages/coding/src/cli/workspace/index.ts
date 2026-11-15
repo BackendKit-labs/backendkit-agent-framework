@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getFrameworkDir, getProjectDir } from '../shared/utils/project-key';
+import { getFrameworkDir, getProjectDir } from '@backendkit-labs/agent-core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

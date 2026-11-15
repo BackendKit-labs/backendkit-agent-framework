@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.39.0 (pendiente de publicar)
+## v0.39.0 (2026-11-14)
 
 [SPEC-0014](docs/specs/SPEC-0014-puntos-de-extension-del-engine.md) completo (#171–#174): hooks de ciclo de vida, política y aprobación por llamada, aprobación durable y auditoría con un evento por llamada.
 

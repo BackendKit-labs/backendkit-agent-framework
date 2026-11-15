@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@backendkit-labs/agent-coding": "^0.28.0",
-    "@backendkit-labs/agent-core": "^0.37.0",
+    "@backendkit-labs/agent-core": "^0.38.0",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {

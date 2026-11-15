@@ -89,10 +89,21 @@ export interface AgentMCPServerOptions {
      * schema validation, `authorize`, `audit`, output cap and `timeoutMs`. A name may not appear in both lists.
      */
     directTools?: ToolDefinition[];
-    /** Gate for direct tools. Required when any direct tool is `destructive`. */
+    /** Yes/no gate for direct tools. A `destructive` direct tool needs this or `policy`. */
     authorize?: ToolServerOptions['authorize'];
-    /** One record per direct-tool call (arguments as a hash). */
+    /** Policy for direct tools (allow, deny, ask), the same contract the engine uses (SPEC-0014). */
+    policy?: ToolServerOptions['policy'];
+    /** Answers an `ask` of the policy right away; its answer is validated before it counts. */
+    approver?: ToolServerOptions['approver'];
+    /** Who the server acts for; part of the principal policies and audit events see. */
+    identity?: ToolServerOptions['identity'];
+    /**
+     * One record per direct-tool call (arguments as a hash).
+     * @deprecated Use `auditSink`, which receives the engine's `AuditEvent`.
+     */
     audit?: ToolServerOptions['audit'];
+    /** One `AuditEvent` per direct-tool call, in call order. */
+    auditSink?: ToolServerOptions['auditSink'];
     /** Context fields (or a builder) for direct tools. */
     context?: ToolServerOptions['context'];
     /** Output cap for direct tools. Default 1 048 576 characters. */
@@ -152,7 +163,11 @@ export class AgentMCPServer {
                 version: opts.version,
                 tools: directTools,
                 authorize: opts.authorize,
+                policy: opts.policy,
+                approver: opts.approver,
+                identity: opts.identity,
                 audit: opts.audit,
+                auditSink: opts.auditSink,
                 context: opts.context,
                 maxOutputChars: opts.maxOutputChars,
                 toolTimeoutMs: opts.toolTimeoutMs,

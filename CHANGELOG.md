@@ -1,6 +1,24 @@
 # Changelog
 
-## Sin publicar
+## v0.39.0 (pendiente de publicar)
+
+[SPEC-0014](docs/specs/SPEC-0014-puntos-de-extension-del-engine.md) completo (#171–#174): hooks de ciclo de vida, política y aprobación por llamada, aprobación durable y auditoría con un evento por llamada.
+
+Sin cambio incompatible. Todo lo nuevo es opcional, y sin configurarlo el engine se comporta igual. `agent-core` sube a minor porque añade API pública. En 0.x, `^0.37` no cubre 0.38, así que se barrieron los rangos de todos los paquetes y templates: `^0.38.0`, y en los peers `<0.40.0`. Cada paquete que depende de core sube un patch solo por ese rango.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.38.0 | SPEC-0014: `policy`, `approver`, `approvals`, `audit`, `identity`, `hooks`; `FileApprovalStore`, `runApproved`, `consultAgent`; sinks de auditoría; servidor de tools con los mismos contratos |
+| `mcp-server` | 0.19.0 | `AgentMCPServer` acepta `policy`, `approver`, `identity` y `auditSink` para las tools directas; requiere `agent-core` ^0.38.0 |
+| `create-bk-agent` | 0.23.6 | templates con `agent-core` ^0.38.0; `add server` y `add knowledge` instalaban `mcp-server` ^0.15 y `enterprise` ^0.1 (en 0.x, versiones antiguas) y ahora piden ^0.19.0 y ^0.8.8 |
+| `agent-coding` 0.28.5, `agent-enterprise` 0.8.8, `agent-web` 0.6.5, `agent-providers` 0.3.5, `agent-sandbox` 0.1.8, `agent-testkit` 0.1.8, `agent-otel` 0.1.11, `orchestrator-agent` 0.7.3, `document-extract` 0.1.1, `aval-tools` 0.1.15 | patch | solo el rango de `agent-core` |
+
+Los demás paquetes no cambian: `agent-protocol`, `mcp-connectors` y `agent-web-ui`.
+
+### `mcp-server`: gobernanza de las tools directas (SPEC-0014 F4)
+- `AgentMCPServer` reenvía `policy`, `approver`, `identity` y `auditSink` a sus `directTools`. Son los mismos contratos que el engine y que `createToolServer`.
+- Una tool directa `destructive` puede tener como gate una `policy` en vez de `authorize`.
+- `audit(ToolCallRecord)` queda obsoleto, sin cambios.
 
 ### `agent-core`: contratos de gobernanza y auditoría por llamada ([SPEC-0014](docs/specs/SPEC-0014-puntos-de-extension-del-engine.md) F0–F1)
 Sin cambio incompatible: todo es opcional y el engine se comporta igual si no se configura.

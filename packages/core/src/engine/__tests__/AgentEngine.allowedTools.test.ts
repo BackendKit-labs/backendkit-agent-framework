@@ -28,7 +28,7 @@ function run(
         tools: ['read_file', 'write_file', 'run_command'].map(n => tool(n, executed)),
         transport,
         workingDir: process.cwd(),
-        noQA: true,
+       
         ...extra,
     });
     const results = () => events.filter((e): e is Extract<typeof e, { type: 'tool_result' }> => e.type === 'tool_result');

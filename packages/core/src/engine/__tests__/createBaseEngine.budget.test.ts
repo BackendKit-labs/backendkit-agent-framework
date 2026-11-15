@@ -34,7 +34,7 @@ function build(extra: Partial<BaseEngineOptions>, provider: LLMProvider, agents:
         tools: [noop],
         transport,
         workingDir: process.cwd(),
-        noQA: true,
+       
         iterationMode: 'auto',
         maxIterations: 5,
         ...extra,
@@ -88,7 +88,7 @@ describe('abortOnBudget (ADR-0002)', () => {
         const engine = createBaseEngine({
             providers: { mock: boss, boss, worker: spendingProvider(workerCalls) },
             defaultProvider: 'mock', agents, defaultAgent: 'boss', tools: [noop], transport,
-            workingDir: process.cwd(), noQA: true, iterationMode: 'auto', maxIterations: 5,
+            workingDir: process.cwd(), iterationMode: 'auto', maxIterations: 5,
             abortOnBudget: true,
             observability: { costTracker: { ...pricing, budget: { perRun: 0.01 } } },
         });

@@ -26,7 +26,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}) {
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [agent, helper], defaultAgent: agent.id, tools: tools(),
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', toolTimeoutGraceMs: 10,
+        transport, workingDir: process.cwd(), iterationMode: 'auto', toolTimeoutGraceMs: 10,
         audit: sink, sessionId: 'sess-1',
         ...extra,
     });

@@ -28,7 +28,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, agents: A
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents, defaultAgent: 'main', tools: tools(seen),
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', audit, sessionId: 's1',
+        transport, workingDir: process.cwd(), iterationMode: 'auto', audit, sessionId: 's1',
         ...extra,
     });
     const results = () => events.filter((e): e is Extract<typeof e, { type: 'tool_result' }> => e.type === 'tool_result');

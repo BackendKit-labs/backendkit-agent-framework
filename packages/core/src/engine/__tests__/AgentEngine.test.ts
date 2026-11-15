@@ -1,4 +1,5 @@
 import { AgentEngine } from '../AgentEngine';
+import { codingPipelineHooks } from '../coding-pipeline-hooks';
 import type { AgentProfile, LLMProvider, ToolDefinition } from '../../types';
 import {
     createMockTransport,
@@ -302,7 +303,7 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
             transport,
             defaultAgentId: 'test-agent',
             maxIterations: 1,
-            orchestrator: makeMockOrchestrator(orchResult),
+            hooks: [codingPipelineHooks({ orchestrator: makeMockOrchestrator(orchResult), defaultAgentId: 'test-agent' })],
         });
 
         await engine.run('add circuit breaker to the resilience module');
@@ -375,7 +376,7 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
             transport,
             defaultAgentId: 'test-agent',
             maxIterations: 1,
-            orchestrator: makeMockOrchestrator(orchResult),
+            hooks: [codingPipelineHooks({ orchestrator: makeMockOrchestrator(orchResult), defaultAgentId: 'test-agent' })],
         });
 
         await engine.run('hello');

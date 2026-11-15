@@ -1,6 +1,7 @@
 import { AgentEngine } from '../AgentEngine';
 import type { LLMProvider } from '../../types';
 import type { Orchestrator } from '../../orchestration/orchestrator';
+import { codingPipelineHooks } from '../coding-pipeline-hooks';
 import { buildRegistries, createMockTransport, testAgent } from '../../__tests__/helpers';
 
 const failing = { orchestrate: async () => { throw new Error('classifier down'); } } as unknown as Orchestrator;
@@ -15,7 +16,7 @@ function build(mode?: 'closed' | 'open') {
     const engine = new AgentEngine({
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers, defaultProvider: 'mock', transport,
         defaultAgentId: testAgent.id, iterationMode: 'auto', maxIterations: 2,
-        orchestrator: failing, ...(mode ? { orchestratorFailureMode: mode } : {}),
+        hooks: [codingPipelineHooks({ orchestrator: failing, failureMode: mode })],
     });
     return { engine, events, chats: () => chats };
 }

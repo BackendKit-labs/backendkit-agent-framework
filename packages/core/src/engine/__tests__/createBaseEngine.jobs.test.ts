@@ -29,7 +29,7 @@ function build(provider: LLMProvider, extra: Partial<BaseEngineOptions>, tools: 
     const engine = createBaseEngine({
         providers: { mock: provider }, defaultProvider: 'mock',
         agents: [jobAgent], defaultAgent: jobAgent.id, tools, transport,
-        workingDir: process.cwd(), noQA: true, ...extra,
+        workingDir: process.cwd(), ...extra,
     });
     return { engine, events };
 }

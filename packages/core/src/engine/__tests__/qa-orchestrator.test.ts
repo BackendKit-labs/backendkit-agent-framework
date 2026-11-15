@@ -59,10 +59,8 @@ function makeCtx(opts: CtxOpts): QaContext {
         orchestrationResult: makeResult(opts.task),
         orchestrator: opts.orchestrator!,
         qaService: opts.qaService!,
-        allAgents: [],
-        messages: [],
+        hasAgent: () => false,
         effectiveAgentId: 'backend',
-        setEffectiveAgent: jest.fn(),
     };
 }
 
@@ -229,12 +227,11 @@ describe('activateQaEngineerIfNeeded', () => {
         const task = implTask({ requiresQaApproval: true });
         // status remains 'implementation'
         const ctx = makeCtx({ task, orchestrator, qaService });
-        ctx.allAgents = [qaEngineerProfile];
+        ctx.hasAgent = (id: string) => id === 'qa-engineer';
 
         const result = activateQaEngineerIfNeeded(ctx);
 
         expect(result).toBeNull();
-        expect(ctx.setEffectiveAgent).not.toHaveBeenCalled();
     });
 
     it('returns null when noQA is true even if task is in qa_review', () => {
@@ -242,7 +239,7 @@ describe('activateQaEngineerIfNeeded', () => {
         const qaService = makeQaService();
         const task = implTask({ requiresQaApproval: true });
         task.status = 'qa_review';
-        const ctx = { ...makeCtx({ task, orchestrator, qaService }), allAgents: [qaEngineerProfile], noQA: true };
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), hasAgent: (id: string) => id === 'qa-engineer', noQA: true };
 
         const result = activateQaEngineerIfNeeded(ctx);
 
@@ -268,7 +265,7 @@ describe('activateQaEngineerIfNeeded', () => {
         const task = implTask({ requiresQaApproval: true });
         task.status = 'qa_review';
         const ctx = makeCtx({ task, orchestrator, qaService });
-        ctx.allAgents = [qaEngineerProfile];
+        ctx.hasAgent = (id: string) => id === 'qa-engineer';
 
         const result = activateQaEngineerIfNeeded(ctx);
 
@@ -282,7 +279,7 @@ describe('activateQaEngineerIfNeeded', () => {
         task.status = 'qa_review';
         task.rawPrompt = 'explica cómo funciona este módulo';
         const ctx = makeCtx({ task, orchestrator, qaService });
-        ctx.allAgents = [qaEngineerProfile];
+        ctx.hasAgent = (id: string) => id === 'qa-engineer';
 
         const result = activateQaEngineerIfNeeded(ctx);
 
@@ -294,27 +291,24 @@ describe('activateQaEngineerIfNeeded', () => {
         const qaService = makeQaService();
         const task = implTask({ requiresQaApproval: true });
         task.status = 'qa_review';
-        const ctx = { ...makeCtx({ task, orchestrator, qaService }), allAgents: [qaEngineerProfile], effectiveAgentId: 'qa-engineer' };
+        const ctx = { ...makeCtx({ task, orchestrator, qaService }), hasAgent: (id: string) => id === 'qa-engineer', effectiveAgentId: 'qa-engineer' };
 
         const result = activateQaEngineerIfNeeded(ctx);
 
         expect(result).toBeNull();
     });
 
-    it('activates qa-engineer: injects review message, switches agent, returns profile', () => {
+    it('activates qa-engineer: returns the agent and the review message', () => {
         const { orchestrator } = makeOrchestrator();
         const qaService = makeQaService();
         const task = implTask({ requiresQaApproval: true });
         task.status = 'qa_review';
         const ctx = makeCtx({ task, orchestrator, qaService });
-        ctx.allAgents = [qaEngineerProfile];
+        ctx.hasAgent = (id: string) => id === 'qa-engineer';
 
         const result = activateQaEngineerIfNeeded(ctx);
 
-        expect(result).toBe(qaEngineerProfile);
-        expect(ctx.messages).toHaveLength(1);
-        expect(ctx.messages[0].role).toBe('user');
-        expect(ctx.setEffectiveAgent).toHaveBeenCalledWith('qa-engineer');
+        expect(result).toEqual({ agentId: 'qa-engineer', message: expect.stringContaining('Review the following generated code') });
     });
 });
 
@@ -371,29 +365,5 @@ describe('processQaEngineerResponse', () => {
         await processQaEngineerResponse(ctx);
 
         expect(onQAReview).toHaveBeenCalledWith('aprobado');
-    });
-
-    it('resets effectiveAgent to defaultAgentId after completing review', async () => {
-        const { orchestrator } = makeOrchestrator();
-        const qaService = makeQaService();
-        const task = implTask({ requiresQaApproval: true });
-        task.status = 'qa_review';
-        const ctx = { ...makeCtx({ task, orchestrator, qaService }), defaultAgentId: 'general' };
-
-        await processQaEngineerResponse(ctx);
-
-        expect(ctx.setEffectiveAgent).toHaveBeenLastCalledWith('general');
-    });
-
-    it('falls back to "general" when defaultAgentId is not set', async () => {
-        const { orchestrator } = makeOrchestrator();
-        const qaService = makeQaService();
-        const task = implTask({ requiresQaApproval: true });
-        task.status = 'qa_review';
-        const ctx = makeCtx({ task, orchestrator, qaService }); // no defaultAgentId
-
-        await processQaEngineerResponse(ctx);
-
-        expect(ctx.setEffectiveAgent).toHaveBeenLastCalledWith('general');
     });
 });

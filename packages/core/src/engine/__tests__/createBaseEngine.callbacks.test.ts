@@ -35,7 +35,7 @@ function buildEngine(
         tools,
         transport,
         workingDir: process.cwd(),
-        noQA: true,
+       
         ...extra,
     });
     return { engine, events };

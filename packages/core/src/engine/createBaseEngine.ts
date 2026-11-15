@@ -17,8 +17,6 @@ import type {
     Skill,
 } from '../types';
 import type { Transport } from '../transport/Transport';
-import type { Orchestrator } from '../orchestration/orchestrator';
-import type { QAService } from '../qa/qa-service';
 import { MCPClientManager } from '../mcp/MCPClientManager';
 import type { MCPServerConfig } from '../mcp/types';
 import { ObservabilityManager } from '../observability/ObservabilityManager';
@@ -188,34 +186,10 @@ export interface BaseEngineOptions {
     sessionId?: string;
 
     /**
-     * Orchestrator for pre-LLM task classification:
-     * intent detection → domain detection → risk scoring → policy engine → FSM gates.
-     * When provided, General receives domain/risk context before each run.
-     * Use createOrchestratedCodingEngine() or pass directly for full control.
-     */
-    orchestrator?: Orchestrator;
-
-    /** When the orchestrator throws: 'closed' (default) fails the run, 'open' warns and runs without gates. */
-    orchestratorFailureMode?: 'closed' | 'open';
-
-    /**
-     * QA service for automatic code review after high-risk responses.
-     * Requires orchestrator to be set. When active, the qa-engineer agent
-     * is automatically triggered for responses with substantial code.
-     */
-    qaService?: QAService;
-
-    /** Disable automatic QA reviews even when qaService is configured. */
-    noQA?: boolean;
-
-    /**
      * Legacy escape hatch: let an agent with an empty `allowedTools` and no `delegatesTo` call any registered
      * tool, as every agent could before. By default an agent can call only the tools it lists.
      */
     allowUnlistedTools?: boolean;
-
-    /** Called when QA generates an inline review. */
-    onQAReview?: (review: string) => void;
 
     /**
      * Observability: tracing, metrics, and cost/budget tracking.
@@ -468,12 +442,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.sessionMemory ? { sessionMemory: opts.sessionMemory } : {}),
         ...(opts.store ? { store: opts.store } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
-        ...(opts.orchestrator ? { orchestrator: opts.orchestrator } : {}),
-        ...(opts.orchestratorFailureMode ? { orchestratorFailureMode: opts.orchestratorFailureMode } : {}),
-        ...(opts.qaService ? { qaService: opts.qaService } : {}),
-        ...(opts.noQA !== undefined ? { noQA: opts.noQA } : {}),
         ...(opts.allowUnlistedTools ? { allowUnlistedTools: true } : {}),
-        ...(opts.onQAReview ? { onQAReview: opts.onQAReview } : {}),
         ...(opts.mcpServers?.length
             ? { mcpManager: new MCPClientManager(opts.mcpServers) }
             : {}),

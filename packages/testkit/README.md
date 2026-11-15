@@ -36,7 +36,7 @@ const engine = createBaseEngine({
         { content: 'The file says hello.' },
     ]) },
     defaultProvider: 'mock', agents: [myAgent], defaultAgent: myAgent.id,
-    tools: [readFileTool], transport: t.transport, workingDir: dir, noQA: true, iterationMode: 'auto',
+    tools: [readFileTool], transport: t.transport, workingDir: dir, iterationMode: 'auto',
 });
 
 await engine.run('what is in a.txt?');

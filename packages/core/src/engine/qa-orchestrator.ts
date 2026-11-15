@@ -1,4 +1,3 @@
-import type { AgentProfile, LLMMessage } from '../types';
 import type { Orchestrator } from '../orchestration/orchestrator';
 import type { OrchestrationResult } from '../orchestration/types';
 import type { TaskStatus } from '../orchestration/task-context';
@@ -33,18 +32,16 @@ export interface QaContext {
     orchestrationResult: OrchestrationResult;
     orchestrator: Orchestrator;
     qaService: QAService;
-    allAgents: AgentProfile[];
-    messages: LLMMessage[];
+    /** Agent that wrote `clean`. */
     effectiveAgentId: string;
-    /** Agent ID to restore after QA finishes. Defaults to 'general' when omitted. */
-    defaultAgentId?: string;
+    /** Whether an agent with this id is registered. */
+    hasAgent: (agentId: string) => boolean;
     /** Agent ID for the QA reviewer. Defaults to 'qa-engineer' when omitted. */
     qaAgentId?: string;
     /** Agent IDs for the auto-pass review gates. Default to agent-coding's roster ('security'/'architecture'). */
     reviewAgents?: { security?: string; architecture?: string };
     noQA?: boolean;
     onQAReview?: (review: string) => void;
-    setEffectiveAgent: (agentId: string) => void;
 }
 
 /**
@@ -102,12 +99,12 @@ export async function advanceRequiredGates(ctx: QaContext): Promise<void> {
 }
 
 /**
- * Activa el agente qa-engineer cuando el estado de la tarea es qa_review
- * y el agente actual no es qa-engineer. Retorna el perfil del QA si activo,
- * null si no es necesario.
+ * Pide la pasada del agente qa-engineer cuando el estado de la tarea es qa_review
+ * y el agente actual no es qa-engineer. Retorna el agente y el mensaje que debe
+ * recibir, o null si no es necesario.
  */
-export function activateQaEngineerIfNeeded(ctx: QaContext): AgentProfile | null {
-    const { orchestrationResult, allAgents, noQA, clean, qaService, effectiveAgentId } = ctx;
+export function activateQaEngineerIfNeeded(ctx: QaContext): { agentId: string; message: string } | null {
+    const { orchestrationResult, noQA, clean, qaService, effectiveAgentId } = ctx;
     const qaAgentId = ctx.qaAgentId ?? 'qa-engineer';
 
     if (
@@ -118,16 +115,15 @@ export function activateQaEngineerIfNeeded(ctx: QaContext): AgentProfile | null 
         isInformationalRequest(orchestrationResult.task.rawPrompt)
     ) return null;
 
-    const qaProfile = allAgents.find(a => a.id === qaAgentId);
-    if (!qaProfile) return null;
+    if (!ctx.hasAgent(qaAgentId)) return null;
 
-    ctx.messages.push({
-        role: 'user',
-        content: `Review the following generated code and determine whether it is ready to commit. ` +
-                 `Your review is final and will be shown to the user.\n\n${clean}`,
-    });
-    ctx.setEffectiveAgent(qaAgentId);
-    return qaProfile;
+    return {
+        agentId: qaAgentId,
+        message: `Review the following generated code and determine whether it is ready to commit. ` +
+                 `Your review is final and will be shown to the user.
+
+${clean}`,
+    };
 }
 
 /** Shared FSM transition + sprint completion logic for both QA paths. */
@@ -191,8 +187,7 @@ async function applyQaDecision(
 
 /**
  * Procesa la respuesta del agente qa-engineer: registra el gate en AuditReporter,
- * transiciona el FSM a approved o rework_required, completa el sprint si aprueba
- * y resetea el agente efectivo al agente por defecto.
+ * transiciona el FSM a approved o rework_required y completa el sprint si aprueba.
  */
 export async function processQaEngineerResponse(ctx: QaContext): Promise<void> {
     const { qaService, clean } = ctx;
@@ -203,8 +198,6 @@ export async function processQaEngineerResponse(ctx: QaContext): Promise<void> {
     const approved = qaService.evaluateReview(clean);
 
     await applyQaDecision(ctx, approved, findings, 'QA review del agente qa-engineer (auto-activado)');
-
-    ctx.setEffectiveAgent(ctx.defaultAgentId ?? 'general');
 }
 
 /**

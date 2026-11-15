@@ -217,7 +217,7 @@ describe('record → replay (SPEC-0007 A.4)', () => {
         const t = mockTransport();
         const engine = createBaseEngine({
             providers: { p: provider }, defaultProvider: 'p', agents: [agent], defaultAgent: 'a', tools: [readTool],
-            transport: t.transport, workingDir: dir, noQA: true, iterationMode: 'auto', historyPath,
+            transport: t.transport, workingDir: dir, iterationMode: 'auto', historyPath,
         });
         return { engine, t };
     }
@@ -255,7 +255,7 @@ describe('record → replay (SPEC-0007 A.4)', () => {
         const t = mockTransport();
         const engine = createBaseEngine({
             providers: { p: replay }, defaultProvider: 'p', agents: [{ ...agent, allowedTools: [] }], defaultAgent: 'a',
-            transport: t.transport, workingDir: dir, noQA: true, iterationMode: 'auto',
+            transport: t.transport, workingDir: dir, iterationMode: 'auto',
             context: { maxTokens: 1_000_000, strategy: 'drop', keepRecentTurns: 1 },
         });
         await engine.run('q1'); await engine.run('q2'); await engine.run('q3');

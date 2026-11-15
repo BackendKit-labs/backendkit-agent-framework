@@ -107,6 +107,8 @@ export type { ResilientLLMClientOptions } from './shared/llm/resilient-client';
 
 // ── Orchestration — public surface used by createBaseEngine / createCodingEngine ─
 export { Orchestrator } from './orchestration/orchestrator';
+export { codingPipelineHooks, buildOrchestrationBrief } from './engine/coding-pipeline-hooks';
+export type { CodingPipelineHooksOptions } from './engine/coding-pipeline-hooks';
 export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
 export type { LLMChatClient } from './orchestration/intent-detector';
 export type { ReviewAgentIds } from './orchestration/orchestrator';

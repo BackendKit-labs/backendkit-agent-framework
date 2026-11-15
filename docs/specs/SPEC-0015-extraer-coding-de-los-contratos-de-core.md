@@ -1,7 +1,7 @@
 # SPEC-0015: extraer el vertical de coding de los contratos de core
 
 **Fecha:** 2026-11-14
-**Estado:** Implementado F1 a F4 (PR #179 y siguiente). Falta F5, el release.
+**Estado:** Implementado y publicado (#179, #180; core 0.39.0, agent-coding 0.29.0).
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (hooks, política, `AuditSink`) mergeado.
 **Tipo de cambio:** **con ruptura.** Va en core 0.39.0 y agent-coding 0.29.0, con barrido completo de rangos.
 **Objetivo:** que ningún contrato de core conozca el pipeline de coding. El pipeline sigue funcionando igual, enganchado desde el vertical mediante hooks y política.

@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, extname } from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { AgentProfile } from '../types';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 import type { AgentPackageFile } from './types';
-import { getFrameworkDir } from '../shared/utils/project-key';
+import { getFrameworkDir } from '@backendkit-labs/agent-core';
 
 const REQUIRED_FIELDS = ['id', 'name', 'description', 'systemPrompt', 'allowedTools'] as const;
 

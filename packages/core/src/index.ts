@@ -176,11 +176,9 @@ export { InMemoryStore } from './agent-memory/stores/InMemoryStore';
 export { JsonFileStore } from './agent-memory/stores/JsonFileStore';
 export type { Episode, Knowledge, Pattern, MemorySystemConfig, MemoryStoreBackend } from './agent-memory/types';
 
-// ── Agent discovery — loadAgents callback in AgentEngineOptions ────────────────
-export { discoverAgents } from './agent-discovery/discoverAgents';
-export { RemoteAgentRegistry } from './agent-discovery/RemoteAgentRegistry';
-export { loadAgentsFromDir, globalAgentsDir, projectAgentsDir } from './agent-discovery/AgentPackageLoader';
-export type { AgentPackageFile, AgentDiscoveryConfig, RemoteRegistryIndex } from './agent-discovery/types';
+// ── Sources — where an engine gets agents, skills and instructions from (SPEC-0016) ──
+export { sanitizeDiskContent, composeInstructionLayers, instructionSourceHooks, listAgentSources, listSkillSources } from './sources';
+export type { AgentSource, SkillSource, InstructionSource, InstructionLayer } from './sources';
 
 // ── Reflection — failure catalog, pattern detection, policy promotion (verticals add their own domains) ──
 export * from './reflection';

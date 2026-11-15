@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { run, isOk } from '@backendkit-labs/result';
-import { getProjectDir } from '../../shared/utils/project-key';
+import { getProjectDir } from '@backendkit-labs/agent-core';
 
 export interface SessionResult {
     content: string | null;

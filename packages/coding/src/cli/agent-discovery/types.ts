@@ -1,4 +1,4 @@
-import type { AgentProfile } from '../types';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Package format ────────────────────────────────────────────────────────────
 

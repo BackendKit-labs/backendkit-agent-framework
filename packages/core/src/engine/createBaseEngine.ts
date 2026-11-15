@@ -22,8 +22,8 @@ import type { MCPServerConfig } from '../mcp/types';
 import { ObservabilityManager } from '../observability/ObservabilityManager';
 import type { ObservabilityConfig } from '../observability/types';
 import type { MemorySystem } from '../agent-memory/MemorySystem';
-import { discoverAgents } from '../agent-discovery/discoverAgents';
-import type { AgentDiscoveryConfig } from '../agent-discovery/types';
+import { instructionSourceHooks, listAgentSources, listSkillSources } from '../sources';
+import type { AgentSource, SkillSource, InstructionSource } from '../sources';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
 import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
@@ -215,21 +215,20 @@ export interface BaseEngineOptions {
     abortOnBudget?: boolean;
 
     /**
-     * Agent discovery — load agents from local directories and/or a remote registry.
-     * Discovered agents are merged with statically provided agents[] on the first run().
-     *
-     * Local directories scanned:
-     *   ~/.{appName}/agents/               ← global (shared across projects)
-     *   {workingDir}/.{appName}/agents/    ← project-local (git-tracked)
-     *
-     * @example
-     * agentDiscovery: {
-     *   appName: 'my-app',
-     *   remote: 'https://registry.backendkit.dev/agents',
-     *   install: ['@bk/agent-devops-aws', '@bk/agent-mobile-android'],
-     * }
+     * Where to get more agents from, read on the first run() and merged with `agents` (a later source overrides
+     * an earlier agent with the same id). The engine reads no file by itself: a source is the adapter, e.g.
+     * `fileAgentSource({ appName })` of `@backendkit-labs/agent-coding/cli`.
      */
-    agentDiscovery?: AgentDiscoveryConfig;
+    agentSources?: AgentSource[];
+
+    /** Where to get more skills from, read on the first run() and merged with `skills` and `loadSkills`. */
+    skillSources?: SkillSource[];
+
+    /**
+     * Where to get instruction layers (project instructions, user preferences...). They are sanitized and added to
+     * the system prompt after the other sections, through a `systemPrompt` hook (SPEC-0014).
+     */
+    instructionSources?: InstructionSource[];
 
     /**
      * Number of recent messages from the orchestrator's conversation to inject
@@ -438,7 +437,14 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         projectContext: opts.projectContext,
         skills: opts.skills,
         detectedStack: opts.detectedStack,
-        loadSkills: opts.loadSkills,
+        ...(opts.loadSkills || opts.skillSources?.length
+            ? {
+                loadSkills: async () => [
+                    ...(opts.loadSkills ? await opts.loadSkills() : []),
+                    ...(opts.skillSources?.length ? await listSkillSources(opts.skillSources) : []),
+                ],
+            }
+            : {}),
         ...(opts.sessionMemory ? { sessionMemory: opts.sessionMemory } : {}),
         ...(opts.services ? { services: opts.services } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
@@ -454,17 +460,19 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.policy ? { policy: opts.policy } : {}),
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
-        ...(opts.hooks?.length ? { hooks: opts.hooks } : {}),
-        ...(opts.maxHookContinues !== undefined ? { maxHookContinues: opts.maxHookContinues } : {}),
-        ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
-        ...(opts.agentDiscovery
+        ...(opts.hooks?.length || opts.instructionSources?.length
             ? {
-                loadAgents: () => discoverAgents({
-                    ...opts.agentDiscovery!,
-                    workingDir: opts.agentDiscovery!.workingDir ?? opts.workingDir,
-                }),
+                hooks: [
+                    ...(opts.instructionSources?.length
+                        ? [instructionSourceHooks(opts.instructionSources, { cwd: opts.workingDir })]
+                        : []),
+                    ...(opts.hooks ?? []),
+                ],
             }
             : {}),
+        ...(opts.maxHookContinues !== undefined ? { maxHookContinues: opts.maxHookContinues } : {}),
+        ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
+        ...(opts.agentSources?.length ? { loadAgents: () => listAgentSources(opts.agentSources!) } : {}),
     });
     engineRef = engine;
     return engine;

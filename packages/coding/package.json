@@ -13,12 +13,19 @@
       "types": "./dist/pipeline/index.d.ts",
       "default": "./dist/pipeline/index.js"
     },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
       "pipeline": [
         "dist/pipeline/index.d.ts"
+      ],
+      "cli": [
+        "dist/cli/index.d.ts"
       ]
     }
   },
@@ -47,6 +54,7 @@
   "dependencies": {
     "@backendkit-labs/agent-core": "^0.39.0",
     "@backendkit-labs/agent-providers": "^0.3.0",
+    "@backendkit-labs/result": "^0.2.1",
     "@backendkit-labs/agent-sandbox": "^0.1.0",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",

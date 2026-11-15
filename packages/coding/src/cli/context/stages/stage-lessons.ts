@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { run, isOk, fromThrowable } from '@backendkit-labs/result';
-import { getFrameworkDir, getProjectDir } from '../../shared/utils/project-key';
+import { getFrameworkDir, getProjectDir } from '@backendkit-labs/agent-core';
 
 export interface LessonsResult {
     memo: string | null;

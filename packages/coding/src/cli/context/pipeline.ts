@@ -1,4 +1,5 @@
 import { run, type Result } from '@backendkit-labs/result';
+import { sanitizeDiskContent } from '@backendkit-labs/agent-core';
 import { runStageInstructions, InstructionsResult } from './stages/stage-instructions';
 import { runStageProject, ProjectResult } from './stages/stage-project';
 import { runStageSession, SessionResult } from './stages/stage-session';
@@ -141,22 +142,6 @@ async function runStageWithCache<T>(
     cache.set(key, fresh.checksum, fresh.data);
     onChanged();
     return fresh.data;
-}
-
-/**
- * Files on disk (AGENT.md, USER.md, project context, session notes, lessons) end up inside the
- * system prompt and anyone who can write a file in the repo can write them. Remove what lets a
- * file impersonate the conversation: chat-template delimiters ([INST], <<SYS>>, <|im_start|>),
- * role tags (<system>, <assistant>...) and line-leading role prefixes (SYSTEM:, ASSISTANT:, USER:).
- * Ordinary markup and generics (Promise<void>, <details>) are kept, and so are the instructions
- * themselves: AGENT.md is meant to guide the agent.
- */
-export function sanitizeDiskContent(content: string): string {
-    return content
-        .replace(/\[\/?INST\]|<<\/?SYS>>/g, '')
-        .replace(/<\|[a-z_]+\|>/gi, '')
-        .replace(/<\/?(?:system|assistant|user|human|instructions?|tool_call|function_calls?)\b[^>]*>/gi, '')
-        .replace(/^(?:SYSTEM|ASSISTANT|USER|HUMAN):[ \t]*/gim, '');
 }
 
 export function formatPipelineForPrompt(result: PipelineResult): string[] {

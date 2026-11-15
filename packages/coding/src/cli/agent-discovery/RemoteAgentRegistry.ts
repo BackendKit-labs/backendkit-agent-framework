@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
-import { atomicWriteSync } from '../shared/utils/atomic-write';
+import { atomicWriteSync } from '@backendkit-labs/agent-core';
 import { assertSafeDownloadUrl } from './download-guard';
-import type { AgentProfile } from '../types';
+import type { AgentProfile } from '@backendkit-labs/agent-core';
 import type { RemoteRegistryIndex, RemotePackageListing } from './types';
 
 const INDEX_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour

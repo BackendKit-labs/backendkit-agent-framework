@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@backendkit-labs/agent-coding": "^0.29.0",
-    "@backendkit-labs/agent-core": "^0.39.0",
+    "@backendkit-labs/agent-coding": "^0.30.0",
+    "@backendkit-labs/agent-core": "^0.40.0",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {

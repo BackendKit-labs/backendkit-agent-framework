@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.41.0 (sin publicar)
+
+[SPEC-0016](docs/specs/SPEC-0016-desamarrar-modulos-mixtos.md) F1–F3 (#182): la app de terminal sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.39` no cubre 0.40, así que se barrieron los rangos de todos los paquetes y templates: `^0.40.0`, y en los peers `<0.42.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.40.0 | **rompe:** sin discovery, loader de skills, comandos integrados, workspace, checkpoint, trust ni seed; fuentes `agentSources`, `skillSources`, `instructionSources` |
+| `agent-coding` | 0.30.0 | **rompe:** nuevo subpath `agent-coding/cli` con todo lo que salió de core |
+| `mcp-server` 0.19.2 | patch | importa `SkillManager`, `SkillLoader` y `detectStack` de `agent-coding/cli`; requiere `agent-coding` ^0.30.0 |
+| `create-bk-agent` 0.23.8, `agent-enterprise` 0.8.10, `agent-web` 0.6.7, `agent-providers` 0.3.7, `agent-sandbox` 0.1.10, `agent-testkit` 0.1.10, `agent-otel` 0.1.13, `orchestrator-agent` 0.7.5, `document-extract` 0.1.3, `aval-tools` 0.1.17 | patch | solo el rango de `agent-core` |
+
+Los demás paquetes no cambian: `agent-protocol`, `mcp-connectors` y `agent-web-ui`.
+
+### Guía de migración
+
+**Imports que se mueven.** Todo esto pasa de `@backendkit-labs/agent-core` a `@backendkit-labs/agent-coding/cli`: `discoverAgents`, `RemoteAgentRegistry`, `loadAgentsFromDir`, `globalAgentsDir`, `projectAgentsDir`, `SkillLoader`, `SkillManager`, `createSkillManager`, `parseMdSkill`, `skillToMd`, los proveedores de skills (`GitHubProvider`, `LocalProvider`, `SkillsShProvider`, `ObsidianProvider`), `registerBuiltinCommands`, los checkpoints, los workspaces, `runGlobalSeed`, `loadFrameworkConfig`, `DEFAULT_CONFIG` y el trust (`trustProject`, `isProjectTrusted`...).
+
+**Siguen en core:** `SlashCommandRegistry`, `SkillRegistry`, `SkillActivator`, `cwdToProjectKey`, `getFrameworkDir`, `getProjectDir` y `atomicWrite`.
+
+**`SkillActivator.detectStack`** pasa a la función `detectStack(cwd)` de `agent-coding/cli`.
+
+**`agentDiscovery`** de `createBaseEngine` se sustituye por `agentSources`:
+
+```ts
+import { fileAgentSource } from '@backendkit-labs/agent-coding/cli';
+
+createBaseEngine({ /* ... */ agentSources: [fileAgentSource({ appName: 'my-app' })] });
+```
+
+**Fuentes nuevas.** `skillSources` e `instructionSources` completan el trío. Las capas de instrucciones se sanean y entran al prompt por un hook `systemPrompt`, y un engine sin fuentes no toca el disco. `fileInstructionSource({ appName })` da `AGENT.md`, `USER.md`, contexto de proyecto, sesión y lecciones.
+
+Quien usa `createCodingEngine` no cambia nada.
+
 ## v0.40.0 (2026-11-15)
 
 [SPEC-0015](docs/specs/SPEC-0015-extraer-coding-de-los-contratos-de-core.md) F1–F4 (#179): el pipeline de coding sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.38` no cubre 0.39, así que se barrieron los rangos de todos los paquetes y templates: `^0.39.0`, y en los peers `<0.41.0`.

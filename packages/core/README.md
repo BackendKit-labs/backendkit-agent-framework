@@ -1122,12 +1122,7 @@ An agent learns from what happens to it. The same failure seen 3 times becomes a
 import { createLearning } from '@backendkit-labs/agent-core';
 
 const learning = createLearning();     // in memory; pass `store`, `approvals` and `rules` to keep them on disk
-const engine = createBaseEngine({
-  ...opts,
-  audit: learning.sink,                // every failed, timed-out, denied or blocked tool call is an experience
-  hooks: [learning.hooks],             // the lessons of each agent, sanitized and capped, join its system prompt
-  policy: learning.policy,             // enforces the rules a person approved: `{ tool, effect: 'ask' | 'deny' }`
-});
+const engine = createBaseEngine({ ...opts, learning });
 
 await learning.record({ agentId: 'ap', domain: 'qa', kind: 'wrong_total', situation: 'posting an invoice', action: 'post_invoice' });
 
@@ -1136,6 +1131,9 @@ await learning.approve(id, { kind: 'human', id: 'ana' });   // only a human by d
 await learning.retire(id);                                  // withdraw an approved rule
 ```
 
+- **What the `learning` option wires.** Every failed, timed-out, denied or blocked tool call becomes an experience. The lessons of each agent, sanitized and capped, join its system prompt. The rules a person approved (`{ tool, effect: 'ask' | 'deny' }`) are enforced only when the engine is on the policy path (`policy`, `approver` or `approvals` is set): `learning` alone never changes how the engine asks for approval. `learning.sink`, `learning.hooks` and `learning.policy` remain available to wire by hand.
+- **Tenants never share what they learn.** Experiences take the tenant of the engine's `identity`. Patterns, lessons, proposals and approved rules stay inside it; no tenant is its own separate space.
+- **The text of a lesson is stable.** It carries no counts or dates, so more failures of the same pattern do not change the system prompt and prompt caching keeps working.
 - **Domain and kind are free text.** A vertical records its own experiences with `record`, and decides the rule a pattern proposes with `ruleFor`. By default a tool that keeps failing proposes `{ tool, effect: 'ask' }`.
 - **`thresholdFor`** sets how many repetitions make a pattern per experience, e.g. a critical failure needs one.
 - **`FileRuleStore`**, `MemoryApprovalStore` and `FileApprovalStore` keep the rules and proposals; `agent-coding` and `agent-enterprise` build on this module.

@@ -30,27 +30,24 @@ const build = (orchestration: unknown) => {
 };
 
 describe('createCodingEngine learning', () => {
-    it('wires the audit sink and the lessons hook when orchestration is on', () => {
+    it('passes the learning module to the engine when orchestration is on', () => {
         const call = build(true);
-        expect(call.audit).toBeDefined();
-        expect(call.hooks.map((h: { name?: string }) => h.name)).toContain('learning');
+        expect(call.learning).toBeDefined();
     });
 
     it('uses the instance the caller created', () => {
         const learning = core.createLearning();
         const call = build({ learning });
-        expect(call.audit).toBe(learning.sink);
-        expect(call.hooks).toContain(learning.hooks);
+        expect(call.learning).toBe(learning);
     });
 
     it('learning: false leaves it out', () => {
         const call = build({ learning: false });
-        expect(call.audit).toBeUndefined();
-        expect(call.hooks.map((h: { name?: string }) => h.name)).not.toContain('learning');
+        expect(call.learning).toBeUndefined();
     });
 
     it('does nothing without orchestration', () => {
         const call = build(undefined);
-        expect(call.audit).toBeUndefined();
+        expect(call.learning).toBeUndefined();
     });
 });

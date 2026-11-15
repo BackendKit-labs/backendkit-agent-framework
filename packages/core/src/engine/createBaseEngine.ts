@@ -27,6 +27,8 @@ import type { AgentSource, SkillSource, InstructionSource } from '../sources';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
 import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
+import { defaultToolPolicy } from '../governance/policy';
+import type { Learning } from '../learning/types';
 import type { EngineHooks } from '../governance/hooks';
 import type { Guardrail } from '../guardrails/types';
 
@@ -299,6 +301,17 @@ export interface BaseEngineOptions {
      */
     policy?: ToolPolicy | ToolPolicy[];
 
+    /**
+     * Learning from experience (`createLearning()`), wired in one option:
+     *
+     * - its sink joins `audit`: tool calls that fail, time out, are denied or blocked become experiences;
+     * - its hook joins `hooks`: the lessons of each agent, within its tenant, are added to its system prompt;
+     * - its policy joins the policy path, so the rules a person approved are enforced. This happens only when
+     *   the engine is already on the policy path (`policy`, `approver` or `approvals` is set): `learning` alone
+     *   never switches the approval behavior of the engine, and then approved tool rules are not enforced.
+     */
+    learning?: Learning;
+
     /** Answers an `ask` now (a person, a supervising agent, a service). Its answers are validated and audited. */
     approver?: Approver;
 
@@ -455,18 +468,34 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(obsManager ? { observabilityManager: obsManager } : {}),
         ...(opts.memorySystem ? { memorySystem: opts.memorySystem } : {}),
         ...(opts.auditLog ? { auditLog: opts.auditLog } : {}),
-        ...(opts.audit ? { audit: opts.audit } : {}),
+        ...(opts.audit || opts.learning
+            ? {
+                audit: [
+                    ...(opts.audit ? (Array.isArray(opts.audit) ? opts.audit : [opts.audit]) : []),
+                    ...(opts.learning ? [opts.learning.sink] : []),
+                ],
+            }
+            : {}),
         ...(opts.identity ? { identity: opts.identity } : {}),
-        ...(opts.policy ? { policy: opts.policy } : {}),
+        ...(opts.learning && (opts.policy || opts.approver || opts.approvals)
+            ? {
+                // Without a configured policy the engine would apply defaultToolPolicy: keep it, and add the learned rules.
+                policy: [
+                    ...(opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [defaultToolPolicy]),
+                    opts.learning.policy,
+                ],
+            }
+            : opts.policy ? { policy: opts.policy } : {}),
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
-        ...(opts.hooks?.length || opts.instructionSources?.length
+        ...(opts.hooks?.length || opts.instructionSources?.length || opts.learning
             ? {
                 hooks: [
                     ...(opts.instructionSources?.length
                         ? [instructionSourceHooks(opts.instructionSources, { cwd: opts.workingDir })]
                         : []),
                     ...(opts.hooks ?? []),
+                    ...(opts.learning ? [opts.learning.hooks] : []),
                 ],
             }
             : {}),

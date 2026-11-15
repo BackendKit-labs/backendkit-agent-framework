@@ -38,7 +38,7 @@ describe('un agente de negocio aprende de una tool que falla', () => {
             providers: { mock: provider }, defaultProvider: 'mock',
             agents: [agent], defaultAgent: agent.id, tools: [failingTool],
             transport, workingDir: process.cwd(), iterationMode: 'auto',
-            audit: learning.sink, hooks: [learning.hooks], policy: learning.policy,
+            learning,
         });
 
         await engine.run('post the invoices');

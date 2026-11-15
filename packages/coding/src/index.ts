@@ -662,10 +662,9 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
         ...(auditLog ? { auditLog } : {}),
-        ...(learning ? { audit: learning.sink } : {}),
+        ...(learning ? { learning } : {}),
         hooks: [
             codingContextHooks({ store, workingDir: cwd }),
-            ...(learning ? [learning.hooks] : []),
             ...(orchestrator ? [codingPipelineHooks({ orchestrator, qaService, noQA, onQAReview, defaultAgentId: opts.defaultAgent ?? 'general' })] : []),
         ],
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),

@@ -19,6 +19,8 @@ export interface EnterpriseLearningOptions {
     store?: MemoryStoreBackend;
     /** Where the proposals wait for a person. Default: a directory next to the manifest. */
     approvals?: ApprovalStore;
+    /** The tenant this vault belongs to. What is learned here stays in it: lessons and rules never reach another tenant. */
+    tenantId?: string;
 }
 
 type Severity = Experience['severity'];
@@ -70,8 +72,10 @@ const asApprover = (who: string | ApproverRef): ApproverRef => typeof who === 's
 export class EnterpriseLearning {
     readonly learning: Learning;
     readonly rules: VaultRuleStore;
+    private readonly tenantId?: string;
 
     constructor(opts: EnterpriseLearningOptions) {
+        this.tenantId = opts.tenantId;
         const base = path.join(opts.vaultPath, 'politicas', '_generated');
         this.rules = new VaultRuleStore(opts.manifestPath ?? path.join(base, 'manifest.yaml'));
         this.learning = createLearning({
@@ -99,6 +103,7 @@ export class EnterpriseLearning {
             const kind = (c as { failureType?: string }).failureType ?? failureTypeFor(c.description, domain);
             out.push(await this.learning.record({
                 agentId: record.executor,
+                ...(this.tenantId ? { tenantId: this.tenantId } : {}),
                 domain, kind,
                 severity: severityOf(domain, kind),
                 situation: c.description,
@@ -113,6 +118,7 @@ export class EnterpriseLearning {
             out.push(await this.learning.record({
                 at: entry.at,
                 agentId: entry.evaluatorId ?? record.executor,
+                ...(this.tenantId ? { tenantId: this.tenantId } : {}),
                 domain: 'agent',
                 kind: 'gate_integrity_violation',
                 severity: 'high',
@@ -178,7 +184,7 @@ export class EnterpriseLearning {
         const removed = await this.learning.retire(ruleId);
         if (removed) {
             await this.learning.record({
-                agentId: asApprover(approver).id, domain: 'agent', kind: 'rule_demoted', outcome: 'success', severity: 'low',
+                agentId: asApprover(approver).id, ...(this.tenantId ? { tenantId: this.tenantId } : {}), domain: 'agent', kind: 'rule_demoted', outcome: 'success', severity: 'low',
                 situation: `Rule ${ruleId} demoted`, action: 'reflection-demotion', detail: reason,
                 meta: { ruleId },
             });

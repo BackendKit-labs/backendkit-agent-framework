@@ -66,7 +66,7 @@ describe('patterns, lessons and proposals', () => {
     it('gives a lesson to the agent that failed and to nobody else', async () => {
         const learning = createLearning();
         await fail(learning, 3);
-        expect(await learning.lessonsFor('ap')).toContain('post_invoice: tool_error (3 times');
+        expect(await learning.lessonsFor('ap')).toContain('post_invoice: tool_error keeps happening');
         expect(await learning.lessonsFor('other')).toBeUndefined();
     });
 
@@ -187,5 +187,80 @@ describe('thresholdFor', () => {
         await learning.record({ agentId: 'a', domain: 'fraud', kind: 'typo', severity: 'low', situation: 's', action: 'x' });
         expect((await learning.patterns()).map(p => p.kind)).toEqual(['duplicate_payment']);
         expect(await learning.proposals()).toHaveLength(0); // no rule for an unknown domain by default
+    });
+});
+
+describe('tenants never share what they learn', () => {
+    const inTenant = (tenantId: string | undefined, over: Partial<AuditEvent> = {}) =>
+        event({ principal: { ...PRINCIPAL, ...(tenantId ? { tenantId } : {}) }, ...over });
+
+    it('failures of two tenants do not add up to one pattern', async () => {
+        const learning = createLearning({ threshold: 3 });
+        await learning.sink.write(inTenant('t1'));
+        await learning.sink.write(inTenant('t1'));
+        await learning.sink.write(inTenant('t2'));
+        await learning.sink.write(inTenant(undefined));
+        expect(await learning.patterns()).toEqual([]);
+        expect(await learning.proposals()).toEqual([]);
+    });
+
+    it('a lesson reaches only the tenant it was learned in', async () => {
+        const learning = createLearning();
+        for (let i = 0; i < 3; i++) await learning.sink.write(inTenant('t1'));
+        expect(await learning.lessonsFor('ap', 't1')).toContain('post_invoice');
+        expect(await learning.lessonsFor('ap', 't2')).toBeUndefined();
+        expect(await learning.lessonsFor('ap')).toBeUndefined();
+    });
+
+    it('the hook reads the tenant from the principal of the turn', async () => {
+        const learning = createLearning();
+        for (let i = 0; i < 3; i++) await learning.sink.write(inTenant('t1'));
+        const prompt = (tenantId?: string) =>
+            learning.hooks.systemPrompt!({ principal: { ...PRINCIPAL, tenantId } } as never, { id: 'ap' } as never);
+        expect(await prompt('t1')).toContain('post_invoice');
+        expect(await prompt('t2')).toBeUndefined();
+    });
+
+    it('each tenant gets its own proposal, and an approved rule binds only its tenant', async () => {
+        const learning = createLearning();
+        for (const t of ['t1', 't2']) for (let i = 0; i < 3; i++) await learning.sink.write(inTenant(t));
+        expect(await learning.proposals()).toHaveLength(2);
+        const [mine] = await learning.proposals({ tenantId: 't1' });
+        const rule = await learning.approve(mine.id, HUMAN);
+        expect(rule.tenantId).toBe('t1');
+        const decide = (tenantId?: string) => learning.policy.decide({ ...PRINCIPAL, tenantId }, callTo('post_invoice'));
+        expect(await decide('t1')).toMatchObject({ effect: 'ask' });
+        expect(await decide('t2')).toEqual({ effect: 'allow' });
+        expect(await decide()).toEqual({ effect: 'allow' });
+    });
+
+    it('filters experiences and patterns by tenant', async () => {
+        const learning = createLearning();
+        for (let i = 0; i < 3; i++) await learning.sink.write(inTenant('t1'));
+        await learning.sink.write(inTenant('t2'));
+        expect(await learning.experiences({ tenantId: 't2' })).toHaveLength(1);
+        expect((await learning.patterns({ tenantId: 't1' }))[0]).toMatchObject({ tenantId: 't1', count: 3 });
+        expect(await learning.patterns({ tenantId: 't2' })).toEqual([]);
+    });
+});
+
+describe('the lesson text is stable', () => {
+    it('more failures of the same pattern do not change the prompt', async () => {
+        const learning = createLearning();
+        await fail(learning, 3, { decision: 'deny', outcome: undefined, reason: 'first reason' });
+        const before = await learning.lessonsFor('ap');
+        await fail(learning, 4, { decision: 'deny', outcome: undefined, reason: 'another reason' });
+        expect(await learning.lessonsFor('ap')).toBe(before);
+        expect(before).not.toMatch(/\d+ times|\d{4}-\d{2}-\d{2}/);
+    });
+
+    it('a new pattern adds a line and keeps the others where they were', async () => {
+        const learning = createLearning();
+        await fail(learning, 3, { tool: 'b_tool' });
+        const before = (await learning.lessonsFor('ap'))!;
+        await fail(learning, 5, { tool: 'a_tool' });
+        const after = (await learning.lessonsFor('ap'))!;
+        expect(after).toContain(before.split('\n').pop()!);
+        expect(after.indexOf('a_tool')).toBeLessThan(after.indexOf('b_tool'));
     });
 });

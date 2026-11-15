@@ -3,7 +3,7 @@ import { InMemoryStore } from '../agent-memory/stores/InMemoryStore';
 import { MemoryApprovalStore } from '../governance/approval-store';
 import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
-import { composeInstructionLayers } from '../sources';
+import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
 import { MemoryRuleStore } from './stores';
 import type {
     ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, Severity, ToolRule,
@@ -21,9 +21,16 @@ const PROPOSER = { agentId: 'learning', sessionId: 'learning', chain: ['learning
 const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject'>): string =>
     `${e.domain}:${e.kind}:${e.subject ?? ''}`;
 
+/** Patterns never mix tenants: the group is the tenant plus the pattern key. */
+const groupKey = (e: Pick<Experience, 'tenantId' | 'domain' | 'kind' | 'subject'>): string =>
+    `${e.tenantId ?? ''}\u0000${patternKey(e)}`;
+
 const proposalId = (key: string): string => `learn-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
 
-const oneLine = (text: string, max: number): string => text.replace(/\s+/g, ' ').trim().slice(0, max);
+// Sanitized on its own: the text comes from a tool or a policy, and inside a lesson line a role prefix would not be
+// at the start of the line, where the sanitizer of the whole layer looks for it.
+const oneLine = (text: string, max: number): string =>
+    sanitizeDiskContent(text.replace(/\s+/g, ' ').trim()).trim().slice(0, max);
 
 /** The experience a tool call leaves, or `undefined` when there is nothing to learn from it (a success). */
 function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
@@ -44,6 +51,7 @@ function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
     return {
         at: event.at,
         agentId: event.principal.agentId,
+        ...(event.principal.tenantId ? { tenantId: event.principal.tenantId } : {}),
         domain: 'tool',
         subject: event.tool,
         situation: `calling ${event.tool}`,
@@ -58,17 +66,17 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
     const groups = new Map<string, Experience[]>();
     for (const e of experiences) {
         if (e.outcome !== 'failure') continue;
-        const key = patternKey(e);
+        const key = groupKey(e);
         const group = groups.get(key);
         if (group) group.push(e); else groups.set(key, [e]);
     }
     const patterns: LearnedPattern[] = [];
-    for (const [key, group] of groups) {
+    for (const group of groups.values()) {
         group.sort((a, b) => a.at.localeCompare(b.at));
         const last = group[group.length - 1];
         if (group.length < threshold(last)) continue;
         patterns.push({
-            key, domain: last.domain, kind: last.kind, ...(last.subject ? { subject: last.subject } : {}),
+            key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind, ...(last.subject ? { subject: last.subject } : {}),
             count: group.length,
             firstSeen: group[0].at,
             lastSeen: last.at,
@@ -94,7 +102,7 @@ function isToolRule(value: unknown): value is ToolRule {
  *
  * ```ts
  * const learning = createLearning();
- * createBaseEngine({ ..., audit: learning.sink, hooks: [learning.hooks], policy: learning.policy });
+ * createBaseEngine({ ..., learning });
  * ```
  */
 export function createLearning(options: LearningOptions = {}): Learning {
@@ -109,6 +117,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const approverKinds = options.approverKinds ?? ['human'];
     const ruleFor = options.ruleFor ?? defaultRuleFor;
     const lessonCache = new Map<string, { count: number; text: string | undefined }>();
+    // The line of a lesson is written once: a new failure of the same pattern must not change the system prompt.
+    const lessonLines = new Map<string, string>();
 
     function defaultRuleFor(p: LearnedPattern): ToolRule | undefined {
         if (p.domain !== 'tool' || !p.subject || !TOOL_FAILURES.has(p.kind)) return undefined;
@@ -129,8 +139,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
     };
 
     async function propose(experience: Experience): Promise<void> {
-        const key = patternKey(experience);
-        const pattern = detectPatterns(all().filter(e => patternKey(e) === key), threshold)[0];
+        const key = groupKey(experience);
+        const pattern = detectPatterns(all().filter(e => groupKey(e) === key), threshold)[0];
         if (!pattern) return;
         const id = proposalId(key);
         if (await approvals.get(id)) return;
@@ -138,7 +148,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         if (rule === undefined) return;
         await approvals.put({
             id,
-            principal: PROPOSER,
+            principal: { ...PROPOSER, ...(pattern.tenantId ? { tenantId: pattern.tenantId } : {}) },
             subject: {
                 kind: 'rule_proposal',
                 rule,
@@ -161,17 +171,27 @@ export function createLearning(options: LearningOptions = {}): Learning {
         return experience;
     });
 
-    async function lessonsFor(agentId: string): Promise<string | undefined> {
+    async function lessonsFor(agentId: string, tenantId?: string): Promise<string | undefined> {
         const count = store.count();
-        const cached = lessonCache.get(agentId);
+        const scope = `${tenantId ?? ''}\u0000${agentId}`;
+        const cached = lessonCache.get(scope);
         if (cached && cached.count === count) return cached.text;
-        const own = all().filter(e => e.agentId === agentId);
-        const lines = detectPatterns(own, threshold).slice(0, maxLessons).map(p =>
-            `- ${p.subject ? `${p.subject}: ` : ''}${p.kind} (${p.count} times, last ${p.lastSeen.slice(0, 10)}). ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`);
+        const own = all().filter(e => e.agentId === agentId && e.tenantId === tenantId);
+        const lines = detectPatterns(own, threshold).slice(0, maxLessons)
+            .sort((x, y) => x.key.localeCompare(y.key))
+            .map(p => {
+                const id = `${scope}\u0000${p.key}`;
+                let line = lessonLines.get(id);
+                if (!line) {
+                    line = `- ${p.subject ? `${p.subject}: ` : ''}${p.kind} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
+                    lessonLines.set(id, line);
+                }
+                return line;
+            });
         const text = lines.length
             ? composeInstructionLayers([{ title: 'Lessons learned', content: lines.join('\n'), maxChars }])
             : undefined;
-        lessonCache.set(agentId, { count, text });
+        lessonCache.set(scope, { count, text });
         return text;
     }
 
@@ -186,9 +206,10 @@ export function createLearning(options: LearningOptions = {}): Learning {
     }
 
     const policy: ToolPolicy = {
-        async decide(_principal, call): Promise<PolicyDecision> {
+        async decide(principal, call): Promise<PolicyDecision> {
             const decisions: PolicyDecision[] = [];
-            for (const { rule } of await rules.list()) {
+            for (const { rule, tenantId } of await rules.list()) {
+                if (tenantId !== principal.tenantId) continue;
                 if (!isToolRule(rule) || rule.tool !== call.tool.name) continue;
                 decisions.push(rule.effect === 'deny'
                     ? { effect: 'deny', reason: rule.reason }
@@ -209,25 +230,30 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         hooks: {
             name: 'learning',
-            systemPrompt: (_ctx, profile) => lessonsFor(profile.id),
+            systemPrompt: (ctx, profile) => lessonsFor(profile.id, ctx.principal.tenantId),
         },
         record,
         async experiences(filter = {}) {
-            return all().filter(e => (!filter.agentId || e.agentId === filter.agentId) && (!filter.domain || e.domain === filter.domain));
+            return all().filter(e => (!filter.agentId || e.agentId === filter.agentId)
+                && (!filter.domain || e.domain === filter.domain)
+                && (filter.tenantId === undefined || e.tenantId === filter.tenantId));
         },
         async patterns(filter = {}) {
-            return detectPatterns(filter.agentId ? all().filter(e => e.agentId === filter.agentId) : all(), threshold);
+            return detectPatterns(all().filter(e => (!filter.agentId || e.agentId === filter.agentId)
+                && (filter.tenantId === undefined || e.tenantId === filter.tenantId)), threshold);
         },
         lessonsFor,
         async proposals(filter = {}) {
             const list = await approvals.list({ status: filter.status ?? 'pending' });
-            return list.filter(a => a.subject.kind === 'rule_proposal' && a.id.startsWith('learn-'));
+            return list.filter(a => a.subject.kind === 'rule_proposal' && a.id.startsWith('learn-')
+                && (filter.tenantId === undefined || a.principal.tenantId === filter.tenantId));
         },
         async approve(id, by, reason) {
             const { request } = await resolve(id, by, 'approve', reason);
             const subject = request.subject as { kind: 'rule_proposal'; rule: unknown; evidence: string };
             const approved: ApprovedRule = {
-                id, rule: subject.rule, approvedBy: by, approvedAt: new Date().toISOString(),
+                id, rule: subject.rule, ...(request.principal.tenantId ? { tenantId: request.principal.tenantId } : {}),
+                approvedBy: by, approvedAt: new Date().toISOString(),
                 source: request.reason, ...(reason ? { reason } : {}),
             };
             await rules.add(approved);

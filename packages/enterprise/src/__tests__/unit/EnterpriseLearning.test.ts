@@ -137,3 +137,16 @@ describe('VaultRuleStore', () => {
         expect(await store.recordOutcome('x', 'success')).toBe(false);
     });
 });
+
+describe('EnterpriseLearning: tenant', () => {
+    it('stamps the tenant on experiences and rules, and writes it to the vault', async () => {
+        const el = new EnterpriseLearning({ vaultPath: vault, tenantId: 'acme' });
+        const [e] = await el.recordGateOutcome(gate());
+        expect(e.tenantId).toBe('acme');
+        const [pending] = await el.pendingPromotions();
+        const rule = await el.approvePromotion(pending.id, 'ana');
+        expect(rule.tenantId).toBe('acme');
+        expect(yaml.parse(fs.readFileSync(manifest(), 'utf8')).policyRules[0].tenantId).toBe('acme');
+        expect((await el.activeRules())[0].tenantId).toBe('acme');
+    });
+});

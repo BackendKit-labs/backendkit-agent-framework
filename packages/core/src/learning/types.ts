@@ -10,6 +10,11 @@ export interface Experience {
     /** ISO time. */
     at: string;
     agentId: string;
+    /**
+     * The tenant it happened in. Experiences, lessons, proposals and rules never cross tenants: what one tenant's
+     * agents learn is invisible to another's. No tenant is its own separate space.
+     */
+    tenantId?: string;
     /** Area of the experience: 'tool', 'policy', 'commit'... */
     domain: string;
     /** What it is about: a tool name, a workflow step. Patterns group by domain + kind + subject. */
@@ -35,6 +40,8 @@ export type ExperienceInput =
 export interface LearnedPattern {
     /** `domain:kind:subject`. */
     key: string;
+    /** The tenant the pattern belongs to; a pattern never mixes tenants. */
+    tenantId?: string;
     domain: string;
     kind: string;
     subject?: string;
@@ -54,6 +61,8 @@ export interface LearnedPattern {
 export interface ApprovedRule {
     id: string;
     rule: unknown;
+    /** The tenant it was learned in. `learning.policy` applies it only to calls of that tenant. */
+    tenantId?: string;
     approvedBy: ApproverRef;
     /** ISO time. */
     approvedAt: string;
@@ -103,7 +112,10 @@ export interface LearningOptions {
 }
 
 export interface Learning {
-    /** Derives experiences from the audit events of tool calls. Pass it as `audit` to the engine. */
+    /**
+     * Derives experiences from the audit events of tool calls. Pass it as `audit` to the engine, or pass the whole
+     * object as the `learning` option of `createBaseEngine`, which wires sink, hooks and policy.
+     */
     readonly sink: AuditSink;
     /** Adds the lessons of the agent to its system prompt. Pass it in `hooks`. */
     readonly hooks: EngineHooks;
@@ -112,12 +124,16 @@ export interface Learning {
     readonly rules: RuleStore;
     /** Records an experience of a vertical: a QA verdict, user feedback... */
     record(input: ExperienceInput): Promise<Experience>;
-    experiences(filter?: { agentId?: string; domain?: string }): Promise<Experience[]>;
-    patterns(filter?: { agentId?: string }): Promise<LearnedPattern[]>;
-    /** The lessons text of an agent, or `undefined` when it has learned nothing yet. */
-    lessonsFor(agentId: string): Promise<string | undefined>;
-    /** Proposed rules still waiting for a decision (or those with `status`). */
-    proposals(filter?: { status?: StoredApproval['status'] }): Promise<StoredApproval[]>;
+    /** Without `tenantId` in the filter, every tenant's are returned (an operator's view). */
+    experiences(filter?: { agentId?: string; domain?: string; tenantId?: string }): Promise<Experience[]>;
+    patterns(filter?: { agentId?: string; tenantId?: string }): Promise<LearnedPattern[]>;
+    /**
+     * The lessons text of an agent within a tenant (or within no tenant), or `undefined` when it has learned
+     * nothing yet. The text of a lesson does not change once written, so the system prompt stays cacheable.
+     */
+    lessonsFor(agentId: string, tenantId?: string): Promise<string | undefined>;
+    /** Proposed rules still waiting for a decision (or those with `status`). Without `tenantId`, every tenant's. */
+    proposals(filter?: { status?: StoredApproval['status']; tenantId?: string }): Promise<StoredApproval[]>;
     approve(id: string, by: ApproverRef, reason?: string): Promise<ApprovedRule>;
     reject(id: string, by: ApproverRef, reason?: string): Promise<void>;
     /** Withdraws an approved rule. */

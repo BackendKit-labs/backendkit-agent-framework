@@ -5,8 +5,9 @@
 [SPEC-0017](docs/specs/SPEC-0017-un-contrato-por-concepto.md) F6 (autoaprendizaje). Aditivo en `agent-core` y `agent-enterprise`; **cambia el comportamiento** de `agent-coding` con `orchestration`.
 
 - **`agent-core`:** módulo `createLearning` con experiencias, lecciones en el prompt y reglas propuestas que esperan a una persona. `MemoryApprovalStore` y `FileRuleStore`. `ReflectionEngine`, `DomainRegistry`, `FailureCatalog`, `PatternDetector`, `PolicyPromoter` y `ProceduralMemory` quedan `@deprecated`; se retiran en un minor posterior.
+- **`agent-core`, opción única y tenants:** `createBaseEngine({ learning })` conecta el sink, el hook y, si el engine ya está en la ruta de política, las reglas aprobadas. Las experiencias llevan `tenantId` (el de `identity`), y patrones, lecciones, propuestas y reglas no cruzan tenants. El texto de una lección ya no lleva conteo ni fecha, para no invalidar la caché del prompt. El detalle que viene de una tool se sanea por separado.
 - **`agent-coding`:** con `orchestration`, los hallazgos de auditoría alimentan el aprendizaje (`createCodingLearning`, opción `learning`). Las reglas aprendidas **ya no se promueven solas** a `manifest.yaml`: quedan pendientes en `~/.{appName}/projects/<proyecto>/learning/` hasta que una persona las aprueba (`learning.approve`), y el orquestador las aplica. `reflection` deja de estar activo por defecto (`reflection: true` lo reactiva). El `manifest.yaml` anterior se sigue leyendo.
-- **`agent-enterprise`:** `EnterpriseLearning` (umbral por severidad, la persona decide, reglas en el YAML del vault con `VaultRuleStore`). `EnterpriseReflection` queda `@deprecated`. `FlowRunner.reflection` acepta cualquier objeto con `recordGateOutcome`.
+- **`agent-enterprise`:** `EnterpriseLearning` (umbral por severidad, la persona decide, reglas en el YAML del vault con `VaultRuleStore`). `EnterpriseReflection` queda `@deprecated`. `FlowRunner.reflection` acepta cualquier objeto con `recordGateOutcome`. `EnterpriseLearning` acepta `tenantId` y `VaultRuleStore` lo escribe en el YAML.
 
 ## v0.41.0 (2026-11-15)
 

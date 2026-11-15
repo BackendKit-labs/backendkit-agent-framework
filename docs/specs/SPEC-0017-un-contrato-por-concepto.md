@@ -174,3 +174,5 @@ createBaseEngine({ ..., audit: learning.sink, hooks: [learning.hooks], policy: l
 | `ProceduralMemory` | adaptador obsoleto del módulo | solo `@deprecated` | No hay consumidor que migrar. |
 | `LessonsMemoGenerator` y `HistoricalLoader` | pasan a señales | **siguen sobre `ReflectionEngine`** (obsoleto) | El informe de lecciones en Markdown de coding queda para la retirada. |
 | Excepciones del test de grep | se quitan | **siguen**: `reflection/` y `project-key.ts` | Cada fase es aditiva; salen en el minor que retire `reflection`. |
+
+**Primer bloque de mejoras (2026-11-15).** Opción única `createBaseEngine({ learning })`, aislamiento por tenant y texto de lección estable. Lo que queda (señal con éxitos y ventana, lecciones que enseñan, esquema de regla único, resultado de las reglas, superficie de aprobación y retirada de `reflection`) está en [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md).

@@ -109,3 +109,40 @@ export class FileApprovalStore implements ApprovalStore {
         }
     }
 }
+
+/** Approvals kept in memory, for tests and for processes that do not need them to outlive the run. */
+export class MemoryApprovalStore implements ApprovalStore {
+    private readonly items = new Map<string, StoredApproval>();
+
+    async put(req: ApprovalRequest): Promise<void> {
+        if (this.items.has(req.id)) throw new Error(`approval "${req.id}" already exists`);
+        this.items.set(req.id, { ...req, status: 'pending' });
+    }
+
+    async get(id: string): Promise<StoredApproval | undefined> {
+        const item = this.items.get(id);
+        return item ? { ...item } : undefined;
+    }
+
+    async resolve(id: string, outcome: ApprovalOutcome): Promise<StoredApproval> {
+        const item = this.items.get(id);
+        if (!item) throw new Error(`approval "${id}" not found`);
+        if (item.outcome) throw new Error(`approval "${id}" already has a decision`);
+        const next: StoredApproval = { ...item, outcome, status: outcome.decision === 'approve' ? 'approved' : 'rejected' };
+        this.items.set(id, next);
+        return { ...next };
+    }
+
+    async markExecuted(id: string): Promise<boolean> {
+        const item = this.items.get(id);
+        if (!item || item.status !== 'approved') return false;
+        this.items.set(id, { ...item, status: 'executed', executedAt: new Date().toISOString() });
+        return true;
+    }
+
+    async list(filter: { status?: ApprovalStatus; agentId?: string } = {}): Promise<StoredApproval[]> {
+        return [...this.items.values()]
+            .filter(a => (!filter.status || a.status === filter.status) && (!filter.agentId || a.principal.agentId === filter.agentId))
+            .map(a => ({ ...a }));
+    }
+}

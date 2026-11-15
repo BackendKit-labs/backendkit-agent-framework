@@ -128,3 +128,38 @@ señales ──► catálogo de experiencias ──► detector de patrones ─�
 **Dependencias:**
 - SPEC-0014 F1-F3: hooks, `AuditSink` y `ApprovalStore`.
 - SPEC-0015 F2: el resto de `reflection` sale a coding en el mismo movimiento.
+
+### Diseño detallado de F6 (2026-11-15)
+
+**Decisiones del usuario (2026-11-15):**
+1. **Aditivo.** El módulo nuevo se añade a core; `ReflectionEngine` y `ProceduralMemory` quedan `@deprecated`. Las excepciones del test de grep (`reflection/`, `project-key.ts`) se quitan en el minor siguiente: `project-key` no se mueve con reflection, porque `ProjectStore`, `AgentLoader` y apps externas lo importan.
+2. **Las reglas aprendidas nunca se aplican solas, tampoco en coding.** Cambia el comportamiento actual de coding (`autoPromote`): sus reglas quedan pendientes hasta que una persona las aprueba. El resto de agentes ya funcionaba así en `enterprise`.
+3. **Almacén de reglas enchufable.** `enterprise` aporta un adaptador que sigue escribiendo el YAML del vault; las propuestas pendientes usan el `ApprovalStore` con `subject.kind = 'rule_proposal'`, que ya existe (SPEC-0014).
+
+**Módulo `core/src/learning`.** Un único punto de entrada:
+
+```ts
+const learning = createLearning({
+  store?,        // MemoryStoreBackend de las experiencias; por defecto en memoria (un engine sin configurar no toca disco)
+  approvals?,    // ApprovalStore de las propuestas; por defecto en memoria
+  rules?,        // RuleStore de las reglas aprobadas; por defecto en memoria
+  threshold?,    // repeticiones para aprender (3)
+  lessons?: { maxChars?, maxLessons? },
+  ruleFor?,      // (pattern) => unknown | undefined: qué regla propone un patrón. Por defecto, solo para fallos de tool
+});
+createBaseEngine({ ..., audit: learning.sink, hooks: [learning.hooks], policy: learning.policy });
+```
+
+- **Señales.** `learning.sink` es un `AuditSink`: de cada llamada que falla, agota el tiempo, devuelve demasiado, es denegada por la política o bloqueada por guardrail o sandbox deriva una `Experience`. No guarda éxitos. `learning.record(...)` admite las señales de un vertical (veredicto de QA, feedback del usuario, fallos de commit...).
+- **`Experience`.** La de la SPEC más un campo `subject?: string` (de qué trata: el nombre de la tool, el paso...). Un patrón agrupa por `domain + kind + subject`.
+- **Patrones.** `PatternDetector` generalizado: cuenta por clave, devuelve `LearnedPattern` (clave, conteo, primera y última vez, severidad máxima, agentes afectados, ids). Escanea todo el almacén (`MemoryStoreBackend` no consulta por campo) y filtra en memoria; el almacén está acotado (`maxExperiences`, por defecto 1000, descarta lo más antiguo).
+- **Lecciones.** `learning.hooks` añade, por `systemPrompt`, las lecciones de los patrones del agente que supera el umbral. Salen por `composeInstructionLayers` (saneo de SPEC-0009, `maxChars`): lo que viene de una tool es no confiable.
+- **Reglas.** Al superar el umbral por primera vez, `ruleFor(pattern)` devuelve una regla y se guarda una propuesta pendiente en el `ApprovalStore`, con id estable por patrón (no se duplica). `learning.approve(id, by)` y `learning.reject(id, by)` resuelven la propuesta; si se aprueba, la regla pasa al `RuleStore`. `learning.retire(ruleId)` la retira (desaprobar). La regla por defecto de una tool que falla es `{ tool, effect: 'ask' }`. `learning.policy` es una `ToolPolicy` que aplica las reglas aprobadas con `tool`.
+- **Reglas de un vertical.** `rule` es opaco para core. Coding devuelve desde `ruleFor` una `PolicyRule` de su orquestador y lee las aprobadas del `RuleStore`.
+- **Almacenes.** `MemoryRuleStore` y `FileRuleStore` (JSON) en core.
+
+**Fases (aditivas):**
+- **F6a. Módulo de core.** `learning/` con la prueba de aceptación (un agente de negocio sin código de coding: una tool falla N veces, recibe la lección y hay una propuesta pendiente sin aplicar).
+- **F6b. Coding.** Los dominios y hooks pasan a ser productores de señales; `manifest.yaml` deja de escribirse y el orquestador lee las reglas aprobadas del `RuleStore`. Se fija antes el comportamiento actual con la suite del pipeline (`reflection-cycle`).
+- **F6c. Enterprise.** `EnterpriseReflection` sobre el módulo nuevo, con un `RuleStore` que escribe el YAML del vault (`approvePromotion`, `demotionCandidates`, `activeRules`).
+- **F6d. Obsolescencia y documentación.** `@deprecated` en `ReflectionEngine`, `ProceduralMemory` y `DomainRegistry`; README; CHANGELOG. La retirada va en el minor siguiente.

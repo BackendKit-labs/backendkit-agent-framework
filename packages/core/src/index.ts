@@ -99,7 +99,7 @@ export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from '
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem } from './governance/approval';
 export type { CallbackApprover } from './governance/approval';
-export { FileApprovalStore } from './governance/approval-store';
+export { FileApprovalStore, MemoryApprovalStore } from './governance/approval-store';
 export { agentApprover, consoleApprover, describeApproval } from './governance/approvers';
 export { DEFAULT_MAX_HOOK_CONTINUES } from './governance/hooks';
 export type { EngineHooks, RunContext, ContinueTurn } from './governance/hooks';
@@ -173,3 +173,9 @@ export type {
     ToolApprovalDecision,
     Skill,
 } from './types';
+
+// ── Learning from experience: lessons and proposed rules (SPEC-0017 F6) ─────────
+export { createLearning, FileRuleStore, MemoryRuleStore } from './learning';
+export type {
+    ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, RuleStore, Severity, ToolRule,
+} from './learning';

@@ -1,7 +1,5 @@
 # @backendkit-labs/mcp-connectors
 
-> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
-
 Three production-ready MCP (Model Context Protocol) servers that expose enterprise SaaS integrations as agent tools: **HubSpot CRM**, **Jira**, and **Google Calendar**.
 
 Each connector ships as a standalone binary that runs in stdio mode (for use with any MCP client) or HTTP mode (for multi-tenant server deployments).
@@ -572,40 +570,21 @@ Find a 1-hour slot when alice@co.com, bob@co.com, and carol@co.com are all free 
 
 ## Using with agent-core MCPClientManager
 
-### Stdio mode (local — recommended for development)
+### Standalone client
 
 ```typescript
 import { MCPClientManager } from '@backendkit-labs/agent-core';
 
-const mcp = new MCPClientManager();
+const mcp = new MCPClientManager([
+  { name: 'hubspot', command: 'bk-mcp-hubspot', env: { HUBSPOT_TOKEN: process.env.HUBSPOT_TOKEN! } },
+  { name: 'jira', command: 'bk-mcp-jira', env: {
+      JIRA_HOST: process.env.JIRA_HOST!, JIRA_EMAIL: process.env.JIRA_EMAIL!, JIRA_TOKEN: process.env.JIRA_TOKEN!,
+  } },
+  { name: 'gcal', command: 'bk-mcp-gcal', env: { GCAL_SERVICE_ACCOUNT_KEY: process.env.GCAL_SERVICE_ACCOUNT_KEY! } },
+]);
 
-await mcp.connectStdio({
-  name:    'hubspot',
-  command: 'bk-mcp-hubspot',
-  args:    [],
-  env:     { HUBSPOT_TOKEN: process.env.HUBSPOT_TOKEN! },
-});
-
-await mcp.connectStdio({
-  name:    'jira',
-  command: 'bk-mcp-jira',
-  args:    [],
-  env:     {
-    JIRA_HOST:  process.env.JIRA_HOST!,
-    JIRA_EMAIL: process.env.JIRA_EMAIL!,
-    JIRA_TOKEN: process.env.JIRA_TOKEN!,
-  },
-});
-
-await mcp.connectStdio({
-  name:    'gcal',
-  command: 'bk-mcp-gcal',
-  args:    [],
-  env:     { GCAL_SERVICE_ACCOUNT_KEY: process.env.GCAL_SERVICE_ACCOUNT_KEY! },
-});
-
-// All tools are now available to the engine
-const tools = mcp.getTools();
+await mcp.initialize();          // spawns each connector over stdio
+const tools = mcp.getTools();    // mcp__hubspot__*, mcp__jira__*, mcp__gcal__*
 ```
 
 ### Via engine options (recommended approach)
@@ -648,7 +627,7 @@ const engine = createBaseEngine({
 
 ## HTTP mode (multi-session)
 
-Start the servers in HTTP mode when you want to share one connector instance across multiple agent sessions (e.g. in a containerized deployment):
+Start the servers in HTTP mode to share one connector process between several agent sessions on the same host:
 
 ```bash
 # Start connectors as HTTP servers
@@ -657,41 +636,18 @@ JIRA_HOST=co.atlassian.net JIRA_EMAIL=me@co.com JIRA_TOKEN=xxx bk-mcp-jira --htt
 GCAL_SERVICE_ACCOUNT_KEY='...' bk-mcp-gcal --http --port 4003
 ```
 
-Connect via `connectStreamableHTTP`:
+The HTTP server listens on `127.0.0.1` only and rejects requests whose `Host` or `Origin` is not loopback (protection against DNS rebinding). Set `BK_MCP_AUTH_TOKEN` to also require `Authorization: Bearer <token>`. Connect from the same host (or a sidecar that shares the network namespace) with a `url` config:
 
 ```typescript
-await mcp.connectStreamableHTTP({ name: 'hubspot', baseUrl: 'http://mcp-hubspot:4001' });
-await mcp.connectStreamableHTTP({ name: 'jira',    baseUrl: 'http://mcp-jira:4002' });
-await mcp.connectStreamableHTTP({ name: 'gcal',    baseUrl: 'http://mcp-gcal:4003' });
+const mcp = new MCPClientManager([
+  { name: 'hubspot', url: 'http://127.0.0.1:4001/mcp', headers: { Authorization: `Bearer ${process.env.BK_MCP_AUTH_TOKEN}` } },
+  { name: 'jira',    url: 'http://127.0.0.1:4002/mcp' },
+  { name: 'gcal',    url: 'http://127.0.0.1:4003/mcp' },
+]);
+await mcp.initialize();
 ```
 
-Docker Compose example:
-
-```yaml
-services:
-  mcp-hubspot:
-    image: node:20
-    command: ["npx", "-y", "@backendkit-labs/mcp-connectors", "bk-mcp-hubspot", "--http", "--port", "4001"]
-    environment:
-      HUBSPOT_TOKEN: ${HUBSPOT_TOKEN}
-    ports: ["4001:4001"]
-
-  mcp-jira:
-    image: node:20
-    command: ["npx", "-y", "@backendkit-labs/mcp-connectors", "bk-mcp-jira", "--http", "--port", "4002"]
-    environment:
-      JIRA_HOST:  ${JIRA_HOST}
-      JIRA_EMAIL: ${JIRA_EMAIL}
-      JIRA_TOKEN: ${JIRA_TOKEN}
-    ports: ["4002:4002"]
-
-  mcp-gcal:
-    image: node:20
-    command: ["npx", "-y", "@backendkit-labs/mcp-connectors", "bk-mcp-gcal", "--http", "--port", "4003"]
-    environment:
-      GCAL_SERVICE_ACCOUNT_KEY: ${GCAL_SERVICE_ACCOUNT_KEY}
-    ports: ["4003:4003"]
-```
+Because of the loopback-only binding, running each connector in its own container and calling it by service name (`http://mcp-hubspot:4001`) does not work. Run the connectors in the same container as the agent, as sidecars sharing `localhost`, or over stdio.
 
 ---
 

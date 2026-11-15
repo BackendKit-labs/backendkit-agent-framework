@@ -4,8 +4,6 @@ A production-ready coding agent engine built on `@backendkit-labs/agent-core`. B
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-coding)](https://www.npmjs.com/package/@backendkit-labs/agent-coding)
 
-> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
-
 ## Table of contents
 
 - [Installation](#installation)
@@ -161,6 +159,8 @@ const engine = createCodingEngine({
   },
 });
 ```
+
+`onToolApproval` is the right option for coding agents today. Package installs ask even after "all". `agent-core` also has a policy path (`policy`, `approver`, `approvals`) where approval is decided by what each tool declares. Do not switch a coding engine to it yet: the coding tools do not declare `readOnly`, so every `read_file` would ask. Declaring those facts on the coding tools is planned in SPEC-0015.
 
 ---
 

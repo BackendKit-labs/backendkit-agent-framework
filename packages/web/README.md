@@ -1,7 +1,5 @@
 # @backendkit-labs/agent-web
 
-> **Status: `stable`** — Maintained and production-ready. `TriggerBus` (cron/webhook/BullMQ) is `experimental` and frozen during the pilot phase.
-
 HTTP/WebSocket server layer for [@backendkit-labs/agent-core](https://www.npmjs.com/package/@backendkit-labs/agent-core).
 
 Wraps `AgentEngine` in a Fastify 5 server with streaming WebSocket sessions, JWT authentication, Prometheus metrics, rate limiting, a real-time monitor bus, and a flexible trigger system (cron jobs, webhooks, BullMQ queues).
@@ -222,53 +220,49 @@ const engineFactory: EngineFactory = (sessionId, transport) => {
 };
 ```
 
-### Factory with userId from JWT
+### Factory with per-user context
 
-When JWT auth is enabled, the `sessionId` carries the authenticated user's context. You can also inject user-specific data:
+Each WebSocket connection to `/chat` gets its own session with a random `sessionId`, and the factory builds a fresh engine for it. When `auth` is set, the authenticated user (the JWT `sub`) becomes the **owner** of the session: other users cannot see it in `/sessions` or `/monitor`. To load per-user settings in the engine, keep your own map from session to user, or read them inside your tools.
 
 ```typescript
-const engineFactory: EngineFactory = (sessionId, transport) => {
-  // sessionId is set to the JWT 'sub' claim when JwtAuth is used
-  const userConfig = getUserConfig(sessionId); // look up per-user settings
-
-  return new AgentEngine({
-    transport,
-    sessionId,
-    projectContext: `User: ${userConfig.name}\nRole: ${userConfig.role}`,
+const engineFactory: EngineFactory = (sessionId, transport) =>
+  new AgentEngine({
     ...baseConfig,
+    transport,
+    sessionId,                 // also the session's id in metrics, monitor and audit
   });
-};
 ```
 
 ---
 
 ## SessionManager
 
-`SessionManager` creates, tracks, and cleans up sessions. It is created internally by `AgentServer`, but can also be used standalone.
+`SessionManager` creates, tracks and cleans up sessions. `AgentServer` creates one internally; you can also use it on your own WebSocket server.
 
 ```typescript
 import { SessionManager } from '@backendkit-labs/agent-web';
 
 const sessions = new SessionManager({
   engineFactory,
-  maxIdleMs:   30 * 60 * 1000,  // close after 30 min of inactivity
-  maxSessions: 100,
+  maxIdleMs:   30 * 60 * 1000,  // close after 30 min of inactivity (default)
+  maxSessions: 100,             // reject new sessions beyond this (default)
   monitorBus:  myMonitorBus,
   metrics:     myMetricsCollector,
   store:       myMetaStore,
 });
 
-// Lifecycle
-const session = await sessions.getOrCreate('session-id', myTransport);
-await sessions.close('session-id');
-const all = sessions.list(); // SessionMeta[]
+const session = sessions.create(socket, userId);   // one per WebSocket connection; userId is the owner
+sessions.get(session.id);
+sessions.list();                                   // [{ id, createdAt, lastActivityAt, userId }]
+sessions.destroy(session.id);
+sessions.close();                                  // all sessions, on shutdown
 ```
 
 ---
 
 ## JWT authentication
 
-`JwtAuth` validates Bearer tokens in the `Authorization` header or `?token=` query parameter (useful for browser WebSocket connections that can't set custom headers).
+`JwtAuth` validates Bearer tokens on HTTP routes and on the WebSocket handshake. Browsers cannot set headers on a WebSocket, so the token can also travel as the subprotocol `bearer, <jwt>`. A `?token=` query parameter still works unless `allowQueryToken: false`.
 
 ### Strict mode
 
@@ -291,47 +285,26 @@ new AgentServer({ engineFactory, host: '0.0.0.0', auth, strict: true, cors: ['ht
 import { AgentServer, JwtAuth } from '@backendkit-labs/agent-web';
 
 const jwt = new JwtAuth({
-  secret:        process.env.JWT_SECRET!,  // or use publicKey for RS256
-  algorithm:     'HS256',                  // default
-  sessionIdClaim:'sub',                    // JWT claim to use as sessionId
-  expiresIn:     '24h',
+  secret:     process.env.JWT_SECRET!,   // or publicKey for RS256 / ES256
+  algorithms: ['HS256'],                 // accepted algorithms
+  audience:   'agents',                  // optional checks
+  issuer:     'https://login.company.com',
 });
 
-const server = new AgentServer({
-  port:          3000,
-  engineFactory,
-  auth:          jwt.hook(),               // AuthHook applied to all routes
-});
+const server = new AgentServer({ port: 3000, engineFactory, auth: jwt.hook() });
 ```
 
-### Issuing tokens (your login endpoint)
+The token must carry `sub` (the user id, owner of the sessions it opens); `email` and `roles` are read when present. `adminRole` in `AgentServerOptions` names the role that may see every session.
+
+### Issuing tokens
+
+`JwtAuth` only verifies. Issue tokens in your login endpoint with any JWT library and the same secret or key pair:
 
 ```typescript
-import { JwtAuth } from '@backendkit-labs/agent-web';
+import jwt from 'jsonwebtoken';
 
-const jwt = new JwtAuth({ secret: process.env.JWT_SECRET! });
-
-// Issue a token for an authenticated user
-const token = jwt.sign({
-  sub:  'user-123',
-  role: 'admin',
-  name: 'Alice',
-});
-
-// Return to client — they send it as:
-// Authorization: Bearer <token>
-// or ws://host/chat?token=<token>
-```
-
-### Per-user session isolation
-
-When `sessionIdClaim` is `'sub'`, every user gets their own session automatically. Two requests with the same token always hit the same session:
-
-```typescript
-const jwt = new JwtAuth({
-  secret:         process.env.JWT_SECRET!,
-  sessionIdClaim: 'sub',  // user ID as session key
-});
+const token = jwt.sign({ sub: 'user-123', roles: ['admin'] }, process.env.JWT_SECRET!, { expiresIn: '24h' });
+// The client sends it as Authorization: Bearer <token>, or as the WebSocket subprotocol `bearer, <token>`.
 ```
 
 ### Custom auth hook
@@ -385,13 +358,15 @@ import { MetricsCollector } from '@backendkit-labs/agent-web';
 
 const collector = new MetricsCollector({ prefix: 'my_agent_' });
 
-// Record a completed run
-const endRun = collector.startRun('session-abc');
-// ... after run completes:
+// Record a run
+const endRun = collector.runStarted();
+// ... after it completes:
 endRun('success');   // or endRun('error')
 
-// Get Prometheus text format
-const text = await collector.getMetrics();
+collector.sessionOpened();      // and sessionClosed(), messageReceived()
+
+// Prometheus text format (serve it with collector.contentType)
+const text = await collector.collect();
 // # HELP my_agent_runs_total ...
 // my_agent_runs_total{status="success"} 42
 ```
@@ -484,7 +459,13 @@ unsub();
 
 ## TriggerBus — cron, webhooks, queues
 
-`TriggerBus` lets autonomous agent runs happen without a WebSocket client. Runs are visible in the Kanban monitor.
+`TriggerBus` runs agents without a WebSocket client: on a schedule, on an incoming webhook, or for each job of a BullMQ queue. Each run gets a fresh engine from the factory and a `HeadlessTransport`, and shows up in the monitor.
+
+Every trigger has the same three callbacks:
+
+- `buildPrompt(payload)` returns the prompt. `payload` is `undefined` for cron, the parsed body for a webhook, and `job.data` for a queue job.
+- `onComplete(result)` receives `{ sessionId, triggerName, firedAt, durationMs, output, events }`.
+- `onError(err, triggerName)` is called when the run throws.
 
 ### Cron trigger (requires `node-cron`)
 
@@ -496,20 +477,19 @@ const triggers = new TriggerBus(engineFactory)
     name:        'daily-report',
     schedule:    '0 8 * * 1-5',     // weekdays at 8 AM
     buildPrompt: () => 'Generate the daily engineering standup summary from recent commits.',
-    runOnStart:  false,              // set true to fire immediately on server start
-    onResult:    (out) => slack.send('#daily', out),
-    onError:     (err) => logger.error('[daily-report]', err),
+    runOnStart:  false,             // true fires once when the bus starts
+    onComplete:  ({ output }) => slack.send('#daily', output),
+    onError:     (err, name) => logger.error(`[${name}]`, err),
   })
   .addCron({
     name:        'health-check',
-    schedule:    '*/15 * * * *',    // every 15 minutes
+    schedule:    '*/15 * * * *',
     buildPrompt: () => 'Check all API endpoints and report any that are down.',
-    onResult:    (out) => { if (out.includes('DOWN')) pagerduty.alert(out); },
+    onComplete:  ({ output }) => { if (output.includes('DOWN')) pagerduty.alert(output); },
   });
 
-const server = new AgentServer({ triggers, ...opts });
-await server.start();
-// Cron jobs start automatically with the server
+const server = new AgentServer({ ...opts, triggers });
+await server.start();   // cron jobs start with the server
 ```
 
 ### Webhook trigger
@@ -518,207 +498,116 @@ await server.start();
 const triggers = new TriggerBus(engineFactory)
   .addWebhook({
     name:        'github-pr',
-    path:        '/webhooks/github',             // registered as POST /webhooks/github
-    secret:      process.env.GITHUB_SECRET,      // HMAC X-Hub-Signature-256 validation (optional)
+    path:        '/webhooks/github',          // POST /webhooks/github (method: 'GET' | 'POST' | 'PUT')
+    secret:      process.env.GITHUB_SECRET,   // HMAC X-Hub-Signature-256 over the raw body
     buildPrompt: (body) => {
-      const pr = body.pull_request;
+      const pr = (body as { pull_request: { number: number; title: string; diff_url: string } }).pull_request;
       return `Review PR #${pr.number}: "${pr.title}"\n${pr.diff_url}`;
     },
-    onResult: (out, body) => github.postReview(body.pull_request.number, out),
-    onError:  (err) => logger.error('[github-pr]', err),
-  })
-  .addWebhook({
-    name:        'jira-issue',
-    path:        '/webhooks/jira',
-    buildPrompt: (body) => `Analyze Jira issue ${body.issue.key}: ${body.issue.fields.summary}`,
-    onResult:    (out) => jira.addComment(body.issue.key, out),
+    onComplete:  ({ output }) => github.comment(output),
   });
 ```
 
-**Testing a webhook:**
+The webhook answers immediately and the run continues in the background; use `onComplete` to act on the result. If the payload is needed there, capture it in `buildPrompt`.
 
 ```bash
 curl -X POST http://localhost:3000/webhooks/github \
   -H "Content-Type: application/json" \
-  -H "X-Hub-Signature-256: sha256=<hmac>" \
-  -d '{ "pull_request": { "number": 42, "title": "Add auth module" } }'
+  -H "X-Hub-Signature-256: sha256=<hmac of the exact body>" \
+  -d '{ "pull_request": { "number": 42, "title": "Add auth module", "diff_url": "..." } }'
 ```
 
 ### Queue trigger (BullMQ — requires `bullmq`)
 
 ```typescript
-import { TriggerBus } from '@backendkit-labs/agent-web';
-
 const triggers = new TriggerBus(engineFactory)
   .addQueue({
     name:        'document-processor',
-    queueName:   'documents',           // BullMQ queue name
-    connection:  process.env.REDIS_URL!, // Redis URL or connection object
-    concurrency: 3,                     // process 3 jobs in parallel
-    buildPrompt: (job) => {
-      return `Summarize and extract key points from this document:\n\n${job.data.content}`;
-    },
-    onResult: (out, job) => {
-      db.documents.update(job.data.id, { summary: out });
-    },
-    onError: (err, job) => {
-      logger.error(`[queue] Failed to process document ${job?.data?.id}:`, err);
-      // The error is re-thrown so BullMQ marks the job as failed and applies retry policy
-    },
+    queueName:   'documents',
+    connection:  process.env.REDIS_URL!,   // URL, or { host, port, password, username, db, tls }
+    concurrency: 3,                        // default 1
+    buildPrompt: (data) => `Summarize and extract key points:\n\n${(data as { content: string }).content}`,
+    onComplete:  ({ output }) => saveSummary(output),
   });
 ```
 
-**Publishing a job (from anywhere in your system):**
-
-```typescript
-import { Queue } from 'bullmq';
-
-const queue = new Queue('documents', { connection: process.env.REDIS_URL! });
-
-await queue.add('process-doc', {
-  id:      'doc-456',
-  content: 'Full document text...',
-}, {
-  attempts:    3,
-  backoff:     { type: 'exponential', delay: 2000 },
-  removeOnComplete: 100,
-  removeOnFail:     50,
-});
-```
-
-### Queue connection options
-
-```typescript
-// URL string
-connection: 'redis://localhost:6379'
-connection: 'redis://:password@redis-host:6380/1'
-
-// Connection object
-connection: {
-  host:     'redis-host',
-  port:     6380,
-  password: 'mypassword',
-  username: 'default',
-  db:       1,
-  tls:      {},            // enable TLS
-}
-```
-
-### CronTriggerDef with all options
-
-```typescript
-interface CronTriggerDef {
-  name:         string;                        // unique name for the trigger
-  schedule:     string;                        // standard cron expression
-  buildPrompt:  (ts: Date) => string;          // returns the prompt to run
-  agentId?:     string;                        // override default agent
-  runOnStart?:  boolean;                       // fire immediately on server start
-  onResult?:    (output: string) => void;
-  onError?:     (err: Error) => void;
-}
-```
+A failed run is rethrown to BullMQ, so the job is marked failed and its retry policy applies. Jobs are published with BullMQ as usual (`new Queue('documents', { connection }).add('process', { id, content }, { attempts: 3 })`).
 
 ---
 
 ## HeadlessTransport
 
-`HeadlessTransport` is a `Transport` implementation that buffers all `AgentEvent` objects in memory instead of streaming them over a socket. Used internally by `TriggerBus` for autonomous runs.
+A `Transport` with no socket: it buffers every `AgentEvent` in memory. `TriggerBus` uses it for autonomous runs; use it to run an engine from a script.
 
 ```typescript
 import { HeadlessTransport } from '@backendkit-labs/agent-web';
 
 const transport = new HeadlessTransport();
-
 const engine = new AgentEngine({ ...opts, transport });
 await engine.run('Generate a daily report');
 
-// All events are buffered
-const events = transport.getEvents();
-const tokens = events
-  .filter(e => e.type === 'chunk')
-  .map(e => e.content)
-  .join('');
-
-console.log('Final output:', tokens);
+transport.getOutput();   // concatenated text of the 'token' events
+transport.getEvents();   // every event, in order
 ```
 
 ---
 
 ## Full production example
 
-A complete production server with JWT auth, Redis sessions, Prometheus metrics, cron jobs, webhook triggers, and BullMQ queue processing:
+JWT auth, Redis sessions, Prometheus metrics, a cron job, a webhook and a queue:
 
 ```typescript
 import { AgentServer, JwtAuth, TriggerBus, RedisSessionMetaStore } from '@backendkit-labs/agent-web';
 import { createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
-import { ProviderRegistry, DeepSeekProvider } from '@backendkit-labs/agent-core';
+import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 import Redis from 'ioredis';
 
-// LLM providers
 const providers = new ProviderRegistry();
-providers.register('deepseek', new DeepSeekProvider({
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-  model:  'deepseek-chat',
-}));
+providers.register('deepseek', new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY!, model: 'deepseek-chat' }));
 
-// Enterprise setup (RAG + 6 agent profiles)
-const enterprise = createEnterpriseSetup({
-  vaultPath:       process.env.VAULT_PATH!,
-  providers,
-  defaultProvider: 'deepseek',
-});
+const enterprise = createEnterpriseSetup({ vaultPath: process.env.VAULT_PATH!, providers, defaultProvider: 'deepseek' });
 await enterprise.indexAll();
 
-// Redis
-const redis = new Redis(process.env.REDIS_URL!);
-
-// JWT auth
-const jwt = new JwtAuth({
-  secret:         process.env.JWT_SECRET!,
-  sessionIdClaim: 'sub',
-});
-
-// Autonomous triggers
 const triggers = new TriggerBus(enterprise.engineFactory)
   .addCron({
     name:        'weekly-digest',
-    schedule:    '0 9 * * 1',   // Mondays at 9 AM
+    schedule:    '0 9 * * 1',
     buildPrompt: () => 'Generate a weekly digest of all knowledge base changes.',
-    onResult:    (out) => slack.send('#general', out),
+    onComplete:  ({ output }) => slack.send('#general', output),
   })
   .addWebhook({
     name:        'support-ticket',
     path:        '/webhooks/support',
     secret:      process.env.WEBHOOK_SECRET,
-    buildPrompt: (body) => `Handle support ticket #${body.id}: ${body.subject}\n${body.description}`,
-    onResult:    (out, body) => helpdesk.reply(body.id, out),
+    buildPrompt: (body) => {
+      const t = body as { id: string; subject: string; description: string };
+      return `Handle support ticket #${t.id}: ${t.subject}\n${t.description}`;
+    },
   })
   .addQueue({
     name:        'email-processor',
     queueName:   'emails',
     connection:  process.env.REDIS_URL!,
     concurrency: 5,
-    buildPrompt: (job) => `Draft a professional reply to this email:\n\n${job.data.body}`,
-    onResult:    (out, job) => emailService.send({ to: job.data.from, body: out }),
+    buildPrompt: (data) => `Draft a professional reply to this email:\n\n${(data as { body: string }).body}`,
   });
 
-// Server
 const server = new AgentServer({
   port:          3000,
+  host:          '0.0.0.0',
   engineFactory: enterprise.engineFactory,
-  auth:          jwt.hook(),
-  store:         new RedisSessionMetaStore(redis),
+  auth:          new JwtAuth({ secret: process.env.JWT_SECRET!, allowQueryToken: false }).hook(),
+  strict:        true,
+  store:         new RedisSessionMetaStore(new Redis(process.env.REDIS_URL!)),
   cors:          ['https://app.company.com'],
   logger:        { level: 'info' },
   rateLimiting:  { max: 60, timeWindow: '1 minute' },
-  metrics:       { enabled: true, prefix: 'bk_' },
+  metrics:       { enabled: true },
   maxIdleMs:     30 * 60 * 1000,
   triggers,
 });
 
 await server.start();
-console.log('Agent server running on :3000');
-
-// Graceful shutdown
 process.on('SIGTERM', () => server.stop());
 ```

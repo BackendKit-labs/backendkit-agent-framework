@@ -4,8 +4,6 @@ MCP (Model Context Protocol) server that exposes code intelligence, skills manag
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/mcp-server)](https://www.npmjs.com/package/@backendkit-labs/mcp-server)
 
-> **Status: `stable`** — Maintained and production-ready. No new features during the pilot phase.
-
 ## Table of contents
 
 - [Installation](#installation)

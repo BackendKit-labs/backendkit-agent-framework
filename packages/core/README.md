@@ -4,8 +4,6 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-core)](https://www.npmjs.com/package/@backendkit-labs/agent-core)
 
-> **Status: `core`** — Required by the enterprise use case. Breaking changes go through full review before merging.
-
 ## Table of contents
 
 - [Installation](#installation)
@@ -286,7 +284,7 @@ new AgentEngine({
 
   // Observability
   observability: obsManager,
-  auditLog:      '/path/to/audit.ndjson',
+  audit:         new NdjsonAuditSink('/path/to/audit.ndjson'),   // one AuditEvent per tool call (see Observability → Audit)
 
   // Context injected into the system prompt
   projectContext: 'You are working in project X...',
@@ -323,7 +321,7 @@ await engine.run('Analyze the database schema', {
 | `'step-by-step'` | Calls `onStep` after every iteration; return `false` to stop |
 | `'interactive'` | Calls `onIterationLimit` when cap is reached; return `true` to continue. Without that callback the run stops at the cap |
 
-Tool approval is independent of the mode: whenever `onToolApproval` is set, the engine asks before `write_file`, `edit_file`, `run_command` and package installs.
+Tool approval is independent of the mode: whenever `onToolApproval` is set, the engine asks before `write_file`, `edit_file`, `run_command` and package installs. That is the legacy gate, and it is what coding agents should keep using for now. For approval decided by what tools declare (`readOnly`, `destructive`), by a policy, or by another agent or a service, see [Policy and approval](#policy-and-approval-per-call).
 
 ```typescript
 // Approval — user approves destructive tool calls
@@ -475,7 +473,7 @@ stored history is corrected and a `guardrail` event carries the `replacement` fo
 until the answer is checked: nothing unchecked is ever shown, but there is no streaming.
 
 Every redaction, block and error emits a `{ type: 'guardrail', name, phase, action, reason, ... }` event, is written to the
-`auditLog` as `guardrail:<phase>:<name>`, and is counted in `MetricsSnapshot.guardrails`.
+legacy `auditLog` as `guardrail:<phase>:<name>`, and is counted in `MetricsSnapshot.guardrails`.
 
 ---
 
@@ -610,43 +608,29 @@ await engine.run("What's my name?"); // → "Your name is Alice."
 
 ## MCP client
 
-`MCPClientManager` connects to external MCP (Model Context Protocol) servers, discovers their tools, and makes them available to the engine. Supports stdio, Streamable HTTP, and SSE transports.
+`MCPClientManager` connects to external MCP (Model Context Protocol) servers, discovers their tools, and makes them available to the engine. One `MCPServerConfig` per server decides the transport:
 
-### Stdio (most common)
+- `command` (+ `args`, `env`) — a local subprocess over stdio.
+- `url` (+ `headers`) — a remote server over Streamable HTTP, falling back to SSE when the server answers 4xx; force one with `remoteTransport: 'streamable-http' | 'sse'`.
+- When both are set, `url` wins.
+
+### Standalone
 
 ```typescript
 import { MCPClientManager } from '@backendkit-labs/agent-core';
 
-const mcp = new MCPClientManager();
+const mcp = new MCPClientManager([
+  { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'] },
+  { name: 'remote', url: 'https://mcp.example.com/v1', headers: { Authorization: `Bearer ${process.env.MCP_TOKEN}` } },
+]);
 
-await mcp.connectStdio({
-  name:    'filesystem',
-  command: 'npx',
-  args:    ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
-  env:     {},
-});
-
-const tools = mcp.getTools(); // ToolDefinition[] — discovered from the server
+await mcp.initialize();                  // connects every configured server
+const tools = mcp.getTools();            // ToolDefinition[], named mcp__{server}__{tool}
+mcp.isConnected('remote');               // per-server status
+await mcp.disconnect();
 ```
 
-### HTTP transport
-
-```typescript
-await mcp.connectStreamableHTTP({
-  name:    'remote-server',
-  baseUrl: 'https://mcp.example.com',
-  apiKey:  process.env.MCP_API_KEY,
-});
-```
-
-### SSE transport (legacy servers)
-
-```typescript
-await mcp.connectSSE({
-  name: 'legacy-server',
-  url:  'http://localhost:8080/sse',
-});
-```
+Other useful fields: `timeoutMs` (per tool call, default 30 s), `connectTimeoutMs`, `trustAnnotations` (believe the server's `readOnlyHint` and `_meta`; off by default), `mode: 'tools' | 'agent'` and `assignTo` (which agents get the tools).
 
 ### Multiple servers via engine options
 
@@ -672,8 +656,8 @@ The client detects server crashes via `client.onclose` and marks them `'failed'`
 // For manual use:
 mcp.setDisconnectHandler((serverName) => {
   console.warn(`MCP server "${serverName}" disconnected`);
-  // Re-attempt connection on next engine.run() call
 });
+await mcp.reconnectFailed();   // retry the servers marked 'failed'
 ```
 
 ---
@@ -820,7 +804,7 @@ const memory = createMemorySystem({
     path:     '~/.bk-agent/projects/my-project/memory/patterns.json',
   },
   retention: {
-    maxEpisodes:   500,   // prunes by relevance score when exceeded (v0.22.3+)
+    maxEpisodes:   500,   // prunes by relevance score when exceeded
     summarizeAfter: 50,
     // Optional: compress old episodes with an LLM summary
     summarizeFn: async (episodes) => {
@@ -871,7 +855,7 @@ await procedural.add({
 const deploySteps = await procedural.get('deploy-to-staging');
 ```
 
-### Forgetting curve (v0.22.3+)
+### Forgetting curve
 
 When `maxEpisodes` is set and the limit is exceeded, `EpisodicMemory` prunes by **relevance score** rather than raw age:
 
@@ -917,7 +901,7 @@ interface MemoryStoreBackend {
   upsert(id: string, record: StoredRecord): void;
   getAll(): StoredRecord[];
   deleteOldest(keepNewest: number): void;
-  deleteByIds(ids: string[]): void;   // v0.22.3+: used by relevance-based pruning
+  deleteByIds(ids: string[]): void;   // used by relevance-based pruning
   count(): number;
 }
 ```

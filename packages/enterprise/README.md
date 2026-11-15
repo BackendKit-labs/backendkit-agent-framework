@@ -1,10 +1,8 @@
 # @backendkit-labs/agent-enterprise
 
-Enterprise-grade AI agent setup with RAG (Retrieval-Augmented Generation) over an Obsidian vault, six pre-configured department agent profiles, a vault writing tool, and a factory that wires everything into an `AgentEngine`-compatible setup.
+Business agents on top of `agent-core`: RAG over an Obsidian vault with per-department isolation, six department agent profiles, a vault writing tool, YAML flows with compliance gates, and a factory that wires it all into an `AgentEngine` per session.
 
 [![npm](https://img.shields.io/npm/v/@backendkit-labs/agent-enterprise)](https://www.npmjs.com/package/@backendkit-labs/agent-enterprise)
-
-> **Status: `core`** — Required by the enterprise use case. Breaking changes go through full review before merging.
 
 ## Table of contents
 
@@ -13,11 +11,9 @@ Enterprise-grade AI agent setup with RAG (Retrieval-Augmented Generation) over a
 - [createEnterpriseSetup](#createenterprisesetup)
 - [Enterprise agent profiles](#enterprise-agent-profiles)
 - [RAG pipeline](#rag-pipeline)
-- [VaultIndexer](#vaultindexer)
+- [ObsidianRAGProvider](#obsidianragprovider)
 - [VaultWriter](#vaultwriter)
 - [Embedders](#embedders)
-- [ObsidianRAGProvider](#obsidianragprovider)
-- [VectorStore](#vectorstore)
 - [Full production example with AgentServer](#full-production-example-with-agentserver)
 
 ---
@@ -123,12 +119,12 @@ Six department profiles are built in. Each has a system prompt, a scoped RAG too
 
 | Profile ID | Agent Name | RAG tool | Default provider |
 |-----------|-----------|----------|-----------------|
-| `general` | General Assistant | `search_kb` (global vault) | `defaultProvider` |
+| `general` | General | `search_knowledge` (whole vault) | `defaultProvider` |
 | `support` | Support Agent | `search_support_kb` | `defaultProvider` |
 | `hr` | HR Agent | `search_hr_kb` | `local` (sensitive) |
 | `sales` | Sales Agent | `search_sales_kb` | `defaultProvider` |
 | `finance` | Finance Agent | `search_finance_kb` | `local` (sensitive) |
-| `ops` | Operations Agent | `search_ops_kb` | `defaultProvider` |
+| `ops` | Ops Agent | `search_ops_kb` | `defaultProvider` |
 
 HR and Finance default to the `local` provider so sensitive payroll and financial data never leaves your network.
 
@@ -155,20 +151,24 @@ agents.register({ ...HR_PROFILE, provider: 'ollama' });      // force on-prem
 agents.register({ ...FINANCE_PROFILE, provider: 'ollama' }); // force on-prem
 
 // Tool name constants
-ENTERPRISE_TOOLS.SEARCH_KB;       // 'search_kb'
+ENTERPRISE_TOOLS.SEARCH_GENERAL;  // 'search_knowledge'
 ENTERPRISE_TOOLS.SEARCH_SUPPORT;  // 'search_support_kb'
 ENTERPRISE_TOOLS.SEARCH_HR;       // 'search_hr_kb'
 ENTERPRISE_TOOLS.SEARCH_SALES;    // 'search_sales_kb'
 ENTERPRISE_TOOLS.SEARCH_FINANCE;  // 'search_finance_kb'
 ENTERPRISE_TOOLS.SEARCH_OPS;      // 'search_ops_kb'
+ENTERPRISE_TOOLS.WRITE_KNOWLEDGE; // 'write_knowledge' (VaultWriter)
+ENTERPRISE_TOOLS.ASK_AGENT;       // 'ask_agent'
 
 // Vault folder name constants
-VAULT_FOLDERS.GENERAL;     // 'General'
-VAULT_FOLDERS.SUPPORT;     // 'Support'
-VAULT_FOLDERS.HR;          // 'HR'
-VAULT_FOLDERS.SALES;       // 'Sales'
-VAULT_FOLDERS.FINANCE;     // 'Finance'
-VAULT_FOLDERS.OPS;         // 'Operations'
+VAULT_FOLDERS.GENERAL;     // 'general'
+VAULT_FOLDERS.SUPPORT;     // 'soporte'
+VAULT_FOLDERS.HR;          // 'rrhh'
+VAULT_FOLDERS.SALES;       // 'ventas'
+VAULT_FOLDERS.FINANCE;     // 'finanzas'
+VAULT_FOLDERS.OPS;         // 'operaciones'
+VAULT_FOLDERS.AGENTS;      // 'agentes'    (where VaultWriter writes)
+VAULT_FOLDERS.POLICIES;    // 'politicas'  (indexed by every department)
 ```
 
 ### Adding custom profiles
@@ -180,17 +180,21 @@ const enterprise = createEnterpriseSetup({
     {
       id:           'legal',
       name:         'Legal Advisor',
+      icon:         '⚖️',
+      description:  'Answers from the legal knowledge base',
       systemPrompt: `You are a legal knowledge assistant.
         Search the knowledge base for relevant precedents and policies.
         Always recommend consulting a licensed attorney for case-specific advice.`,
-      tools:        ['search_kb'],
+      allowedTools: ['search_knowledge'],
       provider:     'local',  // sensitive — stays on-prem
     },
     {
       id:           'engineering',
       name:         'Engineering Assistant',
+      icon:         '🛠️',
+      description:  'Internal technical documentation',
       systemPrompt: 'You are a software engineering assistant with access to our internal technical documentation.',
-      tools:        ['search_kb', 'write_vault'],
+      allowedTools: ['search_knowledge', 'write_knowledge'],
     },
   ],
 });
@@ -220,305 +224,188 @@ When an agent's RAG tool is called, it performs cosine-similarity search over th
 User: "What is our parental leave policy?"
   → HR agent selected
   → search_hr_kb("parental leave policy")
-  → Top 5 chunks from HR/ and General/ folders returned
+  → Top 5 chunks from rrhh/, general/ and politicas/ returned
   → LLM answers using the retrieved excerpts as grounding context
-```
-
----
-
-## VaultIndexer
-
-Use `VaultIndexer` directly for fine-grained control over indexing.
-
-```typescript
-import { VaultIndexer } from '@backendkit-labs/agent-enterprise';
-
-const indexer = new VaultIndexer({
-  vaultPath:    '/shared/obsidian-vault',
-  indexPath:    '/cache/support-index.json',
-  embedder:     myEmbedder,
-  folders:      ['Support', 'General'],  // only index these folders (omit for all)
-  chunkSize:    500,                     // tokens per chunk
-  chunkOverlap: 50,                      // overlap between adjacent chunks
-});
-
-await indexer.index({ verbose: true });
-
-const stats = indexer.getStats();
-// { files: 42, chunks: 587, lastIndexedAt: '2026-06-11T09:00:00.000Z' }
-```
-
-### Incremental re-indexing
-
-The indexer tracks file modification times. Re-running `index()` only processes changed or new files:
-
-```typescript
-// First run — full index (may take seconds to minutes depending on vault size)
-await indexer.index({ verbose: true });
-
-// Subsequent runs — only re-indexes changed files (very fast)
-await indexer.index({ verbose: true });
-// [VaultIndexer] 3 files changed, re-indexed 28 chunks
-```
-
----
-
-## VaultWriter
-
-`VaultWriter` lets agents persist knowledge back to the Obsidian vault — closing the knowledge loop.
-
-```typescript
-import { VaultWriter } from '@backendkit-labs/agent-enterprise';
-
-const writer = new VaultWriter({
-  vaultPath:      '/shared/obsidian-vault',
-  allowedFolders: ['General', 'Support'],  // restrict where agents can write
-});
-
-// Create a ToolDefinition the engine can call
-const writeTool = writer.createTool('general'); // 'write_vault' tool
-
-// Write directly (from non-agent code)
-await writer.writeNote({
-  folder:   'General',
-  filename: 'api-auth-pattern.md',
-  content:  '# API Auth Pattern\n\nAll endpoints require a Bearer token...',
-  tags:     ['api', 'patterns', 'security'],
-});
-```
-
-### How agents use VaultWriter
-
-Agents with `write_vault` in their tool list can invoke it directly in conversation:
-
-```
-User: "Document the new API authentication pattern we agreed on"
-  → General agent
-  → LLM calls write_vault({
-      folder: "General",
-      filename: "api-auth-2026.md",
-      content: "# API Auth Pattern\n\n..."
-    })
-  → File created/updated in the vault
-  → LLM: "I've documented the auth pattern in General/api-auth-2026.md"
-```
-
----
-
-## Embedders
-
-Embedders convert text strings into float vectors for similarity search.
-
-### SimpleEmbedder (default — no external dependencies)
-
-A deterministic, hash-based embedder. Requires no API key or running service. Lower accuracy than neural models but always available and zero-latency:
-
-```typescript
-import { SimpleEmbedder } from '@backendkit-labs/agent-enterprise';
-
-const embedder = new SimpleEmbedder();
-// Good for: prototyping, CI/CD, air-gapped systems, and fallback
-```
-
-### OllamaEmbedder (recommended for production)
-
-Uses a local Ollama embedding model for high-quality semantic embeddings. Requires a running Ollama instance with an embedding model installed:
-
-```bash
-ollama pull nomic-embed-text    # 274 MB — general purpose, fast
-ollama pull mxbai-embed-large   # 669 MB — higher accuracy
-```
-
-```typescript
-import { OllamaEmbedder, OLLAMA_EMBED_DEFAULT_HOST, OLLAMA_EMBED_DEFAULT_MODEL } from '@backendkit-labs/agent-enterprise';
-
-const embedder = new OllamaEmbedder({
-  host:  'http://localhost:11434',  // default: OLLAMA_EMBED_DEFAULT_HOST
-  model: 'nomic-embed-text',        // default: OLLAMA_EMBED_DEFAULT_MODEL
-});
-
-const enterprise = createEnterpriseSetup({
-  vaultPath:       '/vault',
-  providers,
-  defaultProvider: 'local',
-  embedder,
-});
-```
-
-### Custom embedder (OpenAI, Cohere, Hugging Face, etc.)
-
-```typescript
-import type { Embedder } from '@backendkit-labs/agent-enterprise';
-
-class OpenAIEmbedder implements Embedder {
-  async embed(texts: string[]): Promise<number[][]> {
-    const res = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: texts,
-    });
-    return res.data.map(d => d.embedding);
-  }
-}
-
-const enterprise = createEnterpriseSetup({
-  ...opts,
-  embedder: new OpenAIEmbedder(),
-});
 ```
 
 ---
 
 ## ObsidianRAGProvider
 
-Combines `VaultIndexer` + `VectorStore` in one class with a search API and a tool factory. Use it directly for custom RAG configurations.
+Indexes an Obsidian vault into a vector store and answers searches. It is what `createEnterpriseSetup` uses for every department; use it directly for a custom setup.
 
 ```typescript
-import { ObsidianRAGProvider } from '@backendkit-labs/agent-enterprise';
+import { ObsidianRAGProvider, OllamaEmbedder } from '@backendkit-labs/agent-enterprise';
 
 const rag = new ObsidianRAGProvider({
   vaultPath: '/shared/obsidian-vault',
-  indexPath: '/cache/support-index.json',
+  folders:   ['Support', 'General'],          // only these folders (omit for the whole vault)
+  indexPath: '/cache/support-index.json',     // default: ~/.bk-agent/rag/<vault-name>.json
   embedder:  new OllamaEmbedder({ model: 'nomic-embed-text' }),
-  folders:   ['Support', 'General'],
-  topK:       5,      // return top 5 results
-  minScore:   0.15,   // discard results below this similarity threshold
+  topK:      5,                               // default 5
+  minScore:  0.3,                             // default 0.3
+  excludeTags: ['skill'],                     // notes with these frontmatter tags are skipped
 });
 
-// Index the vault
-await rag.index({ verbose: true });
+const { indexed, removed } = await rag.index({ verbose: true, onProgress: p => console.log(p.processed, '/', p.total) });
 
-// Search
-const results = await rag.search('How do I reset my password?');
-// [
-//   { content: "To reset your password...", score: 0.82, source: "Support/password-reset.md" },
-//   { content: "Users can request a reset...", score: 0.71, source: "General/user-guide.md" },
-// ]
+const text = await rag.search('How do I reset my password?');   // the best passages, formatted as text for a prompt
+const tool = rag.createTool();                                  // the `search_knowledge` ToolDefinition
+```
 
-// Create a typed ToolDefinition for the engine
-const searchTool = rag.createTool('search_support_kb');
-// → ToolDefinition with name 'search_support_kb' that calls rag.search()
+`index()` is incremental: it compares modification times and only embeds new or changed notes, and removes the chunks of deleted ones. Run it on start and whenever the vault changes (a cron job, a file watcher). For large vaults, `batchPacingMs`, `stageSize`, `stagePacingMs` and `checkpointIntervalMs` pace the embedding calls and save progress.
+
+### VaultIndexer and VectorStore
+
+The two pieces under `ObsidianRAGProvider`, for when you bring your own pipeline:
+
+- `new VaultIndexer({ vaultPath, folders?, excludeTags?, excludeFiles? })` finds what changed (`getChangedFiles(knownMtimes)`) and splits notes into chunks (`buildChunks(filePath, mtime)`, `toVectorChunk(raw, embedding)`).
+- `new VectorStore(storePath, embeddingModel)` keeps the embedded chunks on disk: `load()`, `addChunks(chunks)`, `removeFile(filePath)`, `search(queryEmbedding, topK)` and `save()`.
+
+---
+
+## VaultWriter
+
+`VaultWriter` lets agents write knowledge back to the vault, closing the loop: the next incremental `index()` makes the note searchable. Notes go to one sub-folder (default `agentes`), with YAML frontmatter, and concurrent writes to the same note are serialised.
+
+```typescript
+import { VaultWriter } from '@backendkit-labs/agent-enterprise';
+
+const writer = new VaultWriter({ vaultPath: '/shared/obsidian-vault', agentFolder: 'agentes' });
+
+// From your own code
+const path = await writer.writeNote({
+  title:   'API auth pattern',
+  content: '# API auth pattern\n\nAll endpoints require a Bearer token...',
+  agentId: 'general',
+  tags:    ['api', 'security'],
+  related_notes: ['General/api-overview'],
+});
+
+// As a tool for an agent (the agent id is baked in, so the note records who wrote it)
+const writeTool = writer.createTool('general');
 ```
 
 ---
 
-## VectorStore
+## Embedders
 
-Low-level cosine-similarity search engine. Use it when you have your own embedding pipeline.
+Embedders convert text into vectors for similarity search.
+
+### SimpleEmbedder (default, no external dependencies)
+
+A deterministic, hash-based embedder. It needs no API key or service. Less accurate than neural models, but always available:
 
 ```typescript
-import { VectorStore } from '@backendkit-labs/agent-enterprise';
-import type { VectorChunk, SearchResult } from '@backendkit-labs/agent-enterprise';
+import { SimpleEmbedder } from '@backendkit-labs/agent-enterprise';
 
-const store = new VectorStore();
+const embedder = new SimpleEmbedder();   // prototyping, CI, air-gapped systems, fallback
+```
 
-// Add pre-embedded chunks
-store.add([
-  { id: 'c1', content: 'Password reset procedure...', embedding: [...512 floats...], source: 'support.md' },
-  { id: 'c2', content: 'Password policy requires...', embedding: [...512 floats...], source: 'policy.md' },
-]);
+### OllamaEmbedder (recommended for production)
 
-// Search by query embedding
-const queryEmbeddings = await embedder.embed(['reset password steps']);
-const results: SearchResult[] = store.search(queryEmbeddings[0], { topK: 3, minScore: 0.1 });
+Uses a local Ollama embedding model:
 
-// Persist index to disk
-store.saveToFile('/cache/my-index.json');
+```bash
+ollama pull nomic-embed-text    # general purpose, fast
+ollama pull mxbai-embed-large   # higher accuracy
+```
 
-// Load from disk (on restart)
-const loaded = VectorStore.loadFromFile('/cache/my-index.json');
+```typescript
+import { OllamaEmbedder, createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
+
+const enterprise = createEnterpriseSetup({
+  vaultPath: '/vault',
+  providers,
+  defaultProvider: 'local',
+  embedder: new OllamaEmbedder({ host: 'http://localhost:11434', model: 'nomic-embed-text' }),
+});
+```
+
+### Custom embedder
+
+```typescript
+import type { Embedder } from '@backendkit-labs/agent-enterprise';
+
+class OpenAIEmbedder implements Embedder {
+  async embed(texts: string[]): Promise<number[][]> {
+    const res = await openai.embeddings.create({ model: 'text-embedding-3-small', input: texts });
+    return res.data.map(d => d.embedding);
+  }
+  async embedOne(text: string): Promise<number[]> {
+    return (await this.embed([text]))[0];
+  }
+}
 ```
 
 ---
 
 ## Full production example with AgentServer
 
-A complete on-prem enterprise deployment with Ollama embeddings, DeepSeek for general agents, local Ollama for HR/Finance, Redis sessions, and JWT auth:
+An on-prem deployment: Ollama embeddings, DeepSeek for general agents, a local model for HR and Finance, Redis sessions, JWT auth and a weekly digest:
 
 ```typescript
 import { createEnterpriseSetup, OllamaEmbedder } from '@backendkit-labs/agent-enterprise';
 import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { DeepSeekProvider, OllamaProvider } from '@backendkit-labs/agent-providers';
 import { AgentServer, JwtAuth, TriggerBus, RedisSessionMetaStore } from '@backendkit-labs/agent-web';
 import Redis from 'ioredis';
 
-// ── LLM Providers ─────────────────────────────────────────────────────────────
-
 const providers = new ProviderRegistry();
-
-// Cloud: general, support, sales, ops
-providers.register('deepseek', new DeepSeekProvider({
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-  model:  'deepseek-chat',
-}));
-
-// On-prem: HR and Finance (sensitive data)
-providers.register('local', new OllamaProvider({
-  host:  'http://ollama.internal:11434',
-  model: 'llama3.2',
-}));
-
-// ── Enterprise Setup ───────────────────────────────────────────────────────────
+providers.register('deepseek', new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY!, model: 'deepseek-chat' }));
+providers.register('local', new OllamaProvider({ host: 'http://ollama.internal:11434', model: 'llama3.2' }));   // sensitive data stays on-prem
 
 const enterprise = createEnterpriseSetup({
   vaultPath:       process.env.VAULT_PATH!,
   providers,
   defaultProvider: 'deepseek',
-  embedder:        new OllamaEmbedder({
-    host:  'http://ollama.internal:11434',
-    model: 'nomic-embed-text',
-  }),
-  indexDir:     '/var/bk-agent/rag-indexes',
-  sessionsDir:  '/var/bk-agent/sessions',
-  maxIterations: 20,
+  embedder:        new OllamaEmbedder({ host: 'http://ollama.internal:11434', model: 'nomic-embed-text' }),
+  indexDir:        '/var/bk-agent/rag-indexes',
+  sessionsDir:     '/var/bk-agent/sessions',
+  maxIterations:   20,
 });
-
 await enterprise.indexAll({ verbose: true });
 
-// Re-index every night at 2 AM to pick up new vault notes
-import { CronJob } from 'node-cron';
-CronJob.schedule('0 2 * * *', () => enterprise.indexAll());
-
-// ── Infrastructure ─────────────────────────────────────────────────────────────
-
-const redis  = new Redis(process.env.REDIS_URL!);
-const jwt    = new JwtAuth({ secret: process.env.JWT_SECRET!, sessionIdClaim: 'sub' });
 const triggers = new TriggerBus(enterprise.engineFactory)
   .addCron({
     name:        'weekly-digest',
     schedule:    '0 9 * * 1',
-    buildPrompt: () => 'Summarize all knowledge base updates from the past week.',
-    onResult:    (out) => intranet.post('/announcements', out),
+    buildPrompt: () => 'Summarize the knowledge base updates of the past week.',
+    onComplete:  (result) => intranet.post('/announcements', result.output),
   });
 
-// ── Server ─────────────────────────────────────────────────────────────────────
+// Pick up new vault notes every night (incremental: only changed notes are embedded)
+setInterval(() => void enterprise.indexAll(), 24 * 60 * 60 * 1000);
 
 const server = new AgentServer({
   port:          3000,
+  host:          '0.0.0.0',
   engineFactory: enterprise.engineFactory,
-  auth:          jwt.hook(),
-  store:         new RedisSessionMetaStore(redis),
+  auth:          new JwtAuth({ secret: process.env.JWT_SECRET! }).hook(),
+  store:         new RedisSessionMetaStore(new Redis(process.env.REDIS_URL!)),
   cors:          ['https://intranet.company.com'],
   rateLimiting:  { max: 30, timeWindow: '1 minute' },
-  metrics:       { enabled: true, prefix: 'enterprise_' },
+  metrics:       { enabled: true },
   maxIdleMs:     30 * 60 * 1000,
   triggers,
 });
 
 await server.start();
-console.log('Enterprise agent server running on :3000');
-
 process.on('SIGTERM', () => server.stop());
 ```
 
-### Required vault folder structure
+### Vault folder structure
 
 ```
 /obsidian-vault
-├── General/          ← all agents can search here
-├── Support/          ← Support agent
-├── HR/               ← HR agent (on-prem LLM)
-├── Sales/            ← Sales agent
-├── Finance/          ← Finance agent (on-prem LLM)
-└── Operations/       ← Ops agent
+├── general/        ← shared by every department
+├── soporte/        ← Support agent
+├── rrhh/           ← HR agent (on-prem LLM)
+├── ventas/         ← Sales agent
+├── finanzas/       ← Finance agent (on-prem LLM)
+├── operaciones/    ← Ops agent
+├── politicas/      ← business policies, indexed by every department
+└── agentes/        ← where VaultWriter (write_knowledge) saves notes
 ```
 
-Create these folders in Obsidian and add `.md` files. The indexer discovers all markdown files recursively.
+The names are the `VAULT_FOLDERS` constants. Each department agent searches only its own folder plus `general/` and `politicas/`, so HR content is not reachable from the Sales agent. The General agent's `search_knowledge` covers the whole vault. The indexer discovers markdown files recursively.

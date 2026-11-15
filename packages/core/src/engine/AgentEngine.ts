@@ -7,17 +7,33 @@ import { isContextOverflowError } from './contextOverflow';
 import { GuardrailRunner } from '../guardrails/GuardrailRunner';
 import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
+import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
+import { combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
+import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
+import { packageInstallPolicy } from './package-install';
 import type {
+    ApprovalRequest,
+    ApprovalStore,
+    Approver,
+    ApproverRef,
     AuditDecision,
     AuditEvent,
     AuditOutcome,
     AuditSandboxDecision,
     AuditSink,
     Identity,
+    PolicyDecision,
     Principal,
+    ToolCall,
+    ToolPolicy,
 } from '../governance/types';
 import { hashArgs } from '../shared/utils/canonical-json';
+
+/** What the policy path decided about one call, before it runs (SPEC-0014 F2). */
+type GovernedVerdict =
+    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef } }
+    | { run: false; decision: 'deny' | 'ask' | 'sandbox_denied'; reason: string; message: string };
 import type {
     AgentProfile,
     EngineOptions,
@@ -146,6 +162,25 @@ export interface AgentEngineOptions extends EngineOptions {
     /** Who this engine acts for (tenant, user, roles...). Becomes part of the `Principal` of every call. */
     identity?: Identity;
     /**
+     * Decides every tool call and delegation (allow, deny, ask) after allowedTools, the sandbox and the argument
+     * guardrails. Several policies combine: deny wins, then ask, then allow. When absent but there is someone to
+     * ask (`approver`, `approvals` or `onToolApproval`), `defaultToolPolicy` applies: readOnly runs, everything else
+     * asks, destructive asks a person. Setting any of `policy`, `approver` or `approvals` switches the engine to this
+     * path; with none of them the legacy `onToolApproval` gate keeps working exactly as before.
+     */
+    policy?: ToolPolicy | ToolPolicy[];
+    /**
+     * Who answers an `ask` right away: a person through a UI, a supervising agent, a service such as Hermes. Its
+     * answers are checked (accepted kind, no self-approval, an agent approves only what it can do) and audited.
+     * Without it, `onToolApproval` is adapted as the approver.
+     */
+    approver?: Approver;
+    /**
+     * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
+     * the call did not run (resubmission, SPEC-0014 §6).
+     */
+    approvals?: ApprovalStore;
+    /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
      * Should return the new projectContext string built from the new cwd
      * (AGENT.md, session.md, store context, detected stack, etc.).
@@ -172,6 +207,9 @@ const ASK_AGENT_TOOL: ToolDefinition = {
         },
         required: ['agent_id', 'question'],
     },
+    // Delegating changes nothing by itself: what the delegate does is decided and audited call by call. So the
+    // default policy lets delegation through; an explicit policy still sees it (tool name 'ask_agent').
+    readOnly: true,
     execute: async () => '',
 };
 
@@ -222,6 +260,12 @@ export class AgentEngine {
     private lastRequestEstimate = 0;
     private readonly auditLogger: AuditLogger;
     private readonly audit: AuditDispatcher;
+    /** Policy path (SPEC-0014 F2) instead of the legacy ApprovalGate: on when policy, approver or approvals is set. */
+    private readonly governed: boolean;
+    private readonly policies: ToolPolicy[];
+    private readonly approver?: Approver;
+    /** Set when the approver is the adapted onToolApproval callback, so disable/enableToolApproval reach it. */
+    private readonly callbackApprover?: CallbackApprover;
     private currentAgentId: string;
     private aborted = false;
     private abortController: AbortController | null = null;
@@ -264,6 +308,24 @@ export class AgentEngine {
             type: 'system', level: 'warn',
             text: `[audit] a sink failed to record a tool call: ${err instanceof Error ? err.message : String(err)}`,
         }));
+        this.governed = !!(opts.policy || opts.approver || opts.approvals);
+        if (this.governed) {
+            const someoneToAsk = !!(opts.approver || opts.approvals || opts.onToolApproval);
+            const configured = opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [];
+            // Package installs always ask a person; it moves to the coding vertical with SPEC-0015 F3.
+            this.policies = [
+                ...(configured.length > 0 ? configured : someoneToAsk ? [defaultToolPolicy] : []),
+                packageInstallPolicy,
+            ];
+            if (opts.approver) {
+                this.approver = opts.approver;
+            } else if (opts.onToolApproval) {
+                this.callbackApprover = approverFromCallback(opts.onToolApproval);
+                this.approver = this.callbackApprover;
+            }
+        } else {
+            this.policies = [];
+        }
         this.mcpRegistrar = new MCPRegistrar({
             mcpManager: opts.mcpManager,
             tools:      opts.tools,
@@ -285,7 +347,7 @@ export class AgentEngine {
             maxDepth: opts.maxDelegationDepth,
             agents: opts.agents,
             transport: opts.transport,
-            runAgent: (id, question, context, depth, buf) => this.runAgentInternal(id, question, context, depth, buf),
+            runAgent: (id, question, context, depth, buf, chain) => this.runAgentInternal(id, question, context, depth, buf, chain),
         });
     }
 
@@ -1085,6 +1147,25 @@ export class AgentEngine {
                     });
                 }
 
+                // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
+                const callerChain = this.principalFor(currentProfile.id).chain;
+                const allowedCalls: typeof validCalls = [];
+                for (const call of validCalls) {
+                    if (!this.governed) { allowedCalls.push(call); continue; }
+                    const startedAt = Date.now();
+                    const verdict = await this.decideGoverned(
+                        ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), this.principalFor(currentProfile.id, callerChain), [],
+                    );
+                    if (verdict.run) { allowedCalls.push(call); continue; }
+                    this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: false, preview: verdict.message.slice(0, 120) });
+                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: verdict.message });
+                    await this.recordAudit({
+                        startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent',
+                        rawArgs: delegationArgs(call), decision: verdict.decision, reason: verdict.reason,
+                    });
+                }
+                validCalls.splice(0, validCalls.length, ...allowedCalls);
+
                 if (validCalls.length > 0) {
                     const startedAt = Date.now();
                     const requests = validCalls.map(c => ({
@@ -1092,6 +1173,7 @@ export class AgentEngine {
                         question:    c.question,
                         context:     this.buildSubAgentContext(c.context, streamBuffer),
                         fromAgentId: currentProfile.id,
+                        chain:       callerChain,
                     }));
 
                     const results = validCalls.length >= 2
@@ -1105,7 +1187,7 @@ export class AgentEngine {
                         this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: !result.error, preview: content.slice(0, 120) });
                         toolResults.push({ role: 'tool', tool_call_id: call.id, content });
                         await this.recordAudit({
-                            startedAt, agentId: currentProfile.id, tool: 'ask_agent', rawArgs: delegationArgs(call),
+                            startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent', rawArgs: delegationArgs(call),
                             decision: 'allow', ...(result.error ? { reason: result.error } : {}),
                             outcome: result.error ? 'error' : 'ok',
                         });
@@ -1189,9 +1271,11 @@ export class AgentEngine {
         this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
     }
 
-    private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0, outputBuffer?: import('../types').AgentEvent[]): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
+    private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0, outputBuffer?: import('../types').AgentEvent[], chain?: string[]): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
         const profile = this.opts.agents.get(agentId);
         if (!profile) throw new Error(`Agent "${agentId}" not registered`);
+        // Delegation chain of this sub-agent, oldest first (SPEC-0014 principal).
+        const agentChain = chain && chain.length > 0 ? chain : [agentId];
 
         const start = Date.now();
 
@@ -1333,7 +1417,7 @@ export class AgentEngine {
                         const tc = m.role === 'assistant' ? m.tool_calls?.find(c => c.id === call.id) : undefined;
                         if (tc) tc.function = { ...tc.function, arguments: '{"redacted":"blocked by guardrail"}' };
                     }
-                });
+                }, agentChain);
                 toolResults.push({ role: 'tool', tool_call_id: call.id, content: result });
             }
             messages.push(...toolResults);
@@ -1413,7 +1497,8 @@ export class AgentEngine {
     /**
      * Unified tool execution used by both runLoop (primary agent) and
      * runAgentInternal (sub-agents via ask_agent).
-     * Handles: allowedTools authorization → onToolApproval gate → execute → audit → transport.
+     * Handles: allowedTools → sandbox refusal → argument guardrails → policy/approval (or the legacy gate)
+     * → execute → result guardrails → audit → transport.
      */
     private async executeToolCall(
         call: { name: string; args: string },
@@ -1422,10 +1507,13 @@ export class AgentEngine {
         emit?: (event: import('../types').AgentEvent) => void,
         /** Called when a guardrail refused the arguments, so the caller can scrub them from its history. */
         onArgsRefused?: () => void,
+        /** Delegation chain of `profile`, oldest first. Default `[profile.id]`. */
+        chain?: string[],
     ): Promise<string> {
         const emitEvent = emit ?? ((e) => this.opts.transport.emit(e));
         const callStart = Date.now();
         const toolDef = this.opts.tools.get(call.name);
+        const principal = this.principalFor(profile.id, chain);
         let result: string;
         let success: boolean;
         let outcome: 'timeout' | 'aborted' | undefined;
@@ -1434,6 +1522,7 @@ export class AgentEngine {
         let decision: AuditDecision = 'allow';
         let reason: string | undefined;
         let ran = false;
+        let approval: { id: string; by: ApproverRef } | undefined;
         const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
@@ -1481,21 +1570,19 @@ export class AgentEngine {
                 reason = withheld;
                 onArgsRefused?.();
             } else {
-                const gateDecision = await this.checkGateSerial(effective, profile.id);
-                if (gateDecision === 'rejected') {
-                    result = `Tool call "${call.name}" was rejected by the user.`; success = false;
-                    decision = 'deny';
-                    reason = 'rejected by the approver';
-                } else if (gateDecision === 'no-approver') {
-                    const noApprover = `tool "${call.name}" needs approval under the sandbox policy and no approver is configured`;
-                    this.reportSandboxDecision({ outcome: 'SANDBOX_DENIED', tool: call.name, agentId: profile.id, reason: noApprover }, sandboxDecisions);
-                    result = `Tool call "${call.name}" refused (SANDBOX_DENIED): needs approval under the sandbox policy and no approver is configured.`;
-                    success = false;
-                    decision = 'sandbox_denied';
-                    reason = noApprover;
+                const verdict = this.governed
+                    ? await this.decideGoverned(toolDef, effective.args, principal, sandboxDecisions)
+                    : await this.decideLegacy(effective, profile.id, sandboxDecisions);
+                if (!verdict.run) {
+                    result = verdict.message; success = false;
+                    decision = verdict.decision;
+                    reason = verdict.reason;
                 } else {
                     ran = true;
-                    ({ result, success, outcome } = await this.runToolDef(effective, toolDef, profile.id, depth, sandboxDecisions));
+                    approval = verdict.approval;
+                    ({ result, success, outcome } = await this.runToolDef(
+                        effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run',
+                    ));
                     if (this.guardrails?.has('tool_result')) {
                         const checked = await this.guard('tool_result', result, profile.id, call.name);
                         result = checked.blocked
@@ -1511,11 +1598,13 @@ export class AgentEngine {
         await this.recordAudit({
             startedAt: callStart,
             agentId: profile.id,
+            chain: principal.chain,
             tool: call.name,
             rawArgs: call.args,
             decision,
             reason,
             outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : undefined,
+            approval,
             sandbox: sandboxDecisions,
             meta: toolDef?.meta,
         });
@@ -1532,13 +1621,133 @@ export class AgentEngine {
 
     /** Approval checks never overlap and run in call order, even inside a parallel wave. */
     private gateQueue: Promise<unknown> = Promise.resolve();
-    private checkGateSerial(call: { name: string; args: string }, agentId: string) {
+    private serialize<T>(work: () => Promise<T>): Promise<T> {
+        const next = this.gateQueue.then(work);
+        this.gateQueue = next.catch(() => undefined);
+        return next;
+    }
+
+    /** The legacy gate (onToolApproval + the built-in list of tools that ask), unchanged, as a verdict. */
+    private async decideLegacy(
+        call: { name: string; args: string }, agentId: string, sandboxDecisions: AuditSandboxDecision[],
+    ): Promise<GovernedVerdict> {
         const sandboxAsk = this.opts.sandbox?.approvalFor
             ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name)
             : undefined;
-        const next = this.gateQueue.then(() => this.approvalGate.check(call, agentId, sandboxAsk));
-        this.gateQueue = next.catch(() => undefined);
-        return next;
+        const gate = await this.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk));
+        if (gate === 'rejected') {
+            return { run: false, decision: 'deny', reason: 'rejected by the approver', message: `Tool call "${call.name}" was rejected by the user.` };
+        }
+        if (gate === 'no-approver') return this.noApproverForSandbox(call.name, agentId, sandboxDecisions);
+        return { run: true };
+    }
+
+    private noApproverForSandbox(tool: string, agentId: string, sandboxDecisions: AuditSandboxDecision[]): GovernedVerdict {
+        const reason = `tool "${tool}" needs approval under the sandbox policy and no approver is configured`;
+        this.reportSandboxDecision({ outcome: 'SANDBOX_DENIED', tool, agentId, reason }, sandboxDecisions);
+        return {
+            run: false, decision: 'sandbox_denied', reason,
+            message: `Tool call "${tool}" refused (SANDBOX_DENIED): needs approval under the sandbox policy and no approver is configured.`,
+        };
+    }
+
+    /**
+     * The policy path (SPEC-0014 §2, F2): the policies decide on the arguments that would really run (after the
+     * guardrails), a sandbox that wants approval adds an `ask`, and an `ask` goes to the approver in call order or,
+     * when nobody answers now, to the durable store.
+     */
+    private async decideGoverned(
+        tool: ToolDefinition, rawArgs: string, principal: Principal, sandboxDecisions: AuditSandboxDecision[],
+    ): Promise<GovernedVerdict> {
+        let args: Record<string, unknown>;
+        try {
+            const parsed = JSON.parse(rawArgs) as unknown;
+            args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+        } catch {
+            args = {};
+        }
+        // `approved` is never taken from what the model sent: only whoever holds a stored approval sets it.
+        const call: ToolCall = { tool, args };
+        const sandboxAsk = this.opts.sandbox?.approvalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool.name) === 'ask';
+
+        let d = await evaluatePolicies(this.policies, principal, call);
+        if (sandboxAsk) d = combineDecisions([d, { effect: 'ask', reason: 'the sandbox policy requires approval' }]);
+
+        if (d.effect === 'deny') {
+            return { run: false, decision: 'deny', reason: d.reason, message: `Tool call "${tool.name}" denied by policy: ${d.reason}` };
+        }
+        if (d.effect === 'allow') {
+            if (d.mode === 'sandboxed' && !this.opts.sandbox) {
+                const reason = 'the policy requires a sandbox and none is configured';
+                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" denied by policy: ${reason}` };
+            }
+            return { run: true, ...(d.mode ? { mode: d.mode } : {}) };
+        }
+        return this.serialize(() => this.resolveAsk(principal, call, d as Extract<PolicyDecision, { effect: 'ask' }>, sandboxAsk, sandboxDecisions));
+    }
+
+    private async resolveAsk(
+        principal: Principal, call: ToolCall, d: Extract<PolicyDecision, { effect: 'ask' }>,
+        sandboxAsk: boolean, sandboxDecisions: AuditSandboxDecision[],
+    ): Promise<GovernedVerdict> {
+        const name = call.tool.name;
+        const request: ApprovalRequest = {
+            id: randomUUID(), principal, subject: { kind: 'tool_call', call }, reason: d.reason,
+            ...(d.approver ? { approver: d.approver } : {}),
+            ...(d.accepts ? { accepts: d.accepts } : {}),
+            createdAt: new Date().toISOString(),
+        };
+
+        if (this.approver) {
+            this.opts.transport.emit({
+                type: 'tool_approval_request', tool_name: name, agent_id: principal.agentId,
+                args_preview: JSON.stringify(call.args).slice(0, 200),
+            });
+            let answer;
+            try {
+                answer = await this.approver.request(request);
+            } catch (err) {
+                const reason = `the approver failed: ${err instanceof Error ? err.message : String(err)}`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
+            }
+            if (answer.decision !== 'approve') {
+                return {
+                    run: false, decision: 'deny', reason: answer.reason ?? 'rejected by the approver',
+                    message: `Tool call "${name}" was rejected by the approver.`,
+                };
+            }
+            const problem = await approvalProblem(answer, request, (by) => this.agentCanPerform(by, call));
+            if (problem) {
+                const reason = `invalid approval: ${problem}`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
+            }
+            return { run: true, approval: { id: request.id, by: answer.by } };
+        }
+
+        if (this.opts.approvals) {
+            await this.opts.approvals.put(request);
+            return {
+                run: false, decision: 'ask', reason: d.reason,
+                message: `Tool call "${name}" needs approval (${d.reason}) and is pending as request ${request.id}. ` +
+                    'It has NOT run; it will run once someone approves it.',
+            };
+        }
+
+        if (sandboxAsk) return this.noApproverForSandbox(name, principal.agentId, sandboxDecisions);
+        const reason = `needs approval (${d.reason}) and no approver is configured`;
+        return { run: false, decision: 'deny', reason, message: `Tool call "${name}" refused: ${reason}.` };
+    }
+
+    /**
+     * Rule 3 of SPEC-0014 §6.2: an agent approves only what it could do itself. It must be registered, have the
+     * tool in its allowedTools, and the policies must allow the same call with that agent as principal.
+     */
+    private async agentCanPerform(by: ApproverRef, call: ToolCall): Promise<boolean> {
+        const approverProfile = this.opts.agents.get(by.id);
+        if (!approverProfile) return false;
+        if (!approverProfile.allowedTools.includes(call.tool.name)) return false;
+        const d = await evaluatePolicies(this.policies, this.principalFor(by.id, by.chain ?? [by.id]), { tool: call.tool, args: call.args });
+        return d.effect === 'allow';
     }
 
     private async runToolDef(
@@ -1547,12 +1756,15 @@ export class AgentEngine {
         agentId: string,
         depth = 0,
         sandboxDecisions?: AuditSandboxDecision[],
+        principal?: Principal,
+        dryRun = false,
     ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted' }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
         const secrets = await resolveSecrets(this.opts.agents.get(agentId), this.opts.secretResolver);
         const ctx = {
-            ...this.buildContext(agentId, depth),
+            ...this.buildContext(agentId, depth, principal?.chain),
+            ...(dryRun ? { dryRun: true } : {}),
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
             ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId, sandboxDecisions) } : {}),
@@ -1616,11 +1828,14 @@ export class AgentEngine {
         this.mcpRegistrar.unregisterServer(serverName);
     }
 
-    /** Disable approval gate for the rest of this session (approve_all). */
-    disableToolApproval(): void { this.approvalGate.disable(); }
+    /**
+     * Disable approval for the rest of this session (approve_all). In the policy path it affects only the adapted
+     * onToolApproval callback, and never covers what only a person may approve (destructive tools, package installs).
+     */
+    disableToolApproval(): void { this.approvalGate.disable(); this.callbackApprover?.disable(); }
 
     /** Re-enable approval gate (e.g. after /iteration manual). */
-    enableToolApproval(): void { this.approvalGate.enable(); }
+    enableToolApproval(): void { this.approvalGate.enable(); this.callbackApprover?.enable(); }
 
 
     /** The principal of a call: this engine's identity, the executing agent and its delegation chain. */
@@ -1641,7 +1856,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; sandbox?: AuditSandboxDecision[];
-        meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef }; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;
@@ -1662,14 +1877,16 @@ export class AgentEngine {
             ...(c.reason !== undefined ? { reason: c.reason } : {}),
             ...(c.outcome !== undefined ? { outcome: c.outcome } : {}),
             durationMs: Date.now() - c.startedAt,
+            ...(c.approval ? { approval: c.approval } : {}),
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
             ...(c.meta ? { meta: c.meta } : {}),
         };
         await this.audit.write(event);
     }
 
-    private buildContext(agentId?: string, depth = 0): ExecutionContext {
+    private buildContext(agentId?: string, depth = 0, chain?: string[]): ExecutionContext {
         const id = agentId ?? this.currentAgentId;
+        const principal = this.principalFor(id, chain);
         const profile = this.opts.agents.get(id);
         const storeRoot = this.opts.store?.projectDir;
         const additionalRoots = [
@@ -1679,6 +1896,7 @@ export class AgentEngine {
         return {
             agentId: id,
             sessionId: this.opts.sessionId ?? 'default',
+            principal,
             workingDir: this.opts.workingDir,
             memory: this.memory,
             store: this.opts.store,
@@ -1686,7 +1904,7 @@ export class AgentEngine {
             ...(additionalRoots.length ? { additionalRoots } : {}),
             ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
-                const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1 });
+                const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1, chain: principal.chain });
                 return result.content;
             },
             emitCompacting: (phase, label) => {

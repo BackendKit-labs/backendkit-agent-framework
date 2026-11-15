@@ -100,6 +100,16 @@ export interface ExecutionContext {
     signal?: AbortSignal;
     agentId: string;
     sessionId: string;
+    /**
+     * Who is acting: this agent, its delegation chain and the engine's identity (tenant, user, roles...).
+     * Set by the engine for every tool call (SPEC-0014).
+     */
+    principal?: import('../governance/types').Principal;
+    /**
+     * The policy allowed this call in `dry_run` mode: simulate and write nothing. A tool that writes and cannot
+     * simulate must refuse (return an error) rather than write.
+     */
+    dryRun?: boolean;
     workingDir?: string;
     memory: SessionMemoryData;
     store?: ProjectStoreData;

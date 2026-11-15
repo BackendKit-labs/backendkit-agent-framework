@@ -1036,6 +1036,44 @@ An event carries `at`, `principal` (agent, session, delegation chain, tenant, us
 
 `auditLog: '/path.ndjson'` (the older option) still works unchanged but is deprecated: it writes up to 200 characters of the arguments in clear. It will be removed in 0.40.
 
+### Policy and approval (per call)
+
+A `ToolPolicy` decides every tool call and every `ask_agent` delegation: `allow`, `deny` or `ask`. It sees the principal (agent, delegation chain, tenant, user, roles) and the call (the tool with its declared facts, the arguments after guardrails). An `ask` goes to the `approver` (a person, another agent, a service), or is stored as pending in `approvals` when nobody answers now.
+
+```typescript
+import { createBaseEngine, type ToolPolicy, type Approver } from '@backendkit-labs/agent-core';
+
+const treasuryRules: ToolPolicy = {
+  decide(principal, call) {
+    if (call.tool.name === 'pay_invoice' && (call.args.amount as number) > 10_000) {
+      return { effect: 'ask', reason: 'payment above 10k', accepts: ['human'] };
+    }
+    if (!principal.roles?.includes('treasury') && !call.tool.readOnly) {
+      return { effect: 'deny', reason: 'only treasury writes' };
+    }
+    return { effect: 'allow' };
+  },
+};
+
+const engine = createBaseEngine({
+  ...opts,
+  identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },
+  policy: treasuryRules,           // several combine: deny > ask > allow; a throwing policy denies
+  approver: myApprover,            // { ref, request(req) → { decision, by: { kind, id }, at } }
+  audit: new HashChainAuditSink('audit.log'),
+});
+```
+
+- **Without `policy`**, but with someone to ask, `defaultToolPolicy` applies. Tools declared `readOnly` run. Tools declared `destructive` always ask a person. Anything else asks.
+- **Approvals are validated before they count:**
+  - the approver's kind must be accepted;
+  - nobody approves their own request or one from their delegation chain;
+  - an agent approves only what it could do itself.
+
+  Every approval is audited with who gave it.
+- **`allow` can carry a mode.** `mode: 'dry_run'` runs the tool with `ctx.dryRun = true`. `mode: 'sandboxed'` requires a configured sandbox.
+- **Opt-in.** Setting `policy`, `approver` or `approvals` switches to this path. Without them, `onToolApproval` behaves exactly as before. With them, `onToolApproval` is adapted as the approver: "approve all" never covers destructive tools or package installs.
+
 ---
 
 ## Skills and slash commands

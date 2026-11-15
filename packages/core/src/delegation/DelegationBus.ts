@@ -16,6 +16,11 @@ export interface DelegationRequest {
      * slots are occupied by agents that are themselves waiting for nested delegations.
      */
     depth?: number;
+    /**
+     * Delegation chain of the agent that asks, oldest first (SPEC-0014 principal). The delegate's chain is this
+     * plus its own id. When absent, `[fromAgentId]` is assumed.
+     */
+    chain?: string[];
 }
 
 export interface DelegationResult {
@@ -42,6 +47,8 @@ export interface DelegationBusOptions {
         context?: string,
         depth?: number,
         outputBuffer?: AgentEvent[],
+        /** Chain of the delegate itself: the caller's chain plus the delegate's id. */
+        chain?: string[],
     ): Promise<DelegationResult>;
 }
 
@@ -133,7 +140,8 @@ export class DelegationBus {
                 to_name: profile.name,
                 to_icon: profile.icon,
             });
-            return this.opts.runAgent(request.agentId, request.question, request.context, depth, outputBuffer);
+            const callerChain = request.chain ?? (request.fromAgentId ? [request.fromAgentId] : []);
+            return this.opts.runAgent(request.agentId, request.question, request.context, depth, outputBuffer, [...callerChain, request.agentId]);
         };
 
         try {

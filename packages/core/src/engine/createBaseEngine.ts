@@ -28,7 +28,7 @@ import { discoverAgents } from '../agent-discovery/discoverAgents';
 import type { AgentDiscoveryConfig } from '../agent-discovery/types';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
-import type { AuditSink, Identity } from '../governance/types';
+import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
 import type { Guardrail } from '../guardrails/types';
 
 // ── Options ───────────────────────────────────────────────────────────────────
@@ -319,6 +319,19 @@ export interface BaseEngineOptions {
     identity?: Identity;
 
     /**
+     * Decides every tool call and delegation: allow, deny or ask (SPEC-0014). Several combine (deny > ask > allow).
+     * Setting `policy`, `approver` or `approvals` switches to the policy path; with none of them `onToolApproval`
+     * keeps its legacy behavior. Without `policy` but with someone to ask, `defaultToolPolicy` applies.
+     */
+    policy?: ToolPolicy | ToolPolicy[];
+
+    /** Answers an `ask` now (a person, a supervising agent, a service). Its answers are validated and audited. */
+    approver?: Approver;
+
+    /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
+    approvals?: ApprovalStore;
+
+    /**
      * Called by updateWorkingDir after the workingDir changes (e.g. /workspace switch).
      * Should return the new projectContext string built from the new cwd
      * (AGENT.md, session.md, store context, detected stack, etc.).
@@ -459,6 +472,9 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.auditLog ? { auditLog: opts.auditLog } : {}),
         ...(opts.audit ? { audit: opts.audit } : {}),
         ...(opts.identity ? { identity: opts.identity } : {}),
+        ...(opts.policy ? { policy: opts.policy } : {}),
+        ...(opts.approver ? { approver: opts.approver } : {}),
+        ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.projectContextLoader ? { projectContextLoader: opts.projectContextLoader } : {}),
         ...(opts.agentDiscovery
             ? {

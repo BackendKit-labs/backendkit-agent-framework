@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { defineTool, z, type ToolCallRecord } from '@backendkit-labs/agent-core';
+import { defineTool, z, MemoryAuditSink, type ToolCallRecord } from '@backendkit-labs/agent-core';
 import { AgentMCPServer } from '../agent-server';
 
 const balances = defineTool({
@@ -58,6 +58,32 @@ describe('AgentMCPServer: construction', () => {
     it('refuses a destructive direct tool without authorize, in the constructor', () => {
         expect(() => new AgentMCPServer({ name: 's', directTools: [pay] })).toThrow(/destructive and no authorize hook/);
         expect(() => new AgentMCPServer({ name: 's', directTools: [pay], authorize: () => true })).not.toThrow();
+    });
+
+    it('accepts a policy as the gate of a destructive direct tool (SPEC-0014 contract)', () => {
+        expect(() => new AgentMCPServer({ name: 's', directTools: [pay], policy: { decide: () => ({ effect: 'allow' }) } })).not.toThrow();
+    });
+});
+
+describe('AgentMCPServer: direct tools under a policy, audited with the engine event', () => {
+    it('a policy deny refuses the call and the audit sink records it with the identity', async () => {
+        const sink = new MemoryAuditSink();
+        const srv = new AgentMCPServer({
+            name: 'gov', port: 0, directTools: [balances, pay], identity: { tenantId: 'acme' }, auditSink: sink,
+            policy: { decide: (_p, c) => c.tool.name === 'pay' ? { effect: 'deny', reason: 'frozen' } : { effect: 'allow' } },
+        });
+        const client = await connect(srv);
+        try {
+            const denied = await client.callTool({ name: 'pay', arguments: { invoiceId: 'F-1' } });
+            expect(denied.isError).toBe(true);
+            expect(textOf(denied)).toContain('frozen');
+            await client.callTool({ name: 'balances', arguments: { date: 'd' } });
+        } finally {
+            await client.close();
+            await srv.stop();
+        }
+        expect(sink.events.map(e => [e.tool, e.decision])).toEqual([['pay', 'deny'], ['balances', 'allow']]);
+        expect(sink.events[0].principal).toMatchObject({ agentId: 'gov', tenantId: 'acme' });
     });
 });
 

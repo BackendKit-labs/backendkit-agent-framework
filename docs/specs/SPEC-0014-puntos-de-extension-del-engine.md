@@ -1,7 +1,7 @@
 # SPEC-0014: puntos de extensión del engine
 
 **Fecha:** 2026-11-14
-**Estado:** Implementado (F0–F5 en #171–#174, sin publicar). Pendiente para el bump: reenviar las opciones nuevas en `AgentMCPServer`.
+**Estado:** Implementado (F0–F5 en #171–#174). Se publica en v0.39.0: `agent-core` 0.38.0, y `mcp-server` 0.19.0 con `AgentMCPServer` reenviando `policy`, `approver`, `identity` y `auditSink`.
 **Depende de:** [ADR-0008](../adr/0008-core-define-contratos-verticales-y-apps-fuera.md), [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md), [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) (hechos declarados en las tools)
 **Tipo de cambio:** aditivo. Nada existente se rompe; `onToolApproval` queda como adaptador obsoleto.
 **Objetivo:** que el engine ofrezca una forma genérica de enganchar lógica alrededor de un turno y de cada llamada a tool, con un solo contrato de política, uno de auditoría y uno de aprobación. El engine y `createToolServer` usan los mismos contratos.

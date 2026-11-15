@@ -17,7 +17,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) | Tools directas (sin LLM) servidas por MCP | D1–D4 publicados (core 0.37.2, mcp-server 0.18.6, v0.38.2); D5 (migrar Steward) aplazado hasta SPEC-0014 |
 | [SPEC-0012](SPEC-0012-extraccion-de-documentos.md) | Extracción de documentos a texto (`document-extract`) | Capa 1 y OCR implementados (sin publicar); capa 2 pendiente |
 | [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) | El framework como librería: hoja de ruta y trazabilidad | Borrador |
-| [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) | Puntos de extensión del engine: hooks, política, aprobación y auditoría | Borrador |
+| [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) | Puntos de extensión del engine: hooks, política, aprobación y auditoría | Implementado (F0–F5, #171–#174; v0.39.0, core 0.38.0) |
 | [SPEC-0015](SPEC-0015-extraer-coding-de-los-contratos-de-core.md) | Extraer el vertical de coding de los contratos de core | Borrador |
 | [SPEC-0016](SPEC-0016-desamarrar-modulos-mixtos.md) | Desamarrar los módulos mixtos (contexto, skills, comandos, app de terminal) | Borrador |
 | [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) | Un contrato por concepto: workflow, política, auditoría, memoria, RAG | Borrador |

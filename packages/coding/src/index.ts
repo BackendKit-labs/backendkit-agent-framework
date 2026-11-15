@@ -3,9 +3,6 @@ import { join } from 'path';
 import {
     createBaseEngine,
     SkillLoader,
-    Orchestrator,
-    codingPipelineHooks,
-    QAService,
     ReflectionEngine,
     createMemorySystem,
     adaptProviderToLLMClient,
@@ -13,8 +10,6 @@ import {
     type LLMProvider,
     type Transport,
     type Skill,
-    type CapabilityMatrix,
-    type PolicyRule,
     type MCPServerConfig,
     type ObservabilityConfig,
     getProjectDir,
@@ -23,6 +18,7 @@ import {
 } from '@backendkit-labs/agent-core';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
+import { Orchestrator, QAService, codingPipelineHooks, type CapabilityMatrix, type PolicyRule } from './pipeline';
 import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,

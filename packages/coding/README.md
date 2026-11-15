@@ -494,3 +494,7 @@ await engine.run(`
   ]
 }
 ```
+
+## `agent-coding/cli`
+
+The file-based adapters and the terminal-app pieces that used to live in `agent-core` (SPEC-0016): `fileAgentSource` and `fileInstructionSource` (`AGENT.md`, `USER.md`, `~/.appName/agents`), `SkillLoader` / `SkillManager` and the skill providers, `detectStack`, `registerBuiltinCommands`, workspaces, checkpoints, trust and the first-run seed. `createCodingEngine` wires them for you; use the subpath when you build your own engine with `createBaseEngine({ agentSources, skillSources, instructionSources })`.

@@ -57,51 +57,20 @@ export type { TypedToolOptions, ToolMetadata } from './tools/defineTool';
 export type { ToolContextOptions } from './tools/createToolContext';
 
 // ── Skills ─────────────────────────────────────────────────────────────────────
-export { SkillLoader } from './skills/loader';
-export { SkillManager, createSkillManager } from './skills/manager';
-export type { InstallOptions, InstalledPack } from './skills/manager';
 export { SkillRegistry } from './skills/registry';
 export { SkillActivator } from './skills/activator';
-export { parseMdSkill, skillToMd } from './skills/parse-md-skill';
-export { GitHubProvider, LocalProvider, SkillsShProvider, ObsidianProvider } from './skills/providers';
-export type { SkillSourceProvider, FetchOptions } from './skills/providers';
-export type { LoadedSkills } from './skills/loader';
+export type { SkillScope, SkillHandler, SkillExecuteResult, SkillToolDefinition } from './skills/types';
 
 // ── Slash commands ─────────────────────────────────────────────────────────────
 export { SlashCommandRegistry } from './commands/SlashCommandRegistry';
 export type { SlashCommand, SlashCommandHandler, CommandContext, CommandAgentInfo, CommandSkillInfo } from './commands/SlashCommandRegistry';
-export { registerBuiltinCommands } from './commands/builtin';
 
-// ── Checkpoint ─────────────────────────────────────────────────────────────────
-export {
-    createCheckpoint, listCheckpoints, readCheckpoint,
-    getLatestCheckpoints, extractSessionFromCheckpoint,
-    compactSession, compactSessionContent,
-} from './checkpoint';
-export type { CheckpointSummary } from './checkpoint';
 
-// ── Workspace ──────────────────────────────────────────────────────────────────
-export {
-    loadWorkspaces, saveWorkspaces, createWorkspace, addProject, importProject,
-    removeProject, deleteWorkspace, setActiveProject, buildWorkspaceContext,
-    deriveProjectName, migrateFromLegacy, setCommonRoot, detectCommonRoot,
-} from './workspace';
-export type { WorkspaceProject, WorkspaceEntry, WorkspacesConfig } from './workspace';
 
-// ── Bootstrap ──────────────────────────────────────────────────────────────────
-export { runGlobalSeed } from './bootstrap/GlobalSeed';
-export type { SeedResult } from './bootstrap/GlobalSeed';
-export { loadFrameworkConfig, DEFAULT_CONFIG } from './bootstrap/config';
-export type { FrameworkConfig, ProviderConfig, FrameworkFeatures } from './bootstrap/config';
 
 // ── Shared utils ───────────────────────────────────────────────────────────────
 export { cwdToProjectKey, getFrameworkDir, getProjectDir } from './shared/utils/project-key';
 export { atomicWrite, atomicWriteSync } from './shared/utils/atomic-write';
-export {
-    TRUST_FILE, trustFilePath, canonicalProjectPath, listTrustedProjects, isProjectTrusted, trustProject,
-    untrustProject, projectLayerContents, untrustedLayerWarning,
-} from './trust/workspace-trust';
-export type { TrustStatus, TrustReason, ProjectLayerContents } from './trust/workspace-trust';
 export { ResilientLLMClient } from './shared/llm/resilient-client';
 export type { ResilientLLMClientOptions } from './shared/llm/resilient-client';
 
@@ -176,11 +145,9 @@ export { InMemoryStore } from './agent-memory/stores/InMemoryStore';
 export { JsonFileStore } from './agent-memory/stores/JsonFileStore';
 export type { Episode, Knowledge, Pattern, MemorySystemConfig, MemoryStoreBackend } from './agent-memory/types';
 
-// ── Agent discovery — loadAgents callback in AgentEngineOptions ────────────────
-export { discoverAgents } from './agent-discovery/discoverAgents';
-export { RemoteAgentRegistry } from './agent-discovery/RemoteAgentRegistry';
-export { loadAgentsFromDir, globalAgentsDir, projectAgentsDir } from './agent-discovery/AgentPackageLoader';
-export type { AgentPackageFile, AgentDiscoveryConfig, RemoteRegistryIndex } from './agent-discovery/types';
+// ── Sources — where an engine gets agents, skills and instructions from (SPEC-0016) ──
+export { sanitizeDiskContent, composeInstructionLayers, instructionSourceHooks, listAgentSources, listSkillSources } from './sources';
+export type { AgentSource, SkillSource, InstructionSource, InstructionLayer } from './sources';
 
 // ── Reflection — failure catalog, pattern detection, policy promotion (verticals add their own domains) ──
 export * from './reflection';

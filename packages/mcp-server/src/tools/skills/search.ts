@@ -1,4 +1,5 @@
-import { SkillActivator, SkillLoader } from '@backendkit-labs/agent-core';
+import { SkillActivator } from '@backendkit-labs/agent-core';
+import { SkillLoader, detectStack } from '@backendkit-labs/agent-coding/cli';
 import { GLOBAL_BUILTIN_SKILLS, NODE_PACK_SKILLS } from '@backendkit-labs/agent-coding';
 import type { Skill } from '@backendkit-labs/agent-core';
 
@@ -22,7 +23,7 @@ export async function skillsSearch(
 
     const [loaded, detectedStack] = await Promise.all([
         loader.loadAll(cwd),
-        activator.detectStack(cwd),
+        detectStack(cwd),
     ]);
 
     const allSkills: Skill[] = [

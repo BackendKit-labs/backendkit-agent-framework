@@ -1,7 +1,7 @@
 # SPEC-0016: desamarrar los módulos mixtos
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador
+**Estado:** Implementado F1 a F3. Falta el release.
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (hook `systemPrompt`). Puede ir en el mismo minor que [SPEC-0015](SPEC-0015-extraer-coding-de-los-contratos-de-core.md).
 **Tipo de cambio:** con ruptura en los imports de la app de terminal; aditivo para quien use `createBaseEngine` sin esas funciones.
 **Objetivo:** que en core quede la idea genérica de cada módulo mixto (instrucciones por capas, skills, comandos, agentes como datos) y que la estructura de archivos de la app de terminal (`~/.appName/...`) pase a ser un adaptador.
@@ -41,3 +41,28 @@
 
 - Rediseñar las skills o los comandos: solo se separan.
 - La memoria (`agent-memory`, `ProjectStoreData`): SPEC-0015 F4 y SPEC-0017 F4.
+
+## 6. Estado y desviaciones (2026-11-15)
+
+F1 a F3 estan hechas. F2 y F3 van en el mismo cambio porque los comandos integrados y el seed importan el gestor de skills. Antes de tocar nada se fijo el comportamiento de la CLI con un test base (`cli-baseline.test.ts`: snapshot del prompt, skills activas) y el de `createBaseEngine` sin disco; no se actualizo ningun snapshot.
+
+| Punto | Spec | Hecho | Por que |
+|---|---|---|---|
+| Opciones del engine | `agents?: AgentSource[]` | `agentSources`, `skillSources`, `instructionSources` | `agents` ya existe y son perfiles estaticos. Las fuentes alimentan `loadAgents` y `loadSkills`, que ya existian. |
+| `agentDiscovery` | — | **se elimina** | Lo sustituye `agentSources: [fileAgentSource({ appName })]`. |
+| Posicion de las instrucciones | hook `systemPrompt` | hook `systemPrompt`, **al final** del prompt | La CLI sigue pasando `projectContext` (misma posicion) y el snapshot es identico; `instructionSources` es opcional y nuevo. |
+| `context/` (pipeline) | `fileInstructionSource` | `fileInstructionSource` envuelve `runContextPipeline`, en `agent-coding/cli`. **No se conecta a `createCodingEngine`** | Nadie usaba el pipeline (la CLI usa `buildProjectContext`); conectarlo cambiaria el prompt. En core quedan `sanitizeDiskContent` y `composeInstructionLayers`. |
+| `SkillSource` | `list()` | `list()`; `fileSkillSource` **no** se escribio | `SkillLoader` ya es la fuente de archivos y `createCodingEngine` lo conecta con `loadSkills`. |
+| `detectStack` | adaptador de coding | `detectStack(cwd)` en `agent-coding/cli`; sale de `SkillActivator` | `mcp-server` lo usaba y pasa a importarlo de ahi. |
+| Parser de `agent.yaml` | se queda en core | **sale con `agent-discovery`** | El parser esta mezclado con la carga de `~/.appName/agents`. |
+| `project-key` y `git` | a la app | **se quedan** | `reflection/` usa `cwdToProjectKey` y `getFrameworkDir` hasta SPEC-0017 F6. `getGitDiff` lo usa el pipeline de coding. |
+| `trust` | un `InstructionSource` y un `SkillSource` que filtran | pasa a `agent-coding/cli` y lo siguen aplicando `AgentLoader`, `SkillLoader` y `discoverAgents` | Sin cambio de comportamiento. |
+| `orchestrator-agent` | clasificado como app | sin cambio | Pendiente de bk-platform. |
+| Criterio de aceptacion del grep | sin `os.homedir()` ni `.${appName}` | test con lista de excepciones: `project-key.ts` y `reflection/` | Salen con SPEC-0017 F6. La lista solo puede encogerse. El test de SPEC-0015 ya no necesita `GlobalSeed` ni `stage-manifest`. |
+
+Cambios que rompen, para la guia de migracion:
+- Core deja de exportar: `discoverAgents`, `RemoteAgentRegistry`, `loadAgentsFromDir`, `globalAgentsDir`, `projectAgentsDir`, `SkillLoader`, `SkillManager`, `createSkillManager`, `parseMdSkill`, `skillToMd`, los proveedores de skills, `registerBuiltinCommands`, los checkpoints, los workspaces, `runGlobalSeed`, `loadFrameworkConfig`, `DEFAULT_CONFIG` y el trust (`trustProject`, `isProjectTrusted`...). Todo se importa de `@backendkit-labs/agent-coding/cli`.
+- `SkillActivator.detectStack` pasa a `detectStack` de `agent-coding/cli`.
+- La opcion `agentDiscovery` de `createBaseEngine` se sustituye por `agentSources`.
+- Siguen en core: `SlashCommandRegistry`, `SkillRegistry`, `SkillActivator`, `cwdToProjectKey`, `getFrameworkDir`, `getProjectDir`, `atomicWrite`.
+- Apps fuera de este repo que importan lo movido: `backendkit-agent` (comandos, `SkillLoader`) y `backendkit-agents/design-agent` (solo `cwdToProjectKey`, que se queda).

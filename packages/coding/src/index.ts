@@ -2,20 +2,17 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
     createBaseEngine,
-    SkillLoader,
     ReflectionEngine,
     createMemorySystem,
     adaptProviderToLLMClient,
-    runGlobalSeed,
     type LLMProvider,
     type Transport,
     type Skill,
     type MCPServerConfig,
     type ObservabilityConfig,
     getProjectDir,
-    isProjectTrusted,
-    untrustedLayerWarning,
 } from '@backendkit-labs/agent-core';
+import { SkillLoader, runGlobalSeed, isProjectTrusted, untrustedLayerWarning } from './cli';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
 import { Orchestrator, QAService, codingPipelineHooks, type CapabilityMatrix, type PolicyRule } from './pipeline';

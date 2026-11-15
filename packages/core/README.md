@@ -1114,14 +1114,35 @@ const engine = createBaseEngine({ ...opts, hooks: [review], maxHookContinues: 3 
 
 ---
 
+## Sources of agents, skills and instructions
+
+The engine reads no file by itself. Where its agents, skills and instruction layers come from is declared with sources, and an engine built without them touches no disk:
+
+```typescript
+const engine = createBaseEngine({
+  ...opts,
+  agentSources: [{ list: async () => myAgents() }],        // AgentSource: merged with `agents`, a later source wins by id
+  skillSources: [{ list: async () => mySkills() }],        // SkillSource: merged with `skills` and `loadSkills`
+  instructionSources: [{ load: async ({ cwd }) => [        // InstructionSource: layers for the system prompt
+    { title: 'House rules', content: await readRules(cwd) },
+  ] }],
+});
+```
+
+Instruction layers are sanitized (`sanitizeDiskContent`) and added after the other sections of the system prompt, through a `systemPrompt` hook. A source that throws fails the turn.
+
+The file-based adapters of a terminal app (`AGENT.md`, `USER.md`, `~/.appName/agents`, skills from GitHub or skills.sh, the built-in slash commands, workspaces, checkpoints and trust) live in `@backendkit-labs/agent-coding/cli`: `fileAgentSource`, `fileInstructionSource`, `SkillLoader`, `registerBuiltinCommands`...
+
+---
+
 ## Skills and slash commands
 
-Skills are reusable prompt snippets that augment agent behavior. Slash commands let users invoke agent features directly.
+Skills are reusable prompt snippets that augment agent behavior. Slash commands let users invoke agent features directly. The registries (`SkillRegistry`, `SkillActivator`, `SlashCommandRegistry`) are in core; loading, installing and the built-in commands are in `@backendkit-labs/agent-coding/cli`.
 
 ### Loading built-in skills
 
 ```typescript
-import { SkillLoader, createSkillManager } from '@backendkit-labs/agent-core';
+import { SkillLoader, createSkillManager } from '@backendkit-labs/agent-coding/cli';
 
 const manager = createSkillManager('my-app');
 
@@ -1167,7 +1188,8 @@ const systemContext = activator.buildContext(['pr-review']);
 Built-in commands: `/help`, `/clear`, `/status`, `/skills`, `/agents`, `/workspace`, `/checkpoint`.
 
 ```typescript
-import { SlashCommandRegistry, registerBuiltinCommands } from '@backendkit-labs/agent-core';
+import { SlashCommandRegistry } from '@backendkit-labs/agent-core';
+import { registerBuiltinCommands } from '@backendkit-labs/agent-coding/cli';
 
 const cmds = new SlashCommandRegistry();
 registerBuiltinCommands(cmds);
@@ -1200,7 +1222,7 @@ Save and restore session state for recovery and branching.
 ### Save a checkpoint
 
 ```typescript
-import { createCheckpoint, listCheckpoints, readCheckpoint } from '@backendkit-labs/agent-core';
+import { createCheckpoint, listCheckpoints, readCheckpoint } from '@backendkit-labs/agent-coding/cli';
 
 // After a successful milestone
 await createCheckpoint({
@@ -1231,7 +1253,7 @@ await engine.run('Continue from where we left off');
 ### Compact a long session
 
 ```typescript
-import { compactSession } from '@backendkit-labs/agent-core';
+import { compactSession } from '@backendkit-labs/agent-coding/cli';
 
 // Compress a 200-message conversation to a short summary
 const compacted = await compactSession(
@@ -1253,7 +1275,7 @@ Manage multiple projects and let agents switch context between them.
 import {
   loadWorkspaces, createWorkspace, addProject,
   setActiveProject, buildWorkspaceContext,
-} from '@backendkit-labs/agent-core';
+} from '@backendkit-labs/agent-coding/cli';
 
 // One-time setup
 const config = await loadWorkspaces('my-app');

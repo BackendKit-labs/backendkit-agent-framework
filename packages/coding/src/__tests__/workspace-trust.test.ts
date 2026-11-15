@@ -11,11 +11,13 @@ import type { AgentProfile } from '@backendkit-labs/agent-core';
 jest.mock('@backendkit-labs/agent-core', () => ({
     ...jest.requireActual('@backendkit-labs/agent-core'),
     createBaseEngine: jest.fn(() => ({})),
-    runGlobalSeed: jest.fn(async () => undefined),
 }));
+// The first-run seed would write to the real home directory.
+jest.mock('../cli/bootstrap/GlobalSeed', () => ({ runGlobalSeed: jest.fn(async () => undefined) }));
 
 import { createCodingEngine } from '../index';
 import { AgentLoader } from '../agents/AgentLoader';
+import { trustProject } from '../cli/trust/workspace-trust';
 
 const APP = 'trust-test';
 let home: string;
@@ -86,7 +88,7 @@ describe('AgentLoader and the project layer', () => {
         writeAgent(globalAgentsDir(), 'shared', 'GLOBAL');
         writeAgent(projectAgentsDir(), 'shared', 'PROJECT');
         fs.writeFileSync(path.join(projectAgentsDir(), 'general.md'), 'CUSTOMISED BY A TRUSTED PROJECT');
-        core.trustProject(APP, cwd);
+        trustProject(APP, cwd);
         const agents = AgentLoader.load({ appName: APP, cwd, builtins: [builtin] });
         expect(promptOf(agents, 'shared')).toBe('PROJECT');
         expect(promptOf(agents, 'general')).toBe('CUSTOMISED BY A TRUSTED PROJECT');
@@ -102,7 +104,7 @@ describe('AgentLoader and the project layer', () => {
     it('a host that already decided can pass its answer, in either direction', () => {
         writeAgent(projectAgentsDir(), 'extra', 'FROM REPO');
         expect(promptOf(AgentLoader.load({ appName: APP, cwd, builtins: [builtin], trusted: true }), 'extra')).toBe('FROM REPO');
-        core.trustProject(APP, cwd);
+        trustProject(APP, cwd);
         expect(AgentLoader.load({ appName: APP, cwd, builtins: [builtin], trusted: false }).some(a => a.id === 'extra')).toBe(false);
     });
 });
@@ -139,7 +141,7 @@ describe('createCodingEngine and the project layer', () => {
 
     it('loads it and does not warn once the project is trusted', () => {
         writeAgent(projectAgentsDir(), 'general', 'FROM TRUSTED REPO');
-        core.trustProject(APP, cwd);
+        trustProject(APP, cwd);
         const { emitted, agents } = create();
         expect(agents.find(a => a.id === 'general')?.systemPrompt).toBe('FROM TRUSTED REPO');
         expect(emitted.filter(e => e.text?.includes('[Trust]'))).toEqual([]);
@@ -148,7 +150,7 @@ describe('createCodingEngine and the project layer', () => {
     it('trustedProject overrides the disk in both directions', () => {
         writeAgent(projectAgentsDir(), 'general', 'FROM REPO');
         expect(create({ trustedProject: true }).agents.find(a => a.id === 'general')?.systemPrompt).toBe('FROM REPO');
-        core.trustProject(APP, cwd);
+        trustProject(APP, cwd);
         const denied = create({ trustedProject: false });
         expect(denied.agents.find(a => a.id === 'general')?.systemPrompt).not.toBe('FROM REPO');
         expect(denied.emitted.some(e => e.text?.includes('[Trust]'))).toBe(true);

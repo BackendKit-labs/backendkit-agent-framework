@@ -13,10 +13,10 @@ import type { AgentProfile } from '@backendkit-labs/agent-core';
 import {
     CallbackTransport,
     SlashCommandRegistry,
-    registerBuiltinCommands,
     getProjectDir,
     type MCPServerConfig,
 } from '@backendkit-labs/agent-core';
+import { registerBuiltinCommands } from '@backendkit-labs/agent-coding/cli';
 import { renderEvent } from './display';
 
 // ── Config ────────────────────────────────────────────────────────────────────

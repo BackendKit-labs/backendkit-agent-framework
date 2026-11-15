@@ -8,8 +8,9 @@ import * as core from '@backendkit-labs/agent-core';
 jest.mock('@backendkit-labs/agent-core', () => ({
     ...jest.requireActual('@backendkit-labs/agent-core'),
     createBaseEngine: jest.fn(() => ({})),
-    runGlobalSeed: jest.fn(async () => undefined),
 }));
+// The first-run seed would write to the real home directory.
+jest.mock('../cli/bootstrap/GlobalSeed', () => ({ runGlobalSeed: jest.fn(async () => undefined) }));
 
 import { createCodingEngine } from '../index';
 

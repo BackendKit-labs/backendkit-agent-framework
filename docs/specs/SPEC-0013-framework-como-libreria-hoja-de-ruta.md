@@ -76,7 +76,7 @@ Hallazgos verificados contra el código el 2026-11-14 (rama `release/core-0.37.2
 | D4 | Memoria | `SessionMemory`, `agent-memory` (`MemoryStoreBackend`), `ProjectStoreData`, `coding/store` | 0015 F4, 0017 F4 |
 | D5 | RAG e indexado | `enterprise/rag`, lance-rag de `orchestrator-agent`, indexer de `mcp-server` | 0017 F5 |
 | D7 | Autoaprendizaje | `reflection` (catálogo de fallos, patrones, promoción a regla, memo de lecciones) y `agent-memory/ProceduralMemory` (patrones `trigger → action → outcome` inyectados en el contexto) | 0017 F6 |
-| D6 | `isLoopbackRequest` | core (`mcp/tool-server-http.ts`), `mcp-server/request-guards.ts`, `mcp-connectors/shared/server-runner.ts` | 0014 F0 (una sola copia en core) |
+| D6 | `isLoopbackRequest` | core (`mcp/tool-server-http.ts`), `mcp-server/request-guards.ts`, `mcp-connectors/shared/server-runner.ts` | **Resuelto en 0014 F0:** una sola copia en core (`shared/utils/loopback.ts`), que `mcp-server` reexporta. `mcp-connectors` conserva la suya porque no depende de `agent-core` (solo de `enterprise`), y añadir esa dependencia por diez líneas no compensa. Ambas siguen la misma regla. `hashArgs` también pasa a `shared/utils/canonical-json.ts` |
 
 ### 3.4 Pendientes sueltos de la sesión del 2026-11-14
 

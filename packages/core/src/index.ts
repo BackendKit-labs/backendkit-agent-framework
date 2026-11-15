@@ -122,6 +122,21 @@ export type {
 export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
 
+// ── Governance contracts (SPEC-0014): principal, policy, approval, audit ─────────
+export type {
+    Principal, Identity,
+    ToolCall, PolicyDecision, ToolPolicy,
+    ApproverKind, ApproverRef, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
+    ApprovalStatus, StoredApproval, ApprovalStore,
+    AuditDecision, AuditOutcome, AuditSandboxDecision, AuditEvent, AuditSink,
+} from './governance/types';
+export {
+    MemoryAuditSink, NdjsonAuditSink, HashChainAuditSink,
+    verifyAuditChain, verifyAuditSegment, GENESIS_HASH,
+} from './governance/audit';
+export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from './governance/audit';
+export { canonicalJson } from './shared/utils/canonical-json';
+
 // ── MCP tool server — ToolDefinitions served directly over MCP, no model in between
 export { createToolServer, createToolServerFactory, createToolRegistrar, hashArgs } from './mcp/tool-server';
 export type { ToolServerOptions, ToolCallInfo, ToolCallRecord, ToolCallOutcome } from './mcp/tool-server';

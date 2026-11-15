@@ -3,6 +3,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createToolServerFactory, type ToolServerOptions } from './tool-server';
+import { isLoopbackRequest } from '../shared/utils/loopback';
+
+export { isLoopbackRequest };
 
 /**
  * Stateless Streamable HTTP for the MCP tool server (ADR: no sessions). Each POST gets its own `McpServer`
@@ -36,7 +39,6 @@ export interface RunningToolServer {
     close(): Promise<void>;
 }
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 
@@ -46,21 +48,6 @@ export function isBearerAuthorized(header: string | undefined, token: string): b
     const given = Buffer.from(header.slice(7).trim());
     const expected = Buffer.from(token);
     return given.length === expected.length && timingSafeEqual(given, expected);
-}
-
-/**
- * The server binds to 127.0.0.1, but a page in the user's browser can still reach it (DNS rebinding,
- * cross-site POST). True only when both `Host` and, if present, `Origin` are loopback.
- * Same rule as `isLoopbackRequest` in `@backendkit-labs/mcp-server` and `mcp-connectors`.
- */
-export function isLoopbackRequest(host: string | undefined, origin: string | undefined): boolean {
-    if (!host || !LOOPBACK_HOSTS.has(host.replace(/:\d+$/, '').toLowerCase())) return false;
-    if (origin === undefined) return true; // non-browser clients send no Origin
-    try {
-        return LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase().replace(/^(::1)$/, '[::1]'));
-    } catch {
-        return false;
-    }
 }
 
 /** Starts the tool server over stateless Streamable HTTP. Resolves once it is listening. */

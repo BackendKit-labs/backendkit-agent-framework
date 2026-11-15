@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { hashArgs } from '../shared/utils/canonical-json';
 import type { ExecutionContext, ToolDefinition } from '../types';
 import { createToolContext } from '../tools/createToolContext';
 import { getToolInputSchema, validateToolDefinition } from '../tools/defineTool';
@@ -299,18 +299,8 @@ async function audit(opts: ToolServerOptions, record: ToolCallRecord): Promise<v
     }
 }
 
-/** SHA-256 over the canonical JSON (sorted keys at every level) so equal arguments hash equal. */
-export function hashArgs(args: unknown): string {
-    return createHash('sha256').update(canonicalJson(args)).digest('hex');
-}
-
-function canonicalJson(value: unknown): string {
-    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-    const entries = Object.keys(value as Record<string, unknown>).sort()
-        .map(k => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`);
-    return `{${entries.join(',')}}`;
-}
+/** Re-exported so existing imports from the tool server keep working; the implementation lives in shared/utils. */
+export { hashArgs };
 
 function messageOf(err: unknown): string {
     return err instanceof Error ? err.message : String(err);

@@ -179,11 +179,16 @@ Vale para **cualquier** `ApprovalSubject` (§3): una llamada a tool de cualquier
 | Coste | bajo | alto |
 
 ```ts
+type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'executed';
+interface StoredApproval extends ApprovalRequest { status: ApprovalStatus; outcome?: ApprovalOutcome; executedAt?: string }
 interface ApprovalStore {
   put(req: ApprovalRequest): Promise<void>;
-  get(id: string): Promise<(ApprovalRequest & { outcome?: ApprovalOutcome }) | undefined>;
-  resolve(id: string, outcome: ApprovalOutcome): Promise<void>;
-  list(filter?: { status?: 'pending' | 'resolved'; agentId?: string }): Promise<ApprovalRequest[]>;
+  get(id: string): Promise<StoredApproval | undefined>;
+  /** Una sola decisión por id; la segunda falla. */
+  resolve(id: string, outcome: ApprovalOutcome): Promise<StoredApproval>;
+  /** Marca ejecutada una aprobación, de forma atómica y como mucho una vez; false si ya lo estaba. */
+  markExecuted(id: string): Promise<boolean>;
+  list(filter?: { status?: ApprovalStatus; agentId?: string }): Promise<StoredApproval[]>;
 }
 ```
 
@@ -217,14 +222,20 @@ Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, monto
 |---|---|---|
 | Pipeline de coding de core (`orchestrator` + QA) | opciones del engine | hooks `beforeRun` + `systemPrompt` + `afterTurn` (se implementa en SPEC-0015 F1; aquí solo se comprueba que se puede expresar) |
 | `onToolApproval` (CLI, web) | callback con extracto de texto | adaptador `approverFromCallback(onToolApproval)`; `@deprecated`, se retira en 0.40 |
-| `auditLog: string` | `AuditLogger` | adaptador a `NdjsonAuditSink`; `@deprecated` |
+| `auditLog: string` | `AuditLogger` | **Se mantiene sin cambios**, con el mismo formato de archivo, marcado `@deprecated` y retirado en 0.40. No se convierte en `NdjsonAuditSink`: eso cambiaría el formato de un archivo que alguien puede estar leyendo. La auditoría nueva es la opción `audit`, que recibe `AuditEvent` y nunca los argumentos en claro (implementado en F1) |
 | Steward `createGovernedAgent` | envuelve `execute` | `policy: PolicyProvider adaptado` + `audit: HashChainAuditSink` + `identity`. Se comprueba en papel: cada campo de `AgentPrincipal`/`ToolCallContext`/`Decision`/`AuditEvent` tiene su sitio (tabla en F4). La migración real queda aplazada |
 | `createToolServer` | `authorize` / `audit` propios | §5 |
 
 ## 8. Fases
 
-- **F0. Base común.** `hashArgs` y `isLoopbackRequest` en un solo sitio de core; `mcp-server` y `mcp-connectors` los importan (D6).
-- **F1. Contratos y `AuditSink`.** Tipos de §3; `NdjsonAuditSink`, `MemoryAuditSink` y `HashChainAuditSink` con `verifyAuditChain`; el engine escribe `AuditEvent` en todos los resultados, incluidos los rechazos. Adaptador de `auditLog`.
+- **F0. Base común. Hecho.** `hashArgs` y `canonicalJson` en `shared/utils/canonical-json.ts`, e `isLoopbackRequest` en `shared/utils/loopback.ts`. `mcp-server` lo reexporta de core. `mcp-connectors` conserva su copia porque no depende de core (D6).
+- **F1. Contratos y `AuditSink`. Hecho.**
+  - **Tipos:** los de §3, en `governance/types.ts`.
+  - **Sinks** en `governance/audit.ts`: `MemoryAuditSink`, `NdjsonAuditSink` y `HashChainAuditSink`, este último con `verifyAuditChain`, `verifyAuditSegment` y HMAC opcional (mismo esquema que Steward).
+  - **Engine:** `audit` e `identity` en `AgentEngineOptions` y en `createBaseEngine`. Escribe exactamente un `AuditEvent` por llamada: permitida, fallida, con timeout, inexistente, no autorizada, rechazada, bloqueada por guardrail o por el sandbox. Las decisiones del sandbox durante la llamada van dentro del mismo evento (`sandbox[]`). `ask_agent` también se audita, y la autodelegación queda como `not_allowed`.
+  - **`auditLog`:** sin cambios (§7).
+  - **Fallos de un sink:** se avisan en el transport y no alteran el resultado.
+  - En F1 la cadena del principal es `[agentId]`; F2 la propaga en las delegaciones.
 - **F2. Política y aprobación.** `policy.decide` en la ruta de §2, `defaultToolPolicy` (§4), `Approver` con `ApproverRef`, adaptador de `onToolApproval`, `ExecutionContext.principal` y propagación de `chain` en `ask_agent`. Validación de las cuatro reglas de §6.2, cada una con su test: tipo no aceptado, autoaprobación, agente que aprueba más de lo que puede, y auditoría con `by` completo.
 - **F3. Hooks.** `EngineHooks` con los seis puntos y su orden; test que reproduce el pipeline de coding solo con hooks (sin tocar todavía sus opciones).
 - **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.

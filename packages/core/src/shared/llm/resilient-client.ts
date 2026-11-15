@@ -1,5 +1,5 @@
 import { CircuitBreaker, CircuitBreakerOpenError, CircuitBreakerState } from '@backendkit-labs/circuit-breaker';
-import type { LLMChatClient } from '../../orchestration/intent-detector';
+import type { LLMChatClient } from './chat-client';
 
 export interface ResilientLLMClientOptions {
     client: LLMChatClient;

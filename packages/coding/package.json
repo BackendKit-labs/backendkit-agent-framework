@@ -4,6 +4,24 @@
   "description": "Coding agent profiles and tools for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pipeline": {
+      "types": "./dist/pipeline/index.d.ts",
+      "default": "./dist/pipeline/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "pipeline": [
+        "dist/pipeline/index.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist/",
     "README.md"
@@ -31,7 +49,8 @@
     "@backendkit-labs/agent-providers": "^0.3.0",
     "@backendkit-labs/agent-sandbox": "^0.1.0",
     "marked": "^15.0.12",
-    "marked-terminal": "^7.3.0"
+    "marked-terminal": "^7.3.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

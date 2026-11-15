@@ -18,7 +18,7 @@ function tools(seen: Seen[]): ToolDefinition[] {
         name, description: name, parameters: { type: 'object' }, ...facts,
         execute: async (args, ctx) => { seen.push({ tool: name, ctx, args }); return `${name} ran`; },
     });
-    return [t('read', { readOnly: true }), t('write'), t('erase', { destructive: true }), t('run_command')];
+    return [t('read', { readOnly: true }), t('write'), t('erase', { destructive: true }), t('run_command', { alwaysAsk: (a) => String(a.command).includes('npm install') })];
 }
 
 function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, agents: AgentProfile[] = [main, helper, qa]) {
@@ -28,7 +28,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, agents: A
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents, defaultAgent: 'main', tools: tools(seen),
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', audit, sessionId: 's1',
+        transport, workingDir: process.cwd(), iterationMode: 'auto', audit, sessionId: 's1',
         ...extra,
     });
     const results = () => events.filter((e): e is Extract<typeof e, { type: 'tool_result' }> => e.type === 'tool_result');
@@ -172,7 +172,7 @@ describe('AgentEngine — default policy with an approver', () => {
         expect(refused.audit.events[0].reason).toMatch(/not allowed to perform itself/);
     });
 
-    it('package installs always ask a person, even after approve_all via onToolApproval', async () => {
+    it('a call the tool flags with alwaysAsk asks a person, even after approve_all via onToolApproval', async () => {
         const asked: string[] = [];
         const { engine, seen } = build([
             turn(['run_command', { command: 'ls' }], ['run_command', { command: 'npm install left-pad' }]), done,

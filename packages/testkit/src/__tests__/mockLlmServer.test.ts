@@ -162,7 +162,7 @@ describe('startMockLlmServer — engine recovery from overflow (SPEC-0002 §3)',
         ]);
         const { transport, events, text } = mockTransport();
         const engine = createBaseEngine({
-            providers: { mock: providerFor(s) }, defaultProvider: 'mock', transport, noQA: true, iterationMode: 'auto',
+            providers: { mock: providerFor(s) }, defaultProvider: 'mock', transport, iterationMode: 'auto',
             agents: [{ id: 'a', name: 'A', icon: 'x', description: 'd', systemPrompt: 'be brief', allowedTools: [], delegatesTo: [] }],
             defaultAgent: 'a', workingDir: process.cwd(),
             context: { maxTokens: 1_000_000, strategy: 'drop', keepRecentTurns: 1 },

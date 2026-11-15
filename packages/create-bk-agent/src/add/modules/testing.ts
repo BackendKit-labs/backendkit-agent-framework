@@ -42,7 +42,7 @@ describe('an agent tested without an API key', () => {
         const engine = createBaseEngine({
             providers: { mock: scriptedProvider([{ content: 'Hello from the script' }]) },
             defaultProvider: 'mock', agents: [agent], defaultAgent: 'helper',
-            transport: t.transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto',
+            transport: t.transport, workingDir: process.cwd(), iterationMode: 'auto',
         });
 
         await engine.run('hi');

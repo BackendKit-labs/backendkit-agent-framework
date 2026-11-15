@@ -16,6 +16,7 @@ function tool(name: string, executed: string[]): ToolDefinition {
         name,
         description: name,
         parameters: { type: 'object', properties: {} },
+        readOnly: false,
         execute: async () => { executed.push(name); return 'ok'; },
     };
 }
@@ -35,7 +36,7 @@ function buildEngine(
         tools,
         transport,
         workingDir: process.cwd(),
-        noQA: true,
+       
         ...extra,
     });
     return { engine, events };

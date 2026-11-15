@@ -23,7 +23,7 @@ function build(script: Turn[], opts: { approvals?: ApprovalStore; approver?: App
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [main, supervisor], defaultAgent: 'main', tools,
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', audit, ...opts,
+        transport, workingDir: process.cwd(), iterationMode: 'auto', audit, ...opts,
     });
     return { engine, ran, audit };
 }

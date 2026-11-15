@@ -13,7 +13,7 @@ const helper: AgentProfile = { ...testAgent, id: 'helper', name: 'Helper', allow
 function tools(): ToolDefinition[] {
     return [
         { name: 'read_file', description: '', parameters: { type: 'object' }, readOnly: true, meta: { level: 0 }, execute: async () => 'content' },
-        { name: 'write_file', description: '', parameters: { type: 'object' }, execute: async () => 'written' },
+        { name: 'write_file', description: '', parameters: { type: 'object' }, readOnly: false, execute: async () => 'written' },
         { name: 'boom', description: '', parameters: { type: 'object' }, execute: async () => { throw new Error('fails'); } },
         { name: 'slow', description: '', parameters: { type: 'object' }, timeoutMs: 20, execute: () => new Promise(() => undefined) },
         { name: 'unlisted', description: '', parameters: { type: 'object' }, execute: async () => 'x' },
@@ -26,7 +26,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}) {
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [agent, helper], defaultAgent: agent.id, tools: tools(),
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', toolTimeoutGraceMs: 10,
+        transport, workingDir: process.cwd(), iterationMode: 'auto', toolTimeoutGraceMs: 10,
         audit: sink, sessionId: 'sess-1',
         ...extra,
     });

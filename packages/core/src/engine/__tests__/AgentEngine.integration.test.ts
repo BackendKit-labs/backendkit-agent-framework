@@ -373,6 +373,7 @@ describe('1.7 — onToolApproval: reject prevents tool execution', () => {
         let fileWritten = false;
         const writeTool: ToolDefinition = {
             name: 'write_file',
+            readOnly: false,
             description: 'writes a file',
             parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } } },
             execute: async () => { fileWritten = true; return 'written'; },

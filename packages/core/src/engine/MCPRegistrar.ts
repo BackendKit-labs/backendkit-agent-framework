@@ -240,7 +240,7 @@ export class MCPRegistrar {
             systemPrompt:
                 `You are a specialized remote agent: ${config.name}.\n` +
                 `Use ONLY your available tools to answer the request. ` +
-                `Do NOT use run_command, read_file, or other local tools.\n\n` +
+                `Do NOT use local tools (files, shell, ...).\n\n` +
                 `Your tools:\n${toolList}`,
             allowedTools: tools.map(t => t.name),
             source:       'mcp',

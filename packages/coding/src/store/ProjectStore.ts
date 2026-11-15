@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
-import type { ProjectStoreData, SessionUpdates } from '@backendkit-labs/agent-core';
+import type { ProjectStoreData, SessionUpdates } from './types';
 import { cwdToProjectKey, atomicWriteSync, compactSessionContent } from '@backendkit-labs/agent-core';
 
 const SESSION_COMPACT_THRESHOLD = 8192; // bytes — matches core's SESSION_MAX_BYTES

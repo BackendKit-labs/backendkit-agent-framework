@@ -34,7 +34,7 @@ function fakeRunner(cfg: { deny?: string[]; ask?: Record<string, 'ask' | 'none'>
 
 function tool(name: string, ran: string[]): ToolDefinition {
     return {
-        name, description: name, parameters: { type: 'object', properties: {} },
+        name, description: name, parameters: { type: 'object', properties: {} }, readOnly: name === 'read_file',
         execute: async (_args, ctx) => { ran.push(`${name}:${ctx.sandbox ? 'with-sandbox' : 'no-sandbox'}`); return `${name} done`; },
     };
 }
@@ -45,7 +45,7 @@ function build(runner: SandboxRunner | undefined, script: Parameters<typeof crea
     const engine = createBaseEngine({
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [agent], defaultAgent: agent.id, tools: ['read_file', 'write_file', 'run_command'].map(n => tool(n, ran)),
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto',
+        transport, workingDir: process.cwd(), iterationMode: 'auto',
         ...(runner ? { sandbox: runner } : {}), ...extra,
     });
     return { engine, events, ran };
@@ -194,7 +194,7 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
     }
 
     const sandboxCaller = (marker: { seen?: string }): ToolDefinition => ({
-        name: 'run_command', description: 'runs through the sandbox', parameters: { type: 'object', properties: {} },
+        name: 'run_command', description: 'runs through the sandbox', parameters: { type: 'object', properties: {} }, readOnly: false,
         execute: async (_a, ctx) => {
             marker.seen = (ctx.sandbox as unknown as { policyMarker?: string } | undefined)?.policyMarker;
             const out = await ctx.sandbox!.run({ agentId: ctx.agentId, sessionId: ctx.sessionId }, { tool: 'run_command', command: 'echo', cwd: '.' });
@@ -207,7 +207,7 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
         const engine = createBaseEngine({
             providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id,
             tools: [sandboxCaller(marker), tool('write_file', []), tool('read_file', [])], transport, workingDir: process.cwd(),
-            noQA: true, iterationMode: 'auto', sandbox: runner, ...extra,
+            iterationMode: 'auto', sandbox: runner, ...extra,
         });
         return { engine, events };
     }
@@ -261,7 +261,7 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
             const { transport, events } = createMockTransport();
             const engine = createBaseEngine({
                 providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [{ ...agent, allowedTools: tools.map(t => t.name) }],
-                defaultAgent: agent.id, tools, transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', sandbox: runner,
+                defaultAgent: agent.id, tools, transport, workingDir: process.cwd(), iterationMode: 'auto', sandbox: runner,
             });
             return { engine, events };
         };

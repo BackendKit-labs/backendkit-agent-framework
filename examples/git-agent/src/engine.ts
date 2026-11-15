@@ -58,7 +58,6 @@ export function createGitEngine(transport: CallbackTransport, opts: GitEngineOpt
         maxIterations:   40,
         iterationMode:   'auto',
         workingDir:      process.cwd(),
-        noQA:            true,
         ...(observability ? { observability, abortOnBudget: config.budgetUsd !== undefined } : {}),
     });
 }

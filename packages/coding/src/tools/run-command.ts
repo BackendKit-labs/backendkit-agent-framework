@@ -2,7 +2,9 @@ import * as path from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { resolveAndCheck } from './path-sandbox';
 import { legacySandbox } from './legacy-sandbox';
+import { getBlockedCommands } from '../context-services';
 import { extractAllBins, extractBin } from './command-parser';
+import { requiresInstallApproval } from './package-install';
 
 const MAX_OUTPUT = 20_000;
 
@@ -65,6 +67,8 @@ const WIN_BIN_MAP: Record<string, string> = {
 
 export const runCommandTool = defineTool({
     name: 'run_command',
+    readOnly: false,
+    alwaysAsk: ({ command }) => requiresInstallApproval(command),
     description:
         'Execute a shell command in the working directory. ' +
         'Use the optional `cwd` parameter to run in a subdirectory instead of `cd dir && cmd`. ' +
@@ -123,7 +127,7 @@ export const runCommandTool = defineTool({
         }
 
         // C3: per-agent command blocklist — steers agents toward MCP tools
-        const agentBlocked = ctx.blockedCommands ?? [];
+        const agentBlocked = getBlockedCommands(ctx);
         if (agentBlocked.length > 0) {
             const forbidden = allBins.find(b => agentBlocked.includes(b));
             if (forbidden) {

@@ -7,6 +7,7 @@ import { warnIfSecrets } from './secret-scanner';
 
 export const writeFileTool = defineTool({
     name: 'write_file',
+    readOnly: false,
     description: 'Write or overwrite a file inside the working directory. Creates parent directories if needed.',
     input: z.object({
         file_path: z.string().describe('Relative or absolute path to the file'),

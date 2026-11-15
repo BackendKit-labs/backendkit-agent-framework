@@ -3,8 +3,6 @@ import { join } from 'path';
 import {
     createBaseEngine,
     SkillLoader,
-    Orchestrator,
-    QAService,
     ReflectionEngine,
     createMemorySystem,
     adaptProviderToLLMClient,
@@ -12,8 +10,6 @@ import {
     type LLMProvider,
     type Transport,
     type Skill,
-    type CapabilityMatrix,
-    type PolicyRule,
     type MCPServerConfig,
     type ObservabilityConfig,
     getProjectDir,
@@ -22,6 +18,7 @@ import {
 } from '@backendkit-labs/agent-core';
 export type { AgentEngine } from '@backendkit-labs/agent-core';
 import { CODING_CAPABILITY_MATRIX } from './orchestration/capability-matrix';
+import { Orchestrator, QAService, codingPipelineHooks, type CapabilityMatrix, type PolicyRule } from './pipeline';
 import {
     GLOBAL_BUILTIN_SKILLS,
     NODE_PACK_SKILLS,
@@ -54,6 +51,8 @@ import { saveAuditTool, getLatestAuditTool, listAuditsTool } from './tools/save-
 import { saveUserPreferenceTool } from './tools/save-user-preference';
 import { updateSessionTool } from './tools/update-session';
 import { ProjectStore } from './store/ProjectStore';
+import { CODING_SERVICES } from './context-services';
+import { codingContextHooks } from './context-hooks';
 import { PersistentMemory } from './store/PersistentMemory';
 import { ConfigLoader } from './config/ConfigLoader';
 
@@ -145,6 +144,9 @@ export { InitWorkflow } from './workflows/InitWorkflow';
 export type { InitMode } from './workflows/InitWorkflow';
 export { TerminalTransport } from './transport/TerminalTransport';
 export { ProjectStore } from './store/ProjectStore';
+export type { ProjectStoreData, SessionUpdates } from './store/types';
+export { getStore, getBlockedCommands, CODING_SERVICES } from './context-services';
+export { codingContextHooks } from './context-hooks';
 export { PersistentMemory } from './store/PersistentMemory';
 export { ConfigLoader } from './config/ConfigLoader';
 export type { BkAgentConfig } from './config/ConfigLoader';
@@ -631,17 +633,21 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
         ...(opts.observability ? { observability: opts.observability } : {}),
         ...(opts.abortOnBudget ? { abortOnBudget: true } : {}),
-        store,
+        ...(store ? { additionalRoots: [store.projectDir] } : {}),
+        services: (profile) => ({
+            ...(store ? { [CODING_SERVICES.store]: store } : {}),
+            [CODING_SERVICES.blockedCommands]: profile?.blockedCommands ?? [],
+        }),
         projectContext,
         skills: builtinSkills,
         detectedStack,
         loadSkills,
         ...(memory ? { sessionMemory: memory } : {}),
         ...(auditLog ? { auditLog } : {}),
-        ...(orchestrator ? { orchestrator } : {}),
-        ...(qaService ? { qaService } : {}),
-        ...(noQA !== undefined ? { noQA } : {}),
-        ...(onQAReview ? { onQAReview } : {}),
+        hooks: [
+            codingContextHooks({ store, workingDir: cwd }),
+            ...(orchestrator ? [codingPipelineHooks({ orchestrator, qaService, noQA, onQAReview, defaultAgentId: opts.defaultAgent ?? 'general' })] : []),
+        ],
         ...(opts.mcpServers?.length ? { mcpServers: opts.mcpServers } : {}),
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.onIterationLimit ? { onIterationLimit: opts.onIterationLimit } : {}),

@@ -9,9 +9,8 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
-import { agentCouldPerform, combineDecisions, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
+import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
-import { packageInstallPolicy } from './package-install';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
 import type {
     ApprovalRequest,
@@ -59,16 +58,7 @@ import type { CommandContext } from '../commands/SlashCommandRegistry';
 import { WorkflowRunner } from '../workflow/WorkflowRunner';
 import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
-import type { Orchestrator } from '../orchestration/orchestrator';
-import type { OrchestrationResult } from '../orchestration/types';
-import type { QAService } from '../qa/qa-service';
 import { IterationManager, type IterationMode, type IterationStats } from './IterationManager';
-import {
-    advanceRequiredGates,
-    activateQaEngineerIfNeeded,
-    processQaEngineerResponse,
-    processInlineQaReview,
-} from './qa-orchestrator';
 
 
 export interface AgentEngineOptions extends EngineOptions {
@@ -89,23 +79,10 @@ export interface AgentEngineOptions extends EngineOptions {
      * Set true to keep that behavior while the profiles are fixed.
      */
     allowUnlistedTools?: boolean;
-    /** Orchestrator para clasificacion de tareas, risk scoring y FSM */
-    orchestrator?: Orchestrator;
-    /**
-     * What run() does when the orchestrator throws. 'closed' (default) rethrows: the gates it would have
-     * applied cannot be silently skipped. 'open' warns on the transport and runs without orchestration.
-     */
-    orchestratorFailureMode?: 'closed' | 'open';
-    /** QA service para revisar respuestas y registrar gates */
-    qaService?: QAService;
-    /** Si true, deshabilita las revisiones de QA automaticas */
-    noQA?: boolean;
-    /** Callback invocado cuando el QA genera una revision */
-    onQAReview?: (review: string) => void;
     /** MCP client manager — connects to external MCP servers and registers their tools */
     mcpManager?: MCPClientManager;
     /**
-     * Called before executing write/execute tools (write_file, edit_file, run_command) when
+     * Called before executing write/execute tools (tools that declare `readOnly: false`) when
      * iteration mode is 'manual'. Return 'approve' to run, 'approve_all' to run and disable
      * further prompts this session, 'reject' to skip the tool call.
      */
@@ -327,10 +304,10 @@ export class AgentEngine {
         if (this.governed) {
             const someoneToAsk = !!(opts.approver || opts.approvals || opts.onToolApproval);
             const configured = opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [];
-            // Package installs always ask a person; it moves to the coding vertical with SPEC-0015 F3.
+            // What a tool declares with `alwaysAsk` always asks a person, whatever the configured policy says.
             this.policies = [
                 ...(configured.length > 0 ? configured : someoneToAsk ? [defaultToolPolicy] : []),
-                packageInstallPolicy,
+                declaredAskPolicy,
             ];
             if (opts.approver) {
                 this.approver = opts.approver;
@@ -627,20 +604,6 @@ export class AgentEngine {
         const profile = this.getCurrentProfile();
         if (!profile) throw new Error(`Default agent "${this.currentAgentId}" not registered`);
 
-        // Orquestar la tarea para obtener clasificacion, risk scoring y gates requeridos
-        let orchestrationResult: OrchestrationResult | undefined;
-        if (this.opts.orchestrator) {
-            try {
-                orchestrationResult = await this.opts.orchestrator.orchestrate(input);
-            } catch (err) {
-                const reason = err instanceof Error ? err.message : String(err);
-                if ((this.opts.orchestratorFailureMode ?? 'closed') === 'closed') {
-                    throw new Error(`Orchestrator failed; refusing to run without its gates: ${reason}`);
-                }
-                this.opts.transport.emit({ type: 'system', level: 'warn', text: `[Orchestrator] failed (${reason}); running without classification or gates` });
-            }
-        }
-
         // Hooks of this turn share one context (SPEC-0014 F3). A throwing hook fails the turn.
         this.runController = new AbortController();
         this.lastAnswer = '';
@@ -649,13 +612,14 @@ export class AgentEngine {
             input,
             state: new Map(),
             signal: this.runController.signal,
+            hasAgent: (id) => this.opts.agents.has(id),
             emit: (event) => this.opts.transport.emit(event),
         };
         try {
             await runHooks(this.hooks, 'beforeRun', h => h.beforeRun!(this.runCtx!));
 
             this.history.push({ role: 'user', content: input });
-            await this.runLoop(profile, orchestrationResult);
+            await this.runLoop(profile);
             this.saveHistory();
 
             const finished = this.runCtx;
@@ -697,7 +661,7 @@ export class AgentEngine {
     private toolHookContext(principal: Principal): RunContext {
         return this.runCtx
             ? { ...this.runCtx, principal }
-            : { principal, input: '', state: new Map(), signal: new AbortController().signal, emit: (e) => this.opts.transport.emit(e) };
+            : { principal, input: '', state: new Map(), signal: new AbortController().signal, hasAgent: (id) => this.opts.agents.has(id), emit: (e) => this.opts.transport.emit(e) };
     }
 
     async runWorkflow(
@@ -1012,70 +976,21 @@ export class AgentEngine {
         return parts.join('\n');
     }
 
-    private buildSystemPrompt(profile: AgentProfile, orchestrationResult?: OrchestrationResult, hookSections: string[] = []): string {
+    private buildSystemPrompt(profile: AgentProfile, hookSections: string[] = []): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
         const parts: string[] = [profile.systemPrompt];
         if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
         if (this.opts.workingDir) {
             parts.push(
                 `## Working Directory\n` +
-                `\`${this.opts.workingDir}\`\n\n` +
-                `ALWAYS use RELATIVE paths with tools (e.g. \`src/index.ts\`, \`package.json\`). ` +
-                `NEVER invent absolute paths like \`/workspace/...\` or \`/home/...\`.`
+                `\`${this.opts.workingDir}\``
             );
         }
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
-        // Per-agent session notes (tool quirks, learnings routed by LearningRouter)
-        const agentNotes = this.opts.store?.getAgentNotes?.(profile.id);
-        if (agentNotes) parts.push(`## Agent Session Notes\n${agentNotes}`);
         if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
-        if (isOrchestrator && orchestrationResult) {
-            parts.push(this.buildOrchestrationBrief(orchestrationResult));
-        }
         parts.push(...hookSections);
         return parts.join('\n\n');
-    }
-
-    /**
-     * Converts an OrchestrationResult into a system-prompt section that tells the
-     * default agent which specialists to use, in what order, and what gates apply.
-     * This closes the gap between the deterministic policy layer and the LLM layer.
-     */
-    private buildOrchestrationBrief(result: OrchestrationResult): string {
-        const { task, selectedAgents, agentPipeline, requiredGates } = result;
-
-        const lines: string[] = ['## Orchestrator Analysis — Current Task'];
-
-        const domains = task.domains.length > 0 ? task.domains.join(', ') : 'general';
-        lines.push(`**Intent:** ${task.actionType} | **Risk:** ${task.riskLevel} | **Domains:** ${domains}`);
-
-        // Only surface non-trivial agent selections (skip sole-fallback case)
-        const nonFallback = selectedAgents.filter(a => !(a.agentId === 'general' && a.score <= 50));
-        if (nonFallback.length > 0) {
-            lines.push('\n**Recommended agents for this task (highest priority first):**');
-            for (const a of nonFallback) {
-                lines.push(`- ${a.agentId} — ${a.reason}`);
-            }
-            lines.push(
-                '\nWhen delegating via ask_agent, prioritize the agents listed above. ' +
-                'Do not delegate to unlisted agents unless the task explicitly requires it.'
-            );
-        }
-
-        if (agentPipeline && agentPipeline.length > 0) {
-            lines.push('\n**Suggested execution pipeline (respect this order):**');
-            agentPipeline.forEach((phase, i) => {
-                lines.push(`${i + 1}. [${phase.phase}] ${phase.agentId} — ${phase.purpose}`);
-            });
-        }
-
-        if (requiredGates.length > 0) {
-            lines.push(`\n**Required gates before commit:** ${requiredGates.join(', ')}`);
-            lines.push('Ensure each gate is satisfied before considering the task complete.');
-        }
-
-        return lines.join('\n');
     }
 
     private resolvesDelegateTo(profile: AgentProfile): string[] {
@@ -1117,7 +1032,7 @@ export class AgentEngine {
         return parts.join('\n\n');
     }
 
-    private async runLoop(profile: AgentProfile, orchestrationResult?: OrchestrationResult): Promise<void> {
+    private async runLoop(profile: AgentProfile): Promise<void> {
         let currentProfile = profile;
 
         this.iterationManager.reset();
@@ -1142,7 +1057,7 @@ export class AgentEngine {
 
             const systemMsg: LLMMessage = {
                 role: 'system',
-                content: this.buildSystemPrompt(currentProfile, orchestrationResult, await this.hookPromptSections(currentProfile)),
+                content: this.buildSystemPrompt(currentProfile, await this.hookPromptSections(currentProfile)),
             };
             const tools = this.getToolsForAgent(currentProfile);
             const safeHistory = this.history.sanitized();
@@ -1343,43 +1258,6 @@ export class AgentEngine {
                 });
             }
 
-            // ── QA orchestration: runs when response is final (no tool calls) ─
-            if (toolResults.length === 0 && this.opts.orchestrator && this.opts.qaService && orchestrationResult) {
-                const qaAgentId = this.opts.agents.has('qa-engineer') ? 'qa-engineer' : undefined;
-                const qaCtx = {
-                    clean: streamBuffer,
-                    orchestrationResult,
-                    orchestrator: this.opts.orchestrator,
-                    qaService: this.opts.qaService,
-                    allAgents: this.opts.agents.getAll(),
-                    messages: this.history.getAll(),
-                    effectiveAgentId: currentProfile.id,
-                    defaultAgentId: this.opts.defaultAgentId,
-                    qaAgentId,
-                    noQA: this.opts.noQA,
-                    onQAReview: this.opts.onQAReview,
-                    setEffectiveAgent: (agentId: string) => {
-                        const p = this.opts.agents.get(agentId);
-                        if (p) currentProfile = p;
-                    },
-                };
-
-                await advanceRequiredGates(qaCtx);
-
-                const qaProfile = activateQaEngineerIfNeeded(qaCtx);
-                if (qaProfile) {
-                    currentProfile = qaProfile;
-                    continue; // re-enter loop as qa-engineer
-                }
-
-                if (qaAgentId && currentProfile.id === qaAgentId) {
-                    await processQaEngineerResponse(qaCtx);
-                    currentProfile = profile; // reset to original agent
-                } else {
-                    await processInlineQaReview(qaCtx);
-                }
-            }
-
             if (toolResults.length === 0) {
                 // The model answered without tools: afterTurn hooks may force another pass (SPEC-0014 F3).
                 this.lastAnswer = streamBuffer;
@@ -1429,7 +1307,7 @@ export class AgentEngine {
         }
 
         const messages: LLMMessage[] = [
-            { role: 'system', content: this.buildSystemPrompt(profile, undefined, await this.hookPromptSections(profile)) },
+            { role: 'system', content: this.buildSystemPrompt(profile, await this.hookPromptSections(profile)) },
             ...historySlice,
             { role: 'user', content: context ? `${question}\n\nContext:\n${context}` : question },
         ];
@@ -1778,7 +1656,7 @@ export class AgentEngine {
         const sandboxAsk = this.opts.sandbox?.approvalFor
             ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name)
             : undefined;
-        const gate = await this.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk));
+        const gate = await this.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk, this.opts.tools.get(call.name)));
         if (gate === 'rejected') {
             return { run: false, decision: 'deny', reason: 'rejected by the approver', message: `Tool call "${call.name}" was rejected by the user.` };
         }
@@ -2040,21 +1918,20 @@ export class AgentEngine {
         const id = agentId ?? this.currentAgentId;
         const principal = this.principalFor(id, chain);
         const profile = this.opts.agents.get(id);
-        const storeRoot = this.opts.store?.projectDir;
-        const additionalRoots = [
-            ...(this.opts.additionalRoots ?? []),
-            ...(storeRoot ? [storeRoot] : []),
-        ];
+        const additionalRoots = this.opts.additionalRoots ?? [];
+        const serviceSource = this.opts.services;
+        const serviceMap = serviceSource
+            ? new Map(Object.entries(typeof serviceSource === 'function' ? serviceSource(profile) : serviceSource))
+            : undefined;
         return {
             agentId: id,
             sessionId: this.opts.sessionId ?? 'default',
             principal,
             workingDir: this.opts.workingDir,
             memory: this.memory,
-            store: this.opts.store,
+            ...(serviceMap ? { services: serviceMap } : {}),
             advancedMemory: this.opts.memorySystem,
             ...(additionalRoots.length ? { additionalRoots } : {}),
-            ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1, chain: principal.chain });
                 return result.content;

@@ -105,19 +105,11 @@ export type { TrustStatus, TrustReason, ProjectLayerContents } from './trust/wor
 export { ResilientLLMClient } from './shared/llm/resilient-client';
 export type { ResilientLLMClientOptions } from './shared/llm/resilient-client';
 
-// ── Orchestration — public surface used by createBaseEngine / createCodingEngine ─
-export { Orchestrator } from './orchestration/orchestrator';
-export { adaptProviderToLLMClient } from './orchestration/llm-client-adapter';
-export type { LLMChatClient } from './orchestration/intent-detector';
-export type { ReviewAgentIds } from './orchestration/orchestrator';
-export type {
-    OrchestratorConfig,
-    OrchestrationResult,
-    AgentPipelinePhase,
-    PolicyRule,
-    CapabilityMatrix,
-} from './orchestration/types';
-
+export { adaptProviderToLLMClient } from './shared/llm/chat-client';
+export type { LLMChatClient } from './shared/llm/chat-client';
+export { getGitDiff } from './shared/utils/git';
+export { sanitizeFilename } from './shared/utils/string-utils';
+export { getService } from './tools/services';
 // ── MCP client — MCPClientManager in AgentEngineOptions, MCPServerConfig in coding config ─
 export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
@@ -135,7 +127,7 @@ export {
     verifyAuditChain, verifyAuditSegment, GENESIS_HASH,
 } from './governance/audit';
 export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from './governance/audit';
-export { defaultToolPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
+export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem } from './governance/approval';
 export type { CallbackApprover } from './governance/approval';
 export { FileApprovalStore } from './governance/approval-store';
@@ -190,15 +182,9 @@ export { RemoteAgentRegistry } from './agent-discovery/RemoteAgentRegistry';
 export { loadAgentsFromDir, globalAgentsDir, projectAgentsDir } from './agent-discovery/AgentPackageLoader';
 export type { AgentPackageFile, AgentDiscoveryConfig, RemoteRegistryIndex } from './agent-discovery/types';
 
-// ── Reflection — ReflectionEngine used by createCodingEngine ──────────────────
-export { ReflectionEngine } from './reflection/reflection-engine';
-export type { ReflectionStats } from './reflection/reflection-engine';
-export { DomainRegistry, BUILTIN_DOMAINS } from './reflection/domain-registry';
-export type { BuiltinDomain, CustomDomainDefinition, FailureTypeDefinition } from './reflection/domain-registry';
+// ── Reflection — failure catalog, pattern detection, policy promotion (verticals add their own domains) ──
+export * from './reflection';
 
-// ── QA — QAService used by createBaseEngine ────────────────────────────────────
-export { QAService } from './qa/qa-service';
-export type { QAServiceOptions, QAReviewResult } from './qa/qa-service';
 
 // ── Core types ─────────────────────────────────────────────────────────────────
 export type {
@@ -207,8 +193,6 @@ export type {
     ToolDefinition,
     ExecutionContext,
     SessionMemoryData,
-    ProjectStoreData,
-    SessionUpdates,
     ModelConfig,
     LLMMessage,
     LLMToolCall,

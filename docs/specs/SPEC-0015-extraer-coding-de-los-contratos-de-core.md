@@ -1,7 +1,7 @@
 # SPEC-0015: extraer el vertical de coding de los contratos de core
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador
+**Estado:** Implementado F1 a F4 (PR #179 y siguiente). Falta F5, el release.
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (hooks, política, `AuditSink`) mergeado.
 **Tipo de cambio:** **con ruptura.** Va en core 0.39.0 y agent-coding 0.29.0, con barrido completo de rangos.
 **Objetivo:** que ningún contrato de core conozca el pipeline de coding. El pipeline sigue funcionando igual, enganchado desde el vertical mediante hooks y política.
@@ -71,3 +71,25 @@
 
 - Desamarrar `context`, `skills` y los comandos (SPEC-0016).
 - Rediseñar el pipeline de coding: solo se mueve y se reengancha.
+
+## 8. Estado y desviaciones (2026-11-15)
+
+F1 a F4 estan hechas. Lo que se hizo distinto de lo escrito arriba:
+
+| Punto | Spec | Hecho | Por que |
+|---|---|---|---|
+| `additionalRoots` | pasa a la configuracion del sandbox | **se queda** en `ExecutionContext` y en las opciones del engine | Lo usan `agent-coding` y `document-extract`; no es del pipeline de coding. Solo deja de incluir `store.projectDir`: lo anade `createCodingEngine`. |
+| `blockedCommands` | lo aplica una politica | **va por `services`** (`coding.blockedCommands`); el campo de perfil sigue como dato | `run_command` ya lo comprobaba; la politica queda para SPEC-0016. |
+| `store` | por `services` | por `services` (`coding.store`). `ProjectStoreData` y `SessionUpdates` pasan a `agent-coding` | Core ya no los exporta. |
+| `services` | `ReadonlyMap` fijo | `Record` o funcion `(profile) => Record` | Una funcion permite valores distintos por agente (`blockedCommands`). |
+| Regla de aprobacion legacy | "no `readOnly` => pedir" | **`readOnly: false` pide**; lo que no declara nada no pregunta | En la ruta `onToolApproval` sin politica, el cambio hubiera hecho preguntar a agentes que no son de coding. La ruta gobernada sigue con la regla de SPEC-0014. |
+| `alwaysAsk` | no estaba | `ToolDefinition.alwaysAsk(args)` + `declaredAskPolicy` | Es el hecho con el que `run_command` declara los comandos de instalacion; core ya no conoce `package-install`. |
+| `blocksTools` | generalizar `blocksCommands` | **no se hizo** | `blocksCommands` solo edita el dato `blockedCommands` del perfil, que se mantiene. Pendiente de SPEC-0016. |
+| `reflection` | mover dominios, hooks, loader y promotor | se movieron dominios, hooks, `HistoricalLoader` y `LessonsMemoGenerator`; **el promotor se queda** | `ReflectionEngine` lo construye. Sale con el rediseño de SPEC-0017 F6. |
+| Criterio de aceptacion del grep | cero coincidencias | un test con lista de excepciones | Quedan `GlobalSeed` y `stage-manifest` (SPEC-0016) y `reflection/` (SPEC-0017 F6). La lista solo puede encogerse. |
+| Parrafo de rutas relativas y notas del agente | hook `systemPrompt` | `codingContextHooks` | Se anaden al final del prompt, no tras el directorio de trabajo. |
+
+Cambios que rompen, para la guia de migracion de F5:
+- Core: se quitan `orchestrator`, `orchestratorFailureMode`, `qaService`, `noQA`, `onQAReview`, `store` de las opciones; `ExecutionContext.store` y `.blockedCommands`; `ProjectStoreData`, `SessionUpdates`, `Orchestrator`, `QAService` y los tipos de orchestration; el subpath `agent-core/orchestration`; y el motor ya no pregunta por `write_file`, `edit_file` ni `run_command` por su nombre.
+- Quien usaba esas opciones pasa a `hooks: [codingPipelineHooks({...})]`, importado de `@backendkit-labs/agent-coding/pipeline`.
+- Una tool que antes preguntaba por llamarse `write_file` debe declarar `readOnly: false`.

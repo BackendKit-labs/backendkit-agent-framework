@@ -10,6 +10,8 @@ export interface RunContext {
     principal: Principal;
     input: string;
     state: Map<string, unknown>;
+    /** Whether an agent with this id is registered in the engine. */
+    hasAgent(agentId: string): boolean;
     /** Aborted when the engine is aborted. */
     signal: AbortSignal;
     emit(event: AgentEvent): void;

@@ -97,7 +97,7 @@ describe('an engine with the coding tools in read-only', () => {
             defaultProvider: 'mock', tools: [readFileTool, writeFileTool, runCommandTool],
             agents: [{ id: 'reviewer', name: 'Reviewer', icon: 'r', description: 'read only', systemPrompt: 'x', allowedTools: ['read_file', 'write_file', 'run_command'], delegatesTo: [] }],
             defaultAgent: 'reviewer', transport: { emit: e => events.push(e), onInput: () => () => undefined, close: () => undefined },
-            workingDir: dir, noQA: true, iterationMode: 'auto', sandbox,
+            workingDir: dir, iterationMode: 'auto', sandbox,
         });
         await engine.run('review');
 

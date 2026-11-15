@@ -38,7 +38,7 @@ function build(script: Turn[], hooks: EngineHooks[], extra: Partial<BaseEngineOp
     const engine = createBaseEngine({
         providers: { mock: provider }, defaultProvider: 'mock',
         agents: [orchestrator, helper, qaEngineer], defaultAgent: 'general', tools: [write],
-        transport, workingDir: process.cwd(), noQA: true, iterationMode: 'auto', hooks, ...extra,
+        transport, workingDir: process.cwd(), iterationMode: 'auto', hooks, ...extra,
     });
     return { engine, systems, ran, events };
 }

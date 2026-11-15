@@ -10,7 +10,7 @@ export type SandboxNetwork = 'none' | 'allow';
 
 /** What a tool asks the sandbox to run. */
 export interface SandboxExecRequest {
-    /** Name of the tool asking, e.g. `run_command`. Policies can key on it. */
+    /** Name of the tool asking, e.g. `send_invoice`. Policies can key on it. */
     tool: string;
     /** Shell command line, portable (what a container runs). */
     command: string;
@@ -92,7 +92,7 @@ export interface SandboxRunner {
     authorizeTool?(caller: SandboxCaller, tool: string): { ok: true } | { ok: false; code: SandboxDenyCode; reason: string };
     /**
      * Does this tool need a human under the current policy? When present it REPLACES the engine's built-in
-     * list of tools that ask (write_file, edit_file, run_command). `ask` with no approver configured is
+     * list of tools that ask (the tools that declare `readOnly: false`). `ask` with no approver configured is
      * refused (fail closed): an unattended flow or trigger can never end up running what nobody approved.
      */
     approvalFor?(caller: SandboxCaller, tool: string): 'none' | 'ask';

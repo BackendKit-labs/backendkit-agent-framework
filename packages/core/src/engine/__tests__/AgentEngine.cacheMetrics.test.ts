@@ -54,7 +54,7 @@ describe('metrics event with cache usage', () => {
         const engine = createBaseEngine({
             providers: { mock: providerWithUsage({ cacheReadTokens: 1_000_000 }) },
             defaultProvider: 'mock', agents: [testAgent], defaultAgent: testAgent.id, tools: [], transport,
-            workingDir: process.cwd(), noQA: true, iterationMode: 'auto',
+            workingDir: process.cwd(), iterationMode: 'auto',
             observability: { costTracker: { inputPricePerMToken: 10, cacheReadPricePerMToken: 1, budget: { perRun: 0.5 }, onBudgetExceeded: u => { runCost = u.runCostUsd; } } },
         });
         await engine.run('hi');

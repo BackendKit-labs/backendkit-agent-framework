@@ -5,6 +5,13 @@ import { hashArgs } from '../shared/utils/canonical-json';
 import type { ExecutionContext, ToolDefinition } from '../types';
 import { createToolContext } from '../tools/createToolContext';
 import { getToolInputSchema, validateToolDefinition } from '../tools/defineTool';
+import { AuditDispatcher } from '../governance/audit';
+import { agentCouldPerform, evaluatePolicies } from '../governance/policy';
+import { approvalProblem } from '../governance/approval';
+import type {
+    ApprovalRequest, Approver, ApproverRef, AuditDecision, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
+} from '../governance/types';
+import { randomUUID } from 'node:crypto';
 
 /**
  * MCP tool server: exposes `ToolDefinition`s as MCP tools that run **directly**, with no model in between.
@@ -65,16 +72,28 @@ export interface ToolServerOptions {
      */
     context?: Partial<ExecutionContext> | ((call: ToolCallInfo & { signal: AbortSignal }) => ExecutionContext);
     /**
-     * Decides whether a call may run. Required when any tool is `destructive`: a direct tool bypasses the
-     * engine's `allowedTools`, gates and budget, so the server refuses to start without a gate of its own.
+     * Decides whether a call may run: the simple yes/no gate. A `destructive` tool needs this or `policy`: a direct
+     * tool bypasses the engine's `allowedTools`, gates and budget, so the server refuses to start without a gate.
      * `false` or a throw produces `isError` with outcome 'denied'; the tool never runs.
      */
     authorize?: (call: ToolCallInfo) => boolean | Promise<boolean>;
     /**
+     * The same `ToolPolicy` contract the engine uses (SPEC-0014): allow, deny or ask, per call, with the principal.
+     * Runs after `authorize`. An `ask` goes to `approver`; without one it is refused. Several combine: deny > ask > allow.
+     */
+    policy?: ToolPolicy | ToolPolicy[];
+    /** Answers an `ask` now. Its answer is validated (accepted kind, no self-approval) before it counts. */
+    approver?: Approver;
+    /** Who the server acts for; part of the principal policies and audit events see. */
+    identity?: Identity;
+    /**
      * Receives one record per call, after it finishes (also for denied and failed calls). A failure inside the
      * hook is written to stderr and does not change the result: the tool has already run.
+     * @deprecated Use `auditSink`, which receives the same `AuditEvent` the engine writes.
      */
     audit?: (record: ToolCallRecord) => void | Promise<void>;
+    /** One `AuditEvent` per call (the engine's format), in call order. Failures go to stderr. */
+    auditSink?: AuditSink | AuditSink[];
     /** Calls whose text exceeds this many characters fail with outcome 'too_large'. Default 1 048 576. */
     maxOutputChars?: number;
     /** Time limit for tools that declare none. Default: none. */
@@ -129,9 +148,9 @@ function prepareTools(opts: ToolServerOptions): PreparedTool[] {
         validateToolDefinition(tool);
         if (seen.has(tool.name)) throw new Error(`createToolServer(${opts.name}): duplicate tool name "${tool.name}"`);
         seen.add(tool.name);
-        if (tool.destructive && !opts.authorize) {
+        if (tool.destructive && !opts.authorize && !opts.policy) {
             throw new Error(
-                `createToolServer(${opts.name}): tool "${tool.name}" is destructive and no authorize hook was given. ` +
+                `createToolServer(${opts.name}): tool "${tool.name}" is destructive and no authorize hook or policy was given. ` +
                 'A direct tool skips the engine\'s allowedTools, gates and budget; the server must gate it itself.',
             );
         }
@@ -170,6 +189,27 @@ function annotationsOf(tool: ToolDefinition): PreparedTool['annotations'] {
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
+/** Per-server state shared by every call: the policies and the audit dispatcher (one order for all calls). */
+interface Governance {
+    policies: ToolPolicy[];
+    sinks: AuditDispatcher;
+}
+
+const governanceOf = new WeakMap<ToolServerOptions, Governance>();
+
+function governance(opts: ToolServerOptions): Governance {
+    let g = governanceOf.get(opts);
+    if (!g) {
+        g = {
+            policies: opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [],
+            sinks: new AuditDispatcher(opts.auditSink, (err) =>
+                process.stderr.write(`[${opts.name}] audit sink failed: ${messageOf(err)}\n`)),
+        };
+        governanceOf.set(opts, g);
+    }
+    return g;
+}
+
 function registerTools(server: McpServer, opts: ToolServerOptions, prepared: PreparedTool[], maxOutputChars: number): void {
     for (const { tool, schema, annotations } of prepared) {
         server.registerTool(
@@ -204,6 +244,15 @@ async function runCall(
     const started = Date.now();
     const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as Record<string, unknown>;
     const info: ToolCallInfo = { tool, args, requestId: extra.requestId, ...(extra.sessionId ? { sessionId: extra.sessionId } : {}) };
+    const gov = governance(opts);
+    const principal: Principal = {
+        ...opts.identity,
+        agentId: opts.name,
+        sessionId: info.sessionId ?? 'mcp',
+        chain: [opts.name],
+    };
+    let approval: { id: string; by: ApproverRef } | undefined;
+    let policyDecision: AuditDecision = 'allow';
 
     const finish = async (outcome: ToolCallOutcome, text: string, error?: string): Promise<CallToolResult> => {
         await audit(opts, {
@@ -218,6 +267,25 @@ async function runCall(
             outputChars: outcome === 'ok' ? text.length : 0,
             ...(error !== undefined ? { error } : {}),
         });
+        if (gov.sinks.enabled) {
+            const ran = outcome !== 'denied';
+            await gov.sinks.write({
+                at: new Date(started).toISOString(),
+                principal: {
+                    agentId: principal.agentId, sessionId: principal.sessionId, chain: principal.chain,
+                    ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}),
+                    ...(principal.userId !== undefined ? { userId: principal.userId } : {}),
+                },
+                tool: tool.name,
+                argsHash: hashArgs(args),
+                decision: ran ? 'allow' : policyDecision === 'allow' ? 'deny' : policyDecision,
+                ...(error !== undefined ? { reason: error } : {}),
+                ...(ran ? { outcome: outcome as AuditOutcome } : {}),
+                durationMs: Date.now() - started,
+                ...(approval ? { approval } : {}),
+                ...(tool.meta ? { meta: tool.meta } : {}),
+            });
+        }
         return outcome === 'ok'
             ? { content: [{ type: 'text', text }] }
             : { content: [{ type: 'text', text }], isError: true };
@@ -235,7 +303,24 @@ async function runCall(
         if (!allowed) return finish('denied', `Tool "${tool.name}" denied: ${reason}`, reason);
     }
 
-    // 2. Cancellation: client abort or time limit, whichever comes first.
+    // 2. Policy (SPEC-0014 contract): deny, ask (to the approver, validated) or allow, with an optional mode.
+    let mode: 'run' | 'sandboxed' | 'dry_run' | undefined;
+    if (gov.policies.length > 0) {
+        const d = await evaluatePolicies(gov.policies, principal, { tool, args });
+        if (d.effect === 'deny') return finish('denied', `Tool "${tool.name}" denied: ${d.reason}`, d.reason);
+        if (d.effect === 'ask') {
+            const resolved = await resolveAsk(opts, gov, principal, tool, args, d);
+            if (!resolved.ok) {
+                policyDecision = 'deny';
+                return finish('denied', `Tool "${tool.name}" denied: ${resolved.reason}`, resolved.reason);
+            }
+            approval = resolved.approval;
+        } else {
+            mode = d.mode;
+        }
+    }
+
+    // 3. Cancellation: client abort or time limit, whichever comes first.
     const timeoutMs = tool.timeoutMs ?? opts.toolTimeoutMs;
     const controller = new AbortController();
     const onClientAbort = () => controller.abort(extra.signal.reason);
@@ -251,9 +336,18 @@ async function runCall(
         }, timeoutMs);
     });
 
-    // 3. Context and execution.
+    // 4. Context and execution.
     try {
-        const ctx = contextFor(opts, info, controller.signal);
+        const ctx: ExecutionContext = {
+            ...contextFor(opts, info, controller.signal),
+            principal,
+            ...(mode === 'dry_run' ? { dryRun: true } : {}),
+        };
+        if (mode === 'sandboxed' && !ctx.sandbox) {
+            const reason = 'the policy requires a sandbox and the tool context has none';
+            policyDecision = 'deny';
+            return finish('denied', `Tool "${tool.name}" denied: ${reason}`, reason);
+        }
         const output = await Promise.race([tool.execute(args, ctx), timedOut]);
         const text = typeof output === 'string' ? output : JSON.stringify(output);
         if (text.length > maxOutputChars) {
@@ -274,6 +368,36 @@ async function runCall(
         extra.signal.removeEventListener('abort', onClientAbort);
         timedOut.catch(() => undefined);
     }
+}
+
+/**
+ * An `ask` in the tool server: the approver answers now, its answer is validated (accepted kind, no self-approval,
+ * an agent approver must itself be allowed by the policies), or the call is refused. There is no pending store
+ * here: an MCP client waits for its answer.
+ */
+async function resolveAsk(
+    opts: ToolServerOptions, gov: Governance, principal: Principal, tool: ToolDefinition, args: Record<string, unknown>,
+    d: Extract<PolicyDecision, { effect: 'ask' }>,
+): Promise<{ ok: true; approval: { id: string; by: ApproverRef } } | { ok: false; reason: string }> {
+    if (!opts.approver) return { ok: false, reason: `needs approval (${d.reason}) and no approver is configured` };
+    const request: ApprovalRequest = {
+        id: randomUUID(), principal, subject: { kind: 'tool_call', call: { tool, args } }, reason: d.reason,
+        ...(d.approver ? { approver: d.approver } : {}), ...(d.accepts ? { accepts: d.accepts } : {}),
+        createdAt: new Date().toISOString(),
+    };
+    let answer;
+    try {
+        answer = await opts.approver.request(request);
+    } catch (err) {
+        return { ok: false, reason: `the approver failed: ${messageOf(err)}` };
+    }
+    if (answer.decision !== 'approve') return { ok: false, reason: answer.reason ?? 'rejected by the approver' };
+    const problem = await approvalProblem(answer, request, async (by) => {
+        const asAgent = await evaluatePolicies(gov.policies, { ...principal, agentId: by.id, chain: by.chain ?? [by.id] }, { tool, args });
+        return agentCouldPerform(asAgent);
+    });
+    if (problem) return { ok: false, reason: `invalid approval: ${problem}` };
+    return { ok: true, approval: { id: request.id, by: answer.by } };
 }
 
 class ToolTimeout extends Error {

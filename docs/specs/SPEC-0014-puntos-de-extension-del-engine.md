@@ -1,7 +1,7 @@
 # SPEC-0014: puntos de extensión del engine
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador
+**Estado:** Implementado (F0–F5 en #171–#174, sin publicar). Pendiente para el bump: reenviar las opciones nuevas en `AgentMCPServer`.
 **Depende de:** [ADR-0008](../adr/0008-core-define-contratos-verticales-y-apps-fuera.md), [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md), [SPEC-0011](SPEC-0011-mcp-server-tools-directas.md) (hechos declarados en las tools)
 **Tipo de cambio:** aditivo. Nada existente se rompe; `onToolApproval` queda como adaptador obsoleto.
 **Objetivo:** que el engine ofrezca una forma genérica de enganchar lógica alrededor de un turno y de cada llamada a tool, con un solo contrato de política, uno de auditoría y uno de aprobación. El engine y `createToolServer` usan los mismos contratos.
@@ -224,7 +224,7 @@ Aprobador puede ser una persona (`human`), otro agente (`agent`) o un servicio c
 
 1. **Tipo aceptado:** `by.kind` debe estar en `accepts` de la decisión `ask`. `defaultToolPolicy` pone `accepts: ['human']` para lo `destructive`: lo irreversible solo lo aprueba una persona.
 2. **Nadie se aprueba a sí mismo:** `by.id` no puede ser el agente que pidió la acción ni nadie de su `principal.chain`.
-3. **Un agente no aprueba más de lo que puede hacer:** si `by.kind === 'agent'`, la política se evalúa también con ese agente como principal sobre el mismo `subject`. Si a él no le daría `allow` (o un `ask` que él mismo satisface), su aprobación no vale. Es la regla de Steward: el delegado nunca supera al que delega.
+3. **Un agente no aprueba más de lo que puede hacer:** si `by.kind === 'agent'`, el agente debe estar registrado y tener la tool en su `allowedTools`. Además, la política se evalúa con ese agente como principal sobre el mismo `subject`. Vale si da `allow`, o un `ask` que un agente puede satisfacer (sin `accepts`, o con `'agent'` en `accepts`). No vale si da `deny`, o un `ask` reservado a otros tipos, como solo personas. Es la regla de Steward: el delegado nunca supera al que delega. Está implementado en `agentCouldPerform`. Se precisó en F5: exigir solo `allow` impedía que un agente aprobara cualquier escritura bajo la política por defecto.
 4. **Trazabilidad:** toda aprobación queda en la auditoría con `by` completo (tipo, id y cadena si es un agente) y su motivo. Las aprobaciones de un agente se auditan igual que las de una persona.
 
 Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, montos menores a un umbral) o derivar la petición a una persona o a un agente. Las reglas 1 a 4 se aplican igual: un servicio no aprueba lo que `accepts` reserva a personas.
@@ -268,11 +268,41 @@ Un servicio (`service`, como Hermes) puede aprobar por regla (por ejemplo, monto
   - **Errores:** si un hook lanza, falla el turno y el error nombra el hook y el punto. Si es `beforeTool`, la tool no se ejecuta.
   - **Criterio de aceptación cumplido:** un test reproduce el pipeline de coding solo con hooks. Clasifica en `beforeRun`, pone el brief en `systemPrompt` solo para el orquestador, y en `afterTurn` hace una revisión de QA con un veredicto guardado en `state`.
   - **Fuera de F3:** el mapeo real del `Orchestrator` y el `QAService` a hooks es SPEC-0015 F1.
-- **F4. Unificación con el servidor de tools** (§5) y tabla de correspondencia con Steward.
-- **F5. Aprobación durable (opción A).** `ApprovalStore` con implementación en archivo (`atomicWrite`, una sola decisión y una sola ejecución por id), `resumeApproved`, `agentApprover` y `consoleApprover`. Tests:
-  - una acción pendiente sobrevive a un reinicio y se ejecuta una sola vez al aprobarse;
-  - un agente supervisor aprueba un paso no destructivo y no puede aprobar uno `destructive`.
-  - Comparación en papel con el `ApprovalStore` de Hermes (`hermes-server/src/pg-approvals.ts`).
+- **F4. Unificación con el servidor de tools. Hecho.**
+  - **Opciones nuevas de `createToolServer`:**
+    - `policy`, con el mismo contrato que el engine.
+    - `approver`. Un `ask` sin aprobador se rechaza, porque un cliente MCP espera la respuesta en el momento y no hay pendientes.
+    - `identity`, que forma el principal junto con el nombre del servidor.
+    - `auditSink`, que recibe el `AuditEvent` del engine.
+  - **Cada tool recibe** `ctx.principal` y, en modo `dry_run`, `ctx.dryRun`.
+  - **Tool `destructive`:** necesita `authorize` o `policy` para que el servidor arranque.
+  - **API de 0.37.2 intacta:** `authorize` y `audit(ToolCallRecord)` no cambian. Este último queda `@deprecated`.
+  - **Pendiente para el bump:** `AgentMCPServer` (en `mcp-server`) debe aceptar y reenviar `policy`, `approver`, `identity` y `auditSink`. Se hace junto con el rango nuevo de core, porque sus tipos públicos dependen de él.
+- **Correspondencia con Steward (en papel):**
+
+  | Steward (`governance`) | SDK |
+  |---|---|
+  | `AgentPrincipal` (`agentId`, `tenantId`, `scopeId`, `chain`, `roles`, `scopes`, `userId`) | `Principal`. `scopeId` y `organizationId` van en `attributes` |
+  | `PolicyProvider.decide(principal, ToolCallContext)` | `ToolPolicy.decide(principal, ToolCall)`. `resourcePath` se deriva de `args` dentro de la política |
+  | `Decision` allow con modos `run`, `approval_required`, `sandboxed` y `dry_run`, o deny | `allow` con `mode`, `ask` y `deny` |
+  | `ToolCallContext.approved` | `ToolCall.approved` (solo lo pone `runApproved`) |
+  | `AuditEvent` (`chain`, `argsHash`, `decision`, `durationMs`, `costUsd`, `configVersion`) | `AuditEvent`. `costUsd` y `configVersion` pueden ir en `meta`, o añadirse cuando Steward migre |
+  | `AuditSink`, `HashChainAuditSink` | Los mismos, con el mismo esquema de cadena |
+  | `ApprovalLevel` (departamento o superior) | `PolicyDecision.ask.approver`, como texto libre que enruta Hermes |
+
+- **F5. Aprobación durable (opción A). Hecho.**
+  - **`FileApprovalStore`:** guarda tres archivos por petición (petición, decisión y marca de ejecutada). Cada uno se publica con un hard link exclusivo: es atómico entre procesos y no necesita locks. Hay una sola decisión y una sola ejecución por id, e impide ids con rutas.
+  - **`AgentEngine.runApproved(id)`** ejecuta lo aprobado como mucho una vez: primero marca y después ejecuta, repitiendo todas las comprobaciones. La aprobación guardada solo satisface un `ask` cuyo `accepts` admite al aprobador. Si resulta inválida, se consume y se audita como `deny`.
+  - **`AgentEngine.consultAgent(id, pregunta)`** permite preguntarle algo a otro agente.
+  - **Aprobadores:** `agentApprover(consult, agentId)` toma la respuesta APPROVE/REJECT del agente. `consoleApprover()` pregunta a una persona por la terminal con y/N.
+  - **Tests:**
+    - una petición pendiente sobrevive a un reinicio y se ejecuta una vez;
+    - una decisión duplicada falla;
+    - dos `markExecuted` concurrentes dan exactamente un `true`;
+    - un agente supervisor aprueba una escritura y no puede aprobar un borrado destructivo;
+    - una aprobación de agente guardada no cubre una tool destructiva.
+  - **Comparación con Hermes (`pg-approvals.ts`):** el mismo modelo de decisión única por id y estados `pending`, `decided` y `executed`. Hermes añade reasignación y una prueba firmada, que siguen siendo del producto.
+- **`resumeApproved`** del texto original quedó como el método `engine.runApproved(id)`.
 
 **#166 se publica como está (decidido el 2026-11-14).**
 - **Compatibilidad verificada:** los 12 paquetes de Steward que dependen de `agent-core` compilan contra el core de #166. Se comprobó con un `tsconfig` temporal que resuelve el core local. Los paquetes son `governed-agent`, `knowledge`, `hermes`, `hermes-server`, `agent-accounting` y los 7 agentes contables.

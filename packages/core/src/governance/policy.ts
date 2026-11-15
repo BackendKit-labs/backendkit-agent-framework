@@ -62,6 +62,17 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
 }
 
 /**
+ * Rule 3 of SPEC-0014 §6.2 on a decision taken with the approving agent as principal: the agent could do the call
+ * itself if it is allowed, or if it would only need an approval an agent may give. A deny, or an ask reserved for
+ * other kinds (e.g. people only), means it cannot approve it either.
+ */
+export function agentCouldPerform(asAgent: PolicyDecision): boolean {
+    if (asAgent.effect === 'allow') return true;
+    if (asAgent.effect === 'deny') return false;
+    return !asAgent.accepts || asAgent.accepts.includes('agent');
+}
+
+/**
  * Asks every policy and combines the answers. A policy that throws denies (fail-closed): a decision that cannot
  * be made is not a permission.
  */

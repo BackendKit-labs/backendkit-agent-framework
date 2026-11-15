@@ -82,7 +82,7 @@ export interface AgentEngineOptions extends EngineOptions {
     /** MCP client manager — connects to external MCP servers and registers their tools */
     mcpManager?: MCPClientManager;
     /**
-     * Called before executing write/execute tools (write_file, edit_file, run_command) when
+     * Called before executing write/execute tools (tools that declare `readOnly: false`) when
      * iteration mode is 'manual'. Return 'approve' to run, 'approve_all' to run and disable
      * further prompts this session, 'reject' to skip the tool call.
      */
@@ -983,15 +983,10 @@ export class AgentEngine {
         if (this.opts.workingDir) {
             parts.push(
                 `## Working Directory\n` +
-                `\`${this.opts.workingDir}\`\n\n` +
-                `ALWAYS use RELATIVE paths with tools (e.g. \`src/index.ts\`, \`package.json\`). ` +
-                `NEVER invent absolute paths like \`/workspace/...\` or \`/home/...\`.`
+                `\`${this.opts.workingDir}\``
             );
         }
         if (this.opts.projectContext) parts.push(this.opts.projectContext);
-        // Per-agent session notes (tool quirks, learnings routed by LearningRouter)
-        const agentNotes = this.opts.store?.getAgentNotes?.(profile.id);
-        if (agentNotes) parts.push(`## Agent Session Notes\n${agentNotes}`);
         if (this.memoryContextBlock) parts.push(this.memoryContextBlock);
         if (this.activeSkillAddition) parts.push(this.activeSkillAddition);
         parts.push(...hookSections);
@@ -1923,21 +1918,20 @@ export class AgentEngine {
         const id = agentId ?? this.currentAgentId;
         const principal = this.principalFor(id, chain);
         const profile = this.opts.agents.get(id);
-        const storeRoot = this.opts.store?.projectDir;
-        const additionalRoots = [
-            ...(this.opts.additionalRoots ?? []),
-            ...(storeRoot ? [storeRoot] : []),
-        ];
+        const additionalRoots = this.opts.additionalRoots ?? [];
+        const serviceSource = this.opts.services;
+        const serviceMap = serviceSource
+            ? new Map(Object.entries(typeof serviceSource === 'function' ? serviceSource(profile) : serviceSource))
+            : undefined;
         return {
             agentId: id,
             sessionId: this.opts.sessionId ?? 'default',
             principal,
             workingDir: this.opts.workingDir,
             memory: this.memory,
-            store: this.opts.store,
+            ...(serviceMap ? { services: serviceMap } : {}),
             advancedMemory: this.opts.memorySystem,
             ...(additionalRoots.length ? { additionalRoots } : {}),
-            ...(profile?.blockedCommands?.length ? { blockedCommands: profile.blockedCommands } : {}),
             askAgent: async (agentId, question, context) => {
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1, chain: principal.chain });
                 return result.content;

@@ -1,4 +1,5 @@
 import type { ToolDefinition, ExecutionContext } from '@backendkit-labs/agent-core';
+import { getStore } from '../context-services';
 
 export const saveUserPreferenceTool: ToolDefinition = {
     name: 'save_user_preference',
@@ -12,8 +13,8 @@ export const saveUserPreferenceTool: ToolDefinition = {
     },
     async execute(args: unknown, ctx: ExecutionContext) {
         const { content } = args as { content: string };
-        if (!ctx.store) return 'Error: no persistent store configured';
-        ctx.store.appendUserPreference(content);
+        if (!getStore(ctx)) return 'Error: no persistent store configured';
+        getStore(ctx)!.appendUserPreference(content);
         return `User preference saved.`;
     },
 };

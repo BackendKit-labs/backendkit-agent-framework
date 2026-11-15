@@ -77,7 +77,7 @@ describe('run_command — wrapper bypasses are rejected', () => {
     });
 
     it('applies the per-agent blocklist to wrapped binaries', async () => {
-        const blocked = { ...ctx, blockedCommands: ['rm'] };
+        const blocked = { ...ctx, services: new Map<string, unknown>([['coding.blockedCommands', ['rm']]]) };
         expect(await runCommandTool.execute({ command: 'env rm -rf x' }, blocked)).toMatch(/"rm" is not available/);
         expect(await runCommandTool.execute({ command: 'find . -delete' }, blocked)).toMatch(/"rm" is not available/);
     });

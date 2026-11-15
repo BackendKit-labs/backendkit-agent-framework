@@ -24,7 +24,7 @@ export interface AgentProfile {
     /** Additional instructions appended to the base system prompt when this agent is active. */
     systemPromptAddition?: string;
     /**
-     * Shell binaries this agent is NOT allowed to execute via run_command,
+     * Shell binaries this agent is NOT allowed to execute through a shell tool,
      * even if they are on the global COMMAND_ALLOWLIST.
      * Used to steer agents toward MCP tools when an equivalent capability exists.
      * Example: blockedCommands: ['docker'] forces data/backend to use pg_create
@@ -117,7 +117,8 @@ export interface ExecutionContext {
     dryRun?: boolean;
     workingDir?: string;
     memory: SessionMemoryData;
-    store?: ProjectStoreData;
+    /** Dependencies the vertical gave its tools (`services` engine option). Read them with `getService(ctx, key)`. */
+    services?: ReadonlyMap<string, unknown>;
     askAgent(agentId: string, question: string, context?: string): Promise<string>;
     /** Direct LLM call — single user prompt, returns text. Used by routing/compaction tools. */
     llmCall?(prompt: string): Promise<string>;
@@ -126,14 +127,8 @@ export interface ExecutionContext {
     /** Advanced three-tier memory (episodic/semantic/procedural). Present when configured via createBaseEngine({ memorySystem }). */
     advancedMemory?: import('../agent-memory/MemorySystem').MemorySystem;
     /**
-     * Shell binaries this agent is not allowed to run. Populated from the
-     * agent profile's blockedCommands field. Enforced by run_command.
-     */
-    blockedCommands?: string[];
-    /**
      * Extra directories (absolute paths) that file tools are allowed to access
-     * beyond workingDir. Computed by AgentEngine from opts.additionalRoots plus
-     * the project data directory (store.projectDir).
+     * beyond workingDir. Taken from the `additionalRoots` engine option.
      */
     additionalRoots?: string[];
     /**
@@ -161,35 +156,6 @@ export interface SessionMemoryData {
 }
 
 /** Fields the agent can update in memory/session.md via the update_session tool. */
-export interface SessionUpdates {
-    /** Replace the Current Feature section — what is being worked on + progress */
-    feature?: string;
-    /** Append bullets to Decisions — key choices made (accumulates over time) */
-    decisions?: string[];
-    /** Replace Active Issues section — current blockers or open items */
-    issues?: string[];
-    /** Append bullets to Engine Learnings — non-obvious codebase discoveries (accumulates) */
-    learnings?: string[];
-    /** Replace Next Steps section — what needs to happen after this */
-    next_steps?: string[];
-}
-
-export interface ProjectStoreData {
-    /** Absolute path to the project memory directory (~/.{appName}/projects/{key}). Read-only. */
-    readonly projectDir?: string;
-    appendContext(content: string): void;
-    appendLearning(content: string): void;
-    saveAudit(agentId: string, content: string): void;
-    getContext(): string;
-    getLearnings(): string;
-    /** Returns combined global + project agent-notes for a given agent id. */
-    getAgentNotes?(agentId: string): string;
-    listAudits(): string[];
-    getLatestAudit(agentId: string): string | null;
-    appendUserPreference(content: string): void;
-    updateSession(updates: SessionUpdates): void;
-}
-
 // ─── LLM Provider ────────────────────────────────────────────────────────────
 
 export interface ModelConfig {
@@ -373,8 +339,11 @@ export interface EngineOptions {
     sessionId?: string;
     /** Context injected into every agent system prompt (USER.md + AGENT.md + memory/contexto-proyecto.md + learnings.md + memory/session.md + audits/lecciones-aprendidas.md) */
     projectContext?: string;
-    /** Persistent store for context, learnings, audits and logs */
-    store?: ProjectStoreData;
+    /**
+     * Dependencies a vertical gives its tools, readable with `getService(ctx, key)`. A function receives the agent
+     * the call runs for (undefined if unknown), so a service can differ per agent.
+     */
+    services?: Record<string, unknown> | ((profile: AgentProfile | undefined) => Record<string, unknown>);
     /**
      * Pre-loaded skills (builtins + any statically provided skills).
      * Injected into the system prompt per-run based on trigger + stack matching.

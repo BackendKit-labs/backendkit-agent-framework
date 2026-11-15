@@ -13,7 +13,7 @@ describe('save_* tools warn about secrets', () => {
         updateSession: jest.fn(),
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ctx = { store } as any;
+    const ctx = { services: new Map<string, unknown>([['coding.store', store]]) } as any;
     let warn: jest.SpyInstance;
 
     beforeEach(() => { warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined); });

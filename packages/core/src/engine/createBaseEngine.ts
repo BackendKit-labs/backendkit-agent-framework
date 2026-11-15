@@ -13,8 +13,8 @@ import type {
     ToolDefinition,
     ToolApprovalDecision,
     SessionMemoryData,
-    ProjectStoreData,
     Skill,
+    EngineOptions,
 } from '../types';
 import type { Transport } from '../transport/Transport';
 import { MCPClientManager } from '../mcp/MCPClientManager';
@@ -96,7 +96,7 @@ export interface BaseEngineOptions {
     maxDelegationDepth?: number;
 
     /**
-     * Called before write/execute tools (write_file, edit_file, run_command) and before
+     * Called before write/execute tools (tools that declare `readOnly: false`) and before
      * package installs. Return 'approve', 'approve_all' (stop prompting for this session) or
      * 'reject' to skip the tool call. Without it, no approval is requested.
      */
@@ -179,8 +179,8 @@ export interface BaseEngineOptions {
     /** Custom session memory. Defaults to in-memory SessionMemory. */
     sessionMemory?: SessionMemoryData;
 
-    /** Persistent project store (context, learnings, audits). Optional. */
-    store?: ProjectStoreData;
+    /** Dependencies for the tools of a vertical, read with `getService(ctx, key)`. See `EngineOptions.services`. */
+    services?: EngineOptions['services'];
 
     /** Session ID for tracking and correlation. */
     sessionId?: string;
@@ -440,7 +440,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         detectedStack: opts.detectedStack,
         loadSkills: opts.loadSkills,
         ...(opts.sessionMemory ? { sessionMemory: opts.sessionMemory } : {}),
-        ...(opts.store ? { store: opts.store } : {}),
+        ...(opts.services ? { services: opts.services } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(opts.allowUnlistedTools ? { allowUnlistedTools: true } : {}),
         ...(opts.mcpServers?.length

@@ -109,6 +109,7 @@ export { adaptProviderToLLMClient } from './shared/llm/chat-client';
 export type { LLMChatClient } from './shared/llm/chat-client';
 export { getGitDiff } from './shared/utils/git';
 export { sanitizeFilename } from './shared/utils/string-utils';
+export { getService } from './tools/services';
 // ── MCP client — MCPClientManager in AgentEngineOptions, MCPServerConfig in coding config ─
 export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
@@ -192,8 +193,6 @@ export type {
     ToolDefinition,
     ExecutionContext,
     SessionMemoryData,
-    ProjectStoreData,
-    SessionUpdates,
     ModelConfig,
     LLMMessage,
     LLMToolCall,

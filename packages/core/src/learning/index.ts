@@ -54,7 +54,7 @@ function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
     };
 }
 
-function detectPatterns(experiences: Experience[], threshold: number): LearnedPattern[] {
+function detectPatterns(experiences: Experience[], threshold: (sample: Experience) => number): LearnedPattern[] {
     const groups = new Map<string, Experience[]>();
     for (const e of experiences) {
         if (e.outcome !== 'failure') continue;
@@ -64,9 +64,9 @@ function detectPatterns(experiences: Experience[], threshold: number): LearnedPa
     }
     const patterns: LearnedPattern[] = [];
     for (const [key, group] of groups) {
-        if (group.length < threshold) continue;
         group.sort((a, b) => a.at.localeCompare(b.at));
         const last = group[group.length - 1];
+        if (group.length < threshold(last)) continue;
         patterns.push({
             key, domain: last.domain, kind: last.kind, ...(last.subject ? { subject: last.subject } : {}),
             count: group.length,
@@ -101,7 +101,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const store = options.store ?? new InMemoryStore();
     const approvals = options.approvals ?? new MemoryApprovalStore();
     const rules = options.rules ?? new MemoryRuleStore();
-    const threshold = options.threshold ?? 3;
+    const base = options.threshold ?? 3;
+    const threshold = options.thresholdFor ?? (() => base);
     const maxExperiences = options.maxExperiences ?? 1000;
     const maxChars = options.lessons?.maxChars ?? 1500;
     const maxLessons = options.lessons?.maxLessons ?? 5;

@@ -34,6 +34,9 @@ export interface PendingPromotion {
 // ── EnterpriseReflection ──────────────────────────────────────────────────────
 
 /**
+ * @deprecated Use `EnterpriseLearning` (SPEC-0017 F6): it learns on the learning module of agent-core, keeps a person
+ * in charge of every rule and stores the approved rules in the vault. This class is removed in a later minor.
+ *
  * Adapter that wires the ReflectionEngine (from agent-core, built for coding
  * agents) to enterprise business agents — without modifying agent-core.
  *

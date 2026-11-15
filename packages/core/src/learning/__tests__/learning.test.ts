@@ -179,3 +179,13 @@ describe('FileRuleStore', () => {
         expect(await new FileRuleStore(path.join(os.tmpdir(), 'bk-no-such-rules.json')).list()).toEqual([]);
     });
 });
+
+describe('thresholdFor', () => {
+    it('lets a critical failure make a pattern with one occurrence and a minor one need more', async () => {
+        const learning = createLearning({ thresholdFor: e => (e.severity === 'critical' ? 1 : 3) });
+        await learning.record({ agentId: 'a', domain: 'fraud', kind: 'duplicate_payment', severity: 'critical', situation: 's', action: 'x' });
+        await learning.record({ agentId: 'a', domain: 'fraud', kind: 'typo', severity: 'low', situation: 's', action: 'x' });
+        expect((await learning.patterns()).map(p => p.kind)).toEqual(['duplicate_payment']);
+        expect(await learning.proposals()).toHaveLength(0); // no rule for an unknown domain by default
+    });
+});

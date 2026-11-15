@@ -22,6 +22,9 @@ interface PatternRecord extends StoredRecord {
  * relevant task, getRelevantPatterns() retrieves matching heuristics and
  * buildContextBlock() formats them for injection into the system prompt.
  */
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): learned `trigger -> action -> outcome` patterns are experiences of the learning module. It is removed in a later minor.
+ */
 export class ProceduralMemory {
     private readonly backend: MemoryStoreBackend;
     private readonly maxPatterns: number;

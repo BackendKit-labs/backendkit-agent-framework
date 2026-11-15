@@ -80,6 +80,9 @@ const KEYWORD_MAP: Record<string, string[]> = {
 
 // ── PolicyPromoter ───────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): a proposed rule waits in an `ApprovalStore` and, once approved, goes to a `RuleStore`. It is removed in a later minor.
+ */
 export class PolicyPromoter {
   private manifestPath: string;
   private registry?: DomainRegistry;

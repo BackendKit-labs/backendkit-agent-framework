@@ -38,6 +38,9 @@ import { DomainRegistry } from './domain-registry';
 
 // ── ReflectionEngine ─────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): lessons in the prompt and rules that wait for a person, for any agent. This engine promotes rules to `manifest.yaml` on its own and is tied to code audits. It is removed in a later minor.
+ */
 export class ReflectionEngine {
   private catalog: FailureCatalog;
   private detector: PatternDetector;

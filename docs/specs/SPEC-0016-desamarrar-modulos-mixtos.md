@@ -1,7 +1,7 @@
 # SPEC-0016: desamarrar los módulos mixtos
 
 **Fecha:** 2026-11-14
-**Estado:** Implementado F1 a F3. Falta el release.
+**Estado:** Implementado y publicado (#182, #183; core 0.40.0, agent-coding 0.30.0).
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (hook `systemPrompt`). Puede ir en el mismo minor que [SPEC-0015](SPEC-0015-extraer-coding-de-los-contratos-de-core.md).
 **Tipo de cambio:** con ruptura en los imports de la app de terminal; aditivo para quien use `createBaseEngine` sin esas funciones.
 **Objetivo:** que en core quede la idea genérica de cada módulo mixto (instrucciones por capas, skills, comandos, agentes como datos) y que la estructura de archivos de la app de terminal (`~/.appName/...`) pase a ser un adaptador.

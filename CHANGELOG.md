@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.41.0 (sin publicar)
+## v0.41.0 (2026-11-15)
 
 [SPEC-0016](docs/specs/SPEC-0016-desamarrar-modulos-mixtos.md) F1–F3 (#182): la app de terminal sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.39` no cubre 0.40, así que se barrieron los rangos de todos los paquetes y templates: `^0.40.0`, y en los peers `<0.42.0`.
 

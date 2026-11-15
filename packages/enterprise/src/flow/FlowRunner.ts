@@ -26,7 +26,12 @@ import {
     FlowCompensationResult,
 } from './types';
 import { ComplianceGate, ComplianceGateError } from './ComplianceGate';
-import type { EnterpriseReflection } from '../reflection/index.js';
+import type { GateRecord } from './ComplianceGate.js';
+
+/** Something that learns from the outcome of each gate: `EnterpriseLearning` (or the deprecated `EnterpriseReflection`). */
+export interface GateOutcomeRecorder {
+    recordGateOutcome(record: GateRecord): Promise<unknown>;
+}
 
 export type FlowAgentRunner = (
     agentId: string,
@@ -82,7 +87,7 @@ export interface FlowRunOptions {
      * When set, every ComplianceGate outcome (pass AND fail) is recorded in the
      * failure catalog so recurring failures can be promoted to deterministic rules.
      */
-    reflection?: EnterpriseReflection;
+    reflection?: GateOutcomeRecorder;
     /**
      * Stable identifier for this run. Used in gate records persisted to the vault.
      * Auto-generated when not provided.

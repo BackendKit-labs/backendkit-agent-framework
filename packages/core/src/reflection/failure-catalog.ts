@@ -26,6 +26,9 @@ const MAX_RECORDS = 10_000;
 
 // ── FailureCatalog ───────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): experiences are kept in any `MemoryStoreBackend`. It is removed in a later minor.
+ */
 export class FailureCatalog {
   private catalogDir: string;
   private records: FailureRecord[] = [];

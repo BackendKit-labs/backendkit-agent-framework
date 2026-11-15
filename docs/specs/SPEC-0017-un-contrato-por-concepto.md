@@ -163,3 +163,14 @@ createBaseEngine({ ..., audit: learning.sink, hooks: [learning.hooks], policy: l
 - **F6b. Coding.** Los dominios y hooks pasan a ser productores de señales; `manifest.yaml` deja de escribirse y el orquestador lee las reglas aprobadas del `RuleStore`. Se fija antes el comportamiento actual con la suite del pipeline (`reflection-cycle`).
 - **F6c. Enterprise.** `EnterpriseReflection` sobre el módulo nuevo, con un `RuleStore` que escribe el YAML del vault (`approvePromotion`, `demotionCandidates`, `activeRules`).
 - **F6d. Obsolescencia y documentación.** `@deprecated` en `ReflectionEngine`, `ProceduralMemory` y `DomainRegistry`; README; CHANGELOG. La retirada va en el minor siguiente.
+
+**Estado de F6 (2026-11-15).** F6a (core), F6b (coding), F6c (enterprise) y F6d (obsolescencia y documentación) están hechas. Lo que se hizo distinto de lo escrito arriba:
+
+| Punto | Diseño | Hecho | Por qué |
+|---|---|---|---|
+| Umbral | `threshold` único | `threshold` y `thresholdFor(experience)` | `enterprise` ya usaba un umbral por severidad. |
+| Reglas de tool en coding | — | **coding no propone reglas de tool**; solo lecciones | Aplicarlas exigiría pasar `policy` al engine, y eso cambia coding a la ruta gobernada de aprobación. Las reglas de coding son `PolicyRule` del orquestador. |
+| Ámbito de las reglas de coding | `manifest.yaml` global de la app | por proyecto, en `~/.{appName}/projects/<proyecto>/learning/` | El catálogo ya era por proyecto. El `manifest.yaml` global anterior se sigue leyendo. |
+| `ProceduralMemory` | adaptador obsoleto del módulo | solo `@deprecated` | No hay consumidor que migrar. |
+| `LessonsMemoGenerator` y `HistoricalLoader` | pasan a señales | **siguen sobre `ReflectionEngine`** (obsoleto) | El informe de lecciones en Markdown de coding queda para la retirada. |
+| Excepciones del test de grep | se quitan | **siguen**: `reflection/` y `project-key.ts` | Cada fase es aditiva; salen en el minor que retire `reflection`. |

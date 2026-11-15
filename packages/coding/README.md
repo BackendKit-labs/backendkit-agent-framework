@@ -15,7 +15,7 @@ A production-ready coding agent engine built on `@backendkit-labs/agent-core`. B
 - [Built-in tools](#built-in-tools)
 - [Skill packs](#skill-packs)
 - [Orchestration pipeline](#orchestration-pipeline)
-- [Reflection engine](#reflection-engine)
+- [Learning](#learning)
 - [MCP server integration](#mcp-server-integration)
 - [Multi-agent examples](#multi-agent-examples)
 - [Config file](#config-file)
@@ -384,19 +384,25 @@ orchestration: {
 
 ---
 
-## Reflection engine
+## Learning
 
-Observes failures across runs, promotes recurring patterns into policy rules:
+With `orchestration` on, the project learns from its audit gates and from tool calls that keep failing (the learning module of `agent-core`):
+
+- The findings of each gate become experiences. The same failure seen 3 times becomes a **lesson** in the prompt of the agent that failed, and a **proposed rule** for the orchestrator.
+- **A proposed rule is never applied on its own.** It waits for a person, kept in `~/.{appName}/projects/<project>/learning/`. Once approved, the orchestrator adds it to its policies on every `orchestrate()`.
 
 ```typescript
-orchestration: {
-  reflection: true,
-  // After each sprint:
-  // 1. Failures logged to FailureCatalog
-  // 2. Patterns with ≥3 occurrences promoted to PolicyRules
-  // 3. lecciones-aprendidas.md updated
-}
+import { createCodingLearning } from '@backendkit-labs/agent-coding/pipeline';
+
+const learning = createCodingLearning({ appName: 'my-app', projectRoot: process.cwd() });
+createCodingEngine({ ..., orchestration: { learning } });      // or leave it out: a default instance is created
+
+for (const p of await learning.proposals()) console.log(p.id, p.reason, p.subject);
+await learning.approve(id, { kind: 'human', id: 'ana' });      // or learning.reject(id, ...)
+await learning.retire(id);                                     // withdraws an approved rule
 ```
+
+`learning: false` turns it off. The Reflection Engine (`reflection: true`), which promoted rules to `manifest.yaml` without asking, is deprecated and no longer on by default.
 
 ---
 

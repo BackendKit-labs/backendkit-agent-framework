@@ -1114,6 +1114,35 @@ const engine = createBaseEngine({ ...opts, hooks: [review], maxHookContinues: 3 
 
 ---
 
+## Learning from experience
+
+An agent learns from what happens to it. The same failure seen 3 times becomes a **lesson** in its prompt and a **proposed rule** that waits for a person: nothing it learns applies itself.
+
+```typescript
+import { createLearning } from '@backendkit-labs/agent-core';
+
+const learning = createLearning();     // in memory; pass `store`, `approvals` and `rules` to keep them on disk
+const engine = createBaseEngine({
+  ...opts,
+  audit: learning.sink,                // every failed, timed-out, denied or blocked tool call is an experience
+  hooks: [learning.hooks],             // the lessons of each agent, sanitized and capped, join its system prompt
+  policy: learning.policy,             // enforces the rules a person approved: `{ tool, effect: 'ask' | 'deny' }`
+});
+
+await learning.record({ agentId: 'ap', domain: 'qa', kind: 'wrong_total', situation: 'posting an invoice', action: 'post_invoice' });
+
+for (const p of await learning.proposals()) console.log(p.id, p.reason);
+await learning.approve(id, { kind: 'human', id: 'ana' });   // only a human by default (`approverKinds`)
+await learning.retire(id);                                  // withdraw an approved rule
+```
+
+- **Domain and kind are free text.** A vertical records its own experiences with `record`, and decides the rule a pattern proposes with `ruleFor`. By default a tool that keeps failing proposes `{ tool, effect: 'ask' }`.
+- **`thresholdFor`** sets how many repetitions make a pattern per experience, e.g. a critical failure needs one.
+- **`FileRuleStore`**, `MemoryApprovalStore` and `FileApprovalStore` keep the rules and proposals; `agent-coding` and `agent-enterprise` build on this module.
+- `ReflectionEngine`, `DomainRegistry` and `ProceduralMemory` are deprecated.
+
+---
+
 ## Sources of agents, skills and instructions
 
 The engine reads no file by itself. Where its agents, skills and instruction layers come from is declared with sources, and an engine built without them touches no disk:

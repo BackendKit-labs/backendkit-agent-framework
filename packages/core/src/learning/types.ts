@@ -85,6 +85,11 @@ export interface LearningOptions {
     rules?: RuleStore;
     /** Repetitions that make a pattern: it becomes a lesson and a proposed rule. Default 3. */
     threshold?: number;
+    /**
+     * Repetitions that make a pattern, per kind of experience (it gets the latest of the group). Overrides `threshold`:
+     * for example, a critical failure may need one, and a minor one three.
+     */
+    thresholdFor?: (experience: Experience) => number;
     /** Most experiences kept; the oldest are dropped. Default 1000. */
     maxExperiences?: number;
     lessons?: { maxChars?: number; maxLessons?: number };

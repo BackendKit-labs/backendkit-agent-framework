@@ -53,6 +53,9 @@ interface ActiveDomainsFile {
 
 // ── DomainRegistry ───────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): `domain` and `kind` of an experience are free text, so no registry is needed. It is removed in a later minor.
+ */
 export class DomainRegistry {
   private globalCatalogPath: string;
   private activeDomainsPath: string;

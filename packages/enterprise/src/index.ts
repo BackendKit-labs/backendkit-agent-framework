@@ -94,6 +94,8 @@ export type { N8nTriggerOptions } from './integrations';
 
 export { EnterpriseReflection, recordGateOutcome, ENTERPRISE_DOMAINS, SEVERITY_THRESHOLD } from './reflection';
 export type { EnterpriseReflectionOptions, PendingPromotion, GateBridgeResult } from './reflection';
+export { EnterpriseLearning, VaultRuleStore } from './learning';
+export type { EnterpriseLearningOptions, RuleOutcomes } from './learning';
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 

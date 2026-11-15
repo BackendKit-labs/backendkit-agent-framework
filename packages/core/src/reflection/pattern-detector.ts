@@ -28,6 +28,9 @@ const DEFAULT_PROMOTION_THRESHOLD = 3;
 
 // ── PatternDetector ──────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use `createLearning` (SPEC-0017 F6): `learning.patterns()` detects patterns over any experience. It is removed in a later minor.
+ */
 export class PatternDetector {
   private catalog: FailureCatalog;
   private promotionThreshold: number;

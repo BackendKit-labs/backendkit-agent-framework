@@ -8,6 +8,10 @@ export type { CodingPipelineHooksOptions } from './coding-pipeline-hooks';
 // Orchestrator, FSM, audit
 export * from './orchestration';
 
+// Learning: the audit findings as experiences, and the orchestrator rules a person approves (SPEC-0017 F6)
+export { createCodingLearning, policyRuleFor, recordAuditFindings, approvedPolicyRules } from './learning';
+export type { CodingLearningOptions, CodingPolicyProposal } from './learning';
+
 // QA
 export { QAService } from './qa/qa-service';
 export type { QAServiceOptions, QAReviewResult } from './qa/qa-service';

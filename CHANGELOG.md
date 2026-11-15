@@ -1,5 +1,13 @@
 # Changelog
 
+## Sin publicar
+
+[SPEC-0017](docs/specs/SPEC-0017-un-contrato-por-concepto.md) F6 (autoaprendizaje). Aditivo en `agent-core` y `agent-enterprise`; **cambia el comportamiento** de `agent-coding` con `orchestration`.
+
+- **`agent-core`:** módulo `createLearning` con experiencias, lecciones en el prompt y reglas propuestas que esperan a una persona. `MemoryApprovalStore` y `FileRuleStore`. `ReflectionEngine`, `DomainRegistry`, `FailureCatalog`, `PatternDetector`, `PolicyPromoter` y `ProceduralMemory` quedan `@deprecated`; se retiran en un minor posterior.
+- **`agent-coding`:** con `orchestration`, los hallazgos de auditoría alimentan el aprendizaje (`createCodingLearning`, opción `learning`). Las reglas aprendidas **ya no se promueven solas** a `manifest.yaml`: quedan pendientes en `~/.{appName}/projects/<proyecto>/learning/` hasta que una persona las aprueba (`learning.approve`), y el orquestador las aplica. `reflection` deja de estar activo por defecto (`reflection: true` lo reactiva). El `manifest.yaml` anterior se sigue leyendo.
+- **`agent-enterprise`:** `EnterpriseLearning` (umbral por severidad, la persona decide, reglas en el YAML del vault con `VaultRuleStore`). `EnterpriseReflection` queda `@deprecated`. `FlowRunner.reflection` acepta cualquier objeto con `recordGateOutcome`.
+
 ## v0.41.0 (2026-11-15)
 
 [SPEC-0016](docs/specs/SPEC-0016-desamarrar-modulos-mixtos.md) F1–F3 (#182): la app de terminal sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.39` no cubre 0.40, así que se barrieron los rangos de todos los paquetes y templates: `^0.40.0`, y en los peers `<0.42.0`.

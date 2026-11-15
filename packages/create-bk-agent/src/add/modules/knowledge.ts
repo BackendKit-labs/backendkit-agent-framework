@@ -156,7 +156,7 @@ function addNewVault(engineFile: string, vaultPath: string): PatchResult {
 function setupRagFromScratch(info: BkProjectInfo, vaultPath: string): void {
     console.log('\n📦  Installing @backendkit-labs/agent-enterprise ...');
 
-    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/agent-enterprise', '^0.8.8');
+    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/agent-enterprise', '^0.8.9');
     if (added) {
         execSync('npm install', { cwd: info.cwd, stdio: 'inherit' });
     }

@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/document-extract",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Extracts text from PDF, Word, Excel and CSV files, with limits and stable errors, for @backendkit-labs/agent-core agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.38.0",
+    "@backendkit-labs/agent-core": "^0.39.0",
     "mammoth": "^1.13.0",
     "read-excel-file": "^9.3.13",
     "unpdf": "^1.9.1"

@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.40.0 (sin publicar)
+
+[SPEC-0015](docs/specs/SPEC-0015-extraer-coding-de-los-contratos-de-core.md) F1–F4 (#179): el pipeline de coding sale de `agent-core`. **Con ruptura** en `agent-core` y `agent-coding`. En 0.x, `^0.38` no cubre 0.39, así que se barrieron los rangos de todos los paquetes y templates: `^0.39.0`, y en los peers `<0.41.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.39.0 | **rompe:** sin orquestador, QA, `store` ni `blockedCommands`; aprobación por hechos; `services` |
+| `agent-coding` | 0.29.0 | **rompe:** el pipeline vive en `agent-coding/pipeline`; hooks de contexto |
+| `create-bk-agent` 0.23.7, `mcp-server` 0.19.1, `agent-enterprise` 0.8.9, `agent-web` 0.6.6, `agent-providers` 0.3.6, `agent-sandbox` 0.1.9, `agent-testkit` 0.1.9, `agent-otel` 0.1.12, `orchestrator-agent` 0.7.4, `document-extract` 0.1.2, `aval-tools` 0.1.16 | patch | solo el rango de `agent-core` (y de `agent-coding` en `mcp-server`) |
+
+Los demás paquetes no cambian: `agent-protocol`, `mcp-connectors` y `agent-web-ui`.
+
+### Guía de migración
+
+**Pipeline de coding (orquestador y QA).** Las opciones `orchestrator`, `orchestratorFailureMode`, `qaService`, `noQA` y `onQAReview` desaparecen de `createBaseEngine` y `AgentEngine`. Se pasan como hooks:
+
+```ts
+import { Orchestrator, QAService, codingPipelineHooks } from '@backendkit-labs/agent-coding/pipeline';
+
+createBaseEngine({ /* ... */ hooks: [codingPipelineHooks({ orchestrator, qaService, noQA, onQAReview, orchestratorFailureMode })] });
+```
+
+Quien usa `createCodingEngine` no cambia nada.
+
+**Imports que se mueven.** `Orchestrator`, `QAService`, los tipos de orchestration y los hooks de reflection (`AuditHook`, `HistoricalLoader`, `LessonsMemoGenerator`…) pasan de `agent-core` a `agent-coding/pipeline`. Se elimina el subpath `agent-core/orchestration`. `agent-core/reflection` ya no hace falta: el núcleo se exporta desde la raíz.
+
+**Aprobación de tools.** El engine ya no pregunta por `write_file`, `edit_file` ni `run_command` por su nombre. Una tool que antes preguntaba por llamarse así debe declarar `readOnly: false`. Para preguntar solo en ciertas llamadas, `alwaysAsk(args)`. El `packageInstallPolicy` de core pasa a `alwaysAsk` de `run_command`.
+
+**`ExecutionContext`.** Se quitan `store` y `blockedCommands`, y las opciones `store` del engine. Se añade `services` (un `Record` o `(profile) => Record` en las opciones) y `getService(ctx, key)`. `agent-coding` usa las claves `coding.store` y `coding.blockedCommands`. `ProjectStoreData` y `SessionUpdates` pasan a `agent-coding`. `additionalRoots` se mantiene.
+
+**System prompt.** Core solo escribe `## Working Directory`. La regla de rutas relativas y las notas del agente las añade `codingContextHooks`, al final del prompt.
+
 ## v0.39.0 (2026-11-14)
 
 [SPEC-0014](docs/specs/SPEC-0014-puntos-de-extension-del-engine.md) completo (#171–#174): hooks de ciclo de vida, política y aprobación por llamada, aprobación durable y auditoría con un evento por llamada.

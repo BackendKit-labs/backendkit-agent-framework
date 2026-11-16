@@ -14,7 +14,7 @@ Este SPEC no fija diseños. Para cada concepto deja las implementaciones que exi
 | Implementación | Qué tiene | Qué le falta |
 |---|---|---|
 | `core/workflow` (`WorkflowRunner`, 304 líneas) | pasos con `dependsOn`, oleadas paralelas con `maxConcurrency`, `requireApproval` con callback en proceso | definición como datos, compensación, gates con criterios, interpolación de payload |
-| `enterprise/flow` (`FlowRunner`, `FlowLoader`, `ComplianceGate`, 858) | definición YAML validada con zod, triggers, gates con criterios y evaluador, compensación, registro de transiciones | concurrencia acotada; se apoya en su propio runner de agentes |
+| `enterprise/flow` (`FlowRunner`, `FlowLoader`, `ComplianceGate`, 858) | definición YAML validada con zod, triggers, gates con criterios y evaluador, compensación, registro de transiciones | delega en `WorkflowRunner` de core (construye un `WorkflowBuilder` y lo ejecuta): no es un segundo runner sino la capa de datos, gates y compensación, que vive en el paquete equivocado. Ver SPEC-0023 |
 | `coding/workflows/InitWorkflow` (453) | un flujo concreto (inicializar proyecto) | no es un motor: es un consumidor |
 | planner y executor de `orchestrator-agent` | plan generado por LLM, subtareas con plazos y cola entre procesos | es una app; consumirá el contrato |
 

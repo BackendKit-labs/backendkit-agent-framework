@@ -8,7 +8,8 @@
 
 ## 1. De dónde se parte
 
-- `engine.run()` devuelve un `RunResult`: llamadas a tools en orden (con `success`, `errorCode`, `agentId`), texto final, errores, prompts de sistema, `aborted` y `budgetExceeded`. Es la materia prima de cualquier evaluación.
+- `engine.run()` devuelve un `RunResult`: por cada llamada a tool `name`, `agentId`, `success`, `errorCode`, `outcome` y `preview` (los primeros caracteres de lo devuelto), más el texto final, los errores, los prompts de sistema, `aborted` y `budgetExceeded`. **No trae los argumentos de cada llamada ni la salida completa**: un grader "`place_order` con `sizePct` ≤ 15" o "la salida contiene X" no se puede escribir hoy (D7).
+- No hay semilla en el engine ni en `scriptedProvider`: la semilla del banco es del mundo simulado (el mercado), no del framework.
 - `agent-testkit` graba y reproduce llamadas al modelo (`RecordingProvider`, `ReplayProvider` con inyección de fallos) y trae proveedores guionizados.
 - El banco `trading-bot` (agent-framework-examples) ya hace una evaluación a mano: la misma semilla con y sin aprendizaje, con y sin aprobación, y una tabla. Escribió su propio bucle, su propia comparación y sus propias comprobaciones. Es la prueba de que falta la pieza.
 - Falta: casos como datos, comprobaciones reutilizables, repeticiones, comparación entre dos configuraciones y un informe.
@@ -22,6 +23,7 @@
 | D3 | ¿Cuántas veces se ejecuta un caso? | (a) una; (b) `n` repeticiones, con semilla | **(b).** Un modelo real no es determinista: una sola ejecución no es evidencia. El informe da tasa de acierto, no un sí/no |
 | D4 | ¿Cómo se comparan dos configuraciones? | (a) a mano; (b) `compare(a, b)` sobre los mismos casos y semillas | **(b).** Es lo que el banco hizo a mano (con y sin aprendizaje). Devuelve la diferencia por caso y total, con el número de ejecuciones para que se vea cuánto pesa |
 | D5 | ¿Cómo corre en CI sin modelo? | (a) solo en vivo; (b) con grabaciones reproducidas; (c) ambas | **(c).** `replay` para regresiones de plomería (gratis, estable) y en vivo bajo demanda con tope de gasto (como `live.ts` del banco) |
+| D7 | ¿Qué hace falta en `RunResult` para evaluar? | (a) nada; (b) `args` opcional por llamada, activable con una opción (`recordArgs`) | **(b).** Los argumentos pueden llevar datos sensibles y hoy solo se guarda su hash; por eso es opt-in y se usa en pruebas. Cambio aditivo en core |
 | D6 | ¿Dónde vive el informe? | (a) consola; (b) JSON versionable; (c) interfaz | **(b).** JSON con esquema versionado y un resumen en consola. La interfaz queda fuera: cualquiera la construye sobre el JSON |
 
 ## 3. Diseño
@@ -36,16 +38,17 @@ interface EvalCase {
 }
 type Grader = (r: RunResult, ctx: { setup: unknown }) => { pass: boolean; score?: number; note?: string };
 
-evalSuite({ name, cases, build: (c: EvalCase) => AgentEngine, repeat?: number, seed?: number, spendCap?: number }): Promise<EvalReport>
+evalSuite({ name, cases, build: (c: EvalCase, run: { repetition: number; seed: number }) => AgentEngine, repeat?: number, seed?: number, spendCap?: number }): Promise<EvalReport>
 compare(a: EvalReport, b: EvalReport): Comparison
 ```
 
-- `build` recibe el caso y devuelve el engine: el integrador decide el proveedor (real, guionizado o reproducido) y qué módulos activa (aprendizaje, memoria).
+- `build` recibe el caso y el número de repetición con su semilla, y devuelve el engine: el integrador decide el proveedor (real, guionizado o reproducido), qué módulos activa (aprendizaje, memoria) y qué hace con la semilla (por ejemplo, sembrar el mercado simulado). El framework solo la reparte.
 - `spendCap` se apoya en `engine.budgetExceeded`: la suite se detiene y lo dice en el informe, no lo oculta.
-- Los resultados guardan el `RunResult` completo de cada ejecución, redactado con las reglas de la auditoría, para poder revisar un fallo.
+- Los resultados guardan el `RunResult` de cada ejecución para poder revisar un fallo. No hay redactor en el framework: el informe puede contener `preview`, texto y (con D7) argumentos, y hay que tratarlo como dato sensible.
 
 ## 4. Fases
 
+- **F0. `args` opcional en `RunResult` (D7).** Test: con `recordArgs` cada llamada trae sus argumentos; sin la opción, no.
 - **F1. Casos, graders deterministas y `evalSuite`.** Test de aceptación: una suite de tres casos con un proveedor guionizado da el informe esperado, byte a byte.
 - **F2. Repeticiones y `compare`.** Test: dos configuraciones con tasas distintas sobre las mismas semillas dan la diferencia correcta y el número de ejecuciones.
 - **F3. Informe JSON versionado y resumen en consola.**

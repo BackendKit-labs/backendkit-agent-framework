@@ -12,7 +12,14 @@ SPEC-0019 D5 propuso: "sin fallos en la ventana ⇒ la lección caduca". El banc
 
 "Sin fallos" no distingue "resuelto" de "resuelto gracias a esta lección". Hoy ambos casos borran la lección igual.
 
-Además (§8): la histéresis hace que un patrón que entró con pocas llamadas se quede aunque los datos posteriores digan que casi siempre acierta, y la propuesta de regla no muestra la proporción fallos/llamadas para juzgarlo.
+Además (§8): la histéresis hace que un patrón que entró con pocas llamadas se quede aunque los datos posteriores digan que casi siempre acierta.
+
+**Verificado en el código (2026-11-16):**
+
+- `QualifiedPatterns` ya guarda por clave el último día en que el patrón estuvo "dentro" (`confirm`/`has`/`drop`/`prune`) y vive en el almacén de contadores. Es el germen de `PatternRecord`, no hay que empezar de cero.
+- El texto de la línea de una lección está en `lessonLines`, un `Map` **en memoria** (`learning/index.ts`). Tras un reinicio se reescribe desde las experiencias de la ventana, así que **el texto puede cambiar entre ejecuciones del proceso** y, si las experiencias ya salieron de la ventana, la línea desaparece. SPEC-0019 prometía un prompt estable; solo lo es dentro de un proceso.
+- La propuesta de regla ya lleva `evidence` (`"<n> x <kind> on <subject>, <primera> to <última>"`), pero **sin el número de llamadas ni la tasa**.
+- Los contadores de éxito se conservan `2 x window` días (`counters.flush(dayBefore(windowDays * 2))`): saber si un sujeto "sigue en uso" es posible dentro de ese margen.
 
 ## 2. Decisiones
 
@@ -20,9 +27,9 @@ Además (§8): la histéresis hace que un patrón que entró con pocas llamadas 
 |---|---|---|---|
 | D1 | ¿Cuándo deja de mostrarse una lección aprendida? | (a) sin fallos en la ventana (SPEC-0019 D5); (b) mientras su sujeto se siga llamando; termina cuando el sujeto deja de llamarse o una persona la resuelve; (c) solo una persona | **(b).** El contador de éxitos ya sabe si el sujeto sigue en uso. Si el agente sigue llamando a `place_order`, la lección sigue siendo lo que lo mantiene a salvo |
 | D2 | ¿Cuánto es "deja de llamarse"? | (a) un número fijo de días; (b) configurable con un valor por defecto | **(b)**: `quietAfterDays`, por defecto igual a la ventana (30). Un sujeto sin una sola llamada en ese tiempo no necesita lección |
-| D3 | ¿Dónde se guarda lo que la lección necesita para vivir sin sus experiencias? | (a) conservar las experiencias más tiempo; (b) un registro de patrones activos con lo que la línea y la propuesta necesitan | **(b).** Las experiencias están acotadas y con ventana; guardar más para sostener una línea es el camino equivocado. Un `PatternRecord` pequeño: clave, tipo, sujeto, huella, texto de la línea, fallos y llamadas acumulados, `firstSeen`, `lastFailure`, `lastCall`, estado |
+| D3 | ¿Dónde se guarda lo que la lección necesita para vivir sin sus experiencias? | (a) conservar las experiencias más tiempo; (b) ampliar `QualifiedPatterns` a un registro de patrones con lo que la línea y la propuesta necesitan | **(b).** Las experiencias están acotadas y con ventana; guardar más para sostener una línea es el camino equivocado. De paso arregla que el texto de la línea viva solo en memoria. Un `PatternRecord` pequeño: clave, tipo, sujeto, huella, texto de la línea, fallos y llamadas acumulados, `firstSeen`, `lastFailure`, `lastCall`, estado |
 | D4 | ¿Cómo se resuelve a mano? | (a) `forget`; (b) `resolve(patternKey, by)` que conserva el registro y su motivo; (c) ambas | **(b)**, solo por una persona (`approverKinds`). `resolve` deja el registro como `resolved` (con quién y cuándo). Si el patrón reaparece después, la propuesta lo dice ("resuelto el 2030-03-04, ha vuelto") en vez de empezar de cero |
-| D5 | ¿La propuesta de regla muestra la evidencia? | (a) no (como hoy); (b) fallos y llamadas, tasa, primera y última aparición | **(b).** Una persona que aprueba una regla debe ver "7 fallos en 31 llamadas, desde el 2030-02-01", no solo un nombre |
+| D5 | ¿Qué evidencia lleva la propuesta de regla? | (a) la de hoy (`n x tipo en sujeto, primera a última`); (b) además llamadas y tasa | **(b).** Una persona que aprueba una regla debe ver "7 fallos en 31 llamadas (23 %), del 2030-02-01 al 2030-03-04". Hoy falta el denominador |
 
 ## 3. Estados
 
@@ -37,10 +44,10 @@ quiet / resolved ──(vuelve a fallar con el umbral)─────▶ active 
 
 ## 4. Fases
 
-- **F1. `PatternRecord` y su almacén.** Se rellena al calificar un patrón y sobrevive a la salida de las experiencias de la ventana. No hay datos que migrar: los patrones de SPEC-0019 F1/F2 aún no están publicados.
+- **F1. `PatternRecord` sobre `QualifiedPatterns`.** Se rellena al calificar un patrón, guarda el texto de la línea (estable entre reinicios) y sobrevive a la salida de las experiencias de la ventana. Test: reiniciar el proceso no cambia el prompt. No hay datos que migrar: los patrones de SPEC-0019 F1/F2 aún no están publicados.
 - **F2. Caducidad por sujeto en uso (D1, D2).** Test de aceptación, extraído del banco: con la lección activa el error deja de ocurrir y la lección **sigue** en el prompt mientras el sujeto se llama; al dejar de llamarse `quietAfterDays`, sale.
 - **F3. `resolve` y reaparición (D4).** Test: un agente no puede resolver su propia lección; un patrón resuelto que reaparece vuelve como propuesta con la nota.
-- **F4. Evidencia en la propuesta (D5).** `Proposal` incluye `failures`, `calls`, `firstSeen`, `lastSeen` y el estado anterior si lo hubo.
+- **F4. Evidencia en la propuesta (D5).** El texto `evidence` de la petición `rule_proposal` incluye llamadas y tasa, y el estado anterior si lo hubo.
 - **F5. Regresión del banco.** El escenario de 245 sesiones pasa a ser un test: rechazos tras la primera lección ≈ 0 mientras `place_order` se sigue llamando.
 
 ## 5. Criterios de aceptación
@@ -48,7 +55,8 @@ quiet / resolved ──(vuelve a fallar con el umbral)─────▶ active 
 - Con la lección activa y el sujeto en uso, el prompt la conserva indefinidamente.
 - Un sujeto sin llamadas durante `quietAfterDays` deja de generar lección.
 - Solo una persona resuelve; un patrón resuelto que vuelve se propone con la nota de la reaparición.
-- La propuesta de regla muestra fallos, llamadas y fechas.
+- La propuesta de regla muestra fallos, llamadas, tasa y fechas.
+- El texto de una lección activa no cambia tras reiniciar el proceso.
 
 ## 6. Fuera de alcance
 

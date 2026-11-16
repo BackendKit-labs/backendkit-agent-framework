@@ -73,20 +73,19 @@ describe('run_command — allowlist enforcement', () => {
     });
 
     it('returns error string on timeout', async () => {
-        const result = await runCommandTool.execute({ command: 'node -e "setTimeout(()=>{},60000)"', timeout_ms: 200 }, mockCtx);
+        // 200 ms was below the minimum of 1000: the call was malformed and the test only passed because of the error text.
+        const result = await runCommandTool.execute({ command: 'node -e "setTimeout(()=>{},60000)"', timeout_ms: 1000 }, mockCtx);
         expect(result).toMatch(/Error/i);
     });
 });
 
 describe('run_command — arg validation', () => {
     it('rejects missing command arg', async () => {
-        const result = await runCommandTool.execute({}, mockCtx);
-        expect(result).toMatch(/Invalid arguments/);
+        await expect(runCommandTool.execute({}, mockCtx)).rejects.toThrow(/Invalid arguments/);
     });
 
     it('rejects timeout below 1000ms', async () => {
-        const result = await runCommandTool.execute({ command: 'echo hi', timeout_ms: 100 }, mockCtx);
-        expect(result).toMatch(/Invalid arguments/);
+        await expect(runCommandTool.execute({ command: 'echo hi', timeout_ms: 100 }, mockCtx)).rejects.toThrow(/Invalid arguments/);
     });
 });
 

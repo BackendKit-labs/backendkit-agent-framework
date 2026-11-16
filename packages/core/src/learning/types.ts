@@ -17,7 +17,11 @@ export interface Experience {
     tenantId?: string;
     /** Area of the experience: 'tool', 'policy', 'commit'... */
     domain: string;
-    /** What it is about: a tool name, a workflow step. Patterns group by domain + kind + subject + fingerprint. */
+    /**
+     * What it is about: a tool name, a workflow step. Patterns group by domain + kind + subject + fingerprint, and the share of
+     * failures (`rate`) is measured against the calls of the SUBJECT. To judge a context on its own, put the context in the
+     * subject: `breakout/trend_flat` and `breakout/trend_up` are judged separately, `breakout` judges both together.
+     */
     subject?: string;
     /**
      * What tells apart failures of the same kind and subject that have different causes: for a tool, the code or class
@@ -162,6 +166,8 @@ export interface LearningOptions {
      * A pattern of a tool that has many correct calls also needs to be a big enough share of its calls: three failures among
      * a thousand calls is noise. Default `{ minFailureRate: 0.05, minCalls: 20 }`; `false` counts failures only. With fewer
      * than `minCalls` calls in the window, or for subjects whose successes are not counted, only the count decides.
+     * The share is that of the subject (see `Experience.subject`). It decides when a pattern ENTERS: once in, it stays while its
+     * failures stay in the window, so a lesson that works (and fills the subject with correct calls) does not remove itself.
      */
     rate?: { minFailureRate: number; minCalls: number } | false;
     /** Where the daily counters of correct calls live. Default: in memory. */

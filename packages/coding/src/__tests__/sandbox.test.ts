@@ -89,9 +89,10 @@ describe('an engine with the coding tools in read-only', () => {
         const sandbox = buildCodingSandbox({ preset: 'read-only', backends: ['docker'], docker: { probe: async () => false } });
         const engine = createBaseEngine({
             providers: { mock: scripted([
-                { name: 'read_file', args: { path: 'a.txt' } },
-                { name: 'write_file', args: { path: 'b.txt', content: 'new' } },
-                { name: 'write_file', args: { path: 'a.txt', content: 'changed' } },
+                // The argument is `file_path`. With `path` the call was malformed, and used to be counted as a success.
+                { name: 'read_file', args: { file_path: 'a.txt' } },
+                { name: 'write_file', args: { file_path: 'b.txt', content: 'new' } },
+                { name: 'write_file', args: { file_path: 'a.txt', content: 'changed' } },
                 { name: 'run_command', args: { command: 'echo hi' } },
             ]) },
             defaultProvider: 'mock', tools: [readFileTool, writeFileTool, runCommandTool],

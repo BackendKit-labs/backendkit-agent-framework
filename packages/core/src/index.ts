@@ -49,7 +49,7 @@ export { StdoutTransport } from './transport/StdoutTransport';
 export { CallbackTransport } from './transport/CallbackTransport';
 
 // ── Typed tools ────────────────────────────────────────────────────────────────
-export { defineTool, z, zodToParameters, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from './tools/defineTool';
+export { defineTool, z, zodToParameters, validateToolDefinition, getToolInputSchema, ToolDefinitionError, ToolArgumentError } from './tools/defineTool';
 export { createToolContext, createInMemorySessionMemory } from './tools/createToolContext';
 export { generateObject, generateObjectWith, StructuredOutputError } from './structured/generateObject';
 export type { GenerateObjectOptions, StructuredChat } from './structured/generateObject';

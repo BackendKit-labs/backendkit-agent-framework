@@ -94,7 +94,8 @@ export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
  *
  * The input schema is converted to JSON Schema for the LLM, and args are
  * validated at runtime before being passed to the execute handler.
- * Validation errors are returned as tool result strings (not thrown).
+ * Validation errors throw a `ToolArgumentError` (code `INVALID_ARGUMENTS`). The engine shows the model the same
+ * "Error: Invalid arguments ..." text as before, and the audit event is now an error with that code instead of a success.
  *
  * Declared facts (`readOnly`, `destructive`, `idempotent`, `openWorld`, `meta`, `title`) are checked for
  * consistency here and throw `ToolDefinitionError` at definition time. `readOnly: true` implies `concurrencySafe`.
@@ -114,6 +115,15 @@ export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
  *   },
  * });
  */
+/** The arguments of a call did not match the schema of the tool. The `code` tells it apart in the audit and in what is learned. */
+export class ToolArgumentError extends Error {
+    readonly code = 'INVALID_ARGUMENTS';
+    constructor(readonly tool: string, readonly issues: string) {
+        super(`Invalid arguments for tool "${tool}" — ${issues}`);
+        this.name = 'ToolArgumentError';
+    }
+}
+
 export function defineTool<TInput extends z.ZodTypeAny>(
     opts: TypedToolOptions<TInput>,
 ): ToolDefinition {
@@ -140,7 +150,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
                 const issues = result.error.issues
                     .map(i => `${i.path.join('.') || 'root'}: ${i.message}`)
                     .join('; ');
-                return `Error: Invalid arguments for tool "${opts.name}" — ${issues}`;
+                throw new ToolArgumentError(opts.name, issues);
             }
             return opts.execute(result.data, ctx);
         },

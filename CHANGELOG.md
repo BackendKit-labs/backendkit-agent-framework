@@ -1,6 +1,22 @@
 # Changelog
 
-## Sin publicar
+## v0.42.0 (sin publicar)
+
+En 0.x, `^0.40` no cubre 0.41 y `^0.8` no cubre 0.9, así que se barrieron los rangos de todos los paquetes y templates: `agent-core` `^0.41.0`, `agent-coding` `^0.31.0`, `agent-enterprise` `^0.9.0`, y en los peers `<0.43.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.41.0 | módulo `createLearning`, opción `learning`, `teach`, `addRule`, tenants; obsoletos `ReflectionEngine`, `ProceduralMemory` y compañía |
+| `agent-coding` | 0.31.0 | **cambia el comportamiento:** con `orchestration`, las reglas aprendidas esperan aprobación y `reflection` ya no está activo por defecto |
+| `agent-enterprise` | 0.9.0 | `EnterpriseLearning` y `VaultRuleStore`; `EnterpriseReflection` obsoleto |
+| `create-bk-agent` 0.23.9, `mcp-server` 0.19.3, `mcp-connectors` 0.2.3, `agent-web` 0.6.8, `agent-providers` 0.3.8, `agent-sandbox` 0.1.11, `agent-testkit` 0.1.11, `agent-otel` 0.1.14, `orchestrator-agent` 0.7.6, `document-extract` 0.1.4, `aval-tools` 0.1.18 | patch | solo el rango de `agent-core`, `agent-coding` o `agent-enterprise` |
+
+Los demás paquetes no cambian: `agent-protocol` y `agent-web-ui`.
+
+### Migración
+
+- **`agent-coding` con `orchestration`:** si dependías de que las reglas aprendidas se aplicaran solas desde `manifest.yaml`, ahora quedan pendientes en `~/.{appName}/projects/<proyecto>/learning/`. Se aprueban con `createCodingLearning({ appName, projectRoot }).approve(id, { kind: 'human', id })`. El `manifest.yaml` anterior se sigue leyendo. `reflection: true` reactiva el motor anterior.
+- **Nada más se retira:** `ReflectionEngine`, `DomainRegistry`, `FailureCatalog`, `PatternDetector`, `PolicyPromoter`, `ProceduralMemory` y `EnterpriseReflection` siguen funcionando, solo marcados `@deprecated`.
 
 [SPEC-0017](docs/specs/SPEC-0017-un-contrato-por-concepto.md) F6 (autoaprendizaje). Aditivo en `agent-core` y `agent-enterprise`; **cambia el comportamiento** de `agent-coding` con `orchestration`.
 

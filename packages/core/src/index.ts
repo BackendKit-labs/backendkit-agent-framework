@@ -49,7 +49,8 @@ export { StdoutTransport } from './transport/StdoutTransport';
 export { CallbackTransport } from './transport/CallbackTransport';
 
 // ── Typed tools ────────────────────────────────────────────────────────────────
-export { defineTool, z, zodToParameters, validateToolDefinition, getToolInputSchema, ToolDefinitionError, ToolArgumentError } from './tools/defineTool';
+export { defineTool, z, zodToParameters, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from './tools/defineTool';
+export { ToolError, ToolArgumentError } from './tools/tool-error';
 export { createToolContext, createInMemorySessionMemory } from './tools/createToolContext';
 export { generateObject, generateObjectWith, StructuredOutputError } from './structured/generateObject';
 export type { GenerateObjectOptions, StructuredChat } from './structured/generateObject';
@@ -177,6 +178,6 @@ export type {
 // ── Learning from experience: lessons and proposed rules (SPEC-0017 F6) ─────────
 export { createLearning, ENGINE_HINTS, FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './learning';
 export type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo, RuleStore, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo, OutcomeInput, RuleStore, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './learning';

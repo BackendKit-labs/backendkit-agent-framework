@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import {
-    createLearning, FileApprovalStore, FileLessonStore, JsonFileStore,
+    createLearning, FileLessonStore,
 } from '@backendkit-labs/agent-core';
 import type {
     LessonUnitInfo, TaughtLesson, TeachInput, ApprovedRule, ApproverRef, Experience, LearnedPattern, Learning, MemoryStoreBackend, ApprovalStore, StoredApproval,
@@ -79,11 +79,12 @@ export class EnterpriseLearning {
         const base = path.join(opts.vaultPath, 'politicas', '_generated');
         this.rules = new VaultRuleStore(opts.manifestPath ?? path.join(base, 'manifest.yaml'));
         this.learning = createLearning({
-            store: opts.store ?? new JsonFileStore(path.join(base, 'experiences.json')),
-            approvals: opts.approvals ?? new FileApprovalStore(path.join(base, 'proposals')),
+            dir: base,
+            ...(opts.store ? { store: opts.store } : {}),
+            ...(opts.approvals ? { approvals: opts.approvals } : {}),
             rules: this.rules,
+            // The vault has always called it this, and its lessons are already on disk under that name.
             lessonStore: new FileLessonStore(path.join(base, 'taught-lessons.json')),
-            counters: new JsonFileStore(path.join(base, 'counters.json')),
             thresholdFor: e => SEVERITY_THRESHOLD[e.severity] ?? 3,
             ruleFor,
         });

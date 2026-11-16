@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ToolArgumentError } from './tool-error';
 import type { ToolDefinition, ExecutionContext } from '../types';
 
 // ── Public re-export so consumers use the framework's zod instance ────────────
@@ -115,15 +116,6 @@ export function zodToParameters(schema: z.ZodTypeAny): Record<string, unknown> {
  *   },
  * });
  */
-/** The arguments of a call did not match the schema of the tool. The `code` tells it apart in the audit and in what is learned. */
-export class ToolArgumentError extends Error {
-    readonly code = 'INVALID_ARGUMENTS';
-    constructor(readonly tool: string, readonly issues: string) {
-        super(`Invalid arguments for tool "${tool}" — ${issues}`);
-        this.name = 'ToolArgumentError';
-    }
-}
-
 export function defineTool<TInput extends z.ZodTypeAny>(
     opts: TypedToolOptions<TInput>,
 ): ToolDefinition {

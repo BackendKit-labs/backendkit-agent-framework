@@ -1,23 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { InMemoryStore } from '../agent-memory/stores/InMemoryStore';
-import { MemoryApprovalStore } from '../governance/approval-store';
+import { JsonFileStore } from '../agent-memory/stores/JsonFileStore';
+import { FileApprovalStore, MemoryApprovalStore } from '../governance/approval-store';
 import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
-import { MemoryLessonStore, MemoryRuleStore } from './stores';
+import { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 import { DEFAULT_RATE, QualifiedPatterns, SuccessCounters } from './signal';
 import { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries, lessonIdFor, unitFromMarkdown, unitToMarkdown } from './units';
 import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
 import type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonUnitInfo, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonUnitInfo, OutcomeInput, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './types';
 
 export { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 export type {
     AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo,
-    RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
+    OutcomeInput, RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
 } from './types';
 export { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT } from './units';
 
@@ -158,10 +160,11 @@ function isToolRule(value: unknown): value is ToolRule {
  * ```
  */
 export function createLearning(options: LearningOptions = {}): Learning {
-    const store = options.store ?? new InMemoryStore();
-    const approvals = options.approvals ?? new MemoryApprovalStore();
-    const rules = options.rules ?? new MemoryRuleStore();
-    const lessonStore = options.lessonStore ?? new MemoryLessonStore();
+    const dir = options.dir;
+    const store = options.store ?? (dir ? new JsonFileStore(join(dir, 'experiences.json')) : new InMemoryStore());
+    const approvals = options.approvals ?? (dir ? new FileApprovalStore(join(dir, 'proposals')) : new MemoryApprovalStore());
+    const rules = options.rules ?? (dir ? new FileRuleStore(join(dir, 'rules.json')) : new MemoryRuleStore());
+    const lessonStore = options.lessonStore ?? (dir ? new FileLessonStore(join(dir, 'lessons.json')) : new MemoryLessonStore());
     const base = options.threshold ?? 3;
     const threshold = options.thresholdFor ?? (() => base);
     const maxExperiences = options.maxExperiences ?? 1000;
@@ -174,7 +177,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const now = options.now ?? (() => new Date());
     const windowDays = options.window?.days ?? 30;
     const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
-    const counterStore = options.counters ?? new InMemoryStore();
+    const counterStore = options.counters ?? (dir ? new JsonFileStore(join(dir, 'counters.json')) : new InMemoryStore());
     const counters = new SuccessCounters(counterStore);
     const qualified = new QualifiedPatterns(counterStore);
     const lessonCache = new Map<string, { count: number; day: string; at: number; items: LessonItem[] }>();
@@ -386,6 +389,18 @@ export function createLearning(options: LearningOptions = {}): Learning {
             afterRun: async () => { await counters.flush(dayBefore(windowDays * 2)).catch(() => undefined); },
         },
         record,
+        trackOutcome(o) {
+            if (o.ok && !o.subject?.trim()) {
+                return Promise.reject(new Error('A success needs a subject: it is counted against it, and without one it would never be counted'));
+            }
+            return record({
+                agentId: o.agentId, ...(o.tenantId ? { tenantId: o.tenantId } : {}), domain: o.domain, subject: o.subject,
+                kind: o.ok ? 'ok' : (o.kind ?? 'failure'), outcome: o.ok ? 'success' : 'failure',
+                ...(o.severity ? { severity: o.severity } : {}), ...(o.detail ? { detail: o.detail } : {}),
+                situation: o.situation ?? `${o.domain} ${o.subject}`, action: o.action ?? o.subject,
+                ...(o.meta ? { meta: o.meta } : {}), ...(o.at ? { at: o.at } : {}),
+            });
+        },
         async experiences(filter = {}) {
             return all().filter(e => (!filter.agentId || e.agentId === filter.agentId)
                 && (!filter.domain || e.domain === filter.domain)

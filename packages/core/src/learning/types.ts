@@ -133,6 +133,25 @@ export interface TeachInput {
     id?: string;
 }
 
+/** What `trackOutcome` takes: something that happened to an agent, good or bad, in a line. */
+export interface OutcomeInput {
+    agentId: string;
+    tenantId?: string;
+    domain: string;
+    /** What it is about. Required: it is what a success is counted against. */
+    subject: string;
+    ok: boolean;
+    /** The kind of failure (ignored when `ok`). Default `failure`. */
+    kind?: string;
+    severity?: Severity;
+    /** The advice, for a failure: it ends up in the lesson. */
+    detail?: string;
+    situation?: string;
+    action?: string;
+    meta?: Record<string, unknown>;
+    at?: string;
+}
+
 /** What `addRule` takes: a rule a person writes, without waiting for a pattern. */
 export interface AddRuleInput {
     /** A `ToolRule` (checked), or any rule of a vertical (opaque). */
@@ -149,6 +168,12 @@ export interface ToolRule {
 }
 
 export interface LearningOptions {
+    /**
+     * Keep everything under this directory, with the file names `agent-coding` has always used: `experiences.json`, `counters.json`,
+     * `proposals/`, `rules.json` and `lessons.json`. A store passed explicitly replaces its file. Without `dir` (and without the
+     * stores) nothing touches the disk.
+     */
+    dir?: string;
     /** Where the experiences are kept. Default: in memory, so an engine without configuration touches no file. */
     store?: MemoryStoreBackend;
     /** Where the proposed rules wait for a decision. Default: in memory. */
@@ -210,6 +235,11 @@ export interface Learning {
     readonly rules: RuleStore;
     /** Records an experience of a vertical: a QA verdict, user feedback... */
     record(input: ExperienceInput): Promise<Experience>;
+    /**
+     * The short way to `record` what happened to an agent: `{ ok: true }` counts a success against the subject, `{ ok: false }`
+     * records a failure. A success without a subject is refused, because it would never be counted.
+     */
+    trackOutcome(input: OutcomeInput): Promise<Experience>;
     /** Without `tenantId` in the filter, every tenant's are returned (an operator's view). */
     experiences(filter?: { agentId?: string; domain?: string; tenantId?: string }): Promise<Experience[]>;
     patterns(filter?: { agentId?: string; tenantId?: string }): Promise<LearnedPattern[]>;

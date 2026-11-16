@@ -504,5 +504,8 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.agentSources?.length ? { loadAgents: () => listAgentSources(opts.agentSources!) } : {}),
     });
     engineRef = engine;
+    if (opts.learning) {
+        for (const tool of opts.tools ?? []) if (tool.errorHints) opts.learning.registerHints(tool.name, tool.errorHints);
+    }
     return engine;
 }

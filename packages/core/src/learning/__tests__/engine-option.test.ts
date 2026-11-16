@@ -54,7 +54,7 @@ describe('createBaseEngine({ learning })', () => {
         expect((await learning.experiences()).every(e => e.tenantId === 't1')).toBe(true);
         const last = systems[systems.length - 1];
         expect(last).toContain('MY SECTION');
-        expect(last).toContain('Lessons learned');
+        expect(last).toContain('## Lessons');
         expect(await learning.lessonsFor('ap', 't2')).toBeUndefined();
     });
 

@@ -33,6 +33,8 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> extends ToolMetad
     timeoutMs?: number;
     /** Per call, on the validated arguments: true asks a person even in "approve all" mode. See `ToolDefinition.alwaysAsk`. */
     alwaysAsk?: (args: z.infer<TInput>) => boolean;
+    /** See `ToolDefinition.errorHints`. */
+    errorHints?: Record<string, string>;
     /** Type-safe execute handler — args are already validated and typed. */
     execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
 }
@@ -126,6 +128,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
         ...(concurrencySafe ? { concurrencySafe: true } : {}),
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
+        ...(opts.errorHints ? { errorHints: opts.errorHints } : {}),
         ...(opts.alwaysAsk ? { alwaysAsk: (raw: Record<string, unknown>) => { const r = opts.input.safeParse(raw); return r.success && opts.alwaysAsk!(r.data); } } : {}),
         ...(opts.destructive !== undefined ? { destructive: opts.destructive } : {}),
         ...(opts.idempotent !== undefined ? { idempotent: opts.idempotent } : {}),

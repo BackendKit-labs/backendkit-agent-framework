@@ -46,7 +46,7 @@ describe('un agente de negocio aprende de una tool que falla', () => {
 
         // The second run's prompt carries the lesson.
         const last = systems[systems.length - 1];
-        expect(last).toContain('Lessons learned');
+        expect(last).toContain('## Lessons');
         expect(last).toContain('post_invoice');
 
         // A rule is proposed, and nothing was applied on its own.

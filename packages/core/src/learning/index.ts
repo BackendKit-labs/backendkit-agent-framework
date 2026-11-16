@@ -6,21 +6,34 @@ import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../gov
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
 import { MemoryLessonStore, MemoryRuleStore } from './stores';
 import { DEFAULT_RATE, SuccessCounters } from './signal';
+import { ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries, lessonIdFor, unitFromMarkdown, unitToMarkdown } from './units';
+import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
 import type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, Severity, TaughtLesson,
-    TeachInput, ToolRule,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonUnitInfo, Severity,
+    TaughtLesson, TeachInput, ToolRule,
 } from './types';
 
 export { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 export type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, RuleStore, Severity,
-    TaughtLesson, TeachInput, ToolRule,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo,
+    RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
 } from './types';
+export { ENGINE_HINTS, GENERAL_UNIT } from './units';
 
 const SEVERITIES: Severity[] = ['low', 'medium', 'high', 'critical'];
 const TOOL_FAILURES = new Set(['tool_error', 'tool_timeout', 'tool_too_large']);
 const MAX_TAUGHT_CHARS = 500;
+const LESSON_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function cleanLessonText(raw: string | undefined): string {
+    const text = raw?.replace(/\s+/g, ' ').trim();
+    if (!text) throw new Error('A lesson needs a text');
+    if (text.length > MAX_TAUGHT_CHARS) throw new Error(`A lesson is at most ${MAX_TAUGHT_CHARS} characters; this one has ${text.length}`);
+    return text;
+}
+
+interface LessonItem { unit: string; source: 'taught' | 'learned'; text: string; order: string }
 const PROPOSER = { agentId: 'learning', sessionId: 'learning', chain: ['learning'] };
 
 // A fingerprint is part of the key only when there is one, so the keys (and the proposals) of before it existed do not change.
@@ -37,6 +50,10 @@ const proposalId = (key: string): string => `learn-${createHash('sha256').update
 // at the start of the line, where the sanitizer of the whole layer looks for it.
 const oneLine = (text: string, max: number): string =>
     sanitizeDiskContent(text.replace(/\s+/g, ' ').trim()).trim().slice(0, max);
+
+// A unit name ends up in a heading of the prompt. A tool name from an MCP server or the domain of a vertical is external.
+const normUnit = (name: string): string => oneLine(name, 64) || GENERAL_UNIT;
+const unitNameOf = (p: { subject?: string; domain: string }): string => normUnit(p.subject ?? p.domain);
 
 /** The experience a tool call leaves, or `undefined` when there is nothing to learn from it (a success). */
 function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
@@ -115,7 +132,7 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
             ...(last.detail ? { detail: last.detail } : {}),
         });
     }
-    return patterns.sort((a, b) => b.count - a.count);
+    return patterns.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
 function isToolRule(value: unknown): value is ToolRule {
@@ -143,13 +160,15 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const maxExperiences = options.maxExperiences ?? 1000;
     const maxChars = options.lessons?.maxChars ?? 1500;
     const maxLessons = options.lessons?.maxLessons ?? 5;
+    const maxPerUnit = options.lessons?.maxPerUnit ?? 3;
+    const hints = new Map<string, Record<string, string>>();
     const approverKinds = options.approverKinds ?? ['human'];
     const ruleFor = options.ruleFor ?? defaultRuleFor;
     const now = options.now ?? (() => new Date());
     const windowDays = options.window?.days ?? 30;
     const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
     const counters = new SuccessCounters(options.counters ?? new InMemoryStore());
-    const lessonCache = new Map<string, { count: number; day: string; at: number; text: string | undefined }>();
+    const lessonCache = new Map<string, { count: number; day: string; at: number; items: LessonItem[] }>();
     // The line of a lesson is written once: a new failure of the same pattern must not change the system prompt.
     const lessonLines = new Map<string, string>();
 
@@ -222,9 +241,26 @@ export function createLearning(options: LearningOptions = {}): Learning {
         return experience;
     });
 
+    /** The sentence of a learned lesson: what the tool's author says about the error, what the engine says about the kind of failure, or the plain fact. */
+    function lineFor(p: LearnedPattern, scope: string): string {
+        const id = `${scope}\u0000${p.key}`;
+        const cached = lessonLines.get(id);
+        if (cached) return cached;
+        const fp = p.fingerprint ? oneLine(p.fingerprint, 64) : undefined;
+        // What a tool's author says is about the errors it raises. A denial, a block or a timeout is not one: for those the
+        // engine speaks, so that a `*` hint never tells the model to retry a call that was refused.
+        const toolHints = p.domain === 'tool' && p.kind === 'tool_error' && p.subject ? hints.get(p.subject) : undefined;
+        const hint = (p.fingerprint ? toolHints?.[p.fingerprint] : undefined) ?? toolHints?.['*'] ?? (p.domain === 'tool' ? ENGINE_HINTS[p.kind] : undefined);
+        const line = hint
+            ? `${fp ?? p.kind}: ${oneLine(hint, 240)}`
+            : `${p.kind}${fp ? ` (${fp})` : ''} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
+        lessonLines.set(id, line);
+        return line;
+    }
+
     // What the patterns say is cached while the experiences do not change; what people taught is read each time, because
     // it may be changed from another process.
-    function learnedText(agentId: string, tenantId: string | undefined): string | undefined {
+    function learnedItems(agentId: string, tenantId: string | undefined): LessonItem[] {
         const count = store.count();
         const at = now().getTime();
         const day = new Date(at).toISOString().slice(0, 10);
@@ -232,41 +268,45 @@ export function createLearning(options: LearningOptions = {}): Learning {
         // Recomputed when the experiences change, the day changes or a minute passes: the counters of correct calls move all
         // the time, and the lessons must not flap with each call.
         const cached = lessonCache.get(scope);
-        if (cached && cached.count === count && cached.day === day && at - cached.at < 60_000) return cached.text;
+        if (cached && cached.count === count && cached.day === day && at - cached.at < 60_000) return cached.items;
         const own = inWindow().filter(e => e.agentId === agentId && e.tenantId === tenantId);
-        const lines = detectPatterns(own, threshold, rateContext(agentId)).slice(0, maxLessons)
-            .sort((x, y) => x.key.localeCompare(y.key))
-            .map(p => {
-                const id = `${scope}\u0000${p.key}`;
-                let line = lessonLines.get(id);
-                if (!line) {
-                    line = `- ${p.subject ? `${p.subject}: ` : ''}${p.kind}${p.fingerprint ? ` (${oneLine(p.fingerprint, 64)})` : ''} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
-                    lessonLines.set(id, line);
-                }
-                return line;
-            });
-        const text = lines.length ? lines.join('\n') : undefined;
-        lessonCache.set(scope, { count, day, at, text });
-        return text;
+        // Patterns come most frequent first: the cap per unit and the cap in total keep the ones that happen most.
+        const perUnit = new Map<string, number>();
+        const chosen: LearnedPattern[] = [];
+        for (const p of detectPatterns(own, threshold, rateContext(agentId))) {
+            const unit = unitNameOf(p);
+            if ((perUnit.get(unit) ?? 0) >= maxPerUnit) continue;
+            if (chosen.length >= maxLessons) break;
+            perUnit.set(unit, (perUnit.get(unit) ?? 0) + 1);
+            chosen.push(p);
+        }
+        const items = chosen.map(p => ({ unit: unitNameOf(p), source: 'learned' as const, text: lineFor(p, scope), order: p.key }));
+        lessonCache.set(scope, { count, day, at, items });
+        return items;
     }
 
-    async function taughtText(agentId: string, tenantId: string | undefined, available: string[] | undefined): Promise<string | undefined> {
-        const mine = (await lessonStore.list())
+    const unitOf = (l: { unit?: string; tools?: string[] }): string => normUnit(l.unit ?? l.tools?.[0] ?? GENERAL_UNIT);
+
+    async function taughtItems(agentId: string, tenantId: string | undefined, available: string[] | undefined): Promise<LessonItem[]> {
+        return (await lessonStore.list())
             .filter(l => l.tenantId === tenantId
                 && (!l.agentId || l.agentId === agentId)
                 && (!l.tools?.length || (available ?? []).some(t => l.tools!.includes(t))))
-            .sort((x, y) => x.at.localeCompare(y.at) || x.id.localeCompare(y.id));
-        return mine.length ? mine.map(l => `- ${oneLine(l.text, MAX_TAUGHT_CHARS)}`).join('\n') : undefined;
+            .map(l => ({ unit: unitOf(l), source: 'taught' as const, text: oneLine(l.text, MAX_TAUGHT_CHARS), order: `${l.at}\u0000${l.id}` }));
     }
 
     async function lessonsFor(agentId: string, tenantId?: string, availableTools?: string[]): Promise<string | undefined> {
-        const layers = [];
-        const taught = await taughtText(agentId, tenantId, availableTools);
-        if (taught) layers.push({ title: 'Taught lessons', content: taught, maxChars });
-        const learned = learnedText(agentId, tenantId);
-        if (learned) layers.push({ title: 'Lessons learned', content: learned, maxChars });
-        return layers.length ? composeInstructionLayers(layers) : undefined;
+        const items = [...await taughtItems(agentId, tenantId, availableTools), ...learnedItems(agentId, tenantId)];
+        const text = fitUnits(groupEntries(items), maxChars);
+        return text ? composeInstructionLayers([{ title: 'Lessons', content: text }]) : undefined;
     }
+
+    // Two lessons taught in the same millisecond keep the order in which they were taught.
+    let lastAt = 0;
+    const nextAt = (): string => {
+        lastAt = Math.max(Date.now(), lastAt + 1);
+        return new Date(lastAt).toISOString();
+    };
 
     function requireAuthor(by: ApproverRef, what: string): void {
         if (!approverKinds.includes(by.kind)) {
@@ -298,7 +338,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
     };
 
-    return {
+    const api: Learning = {
         rules,
         policy,
         sink: {
@@ -347,18 +387,79 @@ export function createLearning(options: LearningOptions = {}): Learning {
         async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
         flush: () => counters.flush(dayBefore(windowDays * 2)),
+        registerHints(tool, toolHints) { hints.set(tool, { ...(hints.get(tool) ?? {}), ...toolHints }); },
+        async units(filter = {}) {
+            const out = new Map<string, { name: string; tenantId?: string; taught: number; learned: number }>();
+            const slot = (name: string, tenantId: string | undefined) => {
+                const k = `${tenantId ?? ''}\u0000${name}`;
+                let u = out.get(k);
+                if (!u) out.set(k, u = { name, ...(tenantId ? { tenantId } : {}), taught: 0, learned: 0 });
+                return u;
+            };
+            for (const l of await lessonStore.list()) {
+                if (filter.tenantId === undefined || l.tenantId === filter.tenantId) slot(unitOf(l), l.tenantId).taught++;
+            }
+            for (const p of detectPatterns(inWindow().filter(e => filter.tenantId === undefined || e.tenantId === filter.tenantId), threshold, rateContext())) {
+                slot(p.subject ?? p.domain, p.tenantId).learned++;
+            }
+            return [...out.values()].sort((a, b) => a.name.localeCompare(b.name) || (a.tenantId ?? '').localeCompare(b.tenantId ?? ''));
+        },
+        async exportUnit(rawUnit, scope = {}) {
+            const unit = normUnit(rawUnit);
+            const taught = (await lessonStore.list())
+                .filter(l => unitOf(l) === unit && l.tenantId === scope.tenantId && l.agentId === scope.agentId)
+                .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+            const learnedScope = `${scope.tenantId ?? ''}\u0000export`;
+            const learned = detectPatterns(inWindow().filter(e => e.tenantId === scope.tenantId && unitNameOf(e) === unit), threshold, rateContext())
+                .map(p => lineFor(p, learnedScope)).sort();
+            const tools = [...new Set(taught.flatMap(l => l.tools ?? []))].sort();
+            return unitToMarkdown({
+                unit, tools, ...(scope.agentId ? { agentId: scope.agentId } : {}), ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+                taught: taught.map(l => l.text), learned,
+            });
+        },
+        async importUnit(markdown, by, opts = {}) {
+            requireAuthor(by, 'Importing lessons');
+            const doc = unitFromMarkdown(markdown);
+            // In a product with tenants the caller says which one the file is for; otherwise the front matter decides.
+            const tenantId = 'tenantId' in opts ? opts.tenantId : doc.tenantId;
+            const unit = normUnit(doc.unit);
+            const tools = doc.tools.length ? doc.tools : unit === GENERAL_UNIT ? [] : [unit];
+            // Everything is checked before anything is written: a file is imported whole or not at all.
+            const texts = doc.taught.map(cleanLessonText);
+            const lessons: TaughtLesson[] = [];
+            for (const text of texts) {
+                lessons.push(await api.teach({
+                    text, unit, ...(tools.length ? { tools } : {}),
+                    ...(doc.agentId ? { agentId: doc.agentId } : {}), ...(tenantId ? { tenantId } : {}),
+                    id: lessonIdFor(unit, tenantId, doc.agentId, text),
+                }, by));
+            }
+            if (opts.replace) {
+                const keep = new Set(lessons.map(l => l.id));
+                for (const l of await lessonStore.list()) {
+                    if (unitOf(l) === unit && l.tenantId === tenantId && l.agentId === doc.agentId && !keep.has(l.id)) await lessonStore.remove(l.id);
+                }
+            }
+            return lessons;
+        },
         async teach(input, by) {
             requireAuthor(by, 'Teaching a lesson');
-            const text = input.text?.replace(/\s+/g, ' ').trim();
-            if (!text) throw new Error('A lesson needs a text');
-            if (text.length > MAX_TAUGHT_CHARS) throw new Error(`A lesson is at most ${MAX_TAUGHT_CHARS} characters; this one has ${text.length}`);
-            const lesson: TaughtLesson = {
-                id: `lesson-${randomUUID()}`, text,
+            const text = cleanLessonText(input.text);
+            if (input.id !== undefined && !LESSON_ID.test(input.id)) throw new Error('A lesson id is letters, digits, _ and -, up to 128 characters');
+            const candidate: Omit<TaughtLesson, 'id' | 'by' | 'at'> = {
+                text,
+                ...(input.unit ? { unit: normUnit(input.unit) } : {}),
                 ...(input.agentId ? { agentId: input.agentId } : {}),
                 ...(input.tenantId ? { tenantId: input.tenantId } : {}),
                 ...(input.tools?.length ? { tools: input.tools } : {}),
-                by, at: new Date().toISOString(),
             };
+            if (input.id !== undefined) {
+                // The same lesson again changes nothing: it keeps its place in the prompt and its first author.
+                const existing = (await lessonStore.list()).find(l => l.id === input.id);
+                if (existing && JSON.stringify({ ...candidate, id: 0 }) === JSON.stringify({ text: existing.text, ...(existing.unit ? { unit: existing.unit } : {}), ...(existing.agentId ? { agentId: existing.agentId } : {}), ...(existing.tenantId ? { tenantId: existing.tenantId } : {}), ...(existing.tools?.length ? { tools: existing.tools } : {}), id: 0 })) return existing;
+            }
+            const lesson: TaughtLesson = { id: input.id ?? `lesson-${randomUUID()}`, ...candidate, by, at: nextAt() };
             await lessonStore.add(lesson);
             return lesson;
         },
@@ -386,4 +487,5 @@ export function createLearning(options: LearningOptions = {}): Learning {
             return approved;
         },
     };
+    return api;
 }

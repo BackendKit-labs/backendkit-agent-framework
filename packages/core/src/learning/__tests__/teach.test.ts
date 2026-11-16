@@ -21,7 +21,7 @@ describe('teaching an agent something specific', () => {
         const lesson = await learning.teach({ text: 'Totals are rounded to 2 decimals.' }, HUMAN);
         expect(lesson).toMatchObject({ by: HUMAN });
         expect(lesson.id).toMatch(/^lesson-/);
-        expect(await learning.lessonsFor('ap')).toBe('## Taught lessons\n\n- Totals are rounded to 2 decimals.');
+        expect(await learning.lessonsFor('ap')).toBe('## Lessons\n\n### general\n- Totals are rounded to 2 decimals.');
     });
 
     it('goes before what was learned, in its own section', async () => {
@@ -29,7 +29,9 @@ describe('teaching an agent something specific', () => {
         await learning.teach({ text: 'Always quote the invoice number.' }, HUMAN);
         for (let i = 0; i < 3; i++) await learning.sink.write(failure());
         const text = (await learning.lessonsFor('ap'))!;
-        expect(text.indexOf('Taught lessons')).toBeLessThan(text.indexOf('Lessons learned'));
+        expect(text).toContain('### general\n- Always quote the invoice number.');
+        expect(text).toContain('### post_invoice\n- tool_error keeps happening');
+        expect(text.indexOf('### general')).toBeLessThan(text.indexOf('### post_invoice'));
     });
 
     it('only a person may teach, and an agent cannot teach itself', async () => {
@@ -66,8 +68,8 @@ describe('teaching an agent something specific', () => {
         expect(withTool).toContain('for anyone with post_invoice');
         expect(await learning.lessonsFor('other', undefined, ['post_invoice'])).not.toContain('for ap only');
         expect(await learning.lessonsFor('ap', undefined, ['read_file'])).not.toContain('for anyone with post_invoice');
-        expect(await learning.lessonsFor('ap', undefined, [])).toBe('## Taught lessons\n\n- for ap only');
-        expect(await learning.lessonsFor('ap', 't1')).toBe('## Taught lessons\n\n- for tenant t1');
+        expect(await learning.lessonsFor('ap', undefined, [])).toBe('## Lessons\n\n### general\n- for ap only');
+        expect(await learning.lessonsFor('ap', 't1')).toBe('## Lessons\n\n### general\n- for tenant t1');
         expect(await learning.lessonsFor('ap', 't2')).toBeUndefined();
     });
 

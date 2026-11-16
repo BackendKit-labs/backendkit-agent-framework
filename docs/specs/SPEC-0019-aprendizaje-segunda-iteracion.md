@@ -1,7 +1,7 @@
 # SPEC-0019: aprendizaje, segunda iteración
 
 **Fecha:** 2026-11-15
-**Estado:** Decisiones D1-D10 aceptadas el 2026-11-16 con las propuestas de §2. F1 implementada; F2-F7 pendientes.
+**Estado:** Decisiones D1-D10 aceptadas el 2026-11-16 con las propuestas de §2. F1 y F2 implementadas; F3-F7 pendientes.
 **Depende de:** [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) F6 (módulo `learning`, mergeado) y [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`AuditSink`, `ToolPolicy`, `ApprovalStore`).
 **Tipo de cambio:** por fases, aditivas salvo F4 (esquema de regla único) y F7 (retirada de `reflection`).
 **Objetivo:** que el aprendizaje sea una capacidad estándar del framework: que aprenda de una señal fiable, que la lección diga qué hacer, y que una regla tenga el mismo ciclo de vida en cualquier agente.
@@ -92,3 +92,21 @@ Cada fase lleva su test de aceptación antes de tocar código y no cambia el com
 | D3 | código declarado por la tool, con el mensaje normalizado como respaldo | `AuditEvent.errorCode`: el `code` string del error o su nombre si no es `Error`. **El mensaje normalizado no se hizo** | El mensaje puede llevar datos que el hash de los argumentos deja fuera a propósito (SPEC-0014). Una tool que quiera una huella estable lanza un error con `code` |
 | Éxitos de un vertical | — | `record({ outcome: 'success' })` también se cuenta y no se guarda | Es el mismo contador |
 | Claves existentes | — | la huella solo entra en la clave si existe | Las propuestas guardadas antes no cambian de id |
+
+## 7. Estado y desviaciones de F2 (2026-11-16)
+
+El usuario pidió que las lecciones fueran una skill que acumule por tipo de error, en lugar de una plantilla. La comprobación previa mostró que el engine no sirve de portador:
+
+- activa las skills solo por palabras clave de la entrada, con un único texto por turno para todos los agentes (delegados incluidos), sin tenant, y cambia con cada entrada (rompe la caché del prompt);
+- `Skill.agents` está documentado ("siempre activa para estos agentes") pero el engine nunca lo aplica: `getAgentSkills` no se llama en ningún sitio. Ninguna skill del repo lo usa. **Es un fallo latente aparte, no se arregla aquí**: aplicarlo cambia el comportamiento de skills existentes.
+
+El usuario eligió la opción B: **unidades con forma de skill del propio módulo, sin tocar el engine**. Hecho:
+
+| Punto | Spec | Hecho | Por qué |
+|---|---|---|---|
+| Portador | "plantilla por tipo de fallo" / skill | unidades por tool dentro de `learning.hooks` (por agente, tenant y tools del turno; estable) | El hook ya es por agente y tenant y no cambia con la entrada |
+| D4, el "qué hacer" | plantilla + lo que funcionó | pistas escritas por el autor de la tool (`errorHints`), una frase fija para los hechos del engine y lo que enseña una persona | Core no conoce el dominio: una plantilla genérica gasta contexto y no ayuda |
+| D4, "lo que funcionó" | primera llamada correcta tras el fallo | **fuera de F2 (F2b)** | El sink solo tiene el hash de los argumentos. Haría falta un hook `afterTool` que guarde solo nombres de campos, con su propio diseño de privacidad |
+| Formato `.md` de skill | importar y exportar en el formato de skill | markdown propio (front matter, `## Taught`, `## Learned`) | El parser de skills está en `agent-coding/cli`, no en core |
+| Configuración por agente (`learning` en el perfil) | propuesta del usuario | **no se hizo** | Lo cubre qué tools tiene cada agente (las lecciones de una tool solo llegan a quien la tiene) y `teach({ agentId })` |
+| Caducidad | F3 | no | Sigue siendo F3: las lecciones aprendidas salen con la ventana, las enseñadas solo con `forget` |

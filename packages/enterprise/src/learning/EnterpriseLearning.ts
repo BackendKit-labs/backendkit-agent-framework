@@ -3,7 +3,7 @@ import {
     createLearning, FileApprovalStore, FileLessonStore, JsonFileStore,
 } from '@backendkit-labs/agent-core';
 import type {
-    TaughtLesson, TeachInput, ApprovedRule, ApproverRef, Experience, LearnedPattern, Learning, MemoryStoreBackend, ApprovalStore, StoredApproval,
+    LessonUnitInfo, TaughtLesson, TeachInput, ApprovedRule, ApproverRef, Experience, LearnedPattern, Learning, MemoryStoreBackend, ApprovalStore, StoredApproval,
 } from '@backendkit-labs/agent-core';
 import type { GateRecord } from '../flow/ComplianceGate';
 import { ENTERPRISE_DOMAINS, SEVERITY_THRESHOLD } from '../reflection/domains';
@@ -171,6 +171,22 @@ export class EnterpriseLearning {
 
     forget(lessonId: string): Promise<boolean> {
         return this.learning.forget(lessonId);
+    }
+
+    /** The units of lessons of this tenant: one per tool, or `general`. */
+    units() {
+        return this.learning.units(this.tenantId ? { tenantId: this.tenantId } : {});
+    }
+
+    /** One unit as markdown that a domain owner can write and review in git: what was taught, and what was learned. */
+    exportUnit(unit: string): Promise<string> {
+        return this.learning.exportUnit(unit, this.tenantId ? { tenantId: this.tenantId } : {});
+    }
+
+    /** Teaches the `## Taught` lessons of a unit's markdown. Importing the same file twice changes nothing. */
+    importUnit(markdown: string, by: string | ApproverRef, options?: { replace?: boolean }): Promise<TaughtLesson[]> {
+        // A vault of one tenant imports for that tenant, whatever the front matter of the file says.
+        return this.learning.importUnit(markdown, asApprover(by), { ...options, ...(this.tenantId ? { tenantId: this.tenantId } : {}) });
     }
 
     /** Adds a rule by hand, attributed to a person, and writes it to the vault with the others. */

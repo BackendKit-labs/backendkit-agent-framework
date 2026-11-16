@@ -196,3 +196,24 @@ describe('EnterpriseLearning: the signal', () => {
         expect(await later.patterns()).toEqual([]);
     });
 });
+
+describe('EnterpriseLearning: units of lessons', () => {
+    it('exports a unit for a domain owner to write in git, and imports it back into the tenant of the vault', async () => {
+        const el = new EnterpriseLearning({ vaultPath: vault, tenantId: 'acme' });
+        await el.teach({ text: 'Contracts over 50k need two signatures.', tools: ['sign_contract'] }, 'ana');
+        const md = await el.exportUnit('sign_contract');
+        expect(md).toContain('tenant: acme');
+        expect(md).toContain('- Contracts over 50k need two signatures.');
+
+        // The same file, edited, in another vault: the lessons go to that vault's tenant, not to the one in the file.
+        const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ent-learning-other-'));
+        try {
+            const elsewhere = new EnterpriseLearning({ vaultPath: other, tenantId: 'globex' });
+            await elsewhere.importUnit(md.replace('two signatures', 'three signatures'), 'ana');
+            expect((await elsewhere.taught()).map(l => [l.text, l.tenantId])).toEqual([['Contracts over 50k need three signatures.', 'globex']]);
+            expect(await elsewhere.units()).toEqual([{ name: 'sign_contract', tenantId: 'globex', taught: 1, learned: 0 }]);
+        } finally {
+            fs.rmSync(other, { recursive: true, force: true });
+        }
+    });
+});

@@ -93,6 +93,8 @@ export interface TaughtLesson {
     tenantId?: string;
     /** Only an agent that has at least one of these tools in the turn gets it. */
     tools?: string[];
+    /** The unit it belongs to in the prompt: a tool name, or `general`. Default: the first of `tools`, else `general`. */
+    unit?: string;
     /** Who taught it. */
     by: ApproverRef;
     /** ISO time. */
@@ -106,6 +108,15 @@ export interface LessonStore {
     remove(id: string): Promise<boolean>;
 }
 
+/** A unit of lessons: the knowledge of one tool (or of nothing in particular) that the agents carry in their prompt. */
+export interface LessonUnitInfo {
+    name: string;
+    tenantId?: string;
+    taught: number;
+    /** Lessons learned from patterns, for the agents of the tenant. */
+    learned: number;
+}
+
 /** What `teach` takes. */
 export interface TeachInput {
     /** What the agent should know, in a sentence or two. Sanitized and capped when it joins the prompt. */
@@ -113,6 +124,9 @@ export interface TeachInput {
     agentId?: string;
     tenantId?: string;
     tools?: string[];
+    unit?: string;
+    /** Teaching the same `id` again replaces the lesson. Letters, digits, `_` and `-`. */
+    id?: string;
 }
 
 /** What `addRule` takes: a rule a person writes, without waiting for a pattern. */
@@ -161,7 +175,8 @@ export interface LearningOptions {
     thresholdFor?: (experience: Experience) => number;
     /** Most experiences kept; the oldest are dropped. Default 1000. */
     maxExperiences?: number;
-    lessons?: { maxChars?: number; maxLessons?: number };
+    /** `maxChars` of the whole text, `maxLessons` learned lessons in total, `maxPerUnit` learned lessons of one unit (default 3). */
+    lessons?: { maxChars?: number; maxLessons?: number; maxPerUnit?: number };
     /**
      * What rule a pattern proposes. Return `undefined` for none (the pattern stays a lesson). Default: for a tool
      * that fails, `{ tool, effect: 'ask' }`.
@@ -218,6 +233,25 @@ export interface Learning {
     reject(id: string, by: ApproverRef, reason?: string): Promise<void>;
     /** Withdraws an approved rule. */
     retire(ruleId: string): Promise<boolean>;
+    /**
+     * What the author of a tool knows about its errors, by the code of the error (`*` for any): a learned lesson about that
+     * code says it instead of a generic sentence. `createBaseEngine` registers the `errorHints` of the tools it gets.
+     */
+    registerHints(tool: string, hints: Record<string, string>): void;
+    /** The units the agents have lessons for: a tool, or `general`. */
+    units(filter?: { tenantId?: string }): Promise<LessonUnitInfo[]>;
+    /**
+     * One unit as markdown a person can write and review in git: a front matter, the lessons taught (the part that an
+     * import reads) and the lessons learned (generated, ignored on import).
+     */
+    exportUnit(unit: string, scope?: { tenantId?: string; agentId?: string }): Promise<string>;
+    /**
+     * Reads the `## Taught` lessons of a unit's markdown and teaches them, with an id that depends on their text, so
+     * importing the same file twice changes nothing. With `replace`, the taught lessons of that unit that are not in the
+     * file are forgotten. Only whoever `approverKinds` allows. The file is imported whole or not at all. **The front matter
+     * decides which tenant gets the lessons**; a product with tenants passes `tenantId` to say it itself and ignore the file's.
+     */
+    importUnit(markdown: string, by: ApproverRef, options?: { replace?: boolean; tenantId?: string }): Promise<TaughtLesson[]>;
     /** Writes the counters of correct calls now (they are written every few seconds, and at most once the engine stops). */
     flush(): Promise<void>;
 }

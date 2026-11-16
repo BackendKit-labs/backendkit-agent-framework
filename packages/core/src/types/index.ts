@@ -77,6 +77,12 @@ export interface ToolDefinition {
      */
     alwaysAsk?: (args: Record<string, unknown>) => boolean;
     /**
+     * What to do about each error this tool raises, by the `code` of the error (`ECONNRESET`, `ERP_PERIOD_CLOSED`); `*` is
+     * the fallback. Written by whoever knows the domain. When the learning module sees the error repeat, the lesson in the
+     * agent's prompt says this instead of a generic sentence.
+     */
+    errorHints?: Record<string, string>;
+    /**
      * The tool performs a write that cannot be undone from the outside (pay, delete, post, send).
      * A server that exposes such a tool directly must authorize every call (see `createToolServer`).
      * Exposed to MCP clients as `destructiveHint`.

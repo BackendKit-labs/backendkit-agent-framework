@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.42.0 (sin publicar)
+## v0.42.0 (2026-11-15)
 
 En 0.x, `^0.40` no cubre 0.41 y `^0.8` no cubre 0.9, así que se barrieron los rangos de todos los paquetes y templates: `agent-core` `^0.41.0`, `agent-coding` `^0.31.0`, `agent-enterprise` `^0.9.0`, y en los peers `<0.43.0`.
 

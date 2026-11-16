@@ -17,8 +17,13 @@ export interface Experience {
     tenantId?: string;
     /** Area of the experience: 'tool', 'policy', 'commit'... */
     domain: string;
-    /** What it is about: a tool name, a workflow step. Patterns group by domain + kind + subject. */
+    /** What it is about: a tool name, a workflow step. Patterns group by domain + kind + subject + fingerprint. */
     subject?: string;
+    /**
+     * What tells apart failures of the same kind and subject that have different causes: for a tool, the code or class
+     * of its error (`ECONNRESET`, `ERP_PERIOD_CLOSED`). Without it, they are one pattern.
+     */
+    fingerprint?: string;
     /** What was being attempted. */
     situation: string;
     /** What was done (a tool and a hash of its arguments, a step). */
@@ -45,6 +50,7 @@ export interface LearnedPattern {
     domain: string;
     kind: string;
     subject?: string;
+    fingerprint?: string;
     count: number;
     firstSeen: string;
     lastSeen: string;
@@ -134,6 +140,21 @@ export interface LearningOptions {
     /** Repetitions that make a pattern: it becomes a lesson and a proposed rule. Default 3. */
     threshold?: number;
     /**
+     * How far back a failure counts, in days. An older one is ignored by patterns, lessons and proposals (it stays in the
+     * store until the cap drops it). Default 30.
+     */
+    window?: { days: number };
+    /**
+     * A pattern of a tool that has many correct calls also needs to be a big enough share of its calls: three failures among
+     * a thousand calls is noise. Default `{ minFailureRate: 0.05, minCalls: 20 }`; `false` counts failures only. With fewer
+     * than `minCalls` calls in the window, or for subjects whose successes are not counted, only the count decides.
+     */
+    rate?: { minFailureRate: number; minCalls: number } | false;
+    /** Where the daily counters of correct calls live. Default: in memory. */
+    counters?: MemoryStoreBackend;
+    /** The clock. Default: the system's. */
+    now?: () => Date;
+    /**
      * Repetitions that make a pattern, per kind of experience (it gets the latest of the group). Overrides `threshold`:
      * for example, a critical failure may need one, and a minor one three.
      */
@@ -197,4 +218,6 @@ export interface Learning {
     reject(id: string, by: ApproverRef, reason?: string): Promise<void>;
     /** Withdraws an approved rule. */
     retire(ruleId: string): Promise<boolean>;
+    /** Writes the counters of correct calls now (they are written every few seconds, and at most once the engine stops). */
+    flush(): Promise<void>;
 }

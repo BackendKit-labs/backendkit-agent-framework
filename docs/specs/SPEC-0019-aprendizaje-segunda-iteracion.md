@@ -1,7 +1,7 @@
 # SPEC-0019: aprendizaje, segunda iteración
 
 **Fecha:** 2026-11-15
-**Estado:** Borrador. Cada punto de §2 espera decisión del usuario.
+**Estado:** Decisiones D1-D10 aceptadas el 2026-11-16 con las propuestas de §2. F1 implementada; F2-F7 pendientes.
 **Depende de:** [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) F6 (módulo `learning`, mergeado) y [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`AuditSink`, `ToolPolicy`, `ApprovalStore`).
 **Tipo de cambio:** por fases, aditivas salvo F4 (esquema de regla único) y F7 (retirada de `reflection`).
 **Objetivo:** que el aprendizaje sea una capacidad estándar del framework: que aprenda de una señal fiable, que la lección diga qué hacer, y que una regla tenga el mismo ciclo de vida en cualquier agente.
@@ -82,3 +82,13 @@ Cada fase lleva su test de aceptación antes de tocar código y no cambia el com
 - Aprendizaje entre tenants (lecciones "globales" que un operador promueve a todos). Hoy está prohibido por diseño; si se quiere, es una decisión de producto aparte.
 - Búsqueda semántica de experiencias (embeddings). Depende de SPEC-0017 F5 (RAG).
 - Ajuste automático de umbrales.
+
+## 6. Estado y desviaciones de F1 (2026-11-16)
+
+| Punto | Spec | Hecho | Por qué |
+|---|---|---|---|
+| D1 | contadores agregados por clave y periodo | un cubo por **día, tenant, agente, dominio y sujeto**; en memoria y escrito cada 5 s, al final de cada turno y al registrar un fallo | La tasa de un agente necesita su propio denominador. Escribir a archivo en cada llamada sería caro |
+| D2 | conteo en ventana, tasa configurable | ventana de 30 días y tasa del 5 % desde 20 llamadas **por defecto**; `rate: false` la quita | Es el criterio de aceptación de §4. Sin éxitos contados (señales de un vertical sin sujeto) decide solo el conteo |
+| D3 | código declarado por la tool, con el mensaje normalizado como respaldo | `AuditEvent.errorCode`: el `code` string del error o su nombre si no es `Error`. **El mensaje normalizado no se hizo** | El mensaje puede llevar datos que el hash de los argumentos deja fuera a propósito (SPEC-0014). Una tool que quiera una huella estable lanza un error con `code` |
+| Éxitos de un vertical | — | `record({ outcome: 'success' })` también se cuenta y no se guarda | Es el mismo contador |
+| Claves existentes | — | la huella solo entra en la clave si existe | Las propuestas guardadas antes no cambian de id |

@@ -5,6 +5,8 @@ import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
 import { MemoryLessonStore, MemoryRuleStore } from './stores';
+import { DEFAULT_RATE, SuccessCounters } from './signal';
+import type { RateOptions } from './signal';
 import type {
     AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, Severity, TaughtLesson,
     TeachInput, ToolRule,
@@ -21,11 +23,12 @@ const TOOL_FAILURES = new Set(['tool_error', 'tool_timeout', 'tool_too_large']);
 const MAX_TAUGHT_CHARS = 500;
 const PROPOSER = { agentId: 'learning', sessionId: 'learning', chain: ['learning'] };
 
-const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject'>): string =>
-    `${e.domain}:${e.kind}:${e.subject ?? ''}`;
+// A fingerprint is part of the key only when there is one, so the keys (and the proposals) of before it existed do not change.
+const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject' | 'fingerprint'>): string =>
+    `${e.domain}:${e.kind}:${e.subject ?? ''}${e.fingerprint ? `#${e.fingerprint}` : ''}`;
 
 /** Patterns never mix tenants: the group is the tenant plus the pattern key. */
-const groupKey = (e: Pick<Experience, 'tenantId' | 'domain' | 'kind' | 'subject'>): string =>
+const groupKey = (e: Pick<Experience, 'tenantId' | 'domain' | 'kind' | 'subject' | 'fingerprint'>): string =>
     `${e.tenantId ?? ''}\u0000${patternKey(e)}`;
 
 const proposalId = (key: string): string => `learn-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
@@ -61,25 +64,47 @@ function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
         action: `${event.tool}#${event.argsHash.slice(0, 8)}`,
         kind,
         severity,
+        ...(event.errorCode && kind === 'tool_error' ? { fingerprint: event.errorCode } : {}),
         ...(event.reason ? { detail: event.reason } : {}),
     };
 }
 
-function detectPatterns(experiences: Experience[], threshold: (sample: Experience) => number): LearnedPattern[] {
+/** What `detectPatterns` needs to tell a pattern from noise: how many correct calls a subject had. */
+interface RateContext {
+    rate: RateOptions | false;
+    /** Correct calls of the subject in the window, of one agent or of all of them. */
+    successes(tenantId: string | undefined, domain: string, subject: string, agentId?: string): number;
+    /** Set when the patterns are those of a single agent: the share is then its own. */
+    agentId?: string;
+}
+
+function detectPatterns(experiences: Experience[], threshold: (sample: Experience) => number, ctx?: RateContext): LearnedPattern[] {
     const groups = new Map<string, Experience[]>();
+    const failuresOf = new Map<string, number>();
     for (const e of experiences) {
         if (e.outcome !== 'failure') continue;
         const key = groupKey(e);
         const group = groups.get(key);
         if (group) group.push(e); else groups.set(key, [e]);
+        if (e.subject) {
+            const subjectKey = `${e.tenantId ?? ''}\u0000${e.domain}\u0000${e.subject}`;
+            failuresOf.set(subjectKey, (failuresOf.get(subjectKey) ?? 0) + 1);
+        }
     }
     const patterns: LearnedPattern[] = [];
     for (const group of groups.values()) {
         group.sort((a, b) => a.at.localeCompare(b.at));
         const last = group[group.length - 1];
         if (group.length < threshold(last)) continue;
+        if (ctx?.rate && last.subject) {
+            const calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId)
+                + (failuresOf.get(`${last.tenantId ?? ''}\u0000${last.domain}\u0000${last.subject}`) ?? 0);
+            if (calls >= ctx.rate.minCalls && group.length / calls < ctx.rate.minFailureRate) continue;
+        }
         patterns.push({
-            key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind, ...(last.subject ? { subject: last.subject } : {}),
+            key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind,
+            ...(last.subject ? { subject: last.subject } : {}),
+            ...(last.fingerprint ? { fingerprint: last.fingerprint } : {}),
             count: group.length,
             firstSeen: group[0].at,
             lastSeen: last.at,
@@ -120,7 +145,11 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const maxLessons = options.lessons?.maxLessons ?? 5;
     const approverKinds = options.approverKinds ?? ['human'];
     const ruleFor = options.ruleFor ?? defaultRuleFor;
-    const lessonCache = new Map<string, { count: number; text: string | undefined }>();
+    const now = options.now ?? (() => new Date());
+    const windowDays = options.window?.days ?? 30;
+    const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
+    const counters = new SuccessCounters(options.counters ?? new InMemoryStore());
+    const lessonCache = new Map<string, { count: number; day: string; at: number; text: string | undefined }>();
     // The line of a lesson is written once: a new failure of the same pattern must not change the system prompt.
     const lessonLines = new Map<string, string>();
 
@@ -134,6 +163,18 @@ export function createLearning(options: LearningOptions = {}): Learning {
         return rest as unknown as Experience;
     });
 
+    const dayBefore = (days: number): string => new Date(now().getTime() - days * 86_400_000).toISOString().slice(0, 10);
+    /** The experiences still inside the window: the only ones patterns, lessons and proposals look at. */
+    const inWindow = (): Experience[] => {
+        const since = new Date(now().getTime() - windowDays * 86_400_000).toISOString();
+        return all().filter(e => e.at >= since);
+    };
+    const rateContext = (agentId?: string): RateContext => ({
+        rate,
+        successes: (tenantId, domain, subject, agent) => counters.since(dayBefore(windowDays), tenantId, domain, subject, agent),
+        ...(agentId ? { agentId } : {}),
+    });
+
     // record() calls run one after another, so two failures at once cannot both propose the same rule.
     let queue: Promise<unknown> = Promise.resolve();
     const serialized = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -144,7 +185,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
 
     async function propose(experience: Experience): Promise<void> {
         const key = groupKey(experience);
-        const pattern = detectPatterns(all().filter(e => groupKey(e) === key), threshold)[0];
+        const pattern = detectPatterns(inWindow().filter(e => groupKey(e) === key), threshold, rateContext())[0];
         if (!pattern) return;
         const id = proposalId(key);
         if (await approvals.get(id)) return;
@@ -169,9 +210,15 @@ export function createLearning(options: LearningOptions = {}): Learning {
             ...rest, id: `exp_${randomUUID()}`, at: at ?? new Date().toISOString(),
             outcome: outcome ?? 'failure', severity: severity ?? 'medium',
         };
+        if (experience.outcome === 'success') {
+            // A success is only counted (SPEC-0019 D1): it is the denominator of a failure rate, never a record to keep.
+            if (experience.subject) counters.add(experience.at, experience.agentId, experience.tenantId, experience.domain, experience.subject);
+            return experience;
+        }
         store.insert({ ...experience, createdAt: experience.at });
         if (store.count() > maxExperiences) store.deleteOldest(maxExperiences);
-        if (experience.outcome === 'failure') await propose(experience);
+        await propose(experience);
+        await counters.flush(dayBefore(windowDays * 2));
         return experience;
     });
 
@@ -179,23 +226,27 @@ export function createLearning(options: LearningOptions = {}): Learning {
     // it may be changed from another process.
     function learnedText(agentId: string, tenantId: string | undefined): string | undefined {
         const count = store.count();
+        const at = now().getTime();
+        const day = new Date(at).toISOString().slice(0, 10);
         const scope = `${tenantId ?? ''}\u0000${agentId}`;
+        // Recomputed when the experiences change, the day changes or a minute passes: the counters of correct calls move all
+        // the time, and the lessons must not flap with each call.
         const cached = lessonCache.get(scope);
-        if (cached && cached.count === count) return cached.text;
-        const own = all().filter(e => e.agentId === agentId && e.tenantId === tenantId);
-        const lines = detectPatterns(own, threshold).slice(0, maxLessons)
+        if (cached && cached.count === count && cached.day === day && at - cached.at < 60_000) return cached.text;
+        const own = inWindow().filter(e => e.agentId === agentId && e.tenantId === tenantId);
+        const lines = detectPatterns(own, threshold, rateContext(agentId)).slice(0, maxLessons)
             .sort((x, y) => x.key.localeCompare(y.key))
             .map(p => {
                 const id = `${scope}\u0000${p.key}`;
                 let line = lessonLines.get(id);
                 if (!line) {
-                    line = `- ${p.subject ? `${p.subject}: ` : ''}${p.kind} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
+                    line = `- ${p.subject ? `${p.subject}: ` : ''}${p.kind}${p.fingerprint ? ` (${oneLine(p.fingerprint, 64)})` : ''} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
                     lessonLines.set(id, line);
                 }
                 return line;
             });
         const text = lines.length ? lines.join('\n') : undefined;
-        lessonCache.set(scope, { count, text });
+        lessonCache.set(scope, { count, day, at, text });
         return text;
     }
 
@@ -252,6 +303,10 @@ export function createLearning(options: LearningOptions = {}): Learning {
         policy,
         sink: {
             write(event) {
+                if (event.decision === 'allow' && event.outcome === 'ok') {
+                    counters.add(event.at, event.principal.agentId, event.principal.tenantId, 'tool', event.tool);
+                    return undefined;
+                }
                 const input = experienceFromAudit(event);
                 return input ? record(input).then(() => undefined) : undefined;
             },
@@ -259,6 +314,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
         hooks: {
             name: 'learning',
             systemPrompt: (ctx, profile) => lessonsFor(profile.id, ctx.principal.tenantId, profile.allowedTools),
+            // The counters of correct calls reach their store at the end of each turn. A failed write must not fail the turn.
+            afterRun: async () => { await counters.flush(dayBefore(windowDays * 2)).catch(() => undefined); },
         },
         record,
         async experiences(filter = {}) {
@@ -267,8 +324,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
                 && (filter.tenantId === undefined || e.tenantId === filter.tenantId));
         },
         async patterns(filter = {}) {
-            return detectPatterns(all().filter(e => (!filter.agentId || e.agentId === filter.agentId)
-                && (filter.tenantId === undefined || e.tenantId === filter.tenantId)), threshold);
+            return detectPatterns(inWindow().filter(e => (!filter.agentId || e.agentId === filter.agentId)
+                && (filter.tenantId === undefined || e.tenantId === filter.tenantId)), threshold, rateContext(filter.agentId));
         },
         lessonsFor,
         async proposals(filter = {}) {
@@ -289,6 +346,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
+        flush: () => counters.flush(dayBefore(windowDays * 2)),
         async teach(input, by) {
             requireAuthor(by, 'Teaching a lesson');
             const text = input.text?.replace(/\s+/g, ' ').trim();

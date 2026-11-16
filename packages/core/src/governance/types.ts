@@ -159,6 +159,12 @@ export interface AuditEvent {
     reason?: string;
     /** Present when the call ran. */
     outcome?: AuditOutcome;
+    /**
+     * Present when the call failed with an error that has a string `code` (e.g. `ECONNRESET`, `ERP_PERIOD_CLOSED`) or
+     * a name other than `Error` (e.g. `TypeError`). Never the message: it may carry data the arguments' hash keeps out.
+     * It tells apart failures of the same tool that have different causes.
+     */
+    errorCode?: string;
     durationMs: number;
     /** Who approved the call, when it needed approval. */
     approval?: { id: string; by: ApproverRef };

@@ -83,6 +83,7 @@ export class EnterpriseLearning {
             approvals: opts.approvals ?? new FileApprovalStore(path.join(base, 'proposals')),
             rules: this.rules,
             lessonStore: new FileLessonStore(path.join(base, 'taught-lessons.json')),
+            counters: new JsonFileStore(path.join(base, 'counters.json')),
             thresholdFor: e => SEVERITY_THRESHOLD[e.severity] ?? 3,
             ruleFor,
         });

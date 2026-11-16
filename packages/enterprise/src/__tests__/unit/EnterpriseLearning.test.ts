@@ -179,3 +179,20 @@ describe('EnterpriseLearning: teaching', () => {
         await expect(el.teach({ text: 'x' }, { kind: 'agent', id: 'bot' })).rejects.toThrow(/human/);
     });
 });
+
+describe('EnterpriseLearning: the signal', () => {
+    it('keeps the counters of correct calls in the vault, next to the rules', async () => {
+        const call = (outcome: 'ok' | 'error') => ({
+            at: new Date().toISOString(), principal: { agentId: 'legal-agent', sessionId: 's', chain: ['legal-agent'] }, tool: 'sign_contract',
+            argsHash: 'abcdef012345', decision: 'allow' as const, outcome, durationMs: 1,
+        });
+        const first = new EnterpriseLearning({ vaultPath: vault });
+        for (let i = 0; i < 200; i++) await first.learning.sink.write(call('ok'));
+        await first.learning.flush();
+        expect(fs.existsSync(path.join(vault, 'politicas', '_generated', 'counters.json'))).toBe(true);
+
+        const later = new EnterpriseLearning({ vaultPath: vault });
+        for (let i = 0; i < 3; i++) await later.learning.sink.write(call('error'));
+        expect(await later.patterns()).toEqual([]);
+    });
+});

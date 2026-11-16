@@ -72,7 +72,7 @@ Cada fase lleva su test de aceptación antes de tocar código y no cambia el com
 ## 4. Criterios de aceptación
 
 - Un agente con una tool que falla el 0,3 % de las veces no recibe lección ni propuesta; uno con una tool que falla 3 de 5 sí.
-- La lección de una tool que se arregló desaparece sola.
+- ~~La lección de una tool que se arregló desaparece sola.~~ Sustituido por [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md): la lección se queda mientras su sujeto se siga llamando y la cierra una persona (§3b).
 - El system prompt de un agente no cambia entre dos turnos si no apareció ni caducó un patrón.
 - Una regla aprobada tiene la misma forma y el mismo efecto en los tres paquetes.
 - `core/src` no contiene `reflection/`.

@@ -1,4 +1,5 @@
 import type { MemoryStoreBackend } from '../agent-memory/types';
+import type { LearnedPattern, PatternRecord } from './types';
 
 /** Failures that make a pattern only count if they are a big enough share of the calls (SPEC-0019 D2). */
 export interface RateOptions {
@@ -90,51 +91,115 @@ export class SuccessCounters {
     }
 }
 
+/** A record with the view it belongs to (`<agentId>|<tenant>\0<pattern key>`; an empty agent is the view of all of them). */
+export type PatternEntry = PatternRecord & { view: string };
+
 /**
- * The patterns that already passed the rate (SPEC-0019, found by the trading bench). The rate decides when a pattern
- * ENTERS: once it is in, it stays while its failures stay in the window, however many correct calls pile up. Otherwise a
- * lesson that works would remove itself: the bot obeys it, its correct calls dilute the failure share, the lesson leaves
- * and the mistake comes back. A record is the key and the last day the pattern was seen; it expires after the window.
+ * What the module remembers of each pattern (SPEC-0022). The rate decides when a pattern ENTERS (SPEC-0019); once in, the
+ * record stays: the failures that made it leave the window, and what it has to say (the line of the lesson, its count and
+ * its dates) must not leave with them, or a lesson that works would remove itself and the mistake would come back.
+ * A record is written by the pattern that confirms it, and read by the lessons and the proposals.
+ *
+ * Records of a published 0.42 (`kind: 'qualified'`, the key and the last day) are still read: they count as "already in"
+ * until the pattern confirms and a full record replaces them.
  */
-export class QualifiedPatterns {
-    private readonly days = new Map<string, string>();
+export class PatternRecords {
+    private readonly map = new Map<string, PatternRecord>();
+    private readonly legacy = new Map<string, string>();
     private loaded = false;
 
     constructor(private readonly store: MemoryStoreBackend) {}
 
-    /** Did the pattern pass the rate, and was it seen since `sinceDay`? */
-    has(key: string, sinceDay: string): boolean {
+    /** What is known of the pattern of one view: never seen, in, or resolved by a person. */
+    state(view: string, sinceDay: string): { state: 'none' | 'active' | 'resolved'; resolvedAt?: string } {
         this.load();
-        const day = this.days.get(key);
-        return day !== undefined && day >= sinceDay;
+        const rec = this.map.get(view);
+        if (rec) return rec.state === 'resolved' ? { state: 'resolved', resolvedAt: rec.resolvedAt } : { state: 'active' };
+        const day = this.legacy.get(view);
+        return day !== undefined && day >= sinceDay ? { state: 'active' } : { state: 'none' };
     }
 
-    /** The pattern is in (it passed the rate, or it stayed): remember the day. */
-    confirm(key: string, day: string): void {
+    /** The pattern is in (it passed the rate, it stayed, or it came back after being resolved). */
+    confirm(view: string, agentId: string, p: LearnedPattern): void {
         this.load();
-        if (this.days.get(key) === day) return;
-        this.days.set(key, day);
-        this.store.upsert(`q|${key}`, { id: `q|${key}`, createdAt: `${day}T00:00:00.000Z`, kind: 'qualified', key, day });
+        const prev = this.map.get(view);
+        // What a lesson says about the pattern is the first thing it saw: the line is written once and later failures do not rewrite it.
+        const rec: PatternRecord = prev ? { ...prev } : {
+            key: p.key, agentId, ...(p.tenantId ? { tenantId: p.tenantId } : {}), domain: p.domain, kind: p.kind,
+            ...(p.subject ? { subject: p.subject } : {}), ...(p.context ? { context: p.context } : {}),
+            ...(p.fingerprint ? { fingerprint: p.fingerprint } : {}),
+            situation: p.situation, ...(p.detail ? { detail: p.detail } : {}), severity: p.severity,
+            count: p.count, firstSeen: p.firstSeen, lastFailure: p.lastSeen, state: 'active',
+        };
+        if (prev) {
+            rec.count = p.count;
+            rec.severity = p.severity;
+            if (p.lastSeen > prev.lastFailure) rec.lastFailure = p.lastSeen;
+            if (prev.state === 'resolved') {
+                rec.state = 'active';
+                rec.reappeared = { resolvedAt: prev.resolvedAt ?? '', by: prev.resolvedBy ?? { kind: 'human', id: 'unknown' } };
+                delete rec.resolvedAt; delete rec.resolvedBy; delete rec.resolvedReason;
+            }
+        }
+        this.save(view, rec);
     }
 
-    /** The pattern has fewer failures than it needs: it leaves, and has to pass the rate again to come back. */
-    drop(key: string): void {
+    /** A person says it is solved: it stops being a lesson, and the record stays to tell if it comes back. */
+    resolve(view: string, by: PatternRecord['resolvedBy'], at: string, reason?: string): boolean {
         this.load();
-        if (!this.days.delete(key)) return;
-        this.store.deleteByIds([`q|${key}`]);
+        const rec = this.map.get(view);
+        if (!rec || rec.state === 'resolved') return false;
+        const next: PatternRecord = { ...rec, state: 'resolved', resolvedAt: at, ...(by ? { resolvedBy: by } : {}), ...(reason ? { resolvedReason: reason } : {}) };
+        delete next.reappeared;
+        this.save(view, next);
+        return true;
     }
 
-    /** Forgets what was not seen since `keepFromDay`. */
-    prune(keepFromDay: string): void {
+    /** Writes the line of a lesson, once. */
+    setLine(view: string, line: string): void {
         this.load();
-        for (const [key, day] of [...this.days]) if (day < keepFromDay) this.drop(key);
+        const rec = this.map.get(view);
+        if (rec && rec.line === undefined) this.save(view, { ...rec, line });
+    }
+
+    list(): PatternEntry[] {
+        this.load();
+        return [...this.map].map(([view, rec]) => ({ ...rec, view }));
+    }
+
+    /** Forgets the records `drop` says are not worth keeping. */
+    prune(drop: (rec: PatternEntry) => boolean): void {
+        this.load();
+        for (const rec of this.list()) {
+            if (!drop(rec)) continue;
+            this.map.delete(rec.view);
+            this.store.deleteByIds([`p|${rec.view}`]);
+        }
+        for (const [view, day] of [...this.legacy]) {
+            if (day < this.legacyKeep) { this.legacy.delete(view); this.store.deleteByIds([`q|${view}`]); }
+        }
+    }
+
+    /** Legacy records older than this day are dropped by `prune`. */
+    legacyKeep = '';
+
+    private save(view: string, rec: PatternRecord): void {
+        const before = this.map.get(view);
+        if (before && JSON.stringify(before) === JSON.stringify(rec)) return;
+        this.map.set(view, rec);
+        if (this.legacy.delete(view)) this.store.deleteByIds([`q|${view}`]);
+        this.store.upsert(`p|${view}`, { id: `p|${view}`, createdAt: rec.firstSeen, kind: 'pattern', view, rec });
     }
 
     private load(): void {
         if (this.loaded) return;
         this.loaded = true;
         for (const r of this.store.getAll()) {
-            if (r.kind === 'qualified' && typeof r.key === 'string' && typeof r.day === 'string') this.days.set(r.key, r.day);
+            if (r.kind === 'pattern' && typeof r.view === 'string' && r.rec && typeof r.rec === 'object') {
+                this.map.set(r.view, r.rec as PatternRecord);
+            } else if (r.kind === 'qualified' && typeof r.key === 'string' && typeof r.day === 'string') {
+                this.legacy.set(r.key, r.day);
+            }
         }
     }
 }

@@ -7,7 +7,7 @@ import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
 import { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
-import { DEFAULT_RATE, QualifiedPatterns, SuccessCounters } from './signal';
+import { DEFAULT_RATE, PatternRecords, SuccessCounters, type PatternEntry } from './signal';
 import { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries, lessonIdFor, unitFromMarkdown, unitToMarkdown } from './units';
 import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
@@ -97,8 +97,8 @@ interface RateContext {
     successes(tenantId: string | undefined, domain: string, subject: string, agentId?: string, context?: string): number;
     /** Set when the patterns are those of a single agent: the share is then its own. */
     agentId?: string;
-    /** The patterns that already passed the rate: they stay while their failures stay in the window. */
-    qualified: { has(key: string): boolean; confirm(key: string): void; drop(key: string): void };
+    /** What is remembered of the patterns: the ones in stay in (SPEC-0022), the ones a person resolved need new failures to come back. */
+    records: { state(key: string): { state: 'none' | 'active' | 'resolved'; resolvedAt?: string }; confirm(key: string, pattern: LearnedPattern): void };
 }
 
 function detectPatterns(experiences: Experience[], threshold: (sample: Experience) => number, ctx?: RateContext): LearnedPattern[] {
@@ -119,17 +119,20 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
         group.sort((a, b) => a.at.localeCompare(b.at));
         const last = group[group.length - 1];
         const gk = groupKey(last);
-        if (group.length < threshold(last)) { ctx?.qualified.drop(gk); continue; }
+        if (group.length < threshold(last)) continue;
         let passes = true;
+        let calls: number | undefined;
         if (ctx?.rate && last.subject) {
-            const calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId, last.context)
+            calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId, last.context)
                 + (failuresOf.get(`${last.tenantId ?? ''}\u0000${last.domain}\u0000${last.subject}\u0000${last.context ?? ''}`) ?? 0);
             passes = !(calls >= ctx.rate.minCalls && group.length / calls < ctx.rate.minFailureRate);
         }
-        // The rate decides when a pattern enters; once in, it stays while its failures stay in the window.
-        if (!passes && !ctx?.qualified.has(gk)) continue;
-        ctx?.qualified.confirm(gk);
-        patterns.push({
+        // The rate decides when a pattern enters; once in, it stays (SPEC-0022). One a person resolved needs new failures after that, and the rate, to come back.
+        const known = ctx?.records.state(gk);
+        if (known?.state === 'resolved') {
+            if (!passes || group.filter(e => e.at > (known.resolvedAt ?? '')).length < threshold(last)) continue;
+        } else if (!passes && known?.state !== 'active') continue;
+        const pattern: LearnedPattern = {
             key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind,
             ...(last.subject ? { subject: last.subject } : {}),
             ...(last.context ? { context: last.context } : {}),
@@ -142,7 +145,10 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
             agentIds: [...new Set(group.map(e => e.agentId))],
             situation: last.situation,
             ...(last.detail ? { detail: last.detail } : {}),
-        });
+            ...(calls !== undefined ? { calls } : {}),
+        };
+        ctx?.records.confirm(gk, pattern);
+        patterns.push(pattern);
     }
     return patterns.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
@@ -185,10 +191,11 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
     const counterStore = options.counters ?? (dir ? new JsonFileStore(join(dir, 'counters.json')) : new InMemoryStore());
     const counters = new SuccessCounters(counterStore);
-    const qualified = new QualifiedPatterns(counterStore);
+    const records = new PatternRecords(counterStore);
+    // The calls of a subject are needed as far back as the quiet period; the counters are kept twice that.
+    const quietAfterDays = options.quietAfterDays ?? windowDays;
+    const retentionDays = Math.max(windowDays, quietAfterDays) * 2;
     const lessonCache = new Map<string, { count: number; day: string; at: number; items: LessonItem[] }>();
-    // The line of a lesson is written once: a new failure of the same pattern must not change the system prompt.
-    const lessonLines = new Map<string, string>();
 
     function defaultRuleFor(p: LearnedPattern): ToolRule | undefined {
         if (p.domain !== 'tool' || !p.subject || !TOOL_FAILURES.has(p.kind)) return undefined;
@@ -211,10 +218,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
         successes: (tenantId, domain, subject, agent, context) => counters.since(dayBefore(windowDays), tenantId, domain, subject, agent, context),
         ...(agentId ? { agentId } : {}),
         // The view of one agent has its own share, so it has its own memory of what passed it.
-        qualified: {
-            has: key => qualified.has(`${agentId ?? ''}|${key}`, dayBefore(windowDays)),
-            confirm: key => qualified.confirm(`${agentId ?? ''}|${key}`, now().toISOString().slice(0, 10)),
-            drop: key => qualified.drop(`${agentId ?? ''}|${key}`),
+        records: {
+            state: key => records.state(`${agentId ?? ''}|${key}`, dayBefore(windowDays)),
+            confirm: (key, pattern) => records.confirm(`${agentId ?? ''}|${key}`, agentId ?? '', pattern),
         },
     });
 
@@ -225,6 +231,14 @@ export function createLearning(options: LearningOptions = {}): Learning {
         queue = next.catch(() => undefined);
         return next;
     };
+
+    /** What a person sees when deciding on a rule: how many failures, out of how many calls, and since when. */
+    function evidenceOf(p: LearnedPattern): string {
+        const share = p.calls ? ` (${p.count} of ${p.calls} calls, ${Math.round((p.count / p.calls) * 100)}%)` : '';
+        const back = records.list().find(r => r.agentId === '' && r.key === p.key && r.tenantId === p.tenantId)?.reappeared;
+        const again = back ? ` (resolved on ${back.resolvedAt.slice(0, 10)}, and it came back)` : '';
+        return `${p.count} x ${p.kind}${p.subject ? ` on ${p.subject}` : ''}${share}, ${p.firstSeen} to ${p.lastSeen}${again}`;
+    }
 
     async function propose(experience: Experience): Promise<void> {
         const key = groupKey(experience);
@@ -244,7 +258,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
             subject: {
                 kind: 'rule_proposal',
                 rule,
-                evidence: `${pattern.count} x ${pattern.kind}${pattern.subject ? ` on ${pattern.subject}` : ''}, ${pattern.firstSeen} to ${pattern.lastSeen}`,
+                evidence: evidenceOf(pattern),
             },
             reason: `Learned from ${pattern.count} repetitions of ${pattern.key}`,
             createdAt: new Date().toISOString(),
@@ -265,15 +279,26 @@ export function createLearning(options: LearningOptions = {}): Learning {
         store.insert({ ...experience, createdAt: experience.at });
         if (store.count() > maxExperiences) store.deleteOldest(maxExperiences);
         await propose(experience);
-        await counters.flush(dayBefore(windowDays * 2));
+        await counters.flush(dayBefore(retentionDays));
         return experience;
     });
 
-    /** The sentence of a learned lesson: what the tool's author says about the error, what the engine says about the kind of failure, or the plain fact. */
-    function lineFor(p: LearnedPattern, scope: string): string {
-        const id = `${scope}\u0000${p.key}`;
-        const cached = lessonLines.get(id);
-        if (cached) return cached;
+    /** The experience of a pattern is gone from the window, the record is not: a record says what a lesson needs. */
+    const asPattern = (r: PatternEntry): LearnedPattern => ({
+        key: r.key, ...(r.tenantId ? { tenantId: r.tenantId } : {}), domain: r.domain, kind: r.kind,
+        ...(r.subject ? { subject: r.subject } : {}), ...(r.context ? { context: r.context } : {}), ...(r.fingerprint ? { fingerprint: r.fingerprint } : {}),
+        count: r.count, firstSeen: r.firstSeen, lastSeen: r.lastFailure, severity: r.severity, experienceIds: [], agentIds: [r.agentId],
+        situation: r.situation, ...(r.detail ? { detail: r.detail } : {}),
+    });
+
+    /**
+     * The sentence of a learned lesson: what the tool's author says about the error, what the engine says about the kind of failure,
+     * or the plain fact (from the first experience of the pattern). It is written once, in the record of the pattern: a later failure,
+     * a hint registered afterwards or a restart do not rewrite it, so the system prompt stays cacheable. A hint a tool's author
+     * improves later reaches the patterns that appear after that, not the ones already written.
+     */
+    function lineFor(r: PatternEntry): string {
+        const p = asPattern(r);
         const fp = p.fingerprint ? oneLine(p.fingerprint, 64) : undefined;
         // What a tool's author says is about the errors it raises. A denial, a block or a timeout is not one: for those the
         // engine speaks, so that a `*` hint never tells the model to retry a call that was refused.
@@ -287,15 +312,26 @@ export function createLearning(options: LearningOptions = {}): Learning {
         const hint = (p.fingerprint ? toolHints?.[p.fingerprint] : undefined)
             ?? (toolError && p.fingerprint ? ENGINE_ERROR_CODES[p.fingerprint] : undefined)
             ?? toolHints?.['*'] ?? (p.domain === 'tool' ? ENGINE_HINTS[p.kind] : undefined);
-        // The advice, when there is one. The situation is the one of the LATEST experience of a pattern that may span several
-        // symbols or steps, so it is only used when there is nothing better to say.
+        if (r.line !== undefined) return r.line;
+        // The advice, when there is one. The situation is the one of the FIRST experience, so it is only used when there is nothing better to say.
         const line = hint
             ? `${fp ?? p.kind}: ${oneLine(hint, 240)}`
             : p.detail
                 ? `${p.kind}${tag} keeps happening: ${oneLine(p.detail, 200)}`
                 : `${p.kind}${tag} keeps happening. ${oneLine(p.situation, 120)}`;
-        lessonLines.set(id, line);
+        records.setLine(r.view, line);
         return line;
+    }
+
+    /** The lessons of the view of all the agents that are still in use: what the units show and export. */
+    const activeForAll = (): PatternEntry[] => records.list().filter(r => r.agentId === '' && r.state === 'active' && inUse(r));
+
+    /** Is the subject of the record still in use? A subject without calls to count (a signal of a vertical) lives as long as its window. */
+    function inUse(r: PatternEntry): boolean {
+        if (!r.subject) return r.lastFailure >= new Date(now().getTime() - windowDays * 86_400_000).toISOString();
+        const since = dayBefore(quietAfterDays);
+        return r.lastFailure.slice(0, 10) >= since
+            || counters.since(since, r.tenantId, r.domain, r.subject, r.agentId || undefined, r.context) > 0;
     }
 
     // What the patterns say is cached while the experiences do not change; what people taught is read each time, because
@@ -310,17 +346,22 @@ export function createLearning(options: LearningOptions = {}): Learning {
         const cached = lessonCache.get(scope);
         if (cached && cached.count === count && cached.day === day && at - cached.at < 60_000) return cached.items;
         const own = inWindow().filter(e => e.agentId === agentId && e.tenantId === tenantId);
-        // Patterns come most frequent first: the cap per unit and the cap in total keep the ones that happen most.
+        // Seeing the patterns confirms their records (and brings back the ones a person resolved that failed again).
+        const current = new Set(detectPatterns(own, threshold, rateContext(agentId)).map(p => p.key));
+        const mine = records.list().filter(r => r.agentId === agentId && r.tenantId === tenantId && r.state === 'active' && inUse(r));
+        // The ones that fail now come first, so that a lesson that stays because its subject is still called does not take the place of
+        // a new problem; inside each group, the most frequent first. The cap per unit and the cap in total keep the first ones.
+        mine.sort((x, y) => Number(current.has(y.key)) - Number(current.has(x.key)) || y.count - x.count || x.key.localeCompare(y.key));
         const perUnit = new Map<string, number>();
-        const chosen: LearnedPattern[] = [];
-        for (const p of detectPatterns(own, threshold, rateContext(agentId))) {
-            const unit = unitNameOf(p);
+        const chosen: PatternEntry[] = [];
+        for (const r of mine) {
+            const unit = unitNameOf(r);
             if ((perUnit.get(unit) ?? 0) >= maxPerUnit) continue;
             if (chosen.length >= maxLessons) break;
             perUnit.set(unit, (perUnit.get(unit) ?? 0) + 1);
-            chosen.push(p);
+            chosen.push(r);
         }
-        const items = chosen.map(p => ({ unit: unitNameOf(p), source: 'learned' as const, text: lineFor(p, scope), order: p.key }));
+        const items = chosen.map(r => ({ unit: unitNameOf(r), source: 'learned' as const, text: lineFor(r), order: r.key }));
         lessonCache.set(scope, { count, day, at, items });
         return items;
     }
@@ -354,7 +395,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         }
     }
 
-    async function resolve(id: string, by: ApproverRef, decision: 'approve' | 'reject', reason?: string) {
+    async function decide(id: string, by: ApproverRef, decision: 'approve' | 'reject', reason?: string) {
         if (!approverKinds.includes(by.kind)) {
             throw new Error(`A learned rule needs approval from ${approverKinds.join(' or ')}, not from ${by.kind}`);
         }
@@ -395,7 +436,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
             name: 'learning',
             systemPrompt: (ctx, profile) => lessonsFor(profile.id, ctx.principal.tenantId, profile.allowedTools),
             // The counters of correct calls reach their store at the end of each turn. A failed write must not fail the turn.
-            afterRun: async () => { await counters.flush(dayBefore(windowDays * 2)).catch(() => undefined); },
+            afterRun: async () => { await counters.flush(dayBefore(retentionDays)).catch(() => undefined); },
         },
         record,
         trackOutcome(o) {
@@ -426,7 +467,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
                 && (filter.tenantId === undefined || a.principal.tenantId === filter.tenantId));
         },
         async approve(id, by, reason) {
-            const { request } = await resolve(id, by, 'approve', reason);
+            const { request } = await decide(id, by, 'approve', reason);
             const subject = request.subject as { kind: 'rule_proposal'; rule: unknown; evidence: string };
             const approved: ApprovedRule = {
                 id, rule: subject.rule, ...(request.principal.tenantId ? { tenantId: request.principal.tenantId } : {}),
@@ -436,7 +477,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
             await rules.add(approved);
             return approved;
         },
-        async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
+        async reject(id, by, reason) { await decide(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
         rulesView(tenantId) {
             // Copies, and no way back to the store: a tool that reads the rules cannot change them.
@@ -448,7 +489,28 @@ export function createLearning(options: LearningOptions = {}): Learning {
                 },
             });
         },
-        flush: async () => { qualified.prune(dayBefore(windowDays * 2)); await counters.flush(dayBefore(windowDays * 2)); },
+        async resolve(patternKey, by, opts = {}) {
+            requireAuthor(by, 'Resolving a lesson');
+            const at = now().toISOString();
+            const hit = records.list().filter(r => r.key === patternKey && r.tenantId === opts.tenantId);
+            if (!hit.length) throw new Error(`No pattern "${patternKey}"${opts.tenantId ? ` for tenant "${opts.tenantId}"` : ''}`);
+            for (const r of hit) records.resolve(r.view, by, at, opts.reason);
+            lessonCache.clear();
+        },
+        async records(filter = {}) {
+            return records.list()
+                // The view of all the agents (an empty agent) feeds the proposals, not the prompts: it is only listed when asked for.
+                .filter(r => (filter.agentId === undefined ? r.agentId !== '' : r.agentId === filter.agentId)
+                    && (filter.tenantId === undefined || r.tenantId === filter.tenantId)
+                    && (!filter.state || r.state === filter.state))
+                .map(({ view: _view, ...rec }) => structuredClone(rec));
+        },
+        flush: async () => {
+            records.legacyKeep = dayBefore(retentionDays);
+            // A record goes when its subject is quiet and its last failure is older than the counters are kept.
+            records.prune(r => !inUse(r) && r.lastFailure.slice(0, 10) < dayBefore(retentionDays));
+            await counters.flush(dayBefore(retentionDays));
+        },
         registerHints(tool, toolHints) { hints.set(tool, { ...(hints.get(tool) ?? {}), ...toolHints }); },
         async units(filter = {}) {
             const out = new Map<string, { name: string; tenantId?: string; taught: number; learned: number }>();
@@ -461,8 +523,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
             for (const l of await lessonStore.list()) {
                 if (filter.tenantId === undefined || l.tenantId === filter.tenantId) slot(unitOf(l), l.tenantId).taught++;
             }
-            for (const p of detectPatterns(inWindow().filter(e => filter.tenantId === undefined || e.tenantId === filter.tenantId), threshold, rateContext())) {
-                slot(p.subject ?? p.domain, p.tenantId).learned++;
+            detectPatterns(inWindow().filter(e => filter.tenantId === undefined || e.tenantId === filter.tenantId), threshold, rateContext());
+            for (const r of activeForAll()) {
+                if (filter.tenantId === undefined || r.tenantId === filter.tenantId) slot(r.subject ?? r.domain, r.tenantId).learned++;
             }
             return [...out.values()].sort((a, b) => a.name.localeCompare(b.name) || (a.tenantId ?? '').localeCompare(b.tenantId ?? ''));
         },
@@ -471,9 +534,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
             const taught = (await lessonStore.list())
                 .filter(l => unitOf(l) === unit && l.tenantId === scope.tenantId && l.agentId === scope.agentId)
                 .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
-            const learnedScope = `${scope.tenantId ?? ''}\u0000export`;
-            const learned = detectPatterns(inWindow().filter(e => e.tenantId === scope.tenantId && unitNameOf(e) === unit), threshold, rateContext())
-                .map(p => lineFor(p, learnedScope)).sort();
+            detectPatterns(inWindow().filter(e => e.tenantId === scope.tenantId && unitNameOf(e) === unit), threshold, rateContext());
+            const learned = activeForAll().filter(r => r.tenantId === scope.tenantId && unitNameOf(r) === unit).map(lineFor).sort();
             const tools = [...new Set(taught.flatMap(l => l.tools ?? []))].sort();
             return unitToMarkdown({
                 unit, tools, ...(scope.agentId ? { agentId: scope.agentId } : {}), ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),

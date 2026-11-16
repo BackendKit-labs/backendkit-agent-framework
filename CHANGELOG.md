@@ -1,5 +1,12 @@
 # Changelog
 
+## Sin publicar
+
+[SPEC-0019](docs/specs/SPEC-0019-aprendizaje-segunda-iteracion.md) F1 (la señal del aprendizaje).
+
+- **`agent-core`:** los éxitos se cuentan en vez de guardarse (contadores por día, agente y sujeto), los patrones solo miran los fallos de la ventana (`window`, 30 días por defecto) y una tool con muchas llamadas necesita que los fallos sean una proporción de ellas (`rate`, 5 % desde 20 llamadas por defecto; `rate: false` cuenta solo fallos). `AuditEvent.errorCode` lleva el código del error (`code` o nombre de la clase, nunca el mensaje) y es parte de la clave del patrón: fallos de la misma tool con causas distintas son patrones distintos. **Cambia el comportamiento por defecto:** un fallo de hace más de 30 días ya no cuenta y tres fallos entre mil llamadas ya no forman patrón.
+- **`agent-coding` y `agent-enterprise`:** guardan los contadores en un archivo (`counters.json`).
+
 ## v0.42.0 (2026-11-15)
 
 En 0.x, `^0.40` no cubre 0.41 y `^0.8` no cubre 0.9, así que se barrieron los rangos de todos los paquetes y templates: `agent-core` `^0.41.0`, `agent-coding` `^0.31.0`, `agent-enterprise` `^0.9.0`, y en los peers `<0.43.0`.

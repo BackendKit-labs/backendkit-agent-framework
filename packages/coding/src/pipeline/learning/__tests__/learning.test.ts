@@ -124,3 +124,22 @@ describe('lessons a person teaches a coding project', () => {
         expect(await later.taught()).toHaveLength(1);
     });
 });
+
+describe('the counters of correct calls of a coding project', () => {
+    it('are kept with the project, so a later process knows how many calls a tool has had', async () => {
+        const root = path.join(tmpHome, 'repo-counters');
+        await fs.mkdir(root);
+        const call = (outcome: 'ok' | 'error') => ({
+            at: new Date().toISOString(), principal: { agentId: 'dev', sessionId: 's', chain: ['dev'] }, tool: 'run_command', argsHash: 'abcdef012345',
+            decision: 'allow' as const, outcome, durationMs: 1,
+        });
+        const first = createCodingLearning({ appName: APP, projectRoot: root });
+        for (let i = 0; i < 300; i++) await first.sink.write(call('ok'));
+        await first.flush();
+
+        // Three failures of a tool that has had 300 correct calls are noise; without the counters they would be a pattern.
+        const later = createCodingLearning({ appName: APP, projectRoot: root });
+        for (let i = 0; i < 3; i++) await later.sink.write(call('error'));
+        expect(await later.patterns()).toEqual([]);
+    });
+});

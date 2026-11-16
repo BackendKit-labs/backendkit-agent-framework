@@ -104,6 +104,7 @@ export function createCodingLearning(options: CodingLearningOptions): Learning {
         approvals: new FileApprovalStore(join(dir, 'proposals')),
         rules: new FileRuleStore(join(dir, 'rules.json')),
         lessonStore: new FileLessonStore(join(dir, 'lessons.json')),
+        counters: new JsonFileStore(join(dir, 'counters.json')),
         ruleFor: policyRuleFor,
         ...(options.threshold !== undefined ? { threshold: options.threshold } : {}),
     });

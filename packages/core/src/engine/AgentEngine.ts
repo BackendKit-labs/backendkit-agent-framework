@@ -59,6 +59,7 @@ import { WorkflowRunner } from '../workflow/WorkflowRunner';
 import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflow/types';
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
 import { IterationManager, type IterationMode, type IterationStats } from './IterationManager';
+import { errorCodeOf } from './error-code';
 
 
 export interface AgentEngineOptions extends EngineOptions {
@@ -1531,6 +1532,7 @@ export class AgentEngine {
         let result: string;
         let success: boolean;
         let outcome: 'timeout' | 'aborted' | undefined;
+        let errorCode: string | undefined;
         let sandboxRefusal: string | undefined;
         // What the single audit event of this call records (SPEC-0014 F1).
         let decision: AuditDecision = 'allow';
@@ -1598,7 +1600,7 @@ export class AgentEngine {
                     const hookCall: ToolCall | undefined = toolHooks ? { tool: toolDef, args: this.parseArgs(effective.args) } : undefined;
                     const hookCtx = toolHooks ? this.toolHookContext(principal) : undefined;
                     if (hookCall && hookCtx) await runHooks(this.hooks, 'beforeTool', h => h.beforeTool!(hookCtx, hookCall));
-                    ({ result, success, outcome } = await this.runToolDef(
+                    ({ result, success, outcome, errorCode } = await this.runToolDef(
                         effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run',
                     ));
                     if (this.guardrails?.has('tool_result')) {
@@ -1626,6 +1628,7 @@ export class AgentEngine {
             decision,
             reason,
             outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : undefined,
+            ...(errorCode ? { errorCode } : {}),
             approval,
             sandbox: sandboxDecisions,
             meta: toolDef?.meta,
@@ -1788,7 +1791,7 @@ export class AgentEngine {
         sandboxDecisions?: AuditSandboxDecision[],
         principal?: Principal,
         dryRun = false,
-    ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted' }> {
+    ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted'; errorCode?: string }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
         const secrets = await resolveSecrets(this.opts.agents.get(agentId), this.opts.secretResolver);
@@ -1805,12 +1808,13 @@ export class AgentEngine {
         let timer: ReturnType<typeof setTimeout> | undefined;
         let graceTimer: ReturnType<typeof setTimeout> | undefined;
 
-        const execution = (async (): Promise<{ result: string; success: boolean }> => {
+        const execution = (async (): Promise<{ result: string; success: boolean; errorCode?: string }> => {
             try {
                 const args = JSON.parse(call.args);
                 return { result: await toolDef.execute(args, ctx), success: true };
             } catch (err) {
-                return { result: `Error: ${err instanceof Error ? err.message : String(err)}`, success: false };
+                const errorCode = errorCodeOf(err);
+                return { result: `Error: ${err instanceof Error ? err.message : String(err)}`, success: false, ...(errorCode ? { errorCode } : {}) };
             }
         })();
         // A result that arrives after we gave up on the call is dropped, never an unhandled rejection.
@@ -1885,7 +1889,7 @@ export class AgentEngine {
      */
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
-        decision: AuditDecision; reason?: string; outcome?: AuditOutcome; sandbox?: AuditSandboxDecision[];
+        decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
         approval?: { id: string; by: ApproverRef }; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
@@ -1906,6 +1910,7 @@ export class AgentEngine {
             decision: c.decision,
             ...(c.reason !== undefined ? { reason: c.reason } : {}),
             ...(c.outcome !== undefined ? { outcome: c.outcome } : {}),
+            ...(c.errorCode ? { errorCode: c.errorCode } : {}),
             durationMs: Date.now() - c.startedAt,
             ...(c.approval ? { approval: c.approval } : {}),
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),

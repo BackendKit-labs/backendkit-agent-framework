@@ -28,6 +28,8 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Borrador |
 | [SPEC-0023](SPEC-0023-flujos-declarativos.md) | Flujos declarativos y un solo runner (diseño de SPEC-0017 F1) | Borrador |
 
+Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** al final y solo si aparece un caso de caída a mitad de flujo (la aprobación durable ya está hecha).
+
 Orden de ejecución vigente: SPEC-0013 §4 (prerrequisitos) → 0014 → 0015 y 0016 (mismo minor) → 0017 por fases → 0018. Ver [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) para la tabla de trazabilidad. Los borradores anteriores (0002, 0004 a 0007) se reevalúan contra ADR-0008 antes de retomarlos. SPEC-0004 es dependencia de la opción B de aprobación durable (SPEC-0014 §6).
 
 Estados: Borrador, En revisión, Aprobado, Implementado.

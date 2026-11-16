@@ -29,6 +29,7 @@ import type { ContextOptions } from './ContextManager';
 import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
 import { defaultToolPolicy } from '../governance/policy';
 import type { Learning } from '../learning/types';
+import { LEARNED_RULES_SERVICE } from '../tools/services';
 import type { EngineHooks } from '../governance/hooks';
 import type { Guardrail } from '../guardrails/types';
 
@@ -463,7 +464,15 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             }
             : {}),
         ...(opts.sessionMemory ? { sessionMemory: opts.sessionMemory } : {}),
-        ...(opts.services ? { services: opts.services } : {}),
+        ...(opts.services || opts.learning
+            ? {
+                services: (profile: AgentProfile | undefined) => ({
+                    ...(typeof opts.services === 'function' ? opts.services(profile) : opts.services ?? {}),
+                    // The tools get a read-only view of the rules of the tenant of the engine, never the Learning object itself.
+                    ...(opts.learning ? { [LEARNED_RULES_SERVICE]: opts.learning.rulesView(opts.identity?.tenantId) } : {}),
+                }),
+            }
+            : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(opts.allowUnlistedTools ? { allowUnlistedTools: true } : {}),
         ...(opts.mcpServers?.length

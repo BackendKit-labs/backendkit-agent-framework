@@ -133,6 +133,17 @@ export interface TeachInput {
     id?: string;
 }
 
+/**
+ * What a tool may see of the rules a person approved: a read-only view of one tenant's rules. It has no way to approve, teach
+ * or add anything, on purpose: whoever holds the `Learning` object itself could claim to be a person.
+ */
+export interface LearnedRulesView {
+    /** Every approved rule of the tenant. */
+    list(): Promise<ApprovedRule[]>;
+    /** The approved rules of the tenant that satisfy `guard`, typed: how a tool picks out the rules of its own kind. */
+    where<T>(guard: (rule: unknown) => rule is T): Promise<Array<{ id: string; rule: T; approvedAt: string; approvedBy: ApproverRef }>>;
+}
+
 /** What `trackOutcome` takes: something that happened to an agent, good or bad, in a line. */
 export interface OutcomeInput {
     agentId: string;
@@ -269,6 +280,11 @@ export interface Learning {
     reject(id: string, by: ApproverRef, reason?: string): Promise<void>;
     /** Withdraws an approved rule. */
     retire(ruleId: string): Promise<boolean>;
+    /**
+     * A read-only view of the approved rules of a tenant (or of no tenant). `createBaseEngine` hands it to the tools of an engine that
+     * has `learning`, under `LEARNED_RULES_SERVICE`; read it with `learnedRules(ctx, guard)`.
+     */
+    rulesView(tenantId?: string): LearnedRulesView;
     /**
      * What the author of a tool knows about its errors, by the code of the error (`*` for any): a learned lesson about that
      * code says it instead of a generic sentence. `createBaseEngine` registers the `errorHints` of the tools it gets.

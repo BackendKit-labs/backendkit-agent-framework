@@ -79,7 +79,7 @@ export { adaptProviderToLLMClient } from './shared/llm/chat-client';
 export type { LLMChatClient } from './shared/llm/chat-client';
 export { getGitDiff } from './shared/utils/git';
 export { sanitizeFilename } from './shared/utils/string-utils';
-export { getService } from './tools/services';
+export { getService, learnedRules, LEARNED_RULES_SERVICE } from './tools/services';
 // ── MCP client — MCPClientManager in AgentEngineOptions, MCPServerConfig in coding config ─
 export { MCPClientManager } from './mcp/MCPClientManager';
 export type { MCPServerConfig } from './mcp/types';
@@ -180,6 +180,6 @@ export type {
 // ── Learning from experience: lessons and proposed rules (SPEC-0017 F6) ─────────
 export { createLearning, ENGINE_HINTS, FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './learning';
 export type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo, OutcomeInput, RuleStore, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearnedRulesView, LearningOptions, LessonStore, LessonUnitInfo, OutcomeInput, RuleStore, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './learning';

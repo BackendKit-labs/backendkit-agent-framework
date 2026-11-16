@@ -12,14 +12,14 @@ import { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries,
 import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
 import type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonUnitInfo, OutcomeInput, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearnedRulesView, LearningOptions, LessonUnitInfo, OutcomeInput, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './types';
 
 export { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 export type {
     AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo,
-    OutcomeInput, RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
+    LearnedRulesView, OutcomeInput, RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
 } from './types';
 export { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT } from './units';
 
@@ -429,6 +429,16 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
+        rulesView(tenantId) {
+            // Copies, and no way back to the store: a tool that reads the rules cannot change them.
+            const mine = async () => (await rules.list()).filter(r => r.tenantId === tenantId).map(r => structuredClone(r));
+            return Object.freeze({
+                list: mine,
+                async where<T>(guard: (rule: unknown) => rule is T) {
+                    return (await mine()).filter(r => guard(r.rule)).map(r => ({ id: r.id, rule: r.rule as T, approvedAt: r.approvedAt, approvedBy: r.approvedBy }));
+                },
+            });
+        },
         flush: async () => { qualified.prune(dayBefore(windowDays * 2)); await counters.flush(dayBefore(windowDays * 2)); },
         registerHints(tool, toolHints) { hints.set(tool, { ...(hints.get(tool) ?? {}), ...toolHints }); },
         async units(filter = {}) {

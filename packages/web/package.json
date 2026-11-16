@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-web",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "HTTP/WebSocket server layer for agent-core — browser-ready streaming agent sessions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,7 +31,7 @@
     "node-cron": "^4.2.1"
   },
   "devDependencies": {
-    "@backendkit-labs/agent-core": "^0.41.0",
+    "@backendkit-labs/agent-core": "^0.42.0",
     "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^20.0.0",

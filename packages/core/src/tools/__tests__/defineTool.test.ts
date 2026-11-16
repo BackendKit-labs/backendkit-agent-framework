@@ -1,4 +1,4 @@
-import { defineTool, z, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from '../defineTool';
+import { defineTool, z, validateToolDefinition, getToolInputSchema, ToolDefinitionError, ToolArgumentError } from '../defineTool';
 import type { ToolDefinition } from '../../types';
 
 const echoTool = defineTool({
@@ -41,15 +41,16 @@ describe('defineTool', () => {
         expect(result).toBe('hello');
     });
 
-    it('returns an error string (not throws) on invalid args', async () => {
-        const result = await echoTool.execute({ message: 123 }, mockCtx);
-        expect(result).toMatch(/Error: Invalid arguments/);
-        expect(result).toMatch(/message/);
+    it('throws a ToolArgumentError with a code on invalid args', async () => {
+        const err = await echoTool.execute({ message: 123 }, mockCtx).catch((e: unknown) => e) as ToolArgumentError;
+        expect(err).toBeInstanceOf(ToolArgumentError);
+        expect(err.code).toBe('INVALID_ARGUMENTS');
+        expect(err.message).toMatch(/Invalid arguments for tool "echo"/);
+        expect(err.message).toMatch(/message/);
     });
 
     it('validates numeric constraints', async () => {
-        const result = await echoTool.execute({ message: 'x', count: 0 }, mockCtx);
-        expect(result).toMatch(/Error: Invalid arguments/);
+        await expect(echoTool.execute({ message: 'x', count: 0 }, mockCtx)).rejects.toThrow(/Invalid arguments/);
     });
 
     it('z export is Zod', () => {

@@ -2,6 +2,13 @@
 
 ## Sin publicar
 
+Arreglos encontrados al probar F1 y F2 con un bot de trading de papel (`agent-framework-examples/trading-bot`, con su `FINDINGS.md`).
+
+- **`agent-core`, una lección que funciona ya no se borra sola:** la proporción de fallos (`rate`) decide cuándo *entra* un patrón; una vez dentro, se queda mientras sus fallos estén en la ventana. Antes, al obedecer la lección, las llamadas correctas diluían la proporción, el patrón y su lección salían y el error volvía (27 rechazos en 19 operaciones). Un patrón sale cuando sus fallos salen de la ventana y tiene que volver a pasar la proporción para reentrar. El patrón calificado se guarda en el almacén de contadores.
+- **`agent-core`, los argumentos mal formados son un error con código:** `defineTool` lanza ahora `ToolArgumentError` (código `INVALID_ARGUMENTS`) en lugar de devolver el texto como resultado. El modelo ve el mismo `Error: Invalid arguments ...`, pero la auditoría ya no lo cuenta como éxito y el aprendizaje puede aprender de ello, con una frase del engine (`ENGINE_ERROR_CODES`) que el autor de la tool puede sustituir con `errorHints`. **Cambia el comportamiento** de quien llame a `execute` de una tool de `defineTool` directamente: ahora rechaza en vez de devolver una cadena.
+- **`agent-core`, la línea de una lección dice el consejo, no el último símbolo:** con `detail`, la línea es `tipo keeps happening: detail`; sin él, la situación. Antes llevaba la situación de la última experiencia (p. ej. `BBB-SIM`) aunque el patrón abarcara varios símbolos, y el modelo la tomaba como específica de ese símbolo.
+- **Documentación:** `Experience.subject` y `rate` explican que la proporción es la del sujeto y que el contexto va en el sujeto.
+
 [SPEC-0019](docs/specs/SPEC-0019-aprendizaje-segunda-iteracion.md) F1 (la señal del aprendizaje).
 
 - **`agent-core`:** los éxitos se cuentan en vez de guardarse (contadores por día, agente y sujeto), los patrones solo miran los fallos de la ventana (`window`, 30 días por defecto) y una tool con muchas llamadas necesita que los fallos sean una proporción de ellas (`rate`, 5 % desde 20 llamadas por defecto; `rate: false` cuenta solo fallos). `AuditEvent.errorCode` lleva el código del error (`code` o nombre de la clase, nunca el mensaje) y es parte de la clave del patrón: fallos de la misma tool con causas distintas son patrones distintos. **Cambia el comportamiento por defecto:** un fallo de hace más de 30 días ya no cuenta y tres fallos entre mil llamadas ya no forman patrón.

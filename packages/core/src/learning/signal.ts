@@ -87,3 +87,52 @@ export class SuccessCounters {
         }
     }
 }
+
+/**
+ * The patterns that already passed the rate (SPEC-0019, found by the trading bench). The rate decides when a pattern
+ * ENTERS: once it is in, it stays while its failures stay in the window, however many correct calls pile up. Otherwise a
+ * lesson that works would remove itself: the bot obeys it, its correct calls dilute the failure share, the lesson leaves
+ * and the mistake comes back. A record is the key and the last day the pattern was seen; it expires after the window.
+ */
+export class QualifiedPatterns {
+    private readonly days = new Map<string, string>();
+    private loaded = false;
+
+    constructor(private readonly store: MemoryStoreBackend) {}
+
+    /** Did the pattern pass the rate, and was it seen since `sinceDay`? */
+    has(key: string, sinceDay: string): boolean {
+        this.load();
+        const day = this.days.get(key);
+        return day !== undefined && day >= sinceDay;
+    }
+
+    /** The pattern is in (it passed the rate, or it stayed): remember the day. */
+    confirm(key: string, day: string): void {
+        this.load();
+        if (this.days.get(key) === day) return;
+        this.days.set(key, day);
+        this.store.upsert(`q|${key}`, { id: `q|${key}`, createdAt: `${day}T00:00:00.000Z`, kind: 'qualified', key, day });
+    }
+
+    /** The pattern has fewer failures than it needs: it leaves, and has to pass the rate again to come back. */
+    drop(key: string): void {
+        this.load();
+        if (!this.days.delete(key)) return;
+        this.store.deleteByIds([`q|${key}`]);
+    }
+
+    /** Forgets what was not seen since `keepFromDay`. */
+    prune(keepFromDay: string): void {
+        this.load();
+        for (const [key, day] of [...this.days]) if (day < keepFromDay) this.drop(key);
+    }
+
+    private load(): void {
+        if (this.loaded) return;
+        this.loaded = true;
+        for (const r of this.store.getAll()) {
+            if (r.kind === 'qualified' && typeof r.key === 'string' && typeof r.day === 'string') this.days.set(r.key, r.day);
+        }
+    }
+}

@@ -5,8 +5,8 @@ import { combineDecisions } from '../governance/policy';
 import type { ApproverRef, AuditEvent, PolicyDecision, ToolPolicy } from '../governance/types';
 import { composeInstructionLayers, sanitizeDiskContent } from '../sources';
 import { MemoryLessonStore, MemoryRuleStore } from './stores';
-import { DEFAULT_RATE, SuccessCounters } from './signal';
-import { ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries, lessonIdFor, unitFromMarkdown, unitToMarkdown } from './units';
+import { DEFAULT_RATE, QualifiedPatterns, SuccessCounters } from './signal';
+import { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries, lessonIdFor, unitFromMarkdown, unitToMarkdown } from './units';
 import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
 import type {
@@ -19,7 +19,7 @@ export type {
     AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo,
     RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
 } from './types';
-export { ENGINE_HINTS, GENERAL_UNIT } from './units';
+export { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT } from './units';
 
 const SEVERITIES: Severity[] = ['low', 'medium', 'high', 'critical'];
 const TOOL_FAILURES = new Set(['tool_error', 'tool_timeout', 'tool_too_large']);
@@ -93,6 +93,8 @@ interface RateContext {
     successes(tenantId: string | undefined, domain: string, subject: string, agentId?: string): number;
     /** Set when the patterns are those of a single agent: the share is then its own. */
     agentId?: string;
+    /** The patterns that already passed the rate: they stay while their failures stay in the window. */
+    qualified: { has(key: string): boolean; confirm(key: string): void; drop(key: string): void };
 }
 
 function detectPatterns(experiences: Experience[], threshold: (sample: Experience) => number, ctx?: RateContext): LearnedPattern[] {
@@ -112,12 +114,17 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
     for (const group of groups.values()) {
         group.sort((a, b) => a.at.localeCompare(b.at));
         const last = group[group.length - 1];
-        if (group.length < threshold(last)) continue;
+        const gk = groupKey(last);
+        if (group.length < threshold(last)) { ctx?.qualified.drop(gk); continue; }
+        let passes = true;
         if (ctx?.rate && last.subject) {
             const calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId)
                 + (failuresOf.get(`${last.tenantId ?? ''}\u0000${last.domain}\u0000${last.subject}`) ?? 0);
-            if (calls >= ctx.rate.minCalls && group.length / calls < ctx.rate.minFailureRate) continue;
+            passes = !(calls >= ctx.rate.minCalls && group.length / calls < ctx.rate.minFailureRate);
         }
+        // The rate decides when a pattern enters; once in, it stays while its failures stay in the window.
+        if (!passes && !ctx?.qualified.has(gk)) continue;
+        ctx?.qualified.confirm(gk);
         patterns.push({
             key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind,
             ...(last.subject ? { subject: last.subject } : {}),
@@ -167,7 +174,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const now = options.now ?? (() => new Date());
     const windowDays = options.window?.days ?? 30;
     const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
-    const counters = new SuccessCounters(options.counters ?? new InMemoryStore());
+    const counterStore = options.counters ?? new InMemoryStore();
+    const counters = new SuccessCounters(counterStore);
+    const qualified = new QualifiedPatterns(counterStore);
     const lessonCache = new Map<string, { count: number; day: string; at: number; items: LessonItem[] }>();
     // The line of a lesson is written once: a new failure of the same pattern must not change the system prompt.
     const lessonLines = new Map<string, string>();
@@ -192,6 +201,12 @@ export function createLearning(options: LearningOptions = {}): Learning {
         rate,
         successes: (tenantId, domain, subject, agent) => counters.since(dayBefore(windowDays), tenantId, domain, subject, agent),
         ...(agentId ? { agentId } : {}),
+        // The view of one agent has its own share, so it has its own memory of what passed it.
+        qualified: {
+            has: key => qualified.has(`${agentId ?? ''}|${key}`, dayBefore(windowDays)),
+            confirm: key => qualified.confirm(`${agentId ?? ''}|${key}`, now().toISOString().slice(0, 10)),
+            drop: key => qualified.drop(`${agentId ?? ''}|${key}`),
+        },
     });
 
     // record() calls run one after another, so two failures at once cannot both propose the same rule.
@@ -204,7 +219,11 @@ export function createLearning(options: LearningOptions = {}): Learning {
 
     async function propose(experience: Experience): Promise<void> {
         const key = groupKey(experience);
-        const pattern = detectPatterns(inWindow().filter(e => groupKey(e) === key), threshold, rateContext())[0];
+        const group = inWindow().filter(e => groupKey(e) === key);
+        // The view of each agent has its own share: the moment the failure is recorded is the moment it qualifies, not the first
+        // turn that happens to ask for the lessons after a flood of correct calls.
+        for (const agentId of new Set(group.map(e => e.agentId))) detectPatterns(group.filter(e => e.agentId === agentId), threshold, rateContext(agentId));
+        const pattern = detectPatterns(group, threshold, rateContext())[0];
         if (!pattern) return;
         const id = proposalId(key);
         if (await approvals.get(id)) return;
@@ -250,10 +269,19 @@ export function createLearning(options: LearningOptions = {}): Learning {
         // What a tool's author says is about the errors it raises. A denial, a block or a timeout is not one: for those the
         // engine speaks, so that a `*` hint never tells the model to retry a call that was refused.
         const toolHints = p.domain === 'tool' && p.kind === 'tool_error' && p.subject ? hints.get(p.subject) : undefined;
-        const hint = (p.fingerprint ? toolHints?.[p.fingerprint] : undefined) ?? toolHints?.['*'] ?? (p.domain === 'tool' ? ENGINE_HINTS[p.kind] : undefined);
+        const toolError = p.domain === 'tool' && p.kind === 'tool_error';
+        // The author of the tool for this very code, then what the engine knows of the code (a malformed call), then the author's
+        // fallback, then what the engine knows of the kind of failure.
+        const hint = (p.fingerprint ? toolHints?.[p.fingerprint] : undefined)
+            ?? (toolError && p.fingerprint ? ENGINE_ERROR_CODES[p.fingerprint] : undefined)
+            ?? toolHints?.['*'] ?? (p.domain === 'tool' ? ENGINE_HINTS[p.kind] : undefined);
+        // The advice, when there is one. The situation is the one of the LATEST experience of a pattern that may span several
+        // symbols or steps, so it is only used when there is nothing better to say.
         const line = hint
             ? `${fp ?? p.kind}: ${oneLine(hint, 240)}`
-            : `${p.kind}${fp ? ` (${fp})` : ''} keeps happening. ${oneLine(p.situation, 120)}${p.detail ? `: ${oneLine(p.detail, 160)}` : ''}`;
+            : p.detail
+                ? `${p.kind}${fp ? ` (${fp})` : ''} keeps happening: ${oneLine(p.detail, 200)}`
+                : `${p.kind}${fp ? ` (${fp})` : ''} keeps happening. ${oneLine(p.situation, 120)}`;
         lessonLines.set(id, line);
         return line;
     }
@@ -386,7 +414,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
         },
         async reject(id, by, reason) { await resolve(id, by, 'reject', reason); },
         retire: id => rules.remove(id),
-        flush: () => counters.flush(dayBefore(windowDays * 2)),
+        flush: async () => { qualified.prune(dayBefore(windowDays * 2)); await counters.flush(dayBefore(windowDays * 2)); },
         registerHints(tool, toolHints) { hints.set(tool, { ...(hints.get(tool) ?? {}), ...toolHints }); },
         async units(filter = {}) {
             const out = new Map<string, { name: string; tenantId?: string; taught: number; learned: number }>();

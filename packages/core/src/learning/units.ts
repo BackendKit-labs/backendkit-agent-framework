@@ -18,6 +18,11 @@ export const ENGINE_HINTS: Record<string, string> = {
     tool_not_allowed: 'This agent may not use this tool: use only the tools you were given.',
 };
 
+/** What the engine knows of an error code that any tool can raise. */
+export const ENGINE_ERROR_CODES: Record<string, string> = {
+    INVALID_ARGUMENTS: 'The arguments did not match the schema of the tool: read the schema and send every required field with the right type.',
+};
+
 export interface UnitEntry {
     source: 'taught' | 'learned';
     /** Already one line, without the leading dash. */

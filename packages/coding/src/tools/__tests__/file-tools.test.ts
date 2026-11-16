@@ -45,8 +45,7 @@ describe('read_file', () => {
     });
 
     it('rejects missing file_path', async () => {
-        const result = await readFileTool.execute({}, makeCtx(dir));
-        expect(result).toMatch(/Invalid arguments/);
+        await expect(readFileTool.execute({}, makeCtx(dir))).rejects.toThrow(/Invalid arguments/);
     });
 });
 

@@ -12,13 +12,13 @@ import { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT, fitUnits, groupEntries,
 import type { UnitGroup } from './units';
 import type { RateOptions } from './signal';
 import type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearnedRulesView, LearningOptions, LessonUnitInfo, OutcomeInput, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, PatternRecord, LearnedRulesView, LearningOptions, LessonUnitInfo, OutcomeInput, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './types';
 
 export { FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './stores';
 export type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearningOptions, LessonStore, LessonUnitInfo,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, PatternRecord, LearningOptions, LessonStore, LessonUnitInfo,
     LearnedRulesView, OutcomeInput, RuleStore, Severity, TaughtLesson, TeachInput, ToolRule,
 } from './types';
 export { ENGINE_ERROR_CODES, ENGINE_HINTS, GENERAL_UNIT } from './units';

@@ -39,11 +39,13 @@ interface LessonItem { unit: string; source: 'taught' | 'learned'; text: string;
 const PROPOSER = { agentId: 'learning', sessionId: 'learning', chain: ['learning'] };
 
 // A fingerprint is part of the key only when there is one, so the keys (and the proposals) of before it existed do not change.
-const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject' | 'fingerprint'>): string =>
-    `${e.domain}:${e.kind}:${e.subject ?? ''}${e.fingerprint ? `#${e.fingerprint}` : ''}`;
+// A context and a fingerprint are part of the key only when there is one, so the keys (and the proposals) of before they existed
+// do not change.
+const patternKey = (e: Pick<Experience, 'domain' | 'kind' | 'subject' | 'context' | 'fingerprint'>): string =>
+    `${e.domain}:${e.kind}:${e.subject ?? ''}${e.context ? `@${e.context}` : ''}${e.fingerprint ? `#${e.fingerprint}` : ''}`;
 
 /** Patterns never mix tenants: the group is the tenant plus the pattern key. */
-const groupKey = (e: Pick<Experience, 'tenantId' | 'domain' | 'kind' | 'subject' | 'fingerprint'>): string =>
+const groupKey = (e: Pick<Experience, 'tenantId' | 'domain' | 'kind' | 'subject' | 'context' | 'fingerprint'>): string =>
     `${e.tenantId ?? ''}\u0000${patternKey(e)}`;
 
 const proposalId = (key: string): string => `learn-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
@@ -92,7 +94,7 @@ function experienceFromAudit(event: AuditEvent): ExperienceInput | undefined {
 interface RateContext {
     rate: RateOptions | false;
     /** Correct calls of the subject in the window, of one agent or of all of them. */
-    successes(tenantId: string | undefined, domain: string, subject: string, agentId?: string): number;
+    successes(tenantId: string | undefined, domain: string, subject: string, agentId?: string, context?: string): number;
     /** Set when the patterns are those of a single agent: the share is then its own. */
     agentId?: string;
     /** The patterns that already passed the rate: they stay while their failures stay in the window. */
@@ -108,7 +110,7 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
         const group = groups.get(key);
         if (group) group.push(e); else groups.set(key, [e]);
         if (e.subject) {
-            const subjectKey = `${e.tenantId ?? ''}\u0000${e.domain}\u0000${e.subject}`;
+            const subjectKey = `${e.tenantId ?? ''}\u0000${e.domain}\u0000${e.subject}\u0000${e.context ?? ''}`;
             failuresOf.set(subjectKey, (failuresOf.get(subjectKey) ?? 0) + 1);
         }
     }
@@ -120,8 +122,8 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
         if (group.length < threshold(last)) { ctx?.qualified.drop(gk); continue; }
         let passes = true;
         if (ctx?.rate && last.subject) {
-            const calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId)
-                + (failuresOf.get(`${last.tenantId ?? ''}\u0000${last.domain}\u0000${last.subject}`) ?? 0);
+            const calls = ctx.successes(last.tenantId, last.domain, last.subject, ctx.agentId, last.context)
+                + (failuresOf.get(`${last.tenantId ?? ''}\u0000${last.domain}\u0000${last.subject}\u0000${last.context ?? ''}`) ?? 0);
             passes = !(calls >= ctx.rate.minCalls && group.length / calls < ctx.rate.minFailureRate);
         }
         // The rate decides when a pattern enters; once in, it stays while its failures stay in the window.
@@ -130,6 +132,7 @@ function detectPatterns(experiences: Experience[], threshold: (sample: Experienc
         patterns.push({
             key: patternKey(last), ...(last.tenantId ? { tenantId: last.tenantId } : {}), domain: last.domain, kind: last.kind,
             ...(last.subject ? { subject: last.subject } : {}),
+            ...(last.context ? { context: last.context } : {}),
             ...(last.fingerprint ? { fingerprint: last.fingerprint } : {}),
             count: group.length,
             firstSeen: group[0].at,
@@ -175,6 +178,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const approverKinds = options.approverKinds ?? ['human'];
     const ruleFor = options.ruleFor ?? defaultRuleFor;
     const now = options.now ?? (() => new Date());
+    const useClock = options.stamp === 'clock';
+    /** The time an experience carries when it did not come with its own. */
+    const stampNow = (): string => (useClock ? now() : new Date()).toISOString();
     const windowDays = options.window?.days ?? 30;
     const rate: RateOptions | false = options.rate === false ? false : { ...DEFAULT_RATE, ...(options.rate ?? {}) };
     const counterStore = options.counters ?? (dir ? new JsonFileStore(join(dir, 'counters.json')) : new InMemoryStore());
@@ -202,7 +208,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
     };
     const rateContext = (agentId?: string): RateContext => ({
         rate,
-        successes: (tenantId, domain, subject, agent) => counters.since(dayBefore(windowDays), tenantId, domain, subject, agent),
+        successes: (tenantId, domain, subject, agent, context) => counters.since(dayBefore(windowDays), tenantId, domain, subject, agent, context),
         ...(agentId ? { agentId } : {}),
         // The view of one agent has its own share, so it has its own memory of what passed it.
         qualified: {
@@ -248,12 +254,12 @@ export function createLearning(options: LearningOptions = {}): Learning {
     const record = (input: ExperienceInput): Promise<Experience> => serialized(async () => {
         const { at, outcome, severity, ...rest } = input;
         const experience: Experience = {
-            ...rest, id: `exp_${randomUUID()}`, at: at ?? new Date().toISOString(),
+            ...rest, id: `exp_${randomUUID()}`, at: at ?? stampNow(),
             outcome: outcome ?? 'failure', severity: severity ?? 'medium',
         };
         if (experience.outcome === 'success') {
             // A success is only counted (SPEC-0019 D1): it is the denominator of a failure rate, never a record to keep.
-            if (experience.subject) counters.add(experience.at, experience.agentId, experience.tenantId, experience.domain, experience.subject);
+            if (experience.subject) counters.add(experience.at, experience.agentId, experience.tenantId, experience.domain, experience.subject, experience.context);
             return experience;
         }
         store.insert({ ...experience, createdAt: experience.at });
@@ -272,6 +278,9 @@ export function createLearning(options: LearningOptions = {}): Learning {
         // What a tool's author says is about the errors it raises. A denial, a block or a timeout is not one: for those the
         // engine speaks, so that a `*` hint never tells the model to retry a call that was refused.
         const toolHints = p.domain === 'tool' && p.kind === 'tool_error' && p.subject ? hints.get(p.subject) : undefined;
+        // `(context)` or `(fingerprint)`, or both: what tells this pattern from the others of the same unit.
+        const labels = [p.context ? oneLine(p.context, 64) : undefined, fp].filter(Boolean);
+        const tag = labels.length ? ` (${labels.join(', ')})` : '';
         const toolError = p.domain === 'tool' && p.kind === 'tool_error';
         // The author of the tool for this very code, then what the engine knows of the code (a malformed call), then the author's
         // fallback, then what the engine knows of the kind of failure.
@@ -283,8 +292,8 @@ export function createLearning(options: LearningOptions = {}): Learning {
         const line = hint
             ? `${fp ?? p.kind}: ${oneLine(hint, 240)}`
             : p.detail
-                ? `${p.kind}${fp ? ` (${fp})` : ''} keeps happening: ${oneLine(p.detail, 200)}`
-                : `${p.kind}${fp ? ` (${fp})` : ''} keeps happening. ${oneLine(p.situation, 120)}`;
+                ? `${p.kind}${tag} keeps happening: ${oneLine(p.detail, 200)}`
+                : `${p.kind}${tag} keeps happening. ${oneLine(p.situation, 120)}`;
         lessonLines.set(id, line);
         return line;
     }
@@ -375,11 +384,11 @@ export function createLearning(options: LearningOptions = {}): Learning {
         sink: {
             write(event) {
                 if (event.decision === 'allow' && event.outcome === 'ok') {
-                    counters.add(event.at, event.principal.agentId, event.principal.tenantId, 'tool', event.tool);
+                    counters.add(useClock ? stampNow() : event.at, event.principal.agentId, event.principal.tenantId, 'tool', event.tool);
                     return undefined;
                 }
                 const input = experienceFromAudit(event);
-                return input ? record(input).then(() => undefined) : undefined;
+                return input ? record(useClock ? { ...input, at: stampNow() } : input).then(() => undefined) : undefined;
             },
         },
         hooks: {
@@ -394,7 +403,7 @@ export function createLearning(options: LearningOptions = {}): Learning {
                 return Promise.reject(new Error('A success needs a subject: it is counted against it, and without one it would never be counted'));
             }
             return record({
-                agentId: o.agentId, ...(o.tenantId ? { tenantId: o.tenantId } : {}), domain: o.domain, subject: o.subject,
+                agentId: o.agentId, ...(o.tenantId ? { tenantId: o.tenantId } : {}), domain: o.domain, subject: o.subject, ...(o.context ? { context: o.context } : {}),
                 kind: o.ok ? 'ok' : (o.kind ?? 'failure'), outcome: o.ok ? 'success' : 'failure',
                 ...(o.severity ? { severity: o.severity } : {}), ...(o.detail ? { detail: o.detail } : {}),
                 situation: o.situation ?? `${o.domain} ${o.subject}`, action: o.action ?? o.subject,

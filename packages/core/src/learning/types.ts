@@ -24,6 +24,13 @@ export interface Experience {
      */
     subject?: string;
     /**
+     * The circumstances of the experience, as one label: `trend_flat`, `before_close`. Patterns of the same subject but another
+     * context are different patterns, and the share of failures is measured against the calls of the subject IN THAT CONTEXT:
+     * `breakout` in `trend_up` and in `trend_flat` are judged apart without making up a subject for each. Without it, nothing
+     * changes: the keys, the proposals and the lessons are the ones there always were.
+     */
+    context?: string;
+    /**
      * What tells apart failures of the same kind and subject that have different causes: for a tool, the code or class
      * of its error (`ECONNRESET`, `ERP_PERIOD_CLOSED`). Without it, they are one pattern.
      */
@@ -54,6 +61,7 @@ export interface LearnedPattern {
     domain: string;
     kind: string;
     subject?: string;
+    context?: string;
     fingerprint?: string;
     count: number;
     firstSeen: string;
@@ -151,6 +159,8 @@ export interface OutcomeInput {
     domain: string;
     /** What it is about. Required: it is what a success is counted against. */
     subject: string;
+    /** The circumstances (see `Experience.context`): successes and failures are compared within the same one. */
+    context?: string;
     ok: boolean;
     /** The kind of failure (ignored when `ok`). Default `failure`. */
     kind?: string;
@@ -208,8 +218,15 @@ export interface LearningOptions {
     rate?: { minFailureRate: number; minCalls: number } | false;
     /** Where the daily counters of correct calls live. Default: in memory. */
     counters?: MemoryStoreBackend;
-    /** The clock. Default: the system's. */
+    /** The clock. Default: the system's. It decides what is inside the window. */
     now?: () => Date;
+    /**
+     * Whose time an experience carries. `'event'` (default): the one of the audit event (the real clock of the engine) or the
+     * real time of the call to `record`. `'clock'`: the one of `now`, for the experiences from the audit sink AND for `record`,
+     * and for the day of the counters. It is how a simulation or a backtest runs in simulated time: with `now` driving a
+     * simulated clock, the window, the counters and the experiences all agree.
+     */
+    stamp?: 'event' | 'clock';
     /**
      * Repetitions that make a pattern, per kind of experience (it gets the latest of the group). Overrides `threshold`:
      * for example, a critical failure may need one, and a minor one three.

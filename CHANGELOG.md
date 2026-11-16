@@ -1,6 +1,26 @@
 # Changelog
 
-## Sin publicar
+## v0.43.0 (2026-11-16)
+
+Aprendizaje, segunda iteración ([SPEC-0019](docs/specs/SPEC-0019-aprendizaje-segunda-iteracion.md) F1 y F2) y las piezas del framework que un bot de trading de papel tuvo que escribir a mano. En 0.x, `^0.41` no cubre 0.42 y `^0.9` no cubre 0.10, así que se barrieron los rangos de los paquetes y templates que los usan: `agent-core` `^0.42.0`, `agent-coding` `^0.32.0`, `agent-enterprise` `^0.10.0`. Los peers con rango ancho (`<0.43.0`) ya cubrían 0.42.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.42.0 | aprendizaje con señal (éxitos contados, ventana, tasa) y lecciones por tool; `engine.run()` devuelve `RunResult`; `ToolError`; `learnedRules` |
+| `agent-coding` | 0.32.0 | guarda el aprendizaje con `createLearning({ dir })` y los contadores en `counters.json` |
+| `agent-enterprise` | 0.10.0 | igual que coding, con su almacén de reglas |
+| `create-bk-agent` 0.23.10, `mcp-server` 0.19.4, `mcp-connectors` 0.2.4, `agent-web` 0.6.9, `agent-providers` 0.3.9, `agent-sandbox` 0.1.12, `agent-testkit` 0.1.12, `agent-otel` 0.1.15, `orchestrator-agent` 0.7.7, `document-extract` 0.1.5, `aval-tools` 0.1.19 | patch | solo el rango de `agent-core`, `agent-coding` o `agent-enterprise` (y los templates) |
+
+Los demás paquetes no cambian: `agent-protocol` y `agent-web-ui`.
+
+### Qué cambia al actualizar
+
+- **`engine.run()` devuelve `RunResult`** en lugar de `void`. Quien hacía `await engine.run(x)` y no usaba el valor no nota nada; un tipo que espere `Promise<void>` hay que ajustarlo.
+- **Argumentos mal formados:** `defineTool` lanza `ToolArgumentError` (código `INVALID_ARGUMENTS`) en lugar de devolver el texto como resultado. Cuenta como fallo de la tool en la auditoría y en el aprendizaje.
+- **Con aprendizaje activado, cambia el system prompt:** las lecciones se agrupan por tool (`### post_invoice`), y un patrón necesita una tasa de fallo del 5 % desde 20 llamadas dentro de 30 días (antes bastaban 3 fallos). `rate: false` quita la tasa.
+- Todo lo demás es aditivo.
+
+### Detalle
 
 Piezas que un bot de trading de papel (`agent-framework-examples/trading-bot`) tuvo que escribir a mano y que son de cualquier agente. Aditivas, salvo el tipo de retorno de `run`.
 

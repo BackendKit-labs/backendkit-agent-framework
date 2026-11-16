@@ -119,8 +119,8 @@ describe('AgentEngine — context window (trimHistory)', () => {
         });
 
         // Should not throw — if trimming orphaned a tool result, the LLM would reject it
-        await expect(engine.run('do work')).resolves.toBeUndefined();
-        await expect(engine.run('follow up')).resolves.toBeUndefined();
+        await expect(engine.run('do work')).resolves.toMatchObject({ aborted: false });
+        await expect(engine.run('follow up')).resolves.toMatchObject({ aborted: false });
     });
 });
 

@@ -40,10 +40,12 @@ import type {
     ExecutionContext,
     LLMMessage,
     LLMProvider,
+    RunResult,
     SessionMemoryData,
     ToolDefinition,
     Skill,
 } from '../types';
+import type { BudgetUsage } from '../observability/types';
 import type { Transport } from '../transport/Transport';
 import type { AgentRegistry } from './AgentRegistry';
 import type { ToolRegistry } from './ToolRegistry';
@@ -60,6 +62,7 @@ import type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from '../workflo
 import type { WorkflowBuilder } from '../workflow/WorkflowBuilder';
 import { IterationManager, type IterationMode, type IterationStats } from './IterationManager';
 import { errorCodeOf } from './error-code';
+import { RunRecorder } from './run-recorder';
 
 
 export interface AgentEngineOptions extends EngineOptions {
@@ -174,6 +177,13 @@ export interface AgentEngineOptions extends EngineOptions {
      * next system prompt reflects the switched project without an engine restart.
      */
     projectContextLoader?: (cwd: string) => Promise<string | undefined>;
+
+    /**
+     * Emit a `system_prompt` event with the system prompt of every model call. It is how you check what the agent really saw
+     * (the lessons and the memory that reached it). Off by default: a system prompt can carry secrets, and the event goes to
+     * every transport.
+     */
+    emitSystemPrompt?: boolean;
 }
 
 const MAX_INPUT_BYTES = 100_000; // Fix #17: 100 KB hard cap on user input
@@ -278,7 +288,17 @@ export class AgentEngine {
     /** Serializes concurrent run() calls — shared mutable state is not reentrant-safe. */
     private runMutex: Promise<void> = Promise.resolve();
 
+    /** What the engine emits to: the transport of the caller, with the events of the current run also collected. */
+    private readonly transport: Transport;
+    private recorder?: RunRecorder;
+    private budgetHit = false;
+
     constructor(private readonly opts: AgentEngineOptions) {
+        this.transport = {
+            emit: (event) => { this.recorder?.push(event); opts.transport.emit(event); },
+            onInput: (cb) => opts.transport.onInput(cb),
+            close: () => opts.transport.close(),
+        };
         this.memory = opts.sessionMemory ?? new SessionMemory();
         this.currentAgentId = opts.defaultAgentId;
         this.allSkills = opts.skills ?? [];
@@ -291,12 +311,12 @@ export class AgentEngine {
             this.contextManager = new ContextManager(opts.context, {
                 history: this.history,
                 summarize: (transcript, previous) => this.summarizeForContext(transcript, previous),
-                emit: (event) => this.opts.transport.emit(event),
+                emit: (event) => this.transport.emit(event),
             });
         }
         this.auditLogger = new AuditLogger(opts.auditLog);
         // A sink that fails must not change what the agent already did, but it must not fail silently either.
-        this.audit = new AuditDispatcher(opts.audit, (err) => this.opts.transport.emit({
+        this.audit = new AuditDispatcher(opts.audit, (err) => this.transport.emit({
             type: 'system', level: 'warn',
             text: `[audit] a sink failed to record a tool call: ${err instanceof Error ? err.message : String(err)}`,
         }));
@@ -323,11 +343,11 @@ export class AgentEngine {
             mcpManager: opts.mcpManager,
             tools:      opts.tools,
             agents:     opts.agents,
-            transport:  opts.transport,
+            transport:  this.transport,
         });
         this.approvalGate = new ApprovalGate({
             onToolApproval: opts.onToolApproval,
-            transport:      opts.transport,
+            transport:      this.transport,
         });
         this.iterationManager = new IterationManager({
             mode: opts.iterationMode ?? 'interactive',
@@ -339,7 +359,7 @@ export class AgentEngine {
             maxParallel: opts.maxParallelAgents ?? 6,
             maxDepth: opts.maxDelegationDepth,
             agents: opts.agents,
-            transport: opts.transport,
+            transport: this.transport,
             runAgent: (id, question, context, depth, buf, chain) => this.runAgentInternal(id, question, context, depth, buf, chain),
         });
     }
@@ -364,7 +384,7 @@ export class AgentEngine {
             name: opts.name,
             model: profile.model,
             onMetrics: (inputTokens, outputTokens, usage) => {
-                this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                this.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
                     agentId, provider: profile.provider ?? this.opts.defaultProvider,
                     model: profile.model ?? provider.modelId, purpose: 'structured_output', startedAt: attemptStart,
                 }));
@@ -492,7 +512,7 @@ export class AgentEngine {
         return this.opts.providers.resolve(profile.provider, this.opts.defaultProvider);
     }
 
-    async run(input: string): Promise<void> {
+    async run(input: string): Promise<RunResult> {
         // Serialize concurrent calls — messages, currentAgentId, and other fields are
         // shared mutable state that is not safe for concurrent access.
         let release!: () => void;
@@ -500,36 +520,57 @@ export class AgentEngine {
         const prev = this.runMutex;
         this.runMutex = prev.then(() => slot);
         await prev;
+        // One collector per turn, set once the turn owns the engine: every exit of `_run` (blocked input, a route to an agent,
+        // an abort, an error) ends here, and the events of delegates are part of the turn.
+        const recorder = new RunRecorder();
+        this.recorder = recorder;
         try {
             await this._run(input);
         } finally {
+            this.recorder = undefined;
             release();
         }
+        return recorder.result(this.aborted);
+    }
+
+    /** The cost budget was exceeded at some point (`observability.costTracker.budget`). It stays true. */
+    get budgetExceeded(): boolean {
+        return this.budgetHit;
+    }
+
+    /**
+     * Called by the engine's own budget wiring (`createBaseEngine`): remembers it for `engine.budgetExceeded` and the result of the
+     * run. It tells the transport only when `announce` (the `budget_exceeded` event has always been tied to `abortOnBudget`).
+     */
+    reportBudgetExceeded(usage: BudgetUsage, announce = true): void {
+        this.budgetHit = true;
+        this.recorder?.markBudgetExceeded();
+        if (announce) this.transport.emit({ type: 'budget_exceeded', usage });
     }
 
     private async _run(input: string): Promise<void> {
         if (this.pendingContextLoad) await this.pendingContextLoad;
         this.aborted = false;
-        this.opts.transport.emit({ type: 'ready' });
+        this.transport.emit({ type: 'ready' });
 
         // Fix #17: reject inputs that exceed the hard cap to prevent prompt injection via huge payloads
         if (Buffer.byteLength(input, 'utf-8') > MAX_INPUT_BYTES) {
-            this.opts.transport.emit({
+            this.transport.emit({
                 type: 'error',
                 message: `Input too large (${Buffer.byteLength(input, 'utf-8').toLocaleString()} bytes). Maximum is ${MAX_INPUT_BYTES.toLocaleString()} bytes.`,
             });
-            this.opts.transport.emit({ type: 'done' });
+            this.transport.emit({ type: 'done' });
             return;
         }
 
         if (this.guardrails?.has('input')) {
             const checked = await this.guard('input', input, this.currentAgentId);
             if (checked.blocked) {
-                this.opts.transport.emit({
+                this.transport.emit({
                     type: 'error',
                     message: `Input blocked by guardrail "${checked.blocked.guardrail}": ${checked.blocked.reason}`,
                 });
-                this.opts.transport.emit({ type: 'done' });
+                this.transport.emit({ type: 'done' });
                 return;
             }
             input = checked.content;
@@ -556,7 +597,7 @@ export class AgentEngine {
                             `and no current agent profile is available.`
                         );
                     }
-                    this.opts.transport.emit({
+                    this.transport.emit({
                         type: 'block_start',
                         agent_id: mcpRoute.agentId,
                         agent_name: mcpProfile.name ?? mcpRoute.agentId,
@@ -566,15 +607,15 @@ export class AgentEngine {
                         { name: toolName, args: JSON.stringify({ [firstParam]: input }) },
                         mcpProfile,
                     );
-                    this.opts.transport.emit({ type: 'token', content: result, agent_id: mcpRoute.agentId });
-                    this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: mcpRoute.agentId });
-                    this.opts.transport.emit({ type: 'done' });
+                    this.transport.emit({ type: 'token', content: result, agent_id: mcpRoute.agentId });
+                    this.transport.emit({ type: 'block_end', status: 'ok', agent_id: mcpRoute.agentId });
+                    this.transport.emit({ type: 'done' });
                     return;
                 }
             }
             // Agent trigger fallback: route to the agent's LLM session
             await this.runAgentInternal(mcpRoute.agentId, input);
-            this.opts.transport.emit({ type: 'done' });
+            this.transport.emit({ type: 'done' });
             return;
         }
 
@@ -614,7 +655,7 @@ export class AgentEngine {
             state: new Map(),
             signal: this.runController.signal,
             hasAgent: (id) => this.opts.agents.has(id),
-            emit: (event) => this.opts.transport.emit(event),
+            emit: (event) => this.transport.emit(event),
         };
         try {
             await runHooks(this.hooks, 'beforeRun', h => h.beforeRun!(this.runCtx!));
@@ -629,7 +670,7 @@ export class AgentEngine {
             this.runCtx = undefined;
             this.runController = undefined;
         }
-        this.opts.transport.emit({ type: 'done' });
+        this.transport.emit({ type: 'done' });
     }
 
     /** Sections the `systemPrompt` hooks add for `profile`. */
@@ -662,7 +703,7 @@ export class AgentEngine {
     private toolHookContext(principal: Principal): RunContext {
         return this.runCtx
             ? { ...this.runCtx, principal }
-            : { principal, input: '', state: new Map(), signal: new AbortController().signal, hasAgent: (id) => this.opts.agents.has(id), emit: (e) => this.opts.transport.emit(e) };
+            : { principal, input: '', state: new Map(), signal: new AbortController().signal, hasAgent: (id) => this.opts.agents.has(id), emit: (e) => this.transport.emit(e) };
     }
 
     async runWorkflow(
@@ -676,7 +717,7 @@ export class AgentEngine {
         const runner = new WorkflowRunner(def, {
             ...opts,
             runAgent: (agentId, input, context) => this.runAgentInternal(agentId, input, context, 0),
-            transport: this.opts.transport,
+            transport: this.transport,
         });
         return runner.run();
     }
@@ -778,7 +819,7 @@ export class AgentEngine {
         });
         const replaced = replacement?.(outcome);
         outcome.events.forEach((info, i) => {
-            this.opts.transport.emit({
+            this.transport.emit({
                 type: 'guardrail',
                 name: info.name, phase: info.phase, action: info.action, reason: info.reason,
                 agent_id: info.agentId,
@@ -826,7 +867,7 @@ export class AgentEngine {
             try {
                 const report = await this.contextManager.compact();
                 if (report && report.summarizedMessages + report.droppedMessages + report.truncatedToolResults > 0) {
-                    this.opts.transport.emit({
+                    this.transport.emit({
                         type: 'system', level: 'info',
                         text: `[Context] ~${report.tokensBefore} → ~${report.tokensAfter} tokens ` +
                               `(truncated ${report.truncatedToolResults} tool results, summarized ${report.summarizedMessages}, dropped ${report.droppedMessages} messages)`,
@@ -834,7 +875,7 @@ export class AgentEngine {
                 }
             } catch (err) {
                 // Compaction is best-effort: a bug here must never stop the agent.
-                this.opts.transport.emit({ type: 'system', level: 'warn', text: `[Context] Compaction failed: ${err instanceof Error ? err.message : String(err)}` });
+                this.transport.emit({ type: 'system', level: 'warn', text: `[Context] Compaction failed: ${err instanceof Error ? err.message : String(err)}` });
             }
         }
         this.trimHistory();
@@ -866,7 +907,7 @@ export class AgentEngine {
             return false;
         }
         if (!report || report.tokensAfter >= report.tokensBefore) return false;
-        this.opts.transport.emit({
+        this.transport.emit({
             type: 'system', level: 'info',
             text: `[Context] Provider reported context overflow: compacted ~${report.tokensBefore} → ~${report.tokensAfter} tokens, ` +
                   `budget now ~${cm.effectiveMaxTokens} tokens. Retrying.`,
@@ -892,7 +933,7 @@ export class AgentEngine {
                     onDone: (msg) => resolve(msg.content ?? chunks.join('')),
                     onError: reject,
                     onMetrics: (inputTokens, outputTokens, usage) => {
-                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                        this.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
                             provider: cfg?.provider ?? this.opts.defaultProvider,
                             model: cfg?.model ?? provider.modelId, purpose: 'context_summary', startedAt,
                         }));
@@ -910,7 +951,7 @@ export class AgentEngine {
         if (!max) return;
         const dropped = this.history.trim(max);
         if (dropped > 0) {
-            this.opts.transport.emit({
+            this.transport.emit({
                 type: 'system',
                 level: 'warn',
                 text: `[ContextWindow] Dropped ${dropped} messages — history capped at ${max} (maxContextMessages)`,
@@ -936,7 +977,7 @@ export class AgentEngine {
                 if (all.length > 0) this.currentAgentId = all[0].id;
             }
         } catch (err) {
-            this.opts.transport.emit({
+            this.transport.emit({
                 type: 'system', level: 'warn',
                 text: `[AgentDiscovery] Failed to load agents: ${(err as Error).message}`,
             });
@@ -975,6 +1016,11 @@ export class AgentEngine {
         }
 
         return parts.join('\n');
+    }
+
+    /** Opt-in (`emitSystemPrompt`): a system prompt can carry secrets and reaches every transport. */
+    private emitSystemPrompt(agentId: string, text: string): void {
+        if (this.opts.emitSystemPrompt) this.transport.emit({ type: 'system_prompt', agent_id: agentId, text });
     }
 
     private buildSystemPrompt(profile: AgentProfile, hookSections: string[] = []): string {
@@ -1041,7 +1087,7 @@ export class AgentEngine {
         let overflowRetries = 0;
         let hookContinues = 0;
 
-        this.opts.transport.emit({
+        this.transport.emit({
             type: 'block_start',
             agent_id: profile.id,
             agent_name: profile.name,
@@ -1060,6 +1106,7 @@ export class AgentEngine {
                 role: 'system',
                 content: this.buildSystemPrompt(currentProfile, await this.hookPromptSections(currentProfile)),
             };
+            this.emitSystemPrompt(currentProfile.id, systemMsg.content ?? '');
             const tools = this.getToolsForAgent(currentProfile);
             const safeHistory = this.history.sanitized();
             if (this.contextManager) {
@@ -1090,10 +1137,10 @@ export class AgentEngine {
                     onChunk: (delta) => {
                         streamBuffer += delta;
                         if (holdOutput) heldTokens.push(delta);
-                        else this.opts.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
+                        else this.transport.emit({ type: 'token', content: delta, agent_id: currentProfile.id });
                     },
                     onToolCall: (name, args, id) => {
-                        this.opts.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
+                        this.transport.emit({ type: 'tool_call', name, args_preview: args.slice(0, 200) });
                         if (name === 'ask_agent') {
                             try {
                                 const parsed = JSON.parse(args);
@@ -1113,7 +1160,7 @@ export class AgentEngine {
                             overflowError = err;
                             return;
                         }
-                        this.opts.transport.emit({ type: 'error', message: err.message });
+                        this.transport.emit({ type: 'error', message: err.message });
                     },
                     onMetrics: (inputTokens, outputTokens, usage) => {
                         // Anthropic reports cached tokens apart from input_tokens; the request still carried them.
@@ -1121,7 +1168,7 @@ export class AgentEngine {
                             inputTokens + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0),
                             this.lastRequestEstimate,
                         );
-                        this.opts.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                        this.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
                             agentId: currentProfile.id,
                             provider: currentProfile.provider ?? this.opts.defaultProvider,
                             model: currentProfile.model ?? chatProvider.modelId,
@@ -1141,7 +1188,7 @@ export class AgentEngine {
                     overflowRetries++;
                     continue;
                 }
-                this.opts.transport.emit({ type: 'error', message: (overflowError as Error).message });
+                this.transport.emit({ type: 'error', message: (overflowError as Error).message });
                 break;
             }
 
@@ -1152,7 +1199,7 @@ export class AgentEngine {
             if (guardedOut.touched) streamBuffer = guardedOut.text;
             if (holdOutput) {
                 const shown = guardedOut.touched ? guardedOut.text : heldTokens.join('');
-                if (shown) this.opts.transport.emit({ type: 'token', content: shown, agent_id: currentProfile.id });
+                if (shown) this.transport.emit({ type: 'token', content: shown, agent_id: currentProfile.id });
             }
 
             this.history.push(finalMessage);
@@ -1171,7 +1218,7 @@ export class AgentEngine {
                 for (const call of selfCalls) {
                     const startedAt = Date.now();
                     const msg = `Self-delegation blocked: agent "${currentProfile.id}" cannot delegate to itself. Execute the task directly.`;
-                    this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: false, preview: msg });
+                    this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: msg });
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
                     await this.recordAudit({
                         startedAt, agentId: currentProfile.id, tool: 'ask_agent', rawArgs: delegationArgs(call),
@@ -1189,7 +1236,7 @@ export class AgentEngine {
                         ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), this.principalFor(currentProfile.id, callerChain), [],
                     );
                     if (verdict.run) { allowedCalls.push(call); continue; }
-                    this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: false, preview: verdict.message.slice(0, 120) });
+                    this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: verdict.message.slice(0, 120) });
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: verdict.message });
                     await this.recordAudit({
                         startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent',
@@ -1216,7 +1263,7 @@ export class AgentEngine {
                         const call = validCalls[i];
                         const result = results[i];
                         const content = result.error ? `Error: ${result.error}` : result.content;
-                        this.opts.transport.emit({ type: 'tool_result', name: 'ask_agent', success: !result.error, preview: content.slice(0, 120) });
+                        this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: !result.error, preview: content.slice(0, 120) });
                         toolResults.push({ role: 'tool', tool_call_id: call.id, content });
                         await this.recordAudit({
                             startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent', rawArgs: delegationArgs(call),
@@ -1254,7 +1301,7 @@ export class AgentEngine {
                     this.executeToolCall(call, currentProfile, 0, e => buffers[i].push(e), () => this.history.redactToolCallArgs(call.id)),
                 ));
                 wave.forEach((call, i) => {
-                    for (const e of buffers[i]) this.opts.transport.emit(e);
+                    for (const e of buffers[i]) this.transport.emit(e);
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: results[i] });
                 });
             }
@@ -1266,7 +1313,7 @@ export class AgentEngine {
                 if (!next) break;
                 const cap = this.opts.maxHookContinues ?? DEFAULT_MAX_HOOK_CONTINUES;
                 if (hookContinues >= cap) {
-                    this.opts.transport.emit({ type: 'system', level: 'warn', text: `[hooks] afterTurn asked for more than ${cap} extra passes; stopping` });
+                    this.transport.emit({ type: 'system', level: 'warn', text: `[hooks] afterTurn asked for more than ${cap} extra passes; stopping` });
                     break;
                 }
                 hookContinues++;
@@ -1281,7 +1328,7 @@ export class AgentEngine {
             this.history.pushAll(toolResults);
         }
 
-        this.opts.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
+        this.transport.emit({ type: 'block_end', status: 'ok', agent_id: profile.id });
     }
 
     private async runAgentInternal(agentId: string, question: string, context?: string, depth = 0, outputBuffer?: import('../types').AgentEvent[], chain?: string[]): Promise<{ agentId: string; content: string; inputTokens: number; outputTokens: number; elapsedMs: number }> {
@@ -1307,8 +1354,10 @@ export class AgentEngine {
             historySlice = sanitizeMessages(historySlice);
         }
 
+        const systemText = this.buildSystemPrompt(profile, await this.hookPromptSections(profile));
+        this.emitSystemPrompt(profile.id, systemText);
         const messages: LLMMessage[] = [
-            { role: 'system', content: this.buildSystemPrompt(profile, await this.hookPromptSections(profile)) },
+            { role: 'system', content: systemText },
             ...historySlice,
             { role: 'user', content: context ? `${question}\n\nContext:\n${context}` : question },
         ];
@@ -1325,7 +1374,7 @@ export class AgentEngine {
         // tool_approval_request always bypasses buffering — it needs an immediate response.
         const emit = (event: import('../types').AgentEvent): void => {
             if (outputBuffer) outputBuffer.push(event);
-            else this.opts.transport.emit(event);
+            else this.transport.emit(event);
         };
 
         emit({ type: 'block_start', agent_id: profile.id, agent_name: profile.name, agent_icon: profile.icon });
@@ -1495,7 +1544,7 @@ export class AgentEngine {
             ...(d.mode ? { mode: d.mode } : {}), ...(d.network ? { network: d.network } : {}),
             ...(d.backend ? { backend: d.backend } : {}), ...(d.reason ? { reason: d.reason } : {}),
         });
-        this.opts.transport.emit({
+        this.transport.emit({
             type: 'sandbox', outcome: d.outcome, tool: d.tool, agent_id: d.agentId,
             ...(d.mode ? { mode: d.mode } : {}), ...(d.network ? { network: d.network } : {}),
             ...(d.backend ? { backend: d.backend } : {}), ...(d.reason ? { reason: d.reason } : {}),
@@ -1525,7 +1574,7 @@ export class AgentEngine {
         /** Set only by `runApproved`: this exact call was approved and stored (resubmission, SPEC-0014 §6). */
         approved?: ToolCall['approved'],
     ): Promise<string> {
-        const emitEvent = emit ?? ((e) => this.opts.transport.emit(e));
+        const emitEvent = emit ?? ((e) => this.transport.emit(e));
         const callStart = Date.now();
         const toolDef = this.opts.tools.get(call.name);
         const principal = this.principalFor(profile.id, chain);
@@ -1640,6 +1689,7 @@ export class AgentEngine {
             type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120),
             agent_id: profile.id, started_at: callStart, duration_ms: Date.now() - callStart,
             ...(outcome ? { outcome } : {}),
+            ...(errorCode ? { error_code: errorCode } : {}),
         });
         return result;
     }
@@ -1732,7 +1782,7 @@ export class AgentEngine {
         };
 
         if (this.approver) {
-            this.opts.transport.emit({
+            this.transport.emit({
                 type: 'tool_approval_request', tool_name: name, agent_id: principal.agentId,
                 args_preview: JSON.stringify(call.args).slice(0, 200),
             });
@@ -1942,7 +1992,7 @@ export class AgentEngine {
                 return result.content;
             },
             emitCompacting: (phase, label) => {
-                this.opts.transport.emit({ type: 'compacting', phase, label });
+                this.transport.emit({ type: 'compacting', phase, label });
             },
             llmCall: async (prompt: string): Promise<string> => {
                 const profile = this.opts.agents.get(id);

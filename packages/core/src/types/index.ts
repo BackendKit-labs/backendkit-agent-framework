@@ -247,12 +247,40 @@ export interface LLMProvider {
 
 export type ToolApprovalDecision = 'approve' | 'approve_all' | 'reject';
 
+/** A tool call of a run, as the model and the user saw it. */
+export interface RunToolCall {
+    name: string;
+    agentId?: string;
+    success: boolean;
+    /** The code of the error (`ToolError.code`, `ECONNRESET`...) when the call failed with one. */
+    errorCode?: string;
+    outcome?: 'timeout' | 'aborted';
+    /** The first characters of what the call returned. */
+    preview?: string;
+}
+
+/** What `engine.run` returns: what happened in the turn, collected from its events. */
+export interface RunResult {
+    /** What the agent said at the end: the text after its last tool call. */
+    text: string;
+    /** Every tool call of the turn, delegates included, in order. */
+    toolCalls: RunToolCall[];
+    /** The messages of the `error` events of the turn. */
+    errors: string[];
+    /** The turn was aborted (by `engine.abort()`, a budget or the caller). */
+    aborted: boolean;
+    /** The cost budget was exceeded during this turn. */
+    budgetExceeded: boolean;
+    /** The system prompt of every model call of the turn. Only with `emitSystemPrompt`; empty otherwise. */
+    systemPrompts: string[];
+}
+
 export type AgentEvent =
     | { type: 'ready' }
     | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     /** `agent_id`, `started_at` (epoch ms) and `duration_ms` let tracing build an accurate span per tool call. */
-    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number; outcome?: 'timeout' | 'aborted' }
+    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number; outcome?: 'timeout' | 'aborted'; error_code?: string }
     | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }
     | { type: 'agent_switch'; from: string; to: string; to_name?: string; to_icon?: string }
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }
@@ -268,6 +296,8 @@ export type AgentEvent =
     | { type: 'error'; message: string }
     | { type: 'system'; level: 'info' | 'warn' | 'error'; text: string }
     | { type: 'budget_exceeded'; usage: BudgetUsage }
+    /** The system prompt the model is about to receive. Only emitted when the engine has `emitSystemPrompt`. */
+    | { type: 'system_prompt'; agent_id: string; text: string }
     | { type: 'workflow_start'; name: string }
     | { type: 'workflow_step_start'; step: string; agent: string }
     | { type: 'workflow_step_complete'; step: string; success: boolean }

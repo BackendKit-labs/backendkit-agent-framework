@@ -169,6 +169,8 @@ export type {
     ChatOptions,
     StructuredOutputSupport,
     AgentEvent,
+    RunResult,
+    RunToolCall,
     EngineOptions,
     JSONSchema,
     ToolApprovalDecision,

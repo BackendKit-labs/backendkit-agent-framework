@@ -18,6 +18,8 @@ interface Bucket {
     agentId: string;
     domain: string;
     subject: string;
+    /** Only when the success was counted with a context. A bucket from before contexts has none, and keeps reading as it did. */
+    context?: string;
     n: number;
 }
 
@@ -37,13 +39,13 @@ export class SuccessCounters {
     constructor(private readonly store: MemoryStoreBackend) {}
 
     /** One more correct call. */
-    add(at: string, agentId: string, tenantId: string | undefined, domain: string, subject: string): void {
+    add(at: string, agentId: string, tenantId: string | undefined, domain: string, subject: string, context?: string): void {
         this.load();
         const day = at.slice(0, 10);
-        const id = [day, tenantId ?? '', agentId, domain, subject].join('\u0000');
+        const id = [day, tenantId ?? '', agentId, domain, subject, ...(context ? [context] : [])].join('\u0000');
         const bucket = this.buckets.get(id);
         if (bucket) bucket.n++;
-        else this.buckets.set(id, { id, day, ...(tenantId ? { tenantId } : {}), agentId, domain, subject, n: 1 });
+        else this.buckets.set(id, { id, day, ...(tenantId ? { tenantId } : {}), agentId, domain, subject, ...(context ? { context } : {}), n: 1 });
         this.dirty = true;
         if (!this.timer) {
             this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, FLUSH_MS);
@@ -51,12 +53,12 @@ export class SuccessCounters {
         }
     }
 
-    /** Correct calls of a subject since `sinceDay`, of one agent or of all of them. */
-    since(sinceDay: string, tenantId: string | undefined, domain: string, subject: string, agentId?: string): number {
+    /** Correct calls of a subject (and context: those counted without one are another bucket) since `sinceDay`, of one agent or of all. */
+    since(sinceDay: string, tenantId: string | undefined, domain: string, subject: string, agentId?: string, context?: string): number {
         this.load();
         let total = 0;
         for (const b of this.buckets.values()) {
-            if (b.day >= sinceDay && b.tenantId === tenantId && b.domain === domain && b.subject === subject && (!agentId || b.agentId === agentId)) {
+            if (b.day >= sinceDay && b.tenantId === tenantId && b.domain === domain && b.subject === subject && b.context === context && (!agentId || b.agentId === agentId)) {
                 total += b.n;
             }
         }

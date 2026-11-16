@@ -24,6 +24,13 @@ export interface Experience {
      */
     subject?: string;
     /**
+     * The circumstances of the experience, as one label: `trend_flat`, `before_close`. Patterns of the same subject but another
+     * context are different patterns, and the share of failures is measured against the calls of the subject IN THAT CONTEXT:
+     * `breakout` in `trend_up` and in `trend_flat` are judged apart without making up a subject for each. Without it, nothing
+     * changes: the keys, the proposals and the lessons are the ones there always were.
+     */
+    context?: string;
+    /**
      * What tells apart failures of the same kind and subject that have different causes: for a tool, the code or class
      * of its error (`ECONNRESET`, `ERP_PERIOD_CLOSED`). Without it, they are one pattern.
      */
@@ -54,6 +61,7 @@ export interface LearnedPattern {
     domain: string;
     kind: string;
     subject?: string;
+    context?: string;
     fingerprint?: string;
     count: number;
     firstSeen: string;
@@ -133,6 +141,38 @@ export interface TeachInput {
     id?: string;
 }
 
+/**
+ * What a tool may see of the rules a person approved: a read-only view of one tenant's rules. It has no way to approve, teach
+ * or add anything, on purpose: whoever holds the `Learning` object itself could claim to be a person.
+ */
+export interface LearnedRulesView {
+    /** Every approved rule of the tenant. */
+    list(): Promise<ApprovedRule[]>;
+    /** The approved rules of the tenant that satisfy `guard`, typed: how a tool picks out the rules of its own kind. */
+    where<T>(guard: (rule: unknown) => rule is T): Promise<Array<{ id: string; rule: T; approvedAt: string; approvedBy: ApproverRef }>>;
+}
+
+/** What `trackOutcome` takes: something that happened to an agent, good or bad, in a line. */
+export interface OutcomeInput {
+    agentId: string;
+    tenantId?: string;
+    domain: string;
+    /** What it is about. Required: it is what a success is counted against. */
+    subject: string;
+    /** The circumstances (see `Experience.context`): successes and failures are compared within the same one. */
+    context?: string;
+    ok: boolean;
+    /** The kind of failure (ignored when `ok`). Default `failure`. */
+    kind?: string;
+    severity?: Severity;
+    /** The advice, for a failure: it ends up in the lesson. */
+    detail?: string;
+    situation?: string;
+    action?: string;
+    meta?: Record<string, unknown>;
+    at?: string;
+}
+
 /** What `addRule` takes: a rule a person writes, without waiting for a pattern. */
 export interface AddRuleInput {
     /** A `ToolRule` (checked), or any rule of a vertical (opaque). */
@@ -149,6 +189,12 @@ export interface ToolRule {
 }
 
 export interface LearningOptions {
+    /**
+     * Keep everything under this directory, with the file names `agent-coding` has always used: `experiences.json`, `counters.json`,
+     * `proposals/`, `rules.json` and `lessons.json`. A store passed explicitly replaces its file. Without `dir` (and without the
+     * stores) nothing touches the disk.
+     */
+    dir?: string;
     /** Where the experiences are kept. Default: in memory, so an engine without configuration touches no file. */
     store?: MemoryStoreBackend;
     /** Where the proposed rules wait for a decision. Default: in memory. */
@@ -172,8 +218,15 @@ export interface LearningOptions {
     rate?: { minFailureRate: number; minCalls: number } | false;
     /** Where the daily counters of correct calls live. Default: in memory. */
     counters?: MemoryStoreBackend;
-    /** The clock. Default: the system's. */
+    /** The clock. Default: the system's. It decides what is inside the window. */
     now?: () => Date;
+    /**
+     * Whose time an experience carries. `'event'` (default): the one of the audit event (the real clock of the engine) or the
+     * real time of the call to `record`. `'clock'`: the one of `now`, for the experiences from the audit sink AND for `record`,
+     * and for the day of the counters. It is how a simulation or a backtest runs in simulated time: with `now` driving a
+     * simulated clock, the window, the counters and the experiences all agree.
+     */
+    stamp?: 'event' | 'clock';
     /**
      * Repetitions that make a pattern, per kind of experience (it gets the latest of the group). Overrides `threshold`:
      * for example, a critical failure may need one, and a minor one three.
@@ -210,6 +263,11 @@ export interface Learning {
     readonly rules: RuleStore;
     /** Records an experience of a vertical: a QA verdict, user feedback... */
     record(input: ExperienceInput): Promise<Experience>;
+    /**
+     * The short way to `record` what happened to an agent: `{ ok: true }` counts a success against the subject, `{ ok: false }`
+     * records a failure. A success without a subject is refused, because it would never be counted.
+     */
+    trackOutcome(input: OutcomeInput): Promise<Experience>;
     /** Without `tenantId` in the filter, every tenant's are returned (an operator's view). */
     experiences(filter?: { agentId?: string; domain?: string; tenantId?: string }): Promise<Experience[]>;
     patterns(filter?: { agentId?: string; tenantId?: string }): Promise<LearnedPattern[]>;
@@ -239,6 +297,11 @@ export interface Learning {
     reject(id: string, by: ApproverRef, reason?: string): Promise<void>;
     /** Withdraws an approved rule. */
     retire(ruleId: string): Promise<boolean>;
+    /**
+     * A read-only view of the approved rules of a tenant (or of no tenant). `createBaseEngine` hands it to the tools of an engine that
+     * has `learning`, under `LEARNED_RULES_SERVICE`; read it with `learnedRules(ctx, guard)`.
+     */
+    rulesView(tenantId?: string): LearnedRulesView;
     /**
      * What the author of a tool knows about its errors, by the code of the error (`*` for any): a learned lesson about that
      * code says it instead of a generic sentence. `createBaseEngine` registers the `errorHints` of the tools it gets.

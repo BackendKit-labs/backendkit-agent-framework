@@ -1136,6 +1136,11 @@ await learning.retire(id);                                  // withdraw an appro
 - **Lessons come in units.** The lessons of an agent are grouped by tool (`### post_invoice`), with `general` first; inside a unit, what a person taught goes before what was learned, and `lessons.maxPerUnit` caps the learned ones. `lessons.maxPerUnit` and `lessons.maxLessons` keep the learned lessons that happen most. The text is cut by dropping whole entries from the end, learned ones first and what a person taught only when nothing learned is left, so the same lessons always give the same system prompt.
 - **The advice comes from whoever knows the domain.** A tool declares what to do about each error code: `defineTool({ ..., errorHints: { ERP_PERIOD_CLOSED: 'The period is closed: post it in the next open one.', '*': 'Check the invoice first.' } })`. When that error repeats, the lesson says it. It is only about the errors the tool raises: for the failures the engine sees by itself (a denial, a timeout, a result that was too large) it says one fixed sentence (`ENGINE_HINTS`). Nothing generic is invented for the rest: the lesson states the fact.
 - **A unit a person can write and review in git.** `await learning.exportUnit('post_invoice')` gives markdown with a front matter, the `## Taught` lessons (the part an import reads) and the `## Learned` ones (generated: ignored on import). `await learning.importUnit(md, by)` teaches the taught ones; the file is imported whole or not at all, importing it twice changes nothing (a lesson that did not change keeps its place and its first author), and `{ replace: true }` forgets the ones that left the file. **The front matter decides which tenant gets the lessons**: a product with tenants passes `{ tenantId }` to say it itself. `learning.units()` lists the units.
+- **Everything in a directory.** `createLearning({ dir })` keeps the experiences, counters, proposals, rules and taught lessons under one directory (`experiences.json`, `counters.json`, `proposals/`, `rules.json`, `lessons.json`); a store you pass replaces its file. Without `dir` nothing touches the disk.
+- **Report what happened in one line.** `await learning.trackOutcome({ agentId, domain, subject, ok, context?, kind?, detail? })` counts a success against its subject or records a failure. A success without a subject is refused: it would never be counted.
+- **Circumstances in the pattern.** `context` ('trend_flat', 'before_close') makes the same subject be judged apart: the share of failures is measured against the calls *in that context*. Without a context nothing changes.
+- **Simulated time.** `createLearning({ now, stamp: 'clock' })` makes the experiences from the audit sink, `record` and the counters use the clock `now`, so a simulation or a backtest runs in simulated time with the window, the counters and the experiences in agreement. The default is the time of the event, as always.
+- **Tools enforce the rules a person approved** without owning a store: `const guards = await learnedRules(ctx, isMyGuard)`. `createBaseEngine({ learning })` gives the tools a read-only view of the rules of the engine's tenant under `LEARNED_RULES_SERVICE`, never the `Learning` object (it could approve).
 - **Teach it something specific.** A lesson a person writes does not wait for three failures: `await learning.teach({ text: 'Totals are rounded to 2 decimals.', tools: ['post_invoice'] }, { kind: 'human', id: 'ana' })`. It joins the prompt as `Taught lessons`, before the learned ones, sanitized and capped, inside its tenant. `agentId` limits it to one agent, `tools` to agents that have one of those tools in the turn, and it is at most 500 characters. `learning.taught()` lists them and `learning.forget(id)` withdraws one. For knowledge that never changes, `AGENT.md` or `instructionSources` do the same without learning.
 - **A rule by hand.** `learning.addRule({ rule: { tool: 'post_invoice', effect: 'deny' }, reason: 'ERP freeze' }, by)` validates the rule, attributes it to a person and stores it next to the ones that came from proposals.
 - **Only a person.** Teaching and adding a rule need the same author as approving one (`approverKinds`, default a human): an agent cannot teach itself.
@@ -1145,6 +1150,23 @@ await learning.retire(id);                                  // withdraw an appro
 - **`thresholdFor`** sets how many repetitions make a pattern per experience, e.g. a critical failure needs one.
 - **`FileRuleStore`**, `MemoryApprovalStore` and `FileApprovalStore` keep the rules and proposals; `agent-coding` and `agent-enterprise` build on this module.
 - `ReflectionEngine`, `DomainRegistry` and `ProceduralMemory` are deprecated.
+
+---
+
+## What `engine.run` returns
+
+```typescript
+const r = await engine.run('Session 7');
+r.text;          // what the agent said after its last tool call
+r.toolCalls;     // [{ name, agentId, success, errorCode?, outcome?, preview? }], delegates included
+r.errors;        // the messages of the error events of the turn
+r.aborted;       // the turn was aborted (engine.abort(), a budget)
+r.budgetExceeded;
+r.systemPrompts; // the prompt of each model call: only with `emitSystemPrompt: true` (a system prompt can carry secrets)
+engine.budgetExceeded; // sticky: the cost budget was reached at some point
+```
+
+Every tool that fails with a `ToolError(code, message)` (or `ToolArgumentError`) shows its `code` in `toolCalls`, in the audit event and in the `tool_result` event (`error_code`).
 
 ---
 

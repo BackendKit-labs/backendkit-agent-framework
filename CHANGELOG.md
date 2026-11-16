@@ -2,6 +2,18 @@
 
 ## Sin publicar
 
+Piezas que un bot de trading de papel (`agent-framework-examples/trading-bot`) tuvo que escribir a mano y que son de cualquier agente. Aditivas, salvo el tipo de retorno de `run`.
+
+- **`agent-core`, `engine.run()` devuelve el resultado del turno** (`RunResult`): `text` (lo dicho tras la última tool), `toolCalls` (con `errorCode`, delegados incluidos), `errors`, `aborted`, `budgetExceeded` y `systemPrompts`. Antes devolvía `void`. Un único colector cubre todas las salidas del turno. El evento `tool_result` lleva `error_code` y el de `ask_agent`, `agent_id`.
+- **`agent-core`, `emitSystemPrompt` (apagado por defecto):** evento `system_prompt` con el prompt de cada llamada al modelo. Apagado porque un system prompt puede llevar secretos y va a todos los transports.
+- **`agent-core`, `engine.budgetExceeded`:** estado del presupuesto de coste, con o sin `abortOnBudget` (el evento `budget_exceeded` sigue atado a `abortOnBudget`).
+- **`agent-core`, `ToolError(code, message)`:** error con código estable que el engine pone en la auditoría. `ToolArgumentError` lo extiende.
+- **`agent-core`, `createLearning({ dir })`:** todo bajo un directorio con los nombres que coding ya usaba (`experiences.json`, `counters.json`, `proposals/`, `rules.json`, `lessons.json`); un almacén explícito sustituye a su archivo. `createCodingLearning` y `EnterpriseLearning` lo usan, sin mover ningún archivo.
+- **`agent-core`, `learning.trackOutcome`:** atajo de `record` (`ok`, `subject`, `context`...). Un éxito sin `subject` se rechaza en vez de perderse.
+- **`agent-core`, `Experience.context`:** el mismo `subject` juzgado aparte según las circunstancias; la proporción se mide dentro del contexto. Sin contexto, claves, ids de propuesta, texto de lección y contadores antiguos son idénticos.
+- **`agent-core`, `stamp: 'clock'`:** las experiencias del sink, `record` y los contadores toman la hora de `now`, para simulaciones y backtests. Por defecto, la del evento.
+- **`agent-core`, las tools leen las reglas aprobadas:** `learnedRules(ctx, guard)` y `LEARNED_RULES_SERVICE`. `createBaseEngine({ learning })` da a las tools una **vista de solo lectura** de las reglas del tenant del engine, nunca el objeto `Learning`: con él una tool podría aprobar haciéndose pasar por una persona. Se mezcla con `services` sea objeto o función.
+
 Arreglos encontrados al probar F1 y F2 con un bot de trading de papel (`agent-framework-examples/trading-bot`, con su `FINDINGS.md`).
 
 - **`agent-core`, una lección que funciona ya no se borra sola:** la proporción de fallos (`rate`) decide cuándo *entra* un patrón; una vez dentro, se queda mientras sus fallos estén en la ventana. Antes, al obedecer la lección, las llamadas correctas diluían la proporción, el patrón y su lección salían y el error volvía (27 rechazos en 19 operaciones). Un patrón sale cuando sus fallos salen de la ventana y tiene que volver a pasar la proporción para reentrar. El patrón calificado se guarda en el almacén de contadores.

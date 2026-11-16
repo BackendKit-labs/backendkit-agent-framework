@@ -5,7 +5,7 @@
  */
 import { join } from 'node:path';
 import {
-    createLearning, FileApprovalStore, FileLessonStore, FileRuleStore, JsonFileStore, getProjectDir,
+    createLearning, getProjectDir,
     type ApprovedRule, type AuditFinding, type LearnedPattern, type Learning, type RuleStore,
 } from '@backendkit-labs/agent-core';
 import type { PolicyRule } from '../orchestration/types';
@@ -100,11 +100,7 @@ export interface CodingLearningOptions {
 export function createCodingLearning(options: CodingLearningOptions): Learning {
     const dir = join(getProjectDir(options.appName, options.projectRoot), 'learning');
     return createLearning({
-        store: new JsonFileStore(join(dir, 'experiences.json')),
-        approvals: new FileApprovalStore(join(dir, 'proposals')),
-        rules: new FileRuleStore(join(dir, 'rules.json')),
-        lessonStore: new FileLessonStore(join(dir, 'lessons.json')),
-        counters: new JsonFileStore(join(dir, 'counters.json')),
+        dir,
         ruleFor: policyRuleFor,
         ...(options.threshold !== undefined ? { threshold: options.threshold } : {}),
     });

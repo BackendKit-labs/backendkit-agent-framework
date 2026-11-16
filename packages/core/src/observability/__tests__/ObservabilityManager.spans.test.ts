@@ -121,6 +121,6 @@ describe('ObservabilityManager — llm_call and tool_call spans', () => {
             agents: [agent], tools: [tool('slow_a', 1), tool('slow_b', 1)], transport,
             observability: { metrics: {} },
         });
-        await expect(engine.run('go')).resolves.toBeUndefined();
+        await expect(engine.run('go')).resolves.toMatchObject({ aborted: false });
     });
 });

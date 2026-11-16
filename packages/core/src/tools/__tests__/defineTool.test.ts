@@ -1,4 +1,5 @@
-import { defineTool, z, validateToolDefinition, getToolInputSchema, ToolDefinitionError, ToolArgumentError } from '../defineTool';
+import { defineTool, z, validateToolDefinition, getToolInputSchema, ToolDefinitionError } from '../defineTool';
+import { ToolArgumentError } from '../tool-error';
 import type { ToolDefinition } from '../../types';
 
 const echoTool = defineTool({

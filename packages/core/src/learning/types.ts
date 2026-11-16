@@ -73,6 +73,42 @@ export interface LearnedPattern {
     /** The latest experience's situation and detail. */
     situation: string;
     detail?: string;
+    /** The calls of the subject in the window (correct and failed), when the share of failures was measured (SPEC-0019 `rate`). */
+    calls?: number;
+}
+
+/**
+ * What the module remembers of a pattern after its experiences are gone (SPEC-0022). One record per agent and tenant.
+ * A lesson lives in its record: it stays while the subject is still being called, and a person can resolve it.
+ */
+export interface PatternRecord {
+    /** `domain:kind:subject[@context][#fingerprint]`. */
+    key: string;
+    tenantId?: string;
+    /** The agent whose view this is. An empty one is the view of all the agents (it feeds the proposals, not the prompts). */
+    agentId: string;
+    domain: string;
+    kind: string;
+    subject?: string;
+    context?: string;
+    fingerprint?: string;
+    /** What the first experience of the pattern said: the line of the lesson is written from it, once. */
+    situation: string;
+    detail?: string;
+    severity: Severity;
+    /** The failures of the pattern the last time it was confirmed. */
+    count: number;
+    firstSeen: string;
+    lastFailure: string;
+    /** `active` is in the prompt (while its subject is still called); `resolved` was closed by a person. */
+    state: 'active' | 'resolved';
+    /** The sentence in the prompt, written once. A hint from the author of the tool is not stored: it comes from the code. */
+    line?: string;
+    resolvedBy?: ApproverRef;
+    resolvedAt?: string;
+    resolvedReason?: string;
+    /** It had been resolved, and it failed again after that. */
+    reappeared?: { resolvedAt: string; by: ApproverRef };
 }
 
 /** A rule a person approved. `rule` is opaque to core: its meaning is the consumer's. */
@@ -209,6 +245,13 @@ export interface LearningOptions {
      */
     window?: { days: number };
     /**
+     * A learned lesson stays while its subject is still being called (SPEC-0022): the failures that made it leave the window
+     * because the lesson works, and a lesson that left with them would let the mistake come back. It leaves when the subject has
+     * had no calls (and no failures) for this many days, or when a person resolves it. Default: the window. A pattern without a
+     * subject (a signal of a vertical, which has no calls to count) leaves with its window.
+     */
+    quietAfterDays?: number;
+    /**
      * A pattern of a tool that has many correct calls also needs to be a big enough share of its calls: three failures among
      * a thousand calls is noise. Default `{ minFailureRate: 0.05, minCalls: 20 }`; `false` counts failures only. With fewer
      * than `minCalls` calls in the window, or for subjects whose successes are not counted, only the count decides.
@@ -286,6 +329,14 @@ export interface Learning {
     taught(filter?: { agentId?: string; tenantId?: string }): Promise<TaughtLesson[]>;
     /** Withdraws a taught lesson. */
     forget(lessonId: string): Promise<boolean>;
+    /**
+     * A person says a learned pattern is solved (SPEC-0022): its lesson leaves the prompts of every agent of the tenant, and the
+     * record stays, so that if it fails again after this the record says it came back. Only whoever `approverKinds` allows (a
+     * person by default): an agent does not close its own lessons. Throws when the tenant has no such pattern.
+     */
+    resolve(patternKey: string, by: ApproverRef, options?: { tenantId?: string; reason?: string }): Promise<void>;
+    /** What is remembered of each pattern, per agent: its state, its line and its dates. */
+    records(filter?: { agentId?: string; tenantId?: string; state?: PatternRecord['state'] }): Promise<PatternRecord[]>;
     /**
      * Adds a rule without waiting for a pattern to propose it: validated (a `ToolRule` must name its tool and an effect),
      * attributed to a person and stored with the rules that came from proposals.

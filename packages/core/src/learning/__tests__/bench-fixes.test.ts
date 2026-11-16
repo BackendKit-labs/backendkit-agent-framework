@@ -39,7 +39,9 @@ describe('a lesson that works does not remove itself (the rate decides when a pa
         expect(await learning.patterns()).toEqual([]);
     });
 
-    it('it leaves when its failures leave the window, and has to pass the rate again to come back', async () => {
+    // SPEC-0022 D1 replaces "it leaves when its failures leave the window, and has to pass the rate again to come back":
+    // the bench showed that a lesson that works lost its failures to the window and went away, and the mistake came back.
+    it('its failures leave the window: no pattern to show, the lesson stays while the subject is called, and the same failure is the same pattern', async () => {
         let clock = Date.now();
         const learning = createLearning({ now: () => new Date(clock), window: { days: 7 }, rate: { minFailureRate: 0.5, minCalls: 8 } });
         await write(learning, 3, () => failure({ at: new Date(clock).toISOString() }));
@@ -48,10 +50,12 @@ describe('a lesson that works does not remove itself (the rate decides when a pa
 
         clock += 8 * DAY;
         expect(await learning.patterns()).toEqual([]);
-        // The correct calls are still being made, and three new failures are noise among them.
+        // The correct calls are still being made: the lesson is still in the prompt (SPEC-0022).
         await write(learning, 200, () => call({ at: new Date(clock).toISOString() }));
+        expect(await learning.lessonsFor('ap')).toContain('RISK_MAX_POSITION');
+        // And three new failures among them are the pattern it already was, not noise.
         await write(learning, 3, () => failure({ at: new Date(clock).toISOString() }));
-        expect(await learning.patterns()).toEqual([]);
+        expect(await learning.patterns()).toHaveLength(1);
     });
 
     it('it stays qualified in the store, so a later process still knows', async () => {

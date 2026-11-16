@@ -180,6 +180,6 @@ export type {
 // ── Learning from experience: lessons and proposed rules (SPEC-0017 F6) ─────────
 export { createLearning, ENGINE_HINTS, FileLessonStore, FileRuleStore, MemoryLessonStore, MemoryRuleStore } from './learning';
 export type {
-    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, LearnedRulesView, LearningOptions, LessonStore, LessonUnitInfo, OutcomeInput, RuleStore, Severity,
+    AddRuleInput, ApprovedRule, Experience, ExperienceInput, LearnedPattern, Learning, PatternRecord, LearnedRulesView, LearningOptions, LessonStore, LessonUnitInfo, OutcomeInput, RuleStore, Severity,
     TaughtLesson, TeachInput, ToolRule,
 } from './learning';

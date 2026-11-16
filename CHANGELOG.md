@@ -1,5 +1,16 @@
 # Changelog
 
+## Sin publicar
+
+[SPEC-0022](docs/specs/SPEC-0022-ciclo-de-vida-de-la-leccion.md) F1-F4: el ciclo de vida de la lección. **Cambia el comportamiento de 0.42.0** (el aprendizaje ya publicado): una lección aprendida ya no caduca con la ventana si su sujeto se sigue llamando.
+
+- **`agent-core`, la lección se queda mientras su sujeto se siga llamando:** el banco de pruebas mostró que una lección que funciona perdía sus fallos en la ventana, caducaba y el error volvía (19 rechazos en 245 sesiones). Ahora sale cuando el sujeto no tiene llamadas ni fallos durante `quietAfterDays` (por defecto, la ventana) o cuando una persona la resuelve. Un patrón sin sujeto (una señal de un vertical) sigue saliendo con su ventana. **Consecuencia:** un fallo pasajero (una caída de tres timeouts) deja su lección mientras la tool se llame, hasta que alguien la resuelva.
+- **`agent-core`, registro de patrones:** `learning.records()` (estado, línea, fechas) y `learning.resolve(patternKey, by, { tenantId?, reason? })`, solo para quien permita `approverKinds`. Un patrón resuelto que vuelve a fallar queda activo y su registro lo dice (`reappeared`).
+- **`agent-core`, el texto de una lección ya no cambia al reiniciar:** la línea se escribe una vez en el registro del patrón (antes vivía solo en memoria y se reescribía desde el último fallo). Una pista que el autor de una tool mejora después llega a los patrones nuevos, no a los ya escritos.
+- **`agent-core`, la propuesta de regla muestra la evidencia:** `3 x tool_error on place_order (3 of 10 calls, 30%), primera a última`, y si el patrón había sido resuelto, que volvió.
+- **`agent-core`, los patrones que fallan ahora van antes** que las lecciones que se quedan solo porque su sujeto se sigue llamando, para que estas no ocupen el sitio de un problema nuevo.
+- **Migración:** los `counters.json` de 0.42.0 guardan los patrones como `qualified`; se siguen leyendo hasta que el patrón se confirme y se reemplacen por un registro completo. Los contadores se conservan `2 x max(ventana, quietAfterDays)` días.
+
 ## v0.43.0 (2026-11-16)
 
 Aprendizaje, segunda iteración ([SPEC-0019](docs/specs/SPEC-0019-aprendizaje-segunda-iteracion.md) F1 y F2) y las piezas del framework que un bot de trading de papel tuvo que escribir a mano. En 0.x, `^0.41` no cubre 0.42 y `^0.9` no cubre 0.10, así que se barrieron los rangos de los paquetes y templates que los usan: `agent-core` `^0.42.0`, `agent-coding` `^0.32.0`, `agent-enterprise` `^0.10.0`. Los peers con rango ancho (`<0.43.0`) ya cubrían 0.42.

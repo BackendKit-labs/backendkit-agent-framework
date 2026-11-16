@@ -25,7 +25,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) | Aprendizaje, segunda iteración | F1 y F2 implementadas (sin publicar); F3 pasa a SPEC-0022 |
 | [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) | Ejecución reanudable: `RunJournal`, pasos que no se repiten, efectos en curso como `unknown` | Borrador |
 | [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) | Evaluaciones de agentes sobre `RunResult` (casos, graders, repeticiones, comparación) | Borrador |
-| [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Borrador |
+| [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Implementado F1-F5 (sin publicar) |
 | [SPEC-0023](SPEC-0023-flujos-declarativos.md) | Flujos declarativos y un solo runner (diseño de SPEC-0017 F1) | Borrador |
 
 Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** al final y solo si aparece un caso de caída a mitad de flujo (la aprobación durable ya está hecha).

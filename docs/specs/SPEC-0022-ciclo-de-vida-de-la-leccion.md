@@ -1,9 +1,9 @@
 # SPEC-0022: ciclo de vida de la lección
 
 **Fecha:** 2026-11-16
-**Estado:** Borrador. Decisiones D1-D5 con propuesta. Sustituye a F3 de [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) (su D5).
+**Estado:** Decisiones D1-D5 aceptadas el 2026-11-16 con las propuestas. F1-F4 implementadas (sin publicar). F5 medida en el banco `trading-bot` con el modelo simulado (sus dos sondas son ahora aserciones): **3 rechazos del error que la lección evita antes de que entrara en el prompt y 0 en las 230 sesiones posteriores**, frente a 19 en 245 sesiones sin este cambio. Sustituye a F3 de [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) (su D5).
 **Depende de:** SPEC-0019 F1 y F2 (señal y lecciones por tool, mergeados y sin publicar), `createLearning`, `SuccessCounters`, `QualifiedPatterns`.
-**Tipo de cambio:** aditivo, salvo la caducidad por defecto (D1), que cambia lo que F1/F2 hacen hoy. Por eso conviene decidirlo antes de publicar esas fases.
+**Tipo de cambio:** aditivo, salvo la caducidad por defecto (D1), que **cambia el comportamiento de 0.42.0, ya publicado** (la histéresis de #193 iba en esa versión).
 **Objetivo:** que una lección que funciona no desaparezca por funcionar, y que una persona pueda ver y decidir cuándo una lección ya no hace falta.
 
 ## 1. El problema, medido
@@ -41,6 +41,20 @@ quiet / resolved ──(vuelve a fallar con el umbral)─────▶ active 
 
 - La lección enseñada por una persona no entra en este ciclo: solo `forget`, como hoy.
 - Una lección `active` no cambia de texto: el prompt sigue siendo estable entre turnos (criterio de SPEC-0019 §4).
+
+## 3b. Estado de la implementación (2026-11-16)
+
+| Punto | Spec | Hecho | Por qué |
+|---|---|---|---|
+| Estado `quiet` | estado propio | **derivado**: no se guarda; un registro `active` sin llamadas ni fallos durante `quietAfterDays` no entra en el prompt | Se recupera solo si el sujeto vuelve a llamarse o a fallar; no hace falta un cambio de estado escrito |
+| Reactivar | "vuelve a fallar con el umbral" | fallos **posteriores** a `resolvedAt` en número de `threshold`, y pasar la tasa otra vez | Los fallos que ya estaban en la ventana al resolver no deben reactivarlo |
+| Pista del autor de la tool | no se guarda (viene del código) | **se guarda también** | Un test existente fija que una línea ya en el prompt no se reescribe al registrar una pista después. Coste: una pista mejorada llega solo a los patrones nuevos |
+| Orden con los topes | no previsto | los patrones que fallan **ahora** van antes que los que se quedan por uso | Un lección persistente no debe ocupar el sitio de un problema nuevo |
+| Migración | "no hay datos que migrar" | **sí los había**: 0.42.0 ya estaba publicado y guarda `qualified`; se siguen leyendo | Falso en el borrador |
+| Retención de contadores | no previsto | `2 x max(ventana, quietAfterDays)` días | "En uso" necesita las llamadas de ese periodo |
+| F5, el dato | "rechazos ≈ 0" | 0 rechazos de `RISK_MAX_POSITION` tras la primera lección (230 sesiones, 36 con orden); 5 rechazos de otro código (`RISK_MAX_OPEN`), de lo que la lección no trata | El modelo es un guion que lee el prompt: comprueba la plomería, no a un LLM real |
+| Criterio de SPEC-0019 §4 "la lección de una tool arreglada desaparece sola" | — | **ya no es cierto** si la tool se sigue llamando | Es el coste de D1: sin la lección el error vuelve. Una persona la resuelve |
+| Test cambiado a propósito | `bench-fixes`: "it leaves when its failures leave the window" | ahora comprueba lo contrario | Codificaba el defecto que D1 corrige |
 
 ## 4. Fases
 

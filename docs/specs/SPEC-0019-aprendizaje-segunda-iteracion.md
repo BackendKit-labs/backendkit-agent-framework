@@ -110,3 +110,11 @@ El usuario eligió la opción B: **unidades con forma de skill del propio módul
 | Formato `.md` de skill | importar y exportar en el formato de skill | markdown propio (front matter, `## Taught`, `## Learned`) | El parser de skills está en `agent-coding/cli`, no en core |
 | Configuración por agente (`learning` en el perfil) | propuesta del usuario | **no se hizo** | Lo cubre qué tools tiene cada agente (las lecciones de una tool solo llegan a quien la tiene) y `teach({ agentId })` |
 | Caducidad | F3 | no | Sigue siendo F3: las lecciones aprendidas salen con la ventana, las enseñadas solo con `forget` |
+
+## 8. Hallazgo del banco de pruebas que cambia D5 (2026-11-16)
+
+El bot de trading (`agent-framework-examples/trading-bot`), con el reloj simulado, mostró que **"sin fallos en la ventana ⇒ la lección caduca" retira una lección que funciona**: el agente obedece, deja de fallar, los fallos salen de la ventana, la lección caduca y el error vuelve (19 rechazos en 245 sesiones, la lección ausente de 170 prompts entre su primera y su última aparición). "Sin fallos" no distingue "resuelto" de "resuelto gracias a esta lección".
+
+**Propuesta para F3 (cambia D5):** una lección se queda mientras su sujeto siga usándose (los contadores de éxito ya lo saben) y termina cuando el sujeto deja de llamarse o una persona la marca resuelta. Requiere que el patrón se recuerde más allá de sus experiencias (el registro de patrones calificados puede llevar lo que la línea necesita). Pendiente de decisión del usuario antes de implementar F3.
+
+Un efecto secundario de la histéresis (el patrón que entra con pocas llamadas se queda aunque luego los datos digan que casi siempre gana) sugiere mostrar la proporción (fallos / llamadas) en la propuesta de regla.

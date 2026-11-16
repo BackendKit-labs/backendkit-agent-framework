@@ -10,6 +10,16 @@ jest.mock('child_process', () => {
 });
 const spawnMock = spawn as unknown as jest.Mock;
 
+/** A process that does not exist: the test does not depend on what is installed, nor on how long it takes to start. */
+function fakeProc(script: (p: EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) => void) {
+    const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
+    setImmediate(() => script(proc));
+    return proc as unknown as ChildProcess;
+}
+
+/** Tests that run a real process get a limit that fits a loaded machine: `npm --version` alone takes about 5 s to start on Windows. */
+const REAL_PROCESS_MS = 30_000;
+
 const mockCtx = {
     agentId: 'coder',
     sessionId: 'test',
@@ -48,35 +58,42 @@ describe('run_command — allowlist enforcement', () => {
         expect(result).toMatch(/"bash" is not in the allowed list/);
     });
 
+    // The allowlist is what is under test, not npm: the process is faked. (It used to run the real `npm --version`, which takes
+    // about as long as the 5 s limit of a test on Windows and failed whenever the machine was busy.)
     it('allows npm commands', async () => {
-        // Just verify it doesn't block — actual execution may fail in test env
+        spawnMock.mockClear();
+        spawnMock.mockImplementationOnce(() => fakeProc(p => { p.stdout.emit('data', Buffer.from('10.0.0\n')); p.emit('close', 0); }));
         const result = await runCommandTool.execute({ command: 'npm --version' }, mockCtx);
         expect(result).not.toMatch(/not in the allowed list/);
+        expect(spawnMock).toHaveBeenCalledTimes(1);
     });
 
     it('allows git commands', async () => {
         const result = await runCommandTool.execute({ command: 'git --version' }, mockCtx);
         expect(result).not.toMatch(/not in the allowed list/);
         expect(result).toMatch(/git version/i);
-    });
+    }, REAL_PROCESS_MS);
 
     it('allows node commands', async () => {
         const result = await runCommandTool.execute({ command: 'node --version' }, mockCtx);
         expect(result).not.toMatch(/not in the allowed list/);
         expect(result).toMatch(/v\d+\.\d+/);
-    });
+    }, REAL_PROCESS_MS);
 
     it('strips env var prefix when checking allowlist', async () => {
         // NODE_ENV=test npm --version → bin is "npm"
+        spawnMock.mockClear();
+        spawnMock.mockImplementationOnce(() => fakeProc(p => { p.stdout.emit('data', Buffer.from('10.0.0\n')); p.emit('close', 0); }));
         const result = await runCommandTool.execute({ command: 'NODE_ENV=test npm --version' }, mockCtx);
         expect(result).not.toMatch(/not in the allowed list/);
+        expect(spawnMock).toHaveBeenCalledTimes(1);
     });
 
     it('returns error string on timeout', async () => {
         // 200 ms was below the minimum of 1000: the call was malformed and the test only passed because of the error text.
         const result = await runCommandTool.execute({ command: 'node -e "setTimeout(()=>{},60000)"', timeout_ms: 1000 }, mockCtx);
         expect(result).toMatch(/Error/i);
-    });
+    }, REAL_PROCESS_MS);
 });
 
 describe('run_command — arg validation', () => {
@@ -104,12 +121,6 @@ describe('run_command — docker sandbox opt-in', () => {
 
     // Hermetic: spawn is faked so the result does not depend on Docker being installed
     // (it is on CI runners, not on every dev machine).
-    function fakeProc(script: (p: EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) => void) {
-        const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
-        setImmediate(() => script(proc));
-        return proc as unknown as ChildProcess;
-    }
-
     it('fails closed when docker cannot be started: never falls back to the host shell', async () => {
         process.env.BK_RUN_COMMAND_SANDBOX = 'docker';
         spawnMock.mockClear();

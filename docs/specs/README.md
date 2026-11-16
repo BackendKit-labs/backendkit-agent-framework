@@ -22,6 +22,11 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0016](SPEC-0016-desamarrar-modulos-mixtos.md) | Desamarrar los módulos mixtos (contexto, skills, comandos, app de terminal) | Borrador |
 | [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) | Un contrato por concepto: workflow, política, auditoría, memoria, RAG | Borrador |
 | [SPEC-0018](SPEC-0018-plantilla-de-agente-de-negocio-y-scaffolder.md) | Plantilla de agente de negocio y scaffolder | Borrador |
+| [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) | Aprendizaje, segunda iteración | F1 y F2 implementadas (sin publicar); F3 pasa a SPEC-0022 |
+| [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) | Ejecución reanudable: `RunJournal`, pasos que no se repiten, efectos en curso como `unknown` | Borrador |
+| [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) | Evaluaciones de agentes sobre `RunResult` (casos, graders, repeticiones, comparación) | Borrador |
+| [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Borrador |
+| [SPEC-0023](SPEC-0023-flujos-declarativos.md) | Flujos declarativos y un solo runner (diseño de SPEC-0017 F1) | Borrador |
 
 Orden de ejecución vigente: SPEC-0013 §4 (prerrequisitos) → 0014 → 0015 y 0016 (mismo minor) → 0017 por fases → 0018. Ver [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) para la tabla de trazabilidad. Los borradores anteriores (0002, 0004 a 0007) se reevalúan contra ADR-0008 antes de retomarlos. SPEC-0004 es dependencia de la opción B de aprobación durable (SPEC-0014 §6).
 

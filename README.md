@@ -86,7 +86,6 @@ Infrastructure and products live in other repositories: the control plane, Herme
 | `single` | One agent with tools (with the `mcp-http` deploy mode it is an MCP server) | Tools to expose |
 | `autonomous` | Cron, webhook and event triggers | What to do on each trigger |
 | `enterprise` | Local LLM and an Obsidian knowledge base | Your vault |
-| `orchestrator` | Multi-step workflows with approval gates | Your flows and specialists |
 | `minimal` | The bare engine | Everything |
 
 ## Serving and consuming MCP

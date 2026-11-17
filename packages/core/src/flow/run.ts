@@ -3,6 +3,7 @@ import type { FlowDefinition, FlowStep, FlowTransition } from './types';
 import type { ConcurrencyLimiter } from './limiter';
 import { interpolate } from './interpolate';
 import { decideStepApproval } from './approval';
+import { describeCondition, evaluateCondition } from './condition';
 import type { FlowApprovals } from './approval';
 import type { RunJournal, JournalRun } from './journal';
 
@@ -53,6 +54,8 @@ export interface FlowResult {
     version: number;
     status: FlowRunStatus;
     steps: Record<string, FlowStepResult>;
+    /** Sum of the `costUsd` the steps reported. Absent when none did. */
+    costUsd?: number;
     transitions: FlowTransition[];
     compensations: FlowCompensationResult[];
 }
@@ -101,6 +104,13 @@ export interface RunFlowOptions {
     owner?: string;
     /** How long the claim lasts without being renewed. Default 10 minutes. */
     claimTtlMs?: number;
+    /**
+     * How often the run renews its claim while it goes on, so that a run longer than `claimTtlMs` is not taken over by another
+     * process while it is alive: the claim then only expires when this process stops (dies, stalls). Default a third of the TTL;
+     * 0 turns renewal off (tests that simulate a process that died). If a renewal finds the claim taken by someone else, the run is
+     * stopped and `runFlow` throws `FlowClaimError`; the journal is left as the new owner found it.
+     */
+    claimRenewMs?: number;
     /** A step the journal shows as `running` (the process died in it): run it again (default, at least once; the idempotency key carries the attempt) or fail it. */
     onInterrupted?: 'retry' | 'fail';
     /** Applied to the input preview and error texts written to the journal. Outputs are stored as they are. */
@@ -122,8 +132,29 @@ export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promis
     const journal = opts.journal;
     if (!journal) return execute(def, opts, runId, undefined);
 
-    const release = await journal.claim(runId, opts.owner ?? `owner-${Math.random().toString(36).slice(2, 10)}`, opts.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS);
+    const owner = opts.owner ?? `owner-${Math.random().toString(36).slice(2, 10)}`;
+    const ttl = opts.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS;
+    let release = await journal.claim(runId, owner, ttl);
     if (!release) throw new FlowClaimError(runId);
+
+    // Renew the claim while the run lives: it expires only when this process stops. If someone else holds it by the time we
+    // renew, the run is no longer ours: stop it and leave the journal to the new owner. Each renewal's release replaces the last
+    // (the old one no longer matches what the journal holds).
+    const state = { lost: false };
+    const stop = new AbortController();
+    const forward = (): void => stop.abort();
+    if (opts.signal?.aborted) stop.abort(); else opts.signal?.addEventListener('abort', forward, { once: true });
+    const renewMs = opts.claimRenewMs ?? Math.floor(ttl / 3);
+    let renewing = false;
+    const timer = renewMs > 0 ? setInterval(() => {
+        if (renewing) return;
+        renewing = true;
+        journal.claim(runId, owner, ttl)
+            .then(next => { if (next) release = next; else { state.lost = true; stop.abort(); } })
+            .catch(() => undefined) // a journal that cannot be reached now may answer at the next tick
+            .finally(() => { renewing = false; });
+    }, renewMs) : undefined;
+    timer?.unref?.();
     try {
         const prior = await journal.get(runId);
         if (prior && prior.flow !== def.flow) throw new Error(`run "${runId}" belongs to flow "${prior.flow}", not "${def.flow}"`);
@@ -135,9 +166,13 @@ export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promis
         } else {
             await journal.update(runId, { status: 'running' });
         }
-        return await execute(def, opts, runId, prior);
+        const result = await execute(def, { ...opts, signal: stop.signal }, runId, prior, state);
+        if (state.lost) throw new FlowClaimError(runId);
+        return result;
     } finally {
-        await release().catch(() => undefined);
+        if (timer) clearInterval(timer);
+        opts.signal?.removeEventListener('abort', forward);
+        if (!state.lost) await release().catch(() => undefined);
     }
 }
 
@@ -157,11 +192,11 @@ function fromJournal(run: JournalRun, def: FlowDefinition): FlowResult {
     return {
         runId: run.runId, flow: run.flow, version: def.version,
         status: run.status === 'done' ? 'completed' : run.status === 'cancelled' ? 'cancelled' : 'failed',
-        steps, transitions: run.transitions, compensations: [],
+        steps, ...(run.costUsd !== undefined ? { costUsd: run.costUsd } : {}), transitions: run.transitions, compensations: [],
     };
 }
 
-async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string, prior: JournalRun | undefined): Promise<FlowResult> {
+async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string, prior: JournalRun | undefined, claim?: { lost: boolean }): Promise<FlowResult> {
     const journal = opts.journal;
     const redact = (s: string): string => (opts.redact ? opts.redact(s) : s);
     const transitions: FlowTransition[] = [];
@@ -181,6 +216,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const results: Record<string, FlowStepResult> = {};
     const completed = new Set<string>();
     const failed = new Set<string>();
+    /** Steps not run because their condition did not hold, and what waits for them: skipped, but the flow did not fail. */
+    const unmet = new Set<string>();
     const remaining = new Set(def.steps.map(s => s.id));
     /** Steps that stopped for approval: the run is suspended, not failed. */
     const awaiting = new Map<string, string>();
@@ -246,6 +283,22 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const executeOne = async (step: FlowStep): Promise<void> => {
         const prev: Record<string, string> = {};
         for (const dep of step.after) if (results[dep]?.status === 'completed') prev[dep] = results[dep].content;
+
+        // A condition is checked before anything else, so that no approval is asked for a step that will not run.
+        if (step.when) {
+            const seen = results[step.when.step];
+            const text = describeCondition(step.when);
+            const holds = seen?.status === 'completed' ? evaluateCondition(step.when, seen.content) : undefined;
+            if (holds !== true) {
+                const detail = holds === undefined ? `condition not evaluable (${step.when.step} produced no output): ${text}` : `condition not met: ${text}`;
+                results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'skipped' };
+                unmet.add(step.id);
+                record(step.id, 'skipped', detail);
+                await journal?.step(runId, step.id, { status: 'skipped', transitions: flush() }).catch(() => undefined);
+                opts.transport?.emit({ type: 'workflow_step_complete', step: step.id, success: true });
+                return;
+            }
+        }
 
         if (opts.approvals) {
             if (approvalsWhen === 'before' && !(await settleApproval(step, prev))) return;
@@ -358,14 +411,16 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
 
     try {
         while (remaining.size > 0 && !controller.signal.aborted) {
+            const stopped = (d: string): boolean => failed.has(d) || unmet.has(d);
             const runnable = def.steps.filter(s =>
-                remaining.has(s.id) && s.after.every(d => completed.has(d)) && !s.after.some(d => failed.has(d)));
-            const blocked = def.steps.filter(s => remaining.has(s.id) && s.after.some(d => failed.has(d)));
+                remaining.has(s.id) && s.after.every(d => completed.has(d)) &&!s.after.some(stopped));
+            const blocked = def.steps.filter(s => remaining.has(s.id) && s.after.some(stopped));
 
             for (const step of blocked) {
                 results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'skipped' };
                 remaining.delete(step.id);
-                failed.add(step.id); // transitive
+                // transitive; a step stopped only by an unmet condition does not make the flow fail
+                if (step.after.some(d => failed.has(d))) failed.add(step.id); else unmet.add(step.id);
                 record(step.id, 'skipped');
                 await journal?.step(runId, step.id, { status: 'skipped', transitions: flush() }).catch(() => undefined);
             }
@@ -427,13 +482,16 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         : vals.some(r => r.status === 'rejected') ? 'rejected'
         : vals.some(r => r.status === 'failed') ? 'failed'
         : 'completed';
+    // The run was taken over while it went on: whatever the new owner finds in the journal is what stands.
+    if (claim?.lost) return { runId, flow: def.flow, version: def.version, status: 'cancelled', steps: results, transitions, compensations };
+    const costUsd = vals.some(r => r.costUsd !== undefined) ? vals.reduce((a, r) => a + (r.costUsd ?? 0), 0) : undefined;
     await journal?.update(runId, {
         status: status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : status === 'awaiting_approval' ? 'awaiting_approval' : 'failed',
         ...(suspended ? { waiting: { stepId: [...awaiting.keys()][0], approvalId: [...awaiting.values()][0] } } : { waiting: null }),
         ...(status === 'rejected' ? { error: 'rejected' } : {}),
-        ...(vals.some(r => r.costUsd !== undefined) ? { costUsd: vals.reduce((a, r) => a + (r.costUsd ?? 0), 0) } : {}),
+        ...(costUsd !== undefined ? { costUsd } : {}),
         transitions: flush(),
     });
     opts.transport?.emit({ type: 'workflow_complete', name: def.flow, status: status === 'completed' ? 'completed' : status === 'rejected' ? 'rejected' : 'failed' });
-    return { runId, flow: def.flow, version: def.version, status, steps: results, transitions, compensations };
+    return { runId, flow: def.flow, version: def.version, status, steps: results, ...(costUsd !== undefined ? { costUsd } : {}), transitions, compensations };
 }

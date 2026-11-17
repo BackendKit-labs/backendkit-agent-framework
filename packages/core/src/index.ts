@@ -122,7 +122,7 @@ export type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from './workflow
 export {
     FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowCompensationSchema, FlowDefinitionSchema, parseFlow, loadFlow, loadFlowsFromDir, validateFlow, FlowLoadError,
 } from './flow';
-export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
+export type { FlowTrigger, FlowGate, FlowCondition, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
 export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
 export { flowFromDefinition, flowRunView } from './flow';
 export { flowFromTaskPlan, flowFromStaticFlow } from './flow';

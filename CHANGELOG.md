@@ -1,5 +1,13 @@
 # Changelog
 
+## Sin publicar
+
+Tres arreglos del motor de flujos que halló el banco de pruebas del research desk (`agent-framework-examples/trading-bot`, hallazgos 6, 7 y 9):
+
+- **`agent-core`, el claim de un run se renueva mientras el run vive:** antes `claimTtlMs` (10 min por defecto) era la vida del claim desde que se tomaba, y un run más largo podía ser tomado por otro proceso **mientras el primero seguía corriendo** (un paso con efecto externo habría corrido dos veces). Ahora `runFlow` lo renueva cada `claimRenewMs` (por defecto un tercio del TTL) y el claim solo expira cuando el proceso se detiene. Si una renovación encuentra el claim en manos de otro, el run se detiene, no escribe sobre el nuevo dueño y `runFlow` lanza `FlowClaimError`. `claimRenewMs: 0` apaga la renovación (para simular un proceso caído). **Comportamiento nuevo:** un run con journal mantiene un temporizador (sin `ref`) mientras corre.
+- **`agent-core`, pasos condicionales:** `when: { step, contains | equals | matches, not? }` en un paso. Si la condición no se cumple, o no se puede evaluar porque el paso que mira no produjo salida, el paso queda `skipped` antes de cualquier otra cosa: no corre, no se pide aprobación, los pasos que lo esperan se saltan y el flujo **no** falla. `validateFlow` exige que `when.step` esté en `after` y que `matches` sea una expresión válida. Nuevo tipo `FlowCondition`.
+- **`agent-core`, el resultado trae el coste:** `FlowResult.costUsd` suma los `costUsd` de los pasos (ausente si ninguno lo reportó); también al responder un run terminado desde el journal.
+
 ## v0.44.0 (2026-11-17)
 
 Motor de flujos ([SPEC-0023](docs/specs/SPEC-0023-flujos-declarativos.md)), protocolo 1.2 y ciclo de vida de la lección ([SPEC-0022](docs/specs/SPEC-0022-ciclo-de-vida-de-la-leccion.md)). `orchestrator-agent` se retira del framework (se absorbe en las librerías; la app vive en `bk-platform`). En 0.x, `^0.42` no cubre 0.43 y `^0.10` no cubre 0.11, así que se barrieron los rangos: `agent-core` `^0.43.0`, `agent-enterprise` `^0.11.0`, `agent-protocol` `^0.7.0`, y los peers anchos pasan a `<0.44.0`.

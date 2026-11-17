@@ -89,6 +89,14 @@ export function validateFlow(def: FlowDefinition): string[] {
                 issues.push(`step "${step.id}" cannot depend on itself`);
             }
         }
+        if (step.when) {
+            if (!step.after.includes(step.when.step)) {
+                issues.push(`step "${step.id}": when.step "${step.when.step}" must be one of its after (a condition looks at a step it waits for)`);
+            }
+            if (step.when.matches !== undefined) {
+                try { new RegExp(step.when.matches); } catch { issues.push(`step "${step.id}": when.matches is not a valid regular expression`); }
+            }
+        }
         if (step.gate?.evaluator && step.gate.evaluator === step.agent) {
             issues.push(
                 `step "${step.id}": gate evaluator "${step.gate.evaluator}" must differ from the executing agent (evaluador ≠ ejecutor)`,

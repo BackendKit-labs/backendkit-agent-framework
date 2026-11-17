@@ -68,7 +68,7 @@ Versions and changes per release: [CHANGELOG](CHANGELOG.md).
 ## How the repository is organised
 
 - **`packages/`** — the SDK, published to npm.
-- **`examples/`** — reference projects, outside the workspace build: `coding-assistant`, `code-explainer`, `git-agent`, `git-analyst`, `finance-managment`, `flows` (a YAML flow with journal, approval and resume), `marketing-co`, `pg-dev-server`, `vault-pilot`, `workflow.mcp-agents`.
+- **`examples/`** — reference projects, outside the workspace build, all on the current framework: `flows` (a YAML flow with journal, approval and resume, no model), `git-agent` (a terminal agent: a team with delegation and a read-only mode), `git-analyst` (an agent served over MCP) and `vault-pilot` (department agents over a knowledge vault, each limited to its own folders). More are added as they are brought up to date and documented. The larger deep dives live in `agent-framework-examples`.
 - **`docs/adr/`** — architecture decisions: the *why*.
 - **`docs/specs/`** — specifications of changes that span packages: the *what* and *how*, with their state. The current roadmap is [SPEC-0013](docs/specs/SPEC-0013-framework-como-libreria-hoja-de-ruta.md).
 

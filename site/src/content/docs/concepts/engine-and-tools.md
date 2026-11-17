@@ -3,6 +3,22 @@ title: The engine and tools
 description: What the engine does in a turn, and how tools declare what they do so the engine can decide what to allow.
 ---
 
+## One tool, two ways to run it
+
+A tool is a plain definition (`defineTool`). **Who decides to call it** is a separate choice, and the framework supports both:
+
+| | Through the model | Direct, no model |
+|---|---|---|
+| Who calls it | The engine, because the model asked | Your code, or an MCP client, with exact arguments |
+| Arguments | Written by the model | Sent by the caller |
+| Result | Goes back to the model, which decides what next | Goes back to the caller as is |
+| Safety | The engine's gates: allowed tools, guardrails, [policy](../governance/), approval | Your `authorize` function, required for destructive tools, plus audit |
+| Use it for | Open-ended work: understanding a request, choosing steps | Anything a program or a person must call the same way every time |
+
+The same tool serves both. You write it once, declare `readOnly` or `destructive` once, and choose per use. A model can also reach a direct tool: serve it over MCP and an engine with an MCP client sees it next to its own tools ([MCP](../mcp/)).
+
+The rest of this page is the first column: the model-driven loop. [Serving tools directly](../mcp/#as-a-server-without-a-model) is the second.
+
 ## A turn
 
 `engine.run(question)` runs a loop until the model answers without asking for a tool, or until `maxIterations`:

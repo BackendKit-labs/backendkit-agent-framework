@@ -28,3 +28,5 @@ export { createApprovalHandler, summarizeApproval, ApprovalControlError } from '
 export type { ApprovalHandlerPort, ApprovalHandlerOptions, ApprovalSummaryView, ApprovalDecisionInput } from './approval-handler';
 export { createFlowTools } from './tools';
 export type { FlowToolsOptions } from './tools';
+export { planFlow, PLANNER_SYSTEM, UNRESOLVED_AGENT } from './planner';
+export type { PlannerAgent, PlanFlowOptions, PlannedFlow } from './planner';

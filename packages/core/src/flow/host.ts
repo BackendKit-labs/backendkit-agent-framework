@@ -28,6 +28,8 @@ export interface FlowInfo { name: string; description?: string; steps?: string[]
 
 /** What a flow gets to cooperate with its supervisor: stop when cancelled, wait while paused, and say which step it is on. */
 export interface FlowControl {
+    /** The id the host gave this run (the `flowRunId` a supervisor sees). A flow that keeps its own record (a journal, an approval) keys it by this id, so everyone talks about the same run. */
+    readonly runId: string;
     /** Aborted when the flow is cancelled. */
     readonly signal: AbortSignal;
     /** Starts a step: waits here while the flow is paused and throws if it was cancelled. The previous step is marked done. */
@@ -46,6 +48,18 @@ export interface InProcessFlow {
     run(input: Record<string, unknown>, control: FlowControl): Promise<unknown>;
 }
 
+/**
+ * What `run` throws when the flow stopped because a person has to decide (not a failure): the run shows as `awaiting_approval` with the step
+ * and the approval in its view. `resume` runs the flow again with the same `flowRunId`: a flow that keeps its progress (`runFlow` with a journal)
+ * goes on where it stopped, and stops here again if the decision is still missing.
+ */
+export class FlowAwaitingApproval extends Error {
+    constructor(readonly stepId: string, readonly approvalId: string) {
+        super(`step "${stepId}" awaits approval ${approvalId}`);
+        this.name = 'FlowAwaitingApproval';
+    }
+}
+
 export class FlowCancelled extends Error {
     constructor() { super('flow cancelled'); this.name = 'FlowCancelled'; }
 }
@@ -59,6 +73,9 @@ export class FlowHostError extends Error {
 }
 
 interface Live {
+    def: InProcessFlow;
+    input: Record<string, unknown>;
+    control: FlowControl;
     state: FlowRunView;
     controller: AbortController;
     resume?: () => void;
@@ -88,7 +105,7 @@ export class FlowHost {
             flowRunId: randomUUID(), flow, status: 'running', startedAt: new Date().toISOString(),
             steps: (def.steps ?? []).map((name): FlowStepView => ({ name, status: 'pending' })),
         };
-        const live: Live = { state, controller, paused: false, settled: Promise.resolve() };
+        const live = { def, input, state, controller, paused: false, settled: Promise.resolve() } as Live;
 
         const checkpoint = async () => {
             while (live.paused && !controller.signal.aborted) {
@@ -97,6 +114,7 @@ export class FlowHost {
             if (controller.signal.aborted) throw new FlowCancelled();
         };
         const control: FlowControl = {
+            runId: state.flowRunId,
             signal: controller.signal,
             checkpoint,
             mark: (name, status, detail) => {
@@ -118,14 +136,31 @@ export class FlowHost {
             },
         };
 
-        live.settled = Promise.resolve()
-            .then(() => def.run(input, control))
-            .then(
-                output => controller.signal.aborted ? this.finish(live, 'cancelled', {}) : this.finish(live, 'done', { output: typeof output === 'string' ? output : JSON.stringify(output) ?? '' }),
-                err => this.finish(live, controller.signal.aborted ? 'cancelled' : 'failed', controller.signal.aborted ? {} : { error: err instanceof Error ? err.message : String(err) }),
-            );
+        live.control = control;
+        this.launch(live);
         this.runs.set(state.flowRunId, live);
         return { flowRunId: state.flowRunId };
+    }
+
+    private launch(live: Live): void {
+        const { controller, state } = live;
+        live.settled = Promise.resolve()
+            .then(() => live.def.run(live.input, live.control))
+            .then(
+                output => controller.signal.aborted ? this.finish(live, 'cancelled', {}) : this.finish(live, 'done', { output: typeof output === 'string' ? output : JSON.stringify(output) ?? '' }),
+                err => {
+                    if (controller.signal.aborted) return this.finish(live, 'cancelled', {});
+                    if (err instanceof FlowAwaitingApproval) {
+                        const step = state.steps.find(s => s.name === err.stepId);
+                        if (step) { step.status = 'awaiting_approval'; step.detail = `approval ${err.approvalId}`; }
+                        else state.steps.push({ name: err.stepId, status: 'awaiting_approval', detail: `approval ${err.approvalId}` });
+                        state.status = 'awaiting_approval';
+                        state.currentStep = err.stepId;
+                        return;
+                    }
+                    this.finish(live, 'failed', { error: err instanceof Error ? err.message : String(err) });
+                },
+            );
     }
 
     private finish(live: Live, status: 'done' | 'failed' | 'cancelled', extra: { output?: string; error?: string }): void {
@@ -160,6 +195,14 @@ export class FlowHost {
 
     async resume(flowRunId: string): Promise<FlowRunView> {
         const live = this.live(flowRunId);
+        if (live.state.status === 'awaiting_approval') {
+            // the flow runs again with the same run id; whatever it kept (a journal) tells it where to go on
+            live.state.status = 'running';
+            for (const s of live.state.steps) if (s.status === 'awaiting_approval') { s.status = 'pending'; delete s.detail; }
+            delete live.state.currentStep;
+            this.launch(live);
+            return this.status(flowRunId);
+        }
         live.paused = false;
         live.resume?.();
         return this.status(flowRunId);
@@ -167,7 +210,7 @@ export class FlowHost {
 
     async cancel(flowRunId: string): Promise<FlowRunView> {
         const live = this.live(flowRunId);
-        if (live.state.status === 'running') {
+        if (live.state.status === 'running' || live.state.status === 'awaiting_approval') {
             live.controller.abort();
             live.paused = false;
             live.resume?.();

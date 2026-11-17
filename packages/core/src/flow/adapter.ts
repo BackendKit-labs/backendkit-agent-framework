@@ -1,12 +1,17 @@
 import type { FlowDefinition } from './types';
+import { FlowAwaitingApproval } from './host';
 import type { InProcessFlow, FlowRunView, FlowStatus, FlowStepView } from './host';
+import { stepApprovalId } from './approval';
 import type { JournalRun } from './journal';
 import { runFlow } from './run';
 import type { RunFlowOptions } from './run';
 
 /**
  * Hosts a `FlowDefinition` in a `FlowHost` (SPEC-0023 F4): a supervisor (Hermes) then starts, watches, pauses, resumes and
- * cancels it through the protocol without knowing it is a core flow. The input of `start` is the flow payload. Pausing
+ * cancels it through the protocol without knowing it is a core flow. The input of `start` is the flow payload. The run is keyed by the
+ * host's `flowRunId` (journal, approvals), so the id a supervisor sees is the id of the journal and of the approval of a gated step
+ * (`stepApprovalId(flowRunId, stepId)`). A step that waits for a person leaves the run `awaiting_approval` (not failed); once it is decided,
+ * `resume` goes on from the journal. This needs a `journal` in `opts`: without one there is nothing to go on from. Pausing
  * holds the steps not yet started; cancelling aborts the ones running and starts no more.
  */
 export function flowFromDefinition(def: FlowDefinition, opts: Omit<RunFlowOptions, 'payload' | 'signal' | 'checkpoint' | 'onTransition'>): InProcessFlow {
@@ -15,6 +20,7 @@ export function flowFromDefinition(def: FlowDefinition, opts: Omit<RunFlowOption
         run: async (input, control) => {
             const result = await runFlow(def, {
                 ...opts,
+                runId: control.runId,
                 payload: input,
                 signal: control.signal,
                 checkpoint: control.checkpoint,
@@ -24,10 +30,15 @@ export function flowFromDefinition(def: FlowDefinition, opts: Omit<RunFlowOption
                     else if (t.event === 'completed') control.mark(t.stepId, 'done');
                     else if (t.event === 'failed') control.mark(t.stepId, 'failed', t.detail);
                     else if (t.event === 'skipped') control.mark(t.stepId, 'skipped');
+                    else if (t.event === 'approval_requested') control.mark(t.stepId, 'awaiting_approval');
                     else if (t.event === 'rejected') control.mark(t.stepId, 'failed', 'rejected');
                 },
             });
             if (result.status === 'cancelled') return undefined; // the host already reports it as cancelled
+            if (result.status === 'awaiting_approval') {
+                const asked = [...result.transitions].reverse().find(t => t.event === 'approval_requested');
+                if (asked) throw new FlowAwaitingApproval(asked.stepId, stepApprovalId(result.runId, asked.stepId));
+            }
             if (result.status !== 'completed') {
                 const bad = Object.values(result.steps).find(s => s.status === 'failed' || s.status === 'rejected');
                 throw new Error(bad ? `step "${bad.stepId}" ${bad.status}${bad.error ? `: ${bad.error}` : ''}` : `flow ${result.status}`);

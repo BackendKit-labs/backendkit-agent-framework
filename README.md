@@ -46,10 +46,11 @@ Policies, approvers (a person, another agent, a service), hooks and the MCP tool
 
 | Package | What it is |
 |---|---|
-| [`@backendkit-labs/agent-core`](packages/core) | The engine: typed tools, agents and delegation, workflows, triggers, memory, guardrails, governance (policy, approval, audit, hooks), MCP client and tool server |
+| [`@backendkit-labs/agent-core`](packages/core) | The engine: typed tools, agents and delegation, workflows and durable declarative flows (YAML, journal, approvals, planner), triggers, memory, guardrails, governance (policy, approval, audit, hooks), MCP client and tool server |
 | [`@backendkit-labs/agent-providers`](packages/providers) | LLM providers: OpenAI-compatible (OpenAI, DeepSeek, Ollama) and Anthropic, one retry and streaming implementation |
 | [`@backendkit-labs/agent-coding`](packages/coding) | Coding agents: profiles, file and command tools, a terminal transport |
 | [`@backendkit-labs/agent-enterprise`](packages/enterprise) | Business agents: department profiles, Obsidian RAG with per-folder isolation, YAML flows with compliance gates |
+| [`@backendkit-labs/agent-flow-queue`](packages/flow-queue) | Flows across processes: a BullMQ `StepExecutor` (each step on a worker) and a Redis `RunJournal` |
 | [`@backendkit-labs/agent-sandbox`](packages/sandbox) | Confinement of what agents run: modes, presets, one policy point, a docker backend (or none) |
 | [`@backendkit-labs/agent-protocol`](packages/agent-protocol) | Agent HTTP protocol: server, client and resilience for agents that call each other over the network |
 | [`@backendkit-labs/agent-web`](packages/web) | HTTP/WebSocket server for browser-ready streaming sessions, auth, metrics and triggers |
@@ -67,7 +68,7 @@ Versions and changes per release: [CHANGELOG](CHANGELOG.md).
 ## How the repository is organised
 
 - **`packages/`** — the SDK, published to npm.
-- **`examples/`** — reference projects, outside the workspace build: `coding-assistant`, `code-explainer`, `git-agent`, `git-analyst`, `finance-managment`, `marketing-co`, `pg-dev-server`, `vault-pilot`, `workflow.mcp-agents`.
+- **`examples/`** — reference projects, outside the workspace build: `coding-assistant`, `code-explainer`, `git-agent`, `git-analyst`, `finance-managment`, `flows` (a YAML flow with journal, approval and resume), `marketing-co`, `pg-dev-server`, `vault-pilot`, `workflow.mcp-agents`.
 - **`docs/adr/`** — architecture decisions: the *why*.
 - **`docs/specs/`** — specifications of changes that span packages: the *what* and *how*, with their state. The current roadmap is [SPEC-0013](docs/specs/SPEC-0013-framework-como-libreria-hoja-de-ruta.md).
 

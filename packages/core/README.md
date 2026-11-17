@@ -19,6 +19,7 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 - [MCP client](#mcp-client)
 - [MCP tool server (tools without a model)](#mcp-tool-server-tools-without-a-model)
 - [Workflow engine](#workflow-engine)
+- [Flows — declarative and durable](#flows--declarative-and-durable)
 - [Advanced memory system](#advanced-memory-system)
 - [Observability](#observability)
 - [Skills and slash commands](#skills-and-slash-commands)
@@ -772,6 +773,56 @@ const result = await runner.run(myWorkflow, {
 // result.total  — total wall time in ms
 // result.failed — boolean
 ```
+
+---
+
+## Flows — declarative and durable
+
+A business flow is data: a YAML file with steps, dependencies, approvals and compensations. `runFlow` executes it; **how** a step runs is the `StepExecutor` you pass (one agent, a remote worker, a queue). Adding a flow for a company means writing YAML, not platform code. A runnable example lives in [`examples/flows`](../../examples/flows).
+
+```yaml
+flow: close-month
+trigger: { type: manual }
+steps:
+  - id: collect-sales          # no `after`: runs in parallel with collect-costs
+    agent: sales
+    prompt: "Collect the sales of {{payload.month}}"
+  - id: collect-costs
+    agent: finance
+    prompt: "Collect the costs of {{payload.month}}"
+    timeoutMs: 60000
+  - id: report
+    agent: analyst
+    prompt: "Write the month report"
+    after: [collect-sales, collect-costs]
+    gate: { approval: human }  # stops until a person decides
+compensation:
+  - on: report.failed
+    agent: comms
+    prompt: "Tell the board the report is delayed"
+```
+
+```typescript
+import { loadFlow, runFlow, FileRunJournal, MemoryApprovalStore } from '@backendkit-labs/agent-core';
+
+const flow = await loadFlow('flows/close-month.yaml');      // parseFlow(yaml), loadFlowsFromDir(dir), validateFlow(def)
+const result = await runFlow(flow, {
+  executor: { run: async (step, input) => ({ content: await myAgent(step.agent).run(input.prompt) }) },
+  payload: { month: '2026-10' },                              // {{payload.x}} in prompts
+  journal: new FileRunJournal('.flows'),                      // durable: survives the process
+  approvals: { store: new MemoryApprovalStore() },            // gate.approval: human (or a policy `ask`)
+  runId: 'close-2026-10',
+  maxConcurrency: 8,                                          // per wave; `limiter` caps per agent/tenant across flows
+});
+result.status;  // 'completed' | 'failed' | 'rejected' | 'cancelled' | 'awaiting_approval'
+```
+
+- **Waves and failure:** steps whose `after` are done run together. A failed step skips what depends on it (`onStepFailure: 'continue'` runs them without its output), then the `compensation` entries run. `timeoutMs` per step, `stepTimeoutMs` as a default.
+- **Durable and resumable:** with a `journal` each step is written before and after it runs, one process holds the run (`claim`), and calling `runFlow` again with the same `runId` **resumes**: `done` steps are not run again. A step the journal shows as `running` (the process died) runs again by default — at least once; `input.idempotencyKey` (`runId:stepId:attempt`) lets a step with an external effect be safe. `MemoryRunJournal`, `FileRunJournal` (atomic across processes) and `RedisRunJournal` (in [`agent-flow-queue`](../flow-queue)) share one contract. The payload is not stored: pass it again when resuming.
+- **Approval:** `gate.approval: human` or a `policy` that answers `ask` for `flow.step:<id>` stops the run as `awaiting_approval`; decide it and run again with the same `runId`. `when: 'after'` runs the step first and shows its output to the approver.
+- **Plan with a model:** `planFlow(task, { agents, provider })` turns a task into a validated `FlowDefinition` (unknown agents, cycles and duplicate ids are rejected and the model is asked again); steps no agent covers come back in `unresolved`. A plan a model writes and a YAML file are the same object. `flowFromTaskPlan` and `flowFromStaticFlow` convert older shapes.
+- **Serve and steer it:** `flowFromDefinition(def, opts)` + `createFlowHandler({ name: flow })` give the `flowHandler` an `AgentServer` takes (start, status, pause, resume, cancel). `createApprovalHandler(store)` gives the `approvalHandler` (list, get, decide). `createFlowTools({ flows, approvals, approver })` exposes both as tools for a model or an MCP server; `flow_cancel` and `approval_decide` are `destructive`, so the tool server needs an `authorize` or a `policy`, and a model-driven server should use `approver: { kind: 'service', id }` (it cannot satisfy an approval that needs a human).
+- **Across processes:** [`@backendkit-labs/agent-flow-queue`](../flow-queue) provides a BullMQ `StepExecutor` (each step runs on a worker) and a Redis journal.
 
 ---
 

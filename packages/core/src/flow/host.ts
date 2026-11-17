@@ -33,6 +33,8 @@ export interface FlowControl {
     step(name: string, detail?: string): Promise<void>;
     /** A point where a flow with no named steps can wait while paused or notice a cancel. */
     checkpoint(): Promise<void>;
+    /** Sets a step's status directly, for flows that run steps in parallel (`step()` assumes one at a time). */
+    mark(name: string, status: FlowStepView['status'], detail?: string): void;
 }
 
 export interface InProcessFlow {
@@ -96,6 +98,14 @@ export class FlowHost {
         const control: FlowControl = {
             signal: controller.signal,
             checkpoint,
+            mark: (name, status, detail) => {
+                let entry = state.steps.find(s => s.name === name);
+                if (!entry) { entry = { name, status }; state.steps.push(entry); }
+                entry.status = status;
+                if (detail) entry.detail = detail;
+                const running = state.steps.find(s => s.status === 'running');
+                if (running) state.currentStep = running.name; else delete state.currentStep;
+            },
             step: async (name, detail) => {
                 await checkpoint();
                 for (const s of state.steps) if (s.status === 'running') s.status = 'done';
@@ -110,7 +120,7 @@ export class FlowHost {
         live.settled = Promise.resolve()
             .then(() => def.run(input, control))
             .then(
-                output => this.finish(live, 'done', { output: typeof output === 'string' ? output : JSON.stringify(output) ?? '' }),
+                output => controller.signal.aborted ? this.finish(live, 'cancelled', {}) : this.finish(live, 'done', { output: typeof output === 'string' ? output : JSON.stringify(output) ?? '' }),
                 err => this.finish(live, controller.signal.aborted ? 'cancelled' : 'failed', controller.signal.aborted ? {} : { error: err instanceof Error ? err.message : String(err) }),
             );
         this.runs.set(state.flowRunId, live);

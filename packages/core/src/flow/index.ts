@@ -19,3 +19,4 @@ export type {
     RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
 } from './journal';
 export { FileRunJournal } from './file-journal';
+export { flowFromDefinition, flowRunView } from './adapter';

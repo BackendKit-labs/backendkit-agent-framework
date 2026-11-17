@@ -124,6 +124,7 @@ export {
 } from './flow';
 export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
 export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
+export { flowFromDefinition, flowRunView } from './flow';
 export { runFlow, FlowClaimError, KeyedConcurrencyLimiter, interpolate, MemoryRunJournal, FileRunJournal } from './flow';
 export type {
     RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,

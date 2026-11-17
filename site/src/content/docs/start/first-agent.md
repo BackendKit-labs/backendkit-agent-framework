@@ -30,7 +30,7 @@ export const weather = defineTool({
 
 `readOnly: true` is a fact you declare. Leave it out and the tool would count as "may change things", which the engine treats with more caution. [Governance](../../concepts/governance/) explains why.
 
-Here the model decides when to call the tool. The same tool can also be called **directly, with no model**, by your code or by an MCP client: see [one tool, two ways to run it](../../concepts/engine-and-tools/#one-tool-two-ways-to-run-it).
+Here the tool is **LLM-controlled**: the model decides when to call it. The same tool can also be called **deterministically, with no model**, by your code or by an MCP client: see [one tool, two ways to run it](../../concepts/engine-and-tools/#one-tool-two-ways-to-run-it).
 
 ## 2. An agent profile
 

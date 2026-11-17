@@ -7,7 +7,10 @@ description: What the engine does in a turn, and how tools declare what they do 
 
 A tool is a plain definition (`defineTool`). **Who decides to call it** is a separate choice, and the framework supports both:
 
-| | Through the model | Direct, no model |
+- **LLM-controlled.** The model decides whether to call the tool, when, and with what arguments. Flexible, but not predictable: the same request can lead to different calls.
+- **Deterministic.** Your code or an MCP client calls the tool with exact arguments. No model is involved, so the same input always runs the same call.
+
+| | LLM-controlled (through the model) | Deterministic (direct, no model) |
 |---|---|---|
 | Who calls it | The engine, because the model asked | Your code, or an MCP client, with exact arguments |
 | Arguments | Written by the model | Sent by the caller |

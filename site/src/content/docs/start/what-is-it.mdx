@@ -14,7 +14,7 @@ an **engine** that runs a model in a loop, calling **tools** you define, with a 
 
 Three ideas carry most of the framework:
 
-1. **Tools declare facts.** A tool says whether it is `readOnly` or `destructive`. The engine decides what to do with that: a read-only tool runs, a destructive one asks a person. Forgetting to declare asks more, never less. A tool also runs two ways: when a model decides to call it, or **directly**, with exact arguments from your code or an MCP client and no model in between ([both](../../concepts/engine-and-tools/#one-tool-two-ways-to-run-it)).
+1. **Tools declare facts.** A tool says whether it is `readOnly` or `destructive`. The engine decides what to do with that: a read-only tool runs, a destructive one asks a person. Forgetting to declare asks more, never less. A tool also runs two ways: **LLM-controlled**, when the model decides to call it, or **deterministic**, called directly with exact arguments from your code or an MCP client and no model in between ([both](../../concepts/engine-and-tools/#one-tool-two-ways-to-run-it)).
 2. **Governance is outside the model.** The policy, the approver and the audit sink are configuration of the engine. A model cannot talk its way past them.
 3. **Work that matters is durable.** A *flow* is data (YAML): steps, dependencies, approvals. It is journalled, so a crash, a deploy or a night's wait does not lose it, and running it again resumes where it stopped.
 

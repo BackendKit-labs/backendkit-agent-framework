@@ -50,6 +50,9 @@ jobs:
       - name: Build agent-sandbox
         run: npm run build -w packages/sandbox
 
+      - name: Build agent-flow-queue
+        run: npm run build -w packages/flow-queue
+
       - name: Build agent-otel
         run: npm run build -w packages/otel
 

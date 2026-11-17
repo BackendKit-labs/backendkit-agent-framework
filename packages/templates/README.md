@@ -11,7 +11,6 @@ A generated project is one **architecture** from `base/` plus one **deploy mode*
 | `single` | One agent with tools |
 | `autonomous` | Cron, webhook and event triggers |
 | `enterprise` | Local LLM and an Obsidian knowledge base (RAG) |
-| `orchestrator` | Multi-step workflows with approval gates |
 | `minimal` | The bare engine |
 
 | `deploy/` | How it runs |

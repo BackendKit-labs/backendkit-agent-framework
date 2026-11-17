@@ -89,24 +89,6 @@ describe('scaffold', () => {
         expect(text).toContain('Skill pack: docker');
     });
 
-    describe('orchestrator', () => {
-        it('fills provider placeholders in orchestrator.yaml and names the package', () => {
-            const dir = gen({ architecture: 'orchestrator', provider: 'deepseek', workflowTemplate: 'blank' });
-            const yaml = read(path.join(dir, 'orchestrator.yaml'));
-            expect(yaml).not.toContain('__PROVIDER_ID__');
-            expect(yaml).not.toContain('__PROVIDERS_BLOCK__');
-            expect(yaml).toContain('api_key: ${DEEPSEEK_API_KEY}');
-            expect(yaml).toContain('base_url: https://api.deepseek.com/v1');
-            expect(readJson(path.join(dir, 'package.json')).name).toBe('my-agent');
-            expect(read(path.join(dir, '.env'))).toContain('DEEPSEEK_API_KEY=');
-        });
-
-        it('ollama needs no API key', () => {
-            const dir = gen({ architecture: 'orchestrator', provider: 'ollama', workflowTemplate: 'blank' });
-            expect(read(path.join(dir, 'orchestrator.yaml'))).not.toContain('api_key');
-            expect(read(path.join(dir, '.env'))).toContain('OLLAMA_BASE_URL=http://localhost:11434');
-        });
-    });
 });
 
 describe('validateProjectName', () => {

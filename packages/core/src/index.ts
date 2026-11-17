@@ -124,6 +124,10 @@ export {
 } from './flow';
 export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
 export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
+export { runFlow, KeyedConcurrencyLimiter, interpolate } from './flow';
+export type {
+    StepExecutor, StepInput, StepOutput, FlowResult, FlowStepResult, FlowCompensationResult, FlowRunStatus, GateContext, RunFlowOptions, ConcurrencyLimiter, KeyedLimiterOptions,
+} from './flow';
 export type {
     FlowControl, FlowInfo, FlowRunView, FlowStatus, FlowStepView, InProcessFlow, FlowHandlerPort,
 } from './flow';

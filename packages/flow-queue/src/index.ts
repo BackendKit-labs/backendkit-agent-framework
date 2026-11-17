@@ -2,6 +2,9 @@ import { Queue, QueueEvents, Worker } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
 import type { FlowStep, StepExecutor, StepInput, StepOutput } from '@backendkit-labs/agent-core';
 
+export { RedisRunJournal } from './redis-journal';
+export type { RedisRunJournalOptions } from './redis-journal';
+
 /**
  * BullMQ adapter for `StepExecutor` (SPEC-0023 D5). The flow engine stays in one process; each step travels through a
  * queue `<prefix>.<agent>` to a worker, possibly on another machine. Semantics are at-least-once: the job id is the

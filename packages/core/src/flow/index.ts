@@ -14,9 +14,9 @@ export type {
 export { KeyedConcurrencyLimiter } from './limiter';
 export type { ConcurrencyLimiter, KeyedLimiterOptions } from './limiter';
 export { interpolate } from './interpolate';
-export { MemoryRunJournal } from './journal';
+export { MemoryRunJournal, foldEvents, matches as journalMatches } from './journal';
 export type {
-    RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
+    JournalEvent, RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
 } from './journal';
 export { FileRunJournal } from './file-journal';
 export { flowFromDefinition, flowRunView } from './adapter';

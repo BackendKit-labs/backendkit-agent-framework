@@ -120,20 +120,20 @@ describe('the claim is renewed while the run lives', () => {
 
     it('a run longer than the TTL is not taken over by another process', async () => {
         const journal = new MemoryRunJournal();
-        const running = runFlow(one, { executor: slow(250), journal, runId: 'long', owner: 'p1', claimTtlMs: 60, claimRenewMs: 20 });
-        await sleep(180); // three TTLs in
-        expect(await journal.claim('long', 'p2', 60)).toBeNull();
+        const running = runFlow(one, { executor: slow(1500), journal, runId: 'long', owner: 'p1', claimTtlMs: 400, claimRenewMs: 100 });
+        await sleep(1100); // nearly three TTLs in; the margins are wide because timers slip when the whole suite runs at once
+        expect(await journal.claim('long', 'p2', 400)).toBeNull();
         await expect(runFlow(one, { executor: slow(1), journal, runId: 'long', owner: 'p2' })).rejects.toBeInstanceOf(FlowClaimError);
         expect((await running).status).toBe('completed');
         // finished: the claim is released and the next owner can take it
-        expect(await journal.claim('long', 'p2', 60)).not.toBeNull();
+        expect(await journal.claim('long', 'p2', 400)).not.toBeNull();
     });
 
     it('by default it renews at a third of the TTL', async () => {
         const journal = new MemoryRunJournal();
-        const running = runFlow(one, { executor: slow(200), journal, runId: 'dflt', owner: 'p1', claimTtlMs: 90 });
-        await sleep(160);
-        expect(await journal.claim('dflt', 'p2', 60)).toBeNull();
+        const running = runFlow(one, { executor: slow(1500), journal, runId: 'dflt', owner: 'p1', claimTtlMs: 450 });
+        await sleep(1100); // more than two TTLs: it was renewed at 150 ms, 300 ms...
+        expect(await journal.claim('dflt', 'p2', 450)).toBeNull();
         await running;
     });
 

@@ -14,7 +14,9 @@ export type {
 export { KeyedConcurrencyLimiter } from './limiter';
 export type { ConcurrencyLimiter, KeyedLimiterOptions } from './limiter';
 export { interpolate } from './interpolate';
-export { MemoryRunJournal, foldEvents, matches as journalMatches } from './journal';
+export { MemoryRunJournal, foldEvents, matches as journalMatches, JournalCorrupt, JournalConflict } from './journal';
+export { NdjsonRunJournal } from './ndjson-journal';
+export type { NdjsonRunJournalOptions } from './ndjson-journal';
 export type {
     JournalEvent, RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
 } from './journal';

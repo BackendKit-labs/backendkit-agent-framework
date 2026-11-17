@@ -59,7 +59,6 @@ Policies, approvers (a person, another agent, a service), hooks and the MCP tool
 | [`@backendkit-labs/agent-otel`](packages/otel) | OpenTelemetry export of engine traces (OTLP/HTTP, GenAI conventions) |
 | [`@backendkit-labs/agent-testkit`](packages/testkit) | Scripted providers, a mock LLM server with injectable failures, a mock transport, assertions |
 | [`@backendkit-labs/document-extract`](packages/document-extract) | Text from PDF, Word, Excel and CSV (OCR optional), with limits and stable errors |
-| [`@backendkit-labs/orchestrator-agent`](packages/orchestrator-agent) | Config-driven orchestration agent (planner, executor, run store); an application, to move to `bk-platform` |
 | [`@backendkit-labs/aval-tools`](packages/aval-tools) | Payment tools for agents that spend through an AVAL instance |
 | [`create-bk-agent`](packages/create-bk-agent) | Project scaffolder (templates in [`packages/templates`](packages/templates)) |
 

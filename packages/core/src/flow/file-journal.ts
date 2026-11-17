@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { RetryEngine } from '@backendkit-labs/retry';
 import { link, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { foldEvents, matches } from './journal';
@@ -6,6 +7,11 @@ import type { JournalEvent, JournalRun, JournalRunStatus, NewJournalRun, RunJour
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SEQ_WIDTH = 8;
+/** Attempts to take the next event number against other processes before giving up. */
+const APPEND_ATTEMPTS = 100;
+
+/** Another process published the number we were about to take. */
+class AppendContended extends Error { constructor() { super('contended'); this.name = 'AppendContended'; } }
 
 /**
  * A run journal in a directory, with the technique of `FileApprovalStore`: every file is written under a temporary name and
@@ -18,6 +24,17 @@ const SEQ_WIDTH = 8;
  */
 export class FileRunJournal implements RunJournal {
     private ready?: Promise<unknown>;
+    /** The last append of each run in this process, for serialising them. */
+    private readonly tails = new Map<string, Promise<void>>();
+    /** Retries the race for the next number with a small jittered wait; only a lost race is retried, not a missing run or a disk error. */
+    private readonly retrier = new RetryEngine({
+        name: 'file-journal:append',
+        defaultConfig: {
+            maxAttempts: APPEND_ATTEMPTS,
+            backoff: { type: 'exponential', baseDelay: 1, multiplier: 1.4, maxDelay: 25, jitter: 'full' },
+            retryIf: (p: { cause?: unknown }) => p.cause instanceof AppendContended,
+        },
+    });
 
     constructor(private readonly dir: string) {}
 
@@ -117,20 +134,38 @@ export class FileRunJournal implements RunJournal {
             .sort((a, b) => a - b);
     }
 
-    private async append(runId: string, ev: JournalEvent): Promise<void> {
+    /**
+     * The appends of one run go one after another within this process: a flow with a wide fan-out (dozens of steps finishing at
+     * once) would otherwise have them all racing for the same next number and run out of attempts. Between processes the race
+     * stays, and is settled by retrying with a little jitter.
+     */
+    private append(runId: string, ev: JournalEvent): Promise<void> {
         this.checkId(runId);
-        for (let attempt = 0; attempt < 20; attempt++) {
-            const seqs = await this.seqs(runId, 'ev');
-            if (seqs.length === 0) throw new Error(`run "${runId}" does not exist`);
-            try {
-                await this.publish(this.file(runId, 'ev', seqs[seqs.length - 1] + 1), JSON.stringify(ev));
-                return;
-            } catch (err) {
-                if ((err as { alreadyExists?: boolean }).alreadyExists) continue; // another writer took that number
-                throw err;
-            }
+        const previous = this.tails.get(runId) ?? Promise.resolve();
+        const result = previous.then(() => this.appendNow(runId, ev));
+        const tail = result.catch(() => undefined);
+        this.tails.set(runId, tail);
+        void tail.then(() => { if (this.tails.get(runId) === tail) this.tails.delete(runId); });
+        return result;
+    }
+
+    /** One try: find the next number and publish under it. Losing the race to another process is `AppendContended`, which is retried. */
+    private async appendOnce(runId: string, ev: JournalEvent): Promise<void> {
+        const seqs = await this.seqs(runId, 'ev');
+        if (seqs.length === 0) throw new Error(`run "${runId}" does not exist`);
+        try {
+            await this.publish(this.file(runId, 'ev', seqs[seqs.length - 1] + 1), JSON.stringify(ev));
+        } catch (err) {
+            if ((err as { alreadyExists?: boolean }).alreadyExists) throw new AppendContended(); // another process took that number
+            throw err;
         }
-        throw new Error(`could not append to run "${runId}": too much contention`);
+    }
+
+    private async appendNow(runId: string, ev: JournalEvent): Promise<void> {
+        const result = await this.retrier.execute(() => this.appendOnce(runId, ev));
+        if (result.ok) return;
+        if (result.error.cause instanceof AppendContended) throw new Error(`could not append to run "${runId}": too much contention`);
+        throw result.error.cause ?? new Error(result.error.message);
     }
 
     private async readJson<T>(path: string): Promise<T | undefined> {

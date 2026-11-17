@@ -3,8 +3,6 @@ import starlight from '@astrojs/starlight';
 
 // A white, minimal documentation site. Light only: the theme provider and selector are replaced (see src/components).
 export default defineConfig({
-  site: 'https://backendkit-labs.github.io',
-  base: '/backendkit-agent-framework',
   integrations: [
     starlight({
       title: 'BackendKit Agent Framework',

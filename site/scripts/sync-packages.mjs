@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const out = join(here, '..', 'src', 'content', 'docs', 'packages');
 const GITHUB = 'https://github.com/BackendKit-labs/backendkit-agent-framework';
-const BASE = '/backendkit-agent-framework';
+const BASE = '';
 
 // Published packages, in the order a reader meets them.
 const ORDER = ['core', 'providers', 'testkit', 'flow-queue', 'enterprise', 'coding', 'sandbox', 'agent-protocol', 'web', 'web-ui', 'mcp-server', 'mcp-connectors', 'otel', 'document-extract', 'aval-tools', 'create-bk-agent'];

@@ -9,13 +9,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "noEmit": true,
-    "types": ["node"],
-    "paths": {
-      "@backendkit-labs/agent-core":       ["../packages/core/src/index.ts"],
-      "@backendkit-labs/agent-coding":     ["../packages/coding/src/index.ts"],
-      "@backendkit-labs/agent-enterprise": ["../packages/enterprise/src/index.ts"]
-    },
-    "baseUrl": "."
+    "types": ["node"]
   },
   "include": ["src"]
 }

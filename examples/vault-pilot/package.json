@@ -1,25 +1,21 @@
 {
   "name": "@backendkit-labs/example-vault-pilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Example: two enterprise agents sharing an Obsidian vault for self-improvement",
+  "description": "Example: department agents that answer from a shared Obsidian vault, each limited to its own folders",
   "scripts": {
-    "start":     "tsx src/pilot.ts",
-    "repl":      "tsx src/repl.ts",
-    "smoke":     "tsx src/smoke-test.ts",
-    "web":       "tsx src/web-server.ts",
-    "paae":      "tsx src/paae-pilot.ts",
-    "spike":     "tsx src/llm-spike.ts",
+    "check": "tsx src/check.ts",
+    "ask": "tsx src/ask.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.35.0",
-    "@backendkit-labs/agent-enterprise": "^0.8.3",
-    "@backendkit-labs/agent-providers": "^0.3.1",
-    "@backendkit-labs/agent-web": "^0.6.0",
+    "@backendkit-labs/agent-core": "^0.45.0",
+    "@backendkit-labs/agent-enterprise": "^0.11.2",
+    "@backendkit-labs/agent-providers": "^0.3.12",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {
+    "@backendkit-labs/agent-testkit": "^0.1.15",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

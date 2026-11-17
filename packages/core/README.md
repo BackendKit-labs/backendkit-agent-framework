@@ -796,6 +796,11 @@ steps:
     prompt: "Write the month report"
     after: [collect-sales, collect-costs]
     gate: { approval: human }  # stops until a person decides
+  - id: publish
+    agent: comms
+    prompt: "Send the report to the board"
+    after: [report]
+    when: { step: report, contains: "APPROVED" }   # runs only if the report says so; otherwise skipped
 compensation:
   - on: report.failed
     agent: comms
@@ -815,10 +820,12 @@ const result = await runFlow(flow, {
   maxConcurrency: 8,                                          // per wave; `limiter` caps per agent/tenant across flows
 });
 result.status;  // 'completed' | 'failed' | 'rejected' | 'cancelled' | 'awaiting_approval'
+result.costUsd; // sum of the costUsd the steps reported (absent if none did)
 ```
 
+- **Conditional steps (0.44.0):** `when: { step, contains | equals | matches, not? }` runs a step only if the output of a step it waits for says so (`step` must be in `after`; `equals` ignores surrounding whitespace). A step whose condition does not hold, or cannot be evaluated because that step produced no output, is `skipped` before anything else: it does not run, **no approval is asked**, what waits for it is skipped too, and the flow does **not** fail. The skip is in `transitions` with the reason (`condition not met: report contains "APPROVED"`).
 - **Waves and failure:** steps whose `after` are done run together. A failed step skips what depends on it (`onStepFailure: 'continue'` runs them without its output), then the `compensation` entries run. `timeoutMs` per step, `stepTimeoutMs` as a default.
-- **Durable and resumable:** with a `journal` each step is written before and after it runs, one process holds the run (`claim`), and calling `runFlow` again with the same `runId` **resumes**: `done` steps are not run again. A step the journal shows as `running` (the process died) runs again by default — at least once; `input.idempotencyKey` (`runId:stepId:attempt`) lets a step with an external effect be safe. `MemoryRunJournal`, `FileRunJournal` (atomic across processes) and `RedisRunJournal` (in [`agent-flow-queue`](../flow-queue)) share one contract. The payload is not stored: pass it again when resuming.
+- **Durable and resumable:** with a `journal` each step is written before and after it runs, one process holds the run (`claim`), and calling `runFlow` again with the same `runId` **resumes**: `done` steps are not run again. The claim is **renewed while the run lives** (every `claimRenewMs`, a third of `claimTtlMs` by default), so a run longer than the TTL is not taken over by another process; it expires only when this process stops. If a renewal finds the claim taken, the run stops and `runFlow` throws `FlowClaimError` without writing over the new owner (`claimRenewMs: 0` turns renewal off). A step the journal shows as `running` (the process died) runs again by default — at least once; `input.idempotencyKey` (`runId:stepId:attempt`) lets a step with an external effect be safe. `MemoryRunJournal`, `FileRunJournal` (atomic across processes) and `RedisRunJournal` (in [`agent-flow-queue`](../flow-queue)) share one contract. The payload is not stored: pass it again when resuming.
 - **Approval:** `gate.approval: human` or a `policy` that answers `ask` for `flow.step:<id>` stops the run as `awaiting_approval`; decide it and run again with the same `runId`. `when: 'after'` runs the step first and shows its output to the approver.
 - **Plan with a model:** `planFlow(task, { agents, provider })` turns a task into a validated `FlowDefinition` (unknown agents, cycles and duplicate ids are rejected and the model is asked again); steps no agent covers come back in `unresolved`. A plan a model writes and a YAML file are the same object. `flowFromTaskPlan` and `flowFromStaticFlow` convert older shapes.
 - **Serve and steer it:** `flowFromDefinition(def, opts)` + `createFlowHandler({ name: flow })` give the `flowHandler` an `AgentServer` takes (start, status, pause, resume, cancel). `createApprovalHandler(store)` gives the `approvalHandler` (list, get, decide). `createFlowTools({ flows, approvals, approver })` exposes both as tools for a model or an MCP server; `flow_cancel` and `approval_decide` are `destructive`, so the tool server needs an `authorize` or a `policy`, and a model-driven server should use `approver: { kind: 'service', id }` (it cannot satisfy an approval that needs a human).

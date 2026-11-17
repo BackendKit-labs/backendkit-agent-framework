@@ -22,3 +22,5 @@ export { FileRunJournal } from './file-journal';
 export { flowFromDefinition, flowRunView } from './adapter';
 export { decideStepApproval, stepApprovalId } from './approval';
 export type { FlowApprovals, StepApproval } from './approval';
+export { flowFromTaskPlan, flowFromStaticFlow } from './convert';
+export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './convert';

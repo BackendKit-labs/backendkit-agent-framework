@@ -18,6 +18,11 @@ export interface FlowApprovals {
     policy?: ToolPolicy;
     /** Answers in process (a CLI, a connected UI). Without one the run stops with `awaiting_approval` until someone resolves the store. */
     approver?: Approver;
+    /**
+     * `before` (default): the person approves the ACTION and the step runs after. `after`: the step runs, its output is shown to
+     * the approver (it is in the request) and the steps that follow wait for the decision; a rejection fails the step.
+     */
+    when?: 'before' | 'after';
     /** Can this agent approver do the step itself? Default: no (SPEC-0014 §6.2 rule 3). */
     canAgentAct?: (by: ApproverRef, step: FlowStep) => Promise<boolean>;
 }
@@ -33,7 +38,7 @@ export function stepApprovalId(runId: string, stepId: string): string {
 }
 
 export async function decideStepApproval(
-    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>,
+    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>, output?: string,
 ): Promise<StepApproval> {
     const principal: Principal = { agentId: step.agent, sessionId: runId, chain: a.chain ?? [], ...(a.identity ?? {}) };
     const human = step.gate?.approval === 'human';
@@ -44,7 +49,7 @@ export async function decideStepApproval(
     if (a.policy) {
         const d = await a.policy.decide(principal, {
             tool: { name: `flow.step:${step.id}`, description: `step "${step.id}" of flow "${flow}"`, parameters: { type: 'object', properties: {} }, execute: async () => '' },
-            args: { input: previous },
+            args: { input: previous, ...(output !== undefined ? { output } : {}) },
         });
         if (d.effect === 'deny') return { kind: 'denied', reason: d.reason };
         if (d.effect === 'ask') {
@@ -62,7 +67,7 @@ export async function decideStepApproval(
     let stored = await a.store.get(id);
     if (!stored) {
         const req: ApprovalRequest = {
-            id, principal, subject: { kind: 'workflow_step', workflow: flow, step: step.id, input: previous },
+            id, principal, subject: { kind: 'workflow_step', workflow: flow, step: step.id, input: output !== undefined ? { previous, output } : previous },
             reason, ...(approver ? { approver } : {}), ...(accepts ? { accepts } : {}), createdAt: new Date().toISOString(),
         };
         await a.store.put(req);

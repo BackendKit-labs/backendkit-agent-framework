@@ -2,6 +2,7 @@
 title: The engine and tools
 description: What the engine does in a turn, and how tools declare what they do so the engine can decide what to allow.
 ---
+import ToolPaths from '../../../components/ToolPaths.astro';
 
 ## One tool, two ways to run it
 
@@ -10,17 +11,58 @@ A tool is a plain definition (`defineTool`). **Who decides to call it** is a sep
 - **LLM-controlled.** The model decides whether to call the tool, when, and with what arguments. Flexible, but not predictable: the same request can lead to different calls.
 - **Deterministic.** Your code or an MCP client calls the tool with exact arguments. No model is involved, so the same input always runs the same call.
 
+<ToolPaths />
+
 | | LLM-controlled (through the model) | Deterministic (direct, no model) |
 |---|---|---|
 | Who calls it | The engine, because the model asked | Your code, or an MCP client, with exact arguments |
 | Arguments | Written by the model | Sent by the caller |
 | Result | Goes back to the model, which decides what next | Goes back to the caller as is |
-| Safety | The engine's gates: allowed tools, guardrails, [policy](../governance/), approval | Your `authorize` function, required for destructive tools, plus audit |
+| Safety | The engine's gates: allowed tools, guardrails, [policy](../governance/), approval | Your `authorize` function or a `policy`, one of them required for destructive tools, plus audit |
 | Use it for | Open-ended work: understanding a request, choosing steps | Anything a program or a person must call the same way every time |
 
 The same tool serves both. You write it once, declare `readOnly` or `destructive` once, and choose per use. A model can also reach a direct tool: serve it over MCP and an engine with an MCP client sees it next to its own tools ([MCP](../mcp/)).
 
-The rest of this page is the first column: the model-driven loop. [Serving tools directly](../mcp/#as-a-server-without-a-model) is the second.
+### Example: LLM-controlled
+
+The tool is `get_weather` from [your first agent](../../start/first-agent/). You give it to an engine and ask a question in plain language. **The model** chooses to call it, and chooses the arguments.
+
+```ts
+const result = await engine.run('Do I need an umbrella in London?');
+
+// The model decided to call get_weather, with { city: 'London' }.
+console.log(result.toolCalls.map(c => `${c.name}:${c.success}`));   // [ 'get_weather:true' ]
+```
+
+Ask the same thing another way and the model may call it twice, or not at all. That freedom is the point, and the reason the engine checks every call before it runs.
+
+### Example: deterministic
+
+The same `weather` tool, served with no engine and no model. A program calls it with exact arguments.
+
+```ts
+// weather-server.ts
+import { runToolServer } from '@backendkit-labs/agent-core';
+import { weather } from './tool';
+
+await runToolServer({ name: 'weather', tools: [weather] }, { bin: 'weather-mcp' });   // stdio by default
+```
+
+```ts
+// any MCP client: a script, a job, another service
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const client = new Client({ name: 'ops-script', version: '1.0.0' });
+await client.connect(new StdioClientTransport({ command: 'npx', args: ['tsx', 'weather-server.ts'] }));
+
+const out = await client.callTool({ name: 'get_weather', arguments: { city: 'London' } });
+// Always this call, with these arguments. The schema validates them before `execute` runs.
+```
+
+`get_weather` is `readOnly`, so the server needs no gate. A `destructive` tool would not start without an `authorize` function or a `policy`: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
+
+The rest of this page is the first case: the model-driven loop.
 
 ## A turn
 

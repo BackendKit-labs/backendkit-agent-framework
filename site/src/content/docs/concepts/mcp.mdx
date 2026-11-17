@@ -2,8 +2,11 @@
 title: MCP
 description: Using MCP servers as tools, and serving your own tools over MCP - with or without a model in between.
 ---
+import McpDirections from '../../../components/McpDirections.astro';
 
 The **Model Context Protocol** lets programs share tools. The framework speaks it in both directions.
+
+<McpDirections />
 
 ## As a client: use someone else's tools
 
@@ -31,7 +34,7 @@ await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });  
 What each call gets:
 
 - validation against the tool's schema **before** anything runs;
-- your `authorize` gate (mandatory when a tool is `destructive`, so you cannot forget it);
+- your `authorize` gate or a `policy` (the same contract the engine uses, with `ask` going to an `approver`); one of them is mandatory when a tool is `destructive`, so you cannot forget it;
 - a bounded output (default 1 MiB) and an audit record.
 
 `isError: true` always means the call did not run to completion: denied, timed out, threw (the message only, no stack) or returned too much.

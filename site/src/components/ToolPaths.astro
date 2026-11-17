@@ -1,0 +1,60 @@
+---
+// One tool, two ways to run it. Inline SVG, same palette as EngineLoop.
+---
+<figure class="diagram">
+  <svg viewBox="0 0 760 310" role="img" aria-label="One tool run two ways: the LLM decides the call and the engine's gates check it; or your code calls it with exact arguments through a server gate">
+    <defs>
+      <marker id="tp-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#697080"/></marker>
+    </defs>
+
+    <text x="10" y="20" font-size="14" font-weight="600" fill="#14171f">LLM-controlled: the model decides</text>
+    <g stroke="#14171f" stroke-width="1.2" fill="#fff">
+      <rect x="10" y="40" width="100" height="54" rx="8"/>
+      <rect x="160" y="40" width="130" height="54" rx="8"/>
+      <rect x="340" y="40" width="150" height="54" rx="8" fill="#e8f3f0" stroke="#0e6b5c"/>
+    </g>
+    <g font-size="14" font-weight="600" fill="#14171f" text-anchor="middle">
+      <text x="60" y="72">Request</text>
+      <text x="225" y="63">Model</text>
+      <text x="415" y="63">Engine gates</text>
+    </g>
+    <g font-size="12" fill="#697080" text-anchor="middle">
+      <text x="225" y="81">chooses the call</text>
+      <text x="415" y="81">allowed · policy · approval</text>
+    </g>
+    <g stroke="#697080" stroke-width="1.3" fill="none" marker-end="url(#tp-ah)">
+      <path d="M110 67H158"/><path d="M290 67H338"/><path d="M490 67H598"/>
+    </g>
+    <text x="10" y="122" font-size="12" fill="#697080">The result goes back to the model, which decides what comes next. Same request, possibly different calls.</text>
+
+    <line x1="10" y1="150" x2="590" y2="150" stroke="#e3e6ec" stroke-width="1"/>
+
+    <text x="10" y="180" font-size="14" font-weight="600" fill="#14171f">Deterministic: your code decides</text>
+    <g stroke="#14171f" stroke-width="1.2" fill="#fff">
+      <rect x="10" y="200" width="130" height="54" rx="8"/>
+      <rect x="340" y="200" width="150" height="54" rx="8" fill="#e8f3f0" stroke="#0e6b5c"/>
+    </g>
+    <g font-size="14" font-weight="600" fill="#14171f" text-anchor="middle">
+      <text x="75" y="223">Caller</text>
+      <text x="415" y="223">Server gate</text>
+    </g>
+    <g font-size="12" fill="#697080" text-anchor="middle">
+      <text x="75" y="241">code or MCP client</text>
+      <text x="415" y="241">schema · authorize · policy</text>
+      <text x="240" y="221">exact arguments</text>
+    </g>
+    <g stroke="#697080" stroke-width="1.3" fill="none" marker-end="url(#tp-ah)">
+      <path d="M140 227H338"/><path d="M490 227H598"/>
+    </g>
+    <text x="10" y="282" font-size="12" fill="#697080">The result goes back to the caller, as is. No model in the path: the same input runs the same call.</text>
+
+    <rect x="600" y="40" width="150" height="214" rx="8" fill="#fff" stroke="#14171f" stroke-width="1.2"/>
+    <g text-anchor="middle" fill="#14171f">
+      <text x="675" y="126" font-size="14" font-weight="600">Your tool</text>
+      <text x="675" y="146" font-size="12" fill="#697080">defineTool</text>
+      <text x="675" y="164" font-size="12" fill="#697080">one schema</text>
+      <text x="675" y="182" font-size="12" fill="#697080">readOnly · destructive</text>
+    </g>
+  </svg>
+  <figcaption>The same tool, written once. What changes is who decides to call it, and which gate checks the call.</figcaption>
+</figure>

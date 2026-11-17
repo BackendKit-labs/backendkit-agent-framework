@@ -1,6 +1,21 @@
 # Changelog
 
-## Sin publicar
+## v0.44.0 (2026-11-17)
+
+Motor de flujos ([SPEC-0023](docs/specs/SPEC-0023-flujos-declarativos.md)), protocolo 1.2 y ciclo de vida de la lección ([SPEC-0022](docs/specs/SPEC-0022-ciclo-de-vida-de-la-leccion.md)). `orchestrator-agent` se retira del framework (se absorbe en las librerías; la app vive en `bk-platform`). En 0.x, `^0.42` no cubre 0.43 y `^0.10` no cubre 0.11, así que se barrieron los rangos: `agent-core` `^0.43.0`, `agent-enterprise` `^0.11.0`, `agent-protocol` `^0.7.0`, y los peers anchos pasan a `<0.44.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-protocol` | 0.7.0 | protocolo 1.2: `ApprovalHandler`, estados `awaiting_approval` y `lost`, `CONFLICT` |
+| `agent-core` | 0.43.0 | `FlowDefinition` y loader, `runFlow` (oleadas, topes, `StepExecutor`, `onStepFailure`, `timeoutMs`), `RunJournal` (memoria y archivos, reanudar), aprobación por paso, `planFlow`, `createApprovalHandler` y `createFlowTools`, `foldEvents`/`journalMatches`; ciclo de vida de la lección |
+| `agent-enterprise` | 0.11.0 | `FlowLoader` re-exporta el de core |
+| `agent-flow-queue` | 0.1.0 (nuevo) | `QueueStepExecutor` / `createStepWorker` sobre BullMQ y `RedisRunJournal` (Lua sin probar contra Redis real) |
+| `create-bk-agent` | 0.24.0 | quita la arquitectura `orchestrator` y su plantilla |
+| `agent-coding` 0.32.1, `mcp-server` 0.19.5, `mcp-connectors` 0.2.5, `agent-web` 0.6.10, `agent-providers` 0.3.10, `agent-sandbox` 0.1.13, `agent-testkit` 0.1.13, `agent-otel` 0.1.16, `document-extract` 0.1.6, `aval-tools` 0.1.20 | patch | solo el rango de `agent-core` / `agent-enterprise` |
+
+**Retirado:** `@backendkit-labs/orchestrator-agent` ya no está en el repo (última publicada 0.7.7). Sus piezas: planner → `planFlow`, ejecución → `runFlow`, run store → `RunJournal`, cola → `agent-flow-queue`, aprobaciones → `createApprovalHandler`. El servidor MCP/HTTP no se reconstruye.
+
+### Ciclo de vida de la lección (SPEC-0022)
 
 [SPEC-0022](docs/specs/SPEC-0022-ciclo-de-vida-de-la-leccion.md) F1-F4: el ciclo de vida de la lección. **Cambia el comportamiento de 0.42.0** (el aprendizaje ya publicado): una lección aprendida ya no caduca con la ventana si su sujeto se sigue llamando.
 

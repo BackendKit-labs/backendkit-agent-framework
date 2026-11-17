@@ -84,6 +84,22 @@ describe('flowRunView', () => {
         expect(v.finishedAt).toBeDefined();
     });
 
+    it('from protocol 1.2 the new states are sent as they are', async () => {
+        const journal = new MemoryRunJournal();
+        await journal.begin({ runId: 'v3', flow: 'f', inputPreview: '' });
+        await journal.step('v3', 'a', { status: 'awaiting_approval', attempt: 1 });
+        await journal.update('v3', { status: 'awaiting_approval', waiting: { stepId: 'a', approvalId: 'ap1' } });
+        const v = flowRunView((await journal.get('v3'))!, ['a', 'b'], { protocolMinor: 2 });
+        expect(v.status).toBe('awaiting_approval');
+        expect(v.steps[0]).toEqual({ name: 'a', status: 'awaiting_approval' });
+        await journal.step('v3', 'a', { status: 'interrupted', error: 'died' });
+        await journal.update('v3', { status: 'lost', waiting: null });
+        const lost = flowRunView((await journal.get('v3'))!, ['a'], { protocolMinor: 2 });
+        expect(lost.status).toBe('lost');
+        expect(lost.steps[0].status).toBe('interrupted');
+        expect(lost.error).toBeUndefined();
+    });
+
     it('awaiting_approval shows as paused, lost as failed, interrupted step as failed', async () => {
         const journal = new MemoryRunJournal();
         await journal.begin({ runId: 'v2', flow: 'f', inputPreview: '' });

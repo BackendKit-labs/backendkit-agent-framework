@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto';
  * transport: a handler built from this host plugs into `AgentServer` and a supervisor such as Hermes controls it.
  */
 
-export type FlowStatus = 'running' | 'paused' | 'done' | 'failed' | 'cancelled';
+/** `awaiting_approval` and `lost` are protocol 1.2 states; `FlowHost` itself only produces the first five. */
+export type FlowStatus = 'running' | 'paused' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled' | 'lost';
 
-export interface FlowStepView { name: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
+export interface FlowStepView { name: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'awaiting_approval' | 'interrupted'; detail?: string }
 
 /** A flow run seen from outside: where it is, step by step. */
 export interface FlowRunView {

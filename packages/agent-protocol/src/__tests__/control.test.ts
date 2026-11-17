@@ -65,12 +65,12 @@ describe('control surface is closed unless explicitly opened', () => {
 describe('protocol 1.0 behaviour is unchanged', () => {
     it('info publishes the minor, and lists control actions only when control is enabled', async () => {
         const off = await start();
-        expect((await json(await fetch(`${off.url}/v1/agent/info`))).data).toMatchObject({ protocolMinor: 1 });
+        expect((await json(await fetch(`${off.url}/v1/agent/info`))).data).toMatchObject({ protocolMinor: 2 });
         expect((await json(await fetch(`${off.url}/v1/agent/info`))).data.control).toBeUndefined();
 
         const on = await start({ controlApiKey: 'c', limits: { maxConcurrent: 2 }, flows: [{ name: 'close-month', steps: ['a', 'b'] }] });
         expect((await json(await fetch(`${on.url}/v1/agent/info`))).data).toMatchObject({
-            protocolMinor: 1, control: ['drain', 'resume'], limits: { maxConcurrent: 2 }, flows: [{ name: 'close-month' }],
+            protocolMinor: 2, control: ['drain', 'resume'], limits: { maxConcurrent: 2 }, flows: [{ name: 'close-month' }],
         });
     });
 

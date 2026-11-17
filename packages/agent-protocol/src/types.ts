@@ -46,6 +46,8 @@ export interface AgentInfo {
     control?:     ControlAction[];
     /** The server can start, watch and steer the flows it hosts (see `FlowHandler`). */
     flowControl?: boolean;
+    /** The server lists pending approvals and takes decisions on them (protocol 1.2, see `ApprovalHandler`). */
+    approvals?:   boolean;
 }
 
 export interface FlowDescriptor {
@@ -56,11 +58,13 @@ export interface FlowDescriptor {
 
 // ── Flows (protocol 1.1) ──────────────────────────────────────────────────────
 
-export type FlowStatus = 'running' | 'paused' | 'done' | 'failed' | 'cancelled';
+/** `awaiting_approval` and `lost` are protocol 1.2: a server older than that never sends them (see `AgentInfo.protocolMinor`). */
+export type FlowStatus = 'running' | 'paused' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled' | 'lost';
 
 export interface FlowStepState {
     name:    string;
-    status:  'pending' | 'running' | 'done' | 'failed' | 'skipped';
+    /** `awaiting_approval` and `interrupted` (the process died while the step ran) are protocol 1.2. */
+    status:  'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'awaiting_approval' | 'interrupted';
     detail?: string;
 }
 
@@ -80,10 +84,45 @@ export interface FlowRunState {
 export type FlowSteerAction = 'pause' | 'resume' | 'cancel';
 export const FLOW_STEER_ACTIONS: readonly FlowSteerAction[] = ['pause', 'resume', 'cancel'];
 
+// ── Approvals (protocol 1.2) ──────────────────────────────────────────────────
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'executed';
+export type ApproverKind = 'human' | 'agent' | 'service';
+
+export interface ApproverRef {
+    kind: ApproverKind;
+    /** User id, agent id or service name. */
+    id:   string;
+}
+
+/** What is waiting for a person: a tool call, a flow step (with the output to review, when the review is after the step) or something a host defines. */
+export interface ApprovalSummary {
+    id:         string;
+    status:     ApprovalStatus;
+    /** `kind` says what it is (`tool_call`, `workflow_step`...); the rest is its own data. */
+    subject:    { kind: string; [key: string]: unknown };
+    reason:     string;
+    /** Who it was routed to (role, level, department): free text for whoever routes it. */
+    approver?:  string;
+    /** Which kinds of approver are accepted. Absent: any. */
+    accepts?:   ApproverKind[];
+    /** The agent that asked. */
+    requestedBy: { agentId: string; sessionId?: string; tenantId?: string };
+    createdAt:  string;
+    outcome?:   { decision: 'approve' | 'reject'; by: ApproverRef; reason?: string; at: string };
+}
+
+export interface ApprovalDecision {
+    decision: 'approve' | 'reject';
+    reason?:  string;
+    /** Who decides. The host checks it (kind accepted, not the requester's own chain...) before taking the answer. */
+    by:       ApproverRef;
+}
+
 // ── Control (protocol 1.1) ────────────────────────────────────────────────────
 
-/** Minor revision of protocol v1 implemented here. 1.1 adds the control surface; everything in 1.0 is unchanged. */
-export const PROTOCOL_MINOR = 1 as const;
+/** Minor revision of protocol v1 implemented here. 1.1 adds the control surface and 1.2 the approvals and two flow states; everything in 1.0 is unchanged. */
+export const PROTOCOL_MINOR = 2 as const;
 
 export const CONTROL_ACTIONS = [
     'pause', 'resume', 'drain', 'set_budget',
@@ -171,7 +210,10 @@ export type ErrorCode =
     | 'CONTROL_UNSUPPORTED'
     /** A requested execution policy is wider than the one in force; widening needs approval. */
     | 'POLICY_WIDER_THAN_PARENT'
-    | 'APPROVAL_REQUIRED';
+    | 'APPROVAL_REQUIRED'
+    // protocol 1.2
+    /** Already decided or changed by someone else (for an approval: it already has an outcome). */
+    | 'CONFLICT';
 
 export interface ProtocolError {
     code:     ErrorCode;

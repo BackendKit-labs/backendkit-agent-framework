@@ -123,6 +123,10 @@ export {
     FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowCompensationSchema, FlowDefinitionSchema, parseFlow, loadFlow, loadFlowsFromDir, validateFlow, FlowLoadError,
 } from './flow';
 export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
+export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
+export type {
+    FlowControl, FlowInfo, FlowRunView, FlowStatus, FlowStepView, InProcessFlow, FlowHandlerPort,
+} from './flow';
 
 // ── Triggers — createAutonomousAgent is a standalone public utility ────────────
 export { createAutonomousAgent } from './triggers/createAutonomousAgent';

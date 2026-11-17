@@ -6,6 +6,7 @@ import type { StepExecutor } from '../run';
 import { MemoryRunJournal } from '../journal';
 import type { RunJournal } from '../journal';
 import { FileRunJournal } from '../file-journal';
+import { NdjsonRunJournal } from '../ndjson-journal';
 import { FlowDefinitionSchema } from '../types';
 
 const def = (ids: string[]) => FlowDefinitionSchema.parse({
@@ -29,12 +30,14 @@ let dir: string;
 beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'journal-')); });
 afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
 
-const implementations: Array<[string, () => RunJournal]> = [
-    ['MemoryRunJournal', () => new MemoryRunJournal()],
-    ['FileRunJournal', () => new FileRunJournal(dir)],
+/** The last is whether the claim expires by TTL (the ndjson journal frees it when its holder is gone, and ignores the TTL). */
+const implementations: Array<[string, () => RunJournal, boolean]> = [
+    ['MemoryRunJournal', () => new MemoryRunJournal(), true],
+    ['FileRunJournal', () => new FileRunJournal(dir), true],
+    ['NdjsonRunJournal', () => new NdjsonRunJournal(dir), false],
 ];
 
-describe.each(implementations)('%s', (_name, make) => {
+describe.each(implementations)('%s', (_name, make, expiresByTtl) => {
     it('records begin, step states, outputs and the final status', async () => {
         const journal = make();
         const { executor } = counting();
@@ -134,6 +137,7 @@ describe.each(implementations)('%s', (_name, make) => {
         await a!();
         const b = await journal.claim('c1', 'b', 20);
         expect(b).not.toBeNull();
+        if (!expiresByTtl) return; // a live holder is respected however long it takes
         await new Promise(r => setTimeout(r, 40));
         expect(await journal.claim('c1', 'c', 60_000)).not.toBeNull(); // b's expired
     });

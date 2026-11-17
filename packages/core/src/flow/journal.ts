@@ -65,6 +65,19 @@ export interface RunJournal {
     list(filter?: { status?: JournalRunStatus[]; flow?: string; tenantId?: string }): Promise<JournalRun[]>;
 }
 
+/** The journal of a run is damaged or was edited: it is not believed (SPEC-0024). The other runs are still served. */
+export class JournalCorrupt extends Error {
+    constructor(readonly runId: string, message: string) { super(`journal of "${runId}": ${message}`); this.name = 'JournalCorrupt'; }
+}
+
+/**
+ * Someone else wrote to the run, or it is held by someone else: this writer is no longer the one in charge and must stop without
+ * writing more. `runFlow` takes it as the claim lost.
+ */
+export class JournalConflict extends Error {
+    constructor(readonly runId: string, message: string) { super(message); this.name = 'JournalConflict'; }
+}
+
 // ── Event log: what both implementations store, and how a run is rebuilt from it ───────────────────────────────
 
 export type JournalEvent =

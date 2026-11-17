@@ -6,6 +6,7 @@ import { decideStepApproval } from './approval';
 import { describeCondition, evaluateCondition } from './condition';
 import type { FlowApprovals } from './approval';
 import type { RunJournal, JournalRun } from './journal';
+import { JournalConflict } from './journal';
 
 /**
  * The flow engine (SPEC-0023 F2): runs a `FlowDefinition` in waves (steps whose `after` are done run together, up to
@@ -155,25 +156,47 @@ export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promis
             .finally(() => { renewing = false; });
     }, renewMs) : undefined;
     timer?.unref?.();
+    // A write that finds someone else in the journal (JournalConflict) means the run is no longer ours, whatever the claim says: stop at once
+    // and write nothing more. This also covers a step that is still in flight when the claim is lost.
+    const guarded = guardJournal(journal, () => { state.lost = true; stop.abort(); });
     try {
-        const prior = await journal.get(runId);
+        const prior = await guarded.get(runId);
         if (prior && prior.flow !== def.flow) throw new Error(`run "${runId}" belongs to flow "${prior.flow}", not "${def.flow}"`);
         if (prior && (prior.status === 'done' || prior.status === 'cancelled')) return fromJournal(prior, def);
         if (!prior) {
             const raw = opts.payload === undefined ? '' : (typeof opts.payload === 'string' ? opts.payload : JSON.stringify(opts.payload));
             const cut = raw.length > PREVIEW_CHARS ? `${raw.slice(0, PREVIEW_CHARS)}…` : raw;
-            await journal.begin({ runId, flow: def.flow, inputPreview: opts.redact ? opts.redact(cut) : cut, ...(opts.tenantId ? { tenantId: opts.tenantId } : {}) });
+            await guarded.begin({ runId, flow: def.flow, inputPreview: opts.redact ? opts.redact(cut) : cut, ...(opts.tenantId ? { tenantId: opts.tenantId } : {}) });
         } else {
-            await journal.update(runId, { status: 'running' });
+            await guarded.update(runId, { status: 'running' });
         }
-        const result = await execute(def, { ...opts, signal: stop.signal }, runId, prior, state);
+        const result = await execute(def, { ...opts, signal: stop.signal, journal: guarded }, runId, prior, state);
         if (state.lost) throw new FlowClaimError(runId);
         return result;
+    } catch (err) {
+        // The conflict surfaced before the flow could run (the first write): same meaning, same error.
+        if (err instanceof JournalConflict) throw new FlowClaimError(runId);
+        throw err;
     } finally {
         if (timer) clearInterval(timer);
         opts.signal?.removeEventListener('abort', forward);
         if (!state.lost) await release().catch(() => undefined);
     }
+}
+
+/** The journal as `runFlow` uses it: a `JournalConflict` in any write is reported to `onConflict` before it is rethrown. */
+function guardJournal(journal: RunJournal, onConflict: () => void): RunJournal {
+    const watch = async <T>(write: () => Promise<T>): Promise<T> => {
+        try { return await write(); } catch (err) { if (err instanceof JournalConflict) onConflict(); throw err; }
+    };
+    return {
+        begin: run => watch(() => journal.begin(run)),
+        step: (runId, stepId, patch) => watch(() => journal.step(runId, stepId, patch)),
+        update: (runId, patch) => watch(() => journal.update(runId, patch)),
+        claim: (runId, owner, ttlMs) => journal.claim(runId, owner, ttlMs),
+        get: runId => journal.get(runId),
+        list: filter => journal.list(filter),
+    };
 }
 
 /** A run that already finished, as the result `runFlow` would have returned. */

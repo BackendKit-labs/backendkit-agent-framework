@@ -1,7 +1,7 @@
 # SPEC-0024: journal de corridas en un archivo por corrida, con cadena de integridad (evaluación del diseño de Steward)
 
 **Fecha:** 2026-11-17
-**Estado:** **Propuesta** (evaluación pedida por el usuario; nada implementado). Las decisiones de §8 están abiertas.
+**Estado:** **Aceptada** (el usuario aceptó D1-D6 con las propuestas, 2026-11-17). **F1 y F2 implementadas**; F3 (vallado en Redis, solo si hace falta) y F4 (docs, decidir si `FileRunJournal` queda `@deprecated`) pendientes. Con la implementación el spec dice lo que se hizo, no solo lo propuesto.
 **Origen:** el banco `audit-desk` (`agent-framework-examples/audit-desk`) halló que `FileRunJournal` falla con un fan-out ancho (#214). Al compararlo con el journal de Steward (`steward/apps/hermes-server/src/file-journal.ts`, SPEC-0009 §6 del repo de Steward) resultó que Steward resuelve **por diseño** lo que aquí se arregló con parches, y es más rápido.
 **Relacionado:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (`RunJournal`, F3), [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) (un contrato por concepto: Steward y el SDK tienen hoy dos journals de corridas).
 **Tipo de cambio:** aditivo (una clase nueva, opt-in). No toca `FileRunJournal` ni `MemoryRunJournal` ni la interfaz `RunJournal`.
@@ -90,7 +90,7 @@ new NdjsonRunJournal(dir, { key?: Buffer, fsync?: 'always' | 'never' /* def. alw
 
 Hoy hay **dos journals de corridas**: `FileWorkflowJournal` (Steward, con su `WorkflowJournal`) y el `RunJournal` del SDK. Es la duplicación que SPEC-0017 quiere evitar. Esta propuesta **no** obliga a Steward a nada: lo prudente es que el journal del SDK iguale al suyo y, más adelante, Steward decida si adopta el del SDK (tendría que expresar sus entradas como `JournalEvent`) o conserva el suyo. El ejemplo `audit-desk` no depende de esa decisión.
 
-## 8. Decisiones abiertas
+## 8. Decisiones (aceptadas el 2026-11-17 con las propuestas de la columna derecha)
 
 | # | Decisión | Propuesta |
 |---|---|---|
@@ -101,6 +101,10 @@ Hoy hay **dos journals de corridas**: `FileWorkflowJournal` (Steward, con su `Wo
 | D5 | ¿Vallado en Redis (F3)? | Sí, aparte y solo si se usa Redis con varios orquestadores. |
 | D6 | Steward: ¿adoptar el journal del SDK? | Decisión suya, **después** de F2. |
 
-## 9. Veredicto
+## 9. Lo implementado (F1 y F2)
+
+`NdjsonRunJournal` en `packages/core/src/flow/ndjson-journal.ts`, con `JournalCorrupt` y `JournalConflict` (en `journal.ts`) y el vallado en `runFlow` (un `JournalConflict` en cualquier escritura se trata como el claim perdido). Pruebas: el contrato compartido de los tres journals de core (el de expiración por TTL no aplica a este), 31 pruebas propias (cadena rota de seis maneras, el límite de la cola, clave y sin clave, línea cortada, `list` con una corrida corrupta, vallado, el bloqueo con un dueño muerto, vivo, con el pid reutilizado y con un archivo ilegible, y `runFlow` con 60 pasos en paralelo, con reanudación tras un dueño muerto y con vallado), y en `audit-desk` (`npm run ndjson:check`) un orquestador real **matado con SIGKILL** a mitad de la auditoría: el claim queda libre **10-18 ms** después del kill (con Redis había que esperar el TTL de 3 s), otro proceso termina el audit sin perder un hallazgo y sin repetir los pasos hechos (solo los que estaban en vuelo). Tres corridas seguidas en verde.
+
+## 10. Veredicto
 
 **Merece la pena.** El diseño de Steward no es solo "más seguro": es más rápido, no tiene el problema de contención que costó #214 y recupera una corrida caída al instante. Su límite es que asume **un host**, y se declara. Recomiendo F1 y F2 como un cambio (una clase nueva, opt-in); F3 solo cuando haya un caso.

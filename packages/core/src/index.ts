@@ -126,6 +126,8 @@ export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition,
 export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
 export { flowFromDefinition, flowRunView } from './flow';
 export { flowFromTaskPlan, flowFromStaticFlow } from './flow';
+export { planFlow, PLANNER_SYSTEM, UNRESOLVED_AGENT } from './flow';
+export type { PlannerAgent, PlanFlowOptions, PlannedFlow } from './flow';
 export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './flow';
 export { stepApprovalId } from './flow';
 export type { FlowApprovals } from './flow';

@@ -24,3 +24,5 @@ export { decideStepApproval, stepApprovalId } from './approval';
 export type { FlowApprovals, StepApproval } from './approval';
 export { flowFromTaskPlan, flowFromStaticFlow } from './convert';
 export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './convert';
+export { planFlow, PLANNER_SYSTEM, UNRESOLVED_AGENT } from './planner';
+export type { PlannerAgent, PlanFlowOptions, PlannedFlow } from './planner';

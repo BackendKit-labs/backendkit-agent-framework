@@ -29,7 +29,7 @@
 
 - **F1. Instrucciones y agentes como fuentes.** `InstructionSource` y `AgentSource` en core, adaptadores de archivos al vertical y la app. Test: el system prompt de la CLI es idéntico byte a byte antes y después (snapshot).
 - **F2. Skills.** `SkillSource` y activación genérica en core; detección de stack y fuentes remotas como adaptadores. Test: las mismas skills se activan con la misma entrada.
-- **F3. App de terminal.** Comandos integrados, `workspace`, `checkpoint`, `trust`, `bootstrap`, `project-key` y `git` salen de core. `orchestrator-agent` queda clasificado como app (se mueve a bk-platform cuando migre a zod 4).
+- **F3. App de terminal.** Comandos integrados, `workspace`, `checkpoint`, `trust`, `bootstrap`, `project-key` y `git` salen de core. `orchestrator-agent` ya no se clasifica como app: se absorbe en las librerías (SPEC-0023 D9).
 
 ## 4. Criterios de aceptación
 

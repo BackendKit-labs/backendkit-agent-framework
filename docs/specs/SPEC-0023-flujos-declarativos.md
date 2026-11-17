@@ -4,7 +4,7 @@
 **Estado:** Borrador. D1-D3 aceptadas con las propuestas (el usuario pidió el spec "como indicas", 2026-11-16); D4-D8 son propuestas nuevas, pendientes. Sin implementar.
 **Sustituye a:** [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) (que queda absorbido aquí) y a la primera versión de este SPEC. Es el diseño detallado de F1 de [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md).
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`ToolPolicy`, `ApprovalStore`), `agent-protocol` 1.1 (`FlowHandler`, `FlowRunState`).
-**Tipo de cambio:** por fases. Aditivo hasta F6; la retirada de los runners viejos va en el minor siguiente y es con ruptura.
+**Tipo de cambio:** por fases. Aditivo hasta F6 (que además deja obsoleto `orchestrator-agent`, D9); la retirada de los runners viejos va en el minor siguiente y es con ruptura.
 **Objetivo:** que core tenga **un** motor de flujos con la definición como datos, estado durable, control en vuelo y una vista estándar hacia fuera, de modo que Hermes, `orchestrator-agent`, `enterprise` y orquestadores futuros sean adaptadores de él y no implementaciones paralelas.
 
 ## 1. De dónde se parte (verificado en el código el 2026-11-16)
@@ -143,6 +143,7 @@ Más:
 | D6 | Gates simultáneos | Una a la vez por ejecución en la primera versión (paridad con el orquestador); levantarlo cuando un caso lo pida | Propuesta |
 | D7 | Ejecuciones concurrentes de un flujo | Permitidas; `maxActiveRuns` opcional por flujo, con rechazo al admitir | Propuesta |
 | D8 | Delegación y trabajos en segundo plano | Fuera del motor | Propuesta |
+| D9 | Destino de `orchestrator-agent` | Se absorbe en las librerías (F6) y queda obsoleto; no se migra con adaptador ni flag. Sustituye lo que decían ADR-0008 y SPEC-0016/0017 (app que consume el contrato). Los consumidores se rehacen después | Aceptada (usuario, 2026-11-16) |
 
 ## 7. Fases
 
@@ -151,7 +152,12 @@ Más:
 - **F3. `RunJournal` y reanudar.** Implementación en archivo con la técnica de `FileApprovalStore` (publicar con hard link que falla si existe) también para `claim`. Test: matar el proceso entre dos pasos no repite el primero; dos procesos no reanudan la misma ejecución.
 - **F4. `FlowControl`, `flowRunView` y `createFlowHandler`.** Se mueven `InProcessFlows` y `serveFlows` de Hermes a core. Test: un agente servido con `AgentServer` se pausa, reanuda y cancela desde un `FlowPort` de Hermes sin cambios en Hermes.
 - **F5. Aprobación por paso.** `awaiting_approval` enlaza con el `ApprovalStore` (`{ kind: 'workflow_step', workflow, step, input }`). Test: aprobar reanuda el paso; una regla aprendida `ask` para `flow.step:<id>` lo detiene.
-- **F6. Adaptadores.** `orchestrator-agent` (ya en `bk-platform`) cambia su `PlanExecutor` por `runFlow` y su `RunStore` por `RunJournal`; Hermes sustituye `InProcessFlows` por el de core; `enterprise.FlowRunner` queda como una capa fina. Protocolo 1.2.
+- **F6. Absorber `orchestrator-agent` y adaptar el resto (D9).** El paquete no se migra: se absorbe. Antes, core cierra lo que el orquestador hace y el motor no (ver `docs/notes/2026-11-16-orchestrator-agent-migracion-a-runflow.md`):
+  - **F6a** `onStepFailure: 'skip' | 'continue'` (hoy un fallo salta a los dependientes; el orquestador sigue con ellos), aprobación posterior al paso (`approvals.when: 'after'`: el paso corre, su salida se revisa y los dependientes esperan), `timeoutMs` por paso, y conversores `StaticFlow`/`TaskPlan` -> `FlowDefinition` (prometidos en F1, no hechos).
+  - **F6b** `planFlow`: el planner con LLM como función de core que devuelve un `FlowDefinition`.
+  - **F6c** El resto de piezas va a su capacidad: RAG (SPEC-0017 F5), cola BullMQ como `StepExecutor` remoto en un paquete aparte, servidor MCP/HTTP sobre `AgentServer`/`mcp-server`, `RunJournal` para Redis.
+  - **F6d** Hermes sustituye `InProcessFlows`/`serveFlows` por los de core (en `bk-platform`); `enterprise.FlowRunner` queda como una capa fina. Protocolo 1.2.
+  - `orchestrator-agent` queda obsoleto; los consumidores se rehacen después sobre las librerías (sin compatibilidad hacia atrás, decisión del 2026-11-16).
 - **F7. Retirada** de `WorkflowRunner` y `FlowRunner` como obsoletos un minor y luego fuera. Con ruptura.
 
 ## 8. Cómo encaja cada uno
@@ -159,7 +165,7 @@ Más:
 | | Pone | Recibe de core |
 |---|---|---|
 | **Hermes** | flota, salud, roles, aprobación, auditoría, `RunRecord` y `reconcile` | motor de flujos y `createFlowHandler` para los agentes que alojan flujos; el `FlowPort` no cambia |
-| **orchestrator-agent** | planner con LLM, matching de flujos por `trigger`, cola BullMQ como `StepExecutor`, MCP/HTTP, auth, RAG | `FlowDefinition`, `runFlow`, `RunJournal`, topes |
+| **orchestrator-agent** | nada: se absorbe (D9). Su planner pasa a `planFlow` de core; su cola es un `StepExecutor` remoto; su servidor se rehace sobre `AgentServer` | todo lo demás: `FlowDefinition`, `runFlow`, `RunJournal`, topes, aprobación |
 | **enterprise** | `ComplianceGate`, `FlowLoader`, triggers | el motor; sus gates implementan `Gate` |
 | **Un orquestador futuro** (Temporal, una cola propia, otro planner) | un `StepExecutor` o un `RunJournal` propio | el resto; hacia fuera habla `FlowRunState` |
 
@@ -174,7 +180,7 @@ Más:
 
 ## 10. Fuera de alcance
 
-- El planner con LLM, la cola entre procesos, el servidor, la flota, la salud y los roles.
+- La cola entre procesos (BullMQ), el servidor, la flota, la salud y los roles. El planner con LLM SÍ entra (`planFlow`, F6b); la cola es un `StepExecutor` en un paquete aparte.
 - Un motor durable completo (temporizadores, señales, versionado de definiciones en vuelo): es terreno de Temporal; el integrador implementa `RunJournal` sobre él.
 - Bucles, condicionales y subflujos (D2).
 - Un editor visual de flujos.

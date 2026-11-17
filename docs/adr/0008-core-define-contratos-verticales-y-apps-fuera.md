@@ -24,7 +24,7 @@ El primer criterio que se propuso para podar fue contar quién usa cada pieza. E
    2. **Paquetes de capacidad:** MCP, protocol, web, otel, memory, rag, sandbox, testkit y document-extract.
    3. **Adaptadores:** providers, stores, fuentes de skills e instrucciones, y conectores.
    4. **Verticales:** coding y negocio.
-   5. **Apps:** CLI de terminal, `orchestrator-agent`, Hermes y la consola.
+   5. **Apps:** CLI de terminal, Hermes y la consola. (`orchestrator-agent` figuraba aquí; el 2026-11-16 se decidió absorberlo en las librerías, ver SPEC-0023 D9.)
 2. **Core no conoce ningún dominio.** Ningún contrato de core nombra una tool concreta, un id de agente, un estado de un pipeline de dominio ni una ruta de un producto. Lo que hoy vive así en core sale a su vertical o a su app, y se engancha mediante los puntos de extensión de [SPEC-0014](../specs/SPEC-0014-puntos-de-extension-del-engine.md).
 3. **Un contrato por concepto.** Workflow, política, memoria, auditoría y RAG tienen una sola interfaz en la capa más baja que los necesita. Las implementaciones son adaptadores de esa interfaz.
 4. **Las decisiones se toman por capacidad, no por uso.** Una pieza se queda en core si es una primitiva genérica (otel, control, jobs, delegación, guardrails...), aunque hoy no tenga consumidores. Sale de core si está atada a un caso concreto, aunque se use mucho.

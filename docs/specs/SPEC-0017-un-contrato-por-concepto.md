@@ -16,7 +16,7 @@ Este SPEC no fija diseños. Para cada concepto deja las implementaciones que exi
 | `core/workflow` (`WorkflowRunner`, 304 líneas) | pasos con `dependsOn`, oleadas paralelas con `maxConcurrency`, `requireApproval` con callback en proceso | definición como datos, compensación, gates con criterios, interpolación de payload |
 | `enterprise/flow` (`FlowRunner`, `FlowLoader`, `ComplianceGate`, 858) | definición YAML validada con zod, triggers, gates con criterios y evaluador, compensación, registro de transiciones | delega en `WorkflowRunner` de core (construye un `WorkflowBuilder` y lo ejecuta): no es un segundo runner sino la capa de datos, gates y compensación, que vive en el paquete equivocado. Ver SPEC-0023 |
 | `coding/workflows/InitWorkflow` (453) | un flujo concreto (inicializar proyecto) | no es un motor: es un consumidor |
-| planner y executor de `orchestrator-agent` | plan generado por LLM, subtareas con plazos y cola entre procesos | es una app; consumirá el contrato |
+| planner y executor de `orchestrator-agent` | plan generado por LLM, subtareas con plazos y cola entre procesos | se absorbe en core (SPEC-0023 D9): su ejecutor es `runFlow` y su planner `planFlow` |
 
 **Pregunta:** ¿el contrato es `FlowDefinition` (datos) con un runner de core, y `WorkflowBuilder` pasa a ser un constructor de `FlowDefinition`?
 **Criterio de cierre:** un solo runner en core que ejecute los tests de `core/workflow` y de `enterprise/flow`; la aprobación usa `Approver`/`ApprovalStore` de SPEC-0014; `enterprise` conserva solo `ComplianceGate` como evaluador enchufable.

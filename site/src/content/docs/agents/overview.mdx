@@ -1,0 +1,40 @@
+---
+title: Kinds of agents
+description: The agents you can build with the framework, what each one is for, and which package to start from.
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+One engine, many kinds of agent. What changes from one kind to the next is **what triggers it, what it can touch, and who answers for it**. This page is the map; each kind has its own page.
+
+| If you want... | Kind | Start from |
+|---|---|---|
+| A chat or an assistant with a few tools | [Assistants](../assistants/) | `agent-core`, template `single` |
+| An agent that reads, edits and runs code | [Coding agents](../coding/) | `agent-coding`, template `coding` |
+| Several specialists and something that routes between them | [Teams of agents](../../concepts/multi-agent/) | `agent-core`, template `multi-agent` |
+| An agent that wakes up on a schedule, a webhook or an event | [Autonomous agents](../autonomous/) | `agent-core` (`createAutonomousAgent`), template `autonomous` |
+| Department agents over your company's documents | [Knowledge agents](../knowledge/) | `agent-enterprise`, template `enterprise` |
+| An agent other programs, a browser or another agent can call | [Agents as services](../services/) | `mcp-server`, `agent-web`, `agent-protocol` |
+| An agent that runs shell commands safely | [Agents that run code](../sandboxed/) | `agent-sandbox` |
+| An agent wired to HubSpot, Jira, calendars, documents or payments | [Agents that connect](../connected/) | `mcp-connectors`, `document-extract`, `aval-tools` |
+| A business process that must not be lost | [Flows](../../concepts/flows/) | `agent-core`, `agent-flow-queue` |
+
+## What every kind shares
+
+Whatever you build, the same pieces are available:
+
+- **[Tools that declare facts](../../concepts/engine-and-tools/)** and a **[governance layer](../../concepts/governance/)** around every call.
+- **[Memory and learning](../../concepts/memory-and-learning/)**: remember what happened, and turn repeated failures into lessons a person approves.
+- **[Cost and observability](../../concepts/observability-and-cost/)**: budgets that stop a run, traces to OpenTelemetry, an audit record per call.
+- **Swappable [providers](../../concepts/providers/)** and **[test doubles](../../guides/test-an-agent/)**.
+
+## Pick by what could go wrong
+
+A useful way to choose is to ask what the agent can do that you cannot undo.
+
+<CardGrid>
+  <LinkCard title="It only answers" description="An assistant with read-only tools. Start with the first agent." href="../../start/first-agent/" />
+  <LinkCard title="It changes files or runs commands" description="A coding agent, confined by a sandbox and an approval policy." href="../sandboxed/" />
+  <LinkCard title="It touches money or customers" description="Declare tools destructive, set a policy and require a human." href="../../guides/govern-a-payment-tool/" />
+  <LinkCard title="It runs unattended" description="An autonomous agent with a budget, an audit trail and approvals that can wait." href="../autonomous/" />
+</CardGrid>

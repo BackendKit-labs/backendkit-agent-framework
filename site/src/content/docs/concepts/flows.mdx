@@ -1,0 +1,85 @@
+---
+title: Flows
+description: Declarative, durable processes - steps and dependencies as YAML, a journal that survives crashes, approvals, conditions.
+---
+
+import FlowDag from '../../../components/FlowDag.astro';
+
+A **flow** is a business process as data. You describe the steps and what each waits for; the engine runs steps in parallel when it can, writes everything it does to a **journal**, and can resume after a crash.
+
+<FlowDag />
+
+## The definition
+
+```yaml
+flow: close-month
+trigger: { type: manual }
+steps:
+  - id: collect-sales            # no `after`: runs at the same time as collect-costs
+    agent: sales
+    prompt: "Collect the sales of {{payload.month}}"
+  - id: collect-costs
+    agent: finance
+    prompt: "Collect the costs of {{payload.month}}"
+    timeoutMs: 60000
+  - id: report
+    agent: analyst
+    prompt: "Write the month report"
+    after: [collect-sales, collect-costs]
+    gate: { approval: human }    # stops here until a person decides
+  - id: publish
+    agent: comms
+    prompt: "Send the report"
+    after: [report]
+    when: { step: report, contains: "APPROVED" }   # runs only if the report says so
+```
+
+| Field | Meaning |
+|---|---|
+| `after` | The steps this one waits for. No `after` means it can start at once. |
+| `gate.approval: human` | The run stops as `awaiting_approval` until a person decides. |
+| `when` | Run only if the output of a step it waits for contains / equals / matches something. Otherwise the step is *skipped* (not failed), and so is what depends on it. |
+| `timeoutMs` | A deadline per step. |
+| `compensation` | Steps to run if another one fails (undo, notify). |
+
+## Running it
+
+`runFlow` executes a definition. **How a step runs is the `StepExecutor` you pass**: an agent in this process, a worker elsewhere, a queue. The engine does not care.
+
+```ts
+import { parseFlow, runFlow, MemoryRunJournal } from '@backendkit-labs/agent-core';
+
+const result = await runFlow(parseFlow(yaml), {
+  executor: { run: async (step) => ({ content: await myAgent(step.agent).run(step.prompt) }) },
+  payload: { month: '2026-10' },        // what {{payload.month}} reads
+  journal: new MemoryRunJournal(),
+  runId: 'close-2026-10',
+});
+result.status;   // 'completed' | 'failed' | 'rejected' | 'cancelled' | 'awaiting_approval'
+```
+
+## Durable and resumable
+
+With a journal, every step is recorded **before and after** it runs, and one process *claims* the run so two do not run it at once. Calling `runFlow` again with the same `runId` **resumes**: steps already done are not run again.
+
+| Journal | Use it for |
+|---|---|
+| `MemoryRunJournal` | Tests. |
+| `NdjsonRunJournal` | One host: one file per run, each line chained to the last (tamper-evident), `fsync` per event, a dead owner's claim is taken over at once. |
+| `FileRunJournal` | The first file journal (a file per event). `NdjsonRunJournal` is faster to read and write and checks integrity. |
+| `RedisRunJournal` | Several machines (from `agent-flow-queue`). |
+
+## Failure, approval, condition
+
+- A failed step **skips what depends on it** and the rest still finish; then the `compensation` entries run. `onStepFailure: 'continue'` runs dependents without its output.
+- A `gate` (or a policy that answers `ask` for `flow.step:<id>`) leaves the run `awaiting_approval`. Decide it, run again with the same `runId`, and it goes on. [A guide walks through it](../../guides/durable-flow-with-approval/).
+- Cost: steps that report `costUsd` add up in `result.costUsd`.
+
+## Limits and control
+
+- `maxConcurrency` caps the steps of one wave; a **`KeyedConcurrencyLimiter`** caps them per agent across *all* runs, e.g. "at most 3 builds at once", however many flows are running.
+- `planFlow(task, { agents, provider })` has a model draft a definition from a task. It is **validated**: unknown agents, cycles and duplicate ids are rejected and the model is asked again.
+- `flowFromDefinition` + `createFlowHandler` host flows so a supervisor (or a model, with `createFlowTools`) can start, watch, pause, resume and cancel them. See [let a model supervise flows](../../guides/let-a-model-supervise-flows/).
+- Steps across processes: [flows across processes](../../guides/flows-across-processes/).
+
+Reference: the [`agent-core` page](../../packages/core/), section *Flows*.

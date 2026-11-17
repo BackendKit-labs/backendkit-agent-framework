@@ -1,0 +1,41 @@
+---
+title: Several agents
+description: Delegation between agents, and when to use a flow instead.
+---
+
+Two ways to get several agents working together, for two different needs.
+
+## Delegation: an agent asks another
+
+An agent whose profile has `delegatesTo` can hand a sub-task to a named agent through the `ask_agent` call. The engine runs the other agent and returns its answer.
+
+```ts
+const orchestrator: AgentProfile = {
+  id: 'orchestrator', name: 'Orchestrator', icon: '🧭', description: 'Routes requests',
+  systemPrompt: 'Route each request to the right specialist.',
+  allowedTools: [],
+  delegatesTo: ['billing', 'support'],        // or ['*'] for every registered agent
+};
+```
+
+- Delegation has a **depth limit** and a recorded **delegation chain**, so a loop of agents asking each other stops, and the policy knows who asked whom.
+- A delegation is a call like any other: a [policy](../governance/) can allow, ask or deny it.
+- Calls to `ask_agent` in the same turn can run in parallel.
+
+Use it when the *model* should decide who handles what, and the path is not known in advance.
+
+## Flows: you decide the path
+
+When the steps are known (collect, check, report, approve), do not ask a model to remember them. Write a [flow](../flows/): a YAML file of steps and dependencies that the engine runs, journals and resumes. Each step is run by an agent, but *which* steps run, in what order, and where a person must approve is data, not a prompt.
+
+| | Delegation | Flow |
+|---|---|---|
+| Who plans the path | The model, as it goes | You, in a file |
+| Survives a crash | No | Yes (journal) |
+| Parallel steps | Calls in one turn | Declared by dependencies |
+| Human approval | Through the policy | A `gate` on a step |
+| Best for | Open-ended requests | Business processes |
+
+The two combine: a flow step can be a conversation with an agent that itself delegates.
+
+A third option, the `workflow()` builder, sequences agent steps in code. It predates flows and has no journal; prefer flows for anything that must not be lost.

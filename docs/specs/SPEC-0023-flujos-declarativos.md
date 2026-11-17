@@ -1,83 +1,181 @@
-# SPEC-0023: flujos declarativos
+# SPEC-0023: motor de flujos (definición, ejecución, estado, control y observación)
 
 **Fecha:** 2026-11-16
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar. Es el diseño detallado de F1 de [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md).
-**Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`ToolPolicy`, `ApprovalStore`), [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) para la reanudación (F4 de este spec).
-**Tipo de cambio:** por fases. Aditivo hasta F5; la retirada de los runners viejos va en el minor siguiente.
-**Objetivo:** el motor de flujos completo en core (hoy partido entre core y `enterprise`), con la definición como datos y la aprobación en el `ApprovalStore`, para que sirva a agentes de negocio, a `enterprise` y a `orchestrator-agent`.
+**Estado:** Borrador. D1-D3 aceptadas con las propuestas (el usuario pidió el spec "como indicas", 2026-11-16); D4-D8 son propuestas nuevas, pendientes. Sin implementar.
+**Sustituye a:** [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) (que queda absorbido aquí) y a la primera versión de este SPEC. Es el diseño detallado de F1 de [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md).
+**Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`ToolPolicy`, `ApprovalStore`), `agent-protocol` 1.1 (`FlowHandler`, `FlowRunState`).
+**Tipo de cambio:** por fases. Aditivo hasta F6; la retirada de los runners viejos va en el minor siguiente y es con ruptura.
+**Objetivo:** que core tenga **un** motor de flujos con la definición como datos, estado durable, control en vuelo y una vista estándar hacia fuera, de modo que Hermes, `orchestrator-agent`, `enterprise` y orquestadores futuros sean adaptadores de él y no implementaciones paralelas.
 
-## 1. De dónde se parte (SPEC-0017 F1, verificado en el código el 2026-11-16)
+## 1. De dónde se parte (verificado en el código el 2026-11-16)
 
-| Pieza | Qué tiene | Qué le falta |
-|---|---|---|
-| `core/workflow` (`WorkflowRunner`, `WorkflowBuilder`) | pasos con `dependsOn`, oleadas paralelas con `maxConcurrency`, `requireApproval` con un callback en proceso | definición como datos, compensación, gates con criterios, interpolación del payload, estado reanudable |
-| `enterprise/flow` (`FlowRunner`, `FlowLoader`, `ComplianceGate`; 858 líneas) | definición YAML validada con zod (ciclos, triggers, selectores de compensación), gates con criterios y evaluador, compensación `<paso>.failed`, registro de transiciones, interpolación `{{payload.x}}` | no ejecuta nada propio de concurrencia ni de espera: delega todo en `WorkflowRunner` |
-| `orchestrator-agent` | plan generado por un LLM, subtareas con plazos | es una app: consumirá el contrato |
+Lo mismo está implementado tres veces, con otros nombres:
 
-**Corrección respecto a SPEC-0017:** no hay dos runners en paralelo. `FlowRunner` **construye un `WorkflowBuilder` y ejecuta un `WorkflowRunner`** (`FlowRunner.run`), que ejecuta agentes a través de un callback `runAgent` del integrador. Lo que hay son dos capas: el esquema, la interpolación, los gates, la compensación y las transiciones viven en `enterprise`; el orden, las oleadas y la aprobación, en core. El problema real es que **la capa de datos está en el paquete equivocado** y que la aprobación de un paso es un callback en proceso (`onApprovalRequired`), no un `ApprovalStore`.
-
-Detalles del comportamiento actual que este spec cambia o conserva:
-
-- Compensación: se recorre `def.compensation` **en el orden declarado**, después de que termina todo el flujo, y solo para pasos `failed`. No es "orden inverso de los pasos completados".
-- Interpolación: solo `{{payload}}` y `{{payload.a.b}}`; un camino ausente da `null`. Las salidas de las dependencias no se interpolan: llegan como `context` del paso.
-- Un paso con aprobación se ejecuta **después** de los paralelos de su oleada y de uno en uno.
-- Un ciclo o una dependencia desconocida ya se rechazan en `FlowLoader` y, si llega una `WorkflowDef` cruda, `WorkflowRunner` marca los pasos como `failed` ("Unsatisfiable dependencies").
-- Un gate con criterios que no se puede evaluar **rechaza el paso** (`ComplianceGateError`) salvo `allowUnevaluatedGates`.
-
-## 2. Decisiones
-
-| # | Pregunta | Opciones | Propuesta |
+| Concepto | `orchestrator-agent` (0.7.7) | Hermes (`bk-platform`) | core |
 |---|---|---|---|
-| D1 | ¿Cuál es el contrato? | (a) `FlowDefinition` como datos (el esquema de `enterprise`, movido a core); (b) el `WorkflowBuilder` como contrato | **(a).** Los datos se validan, se guardan, se versionan y los puede generar un LLM. `WorkflowBuilder` y el runner pasan a trabajar sobre `FlowDefinition` |
-| D2 | ¿Cómo se aprueba un paso? | (a) callback `onApprovalRequired` (hoy); (b) `ApprovalStore` de SPEC-0014 con el sujeto que ya existe, `{ kind: 'workflow_step', workflow, step, input }` | **(b).** Funciona con aprobadores asíncronos y deja rastro. El callback queda como adaptador para pruebas |
-| D3 | ¿Cómo se decide si un paso puede ejecutarse (política)? | (a) un contrato nuevo de política de pasos; (b) `ToolPolicy` sobre una tool sintética `flow.step:<id>` | **(b).** Es la salida que SPEC-0017 F2 ya propuso y evita un segundo motor de reglas. Las reglas aprobadas por el aprendizaje valen igual para un paso |
-| D4 | ¿Qué es un gate? | (a) criterios evaluados por un LLM dentro del runner; (b) un `Gate` enchufable `(step, output) => GateResult` | **(b).** Core define la interfaz; `ComplianceGate` de `enterprise` es la implementación con criterios, evidencia y evaluador distinto del ejecutor |
-| D5 | ¿Cómo se compensa un fallo? | (a) como hoy: en el orden declarado, tras el flujo, solo pasos `failed`; (b) además deshacer pasos ya completados en orden inverso | **(a) en F2, para no cambiar comportamiento.** (b) es otro problema (deshacer lo hecho, no reaccionar al fallo): se decide aparte cuando un caso lo pida, porque exige que cada paso declare cómo se deshace |
-| D6 | ¿Qué reciben los pasos? | (a) como hoy: `{{payload...}}` en el prompt y las salidas de las dependencias como `context`; (b) además `{{steps.<id>.output}}` en el prompt | **(a) en F2; (b) opcional después.** La interpolación solo lee del payload y de las salidas, sin evaluar expresiones |
+| Definición | `TaskPlan`/`StaticFlow`: `id, agent, task, depends_on, gate: boolean, gate_criteria[]` | no define flujos: los **aloja el agente** | `WorkflowDef`: `id, agentId, input, dependsOn, requireApproval`; `enterprise` añade `FlowDefinition` (`after`, `gate: { criteria, evaluator, evidence, approval }`, compensación) |
+| Estado de una ejecución | `RunState` (`run-store.ts`): plan, `completedSteps` con su salida, `currentStep`, `waitingGate`, informe; en disco o Redis | `RunRecord` (`store/RunStore.ts`): estado (con `lost`), entrada **enmascarada**, salida tras guardrails, coste, `connectorRunId`; JSON con escritura atómica | resultados en memoria (`WorkflowRunner`) |
+| Reanudar | `execute(plan, priorResults)` salta los pasos hechos (se usa tras un gate) | `reconcile()` tras reiniciar: pregunta al agente por cada ejecución abierta → recuperada o `lost` | no hay |
+| Exclusión entre procesos | `claim(runId, ttl)`: archivo `wx` con caducidad, o Redis | no la necesita (un plano de control) | no hay |
+| Aprobación | `waitingGate` en el estado, `applyGateDecision` | `approver` y `ApprovalStore` | callback `onApprovalRequired` en proceso |
+| Control en vuelo | no | pausar, reanudar, cancelar, cooperativo (`FlowControl.step()`/`checkpoint()` en `InProcessFlows`) | no |
+| Concurrencia | `Promise.all` sobre los pasos listos, **sin tope**; cola BullMQ por agente (`subtasks.<id>`, worker con `concurrency: 4`, plazo 900 s) | `limits.maxConcurrent` por agente: rechaza con `AGENT_BUSY`, **no encola**; los flujos no cuentan | `WorkflowRunner`: oleadas con `maxConcurrency` (8 por defecto) |
 
-## 3. Diseño
+**Corrección respecto a SPEC-0017 y a la primera versión de este SPEC:** no hay "dos runners". `enterprise.FlowRunner` construye un `WorkflowBuilder` y ejecuta un `WorkflowRunner` de core; el esquema, la interpolación, los gates, la compensación y las transiciones viven en `enterprise`. El orquestador tiene su propio `PlanExecutor`, que no reutiliza core.
+
+**La pieza que ya existe y es el contrato hacia fuera:** `agent-protocol` 1.1 define `FlowHandler` (`flows`, `start`, `status`, `pause`, `resume`, `cancel`) y `FlowRunState` (estados `running | paused | done | failed | cancelled`; pasos `pending | running | done | failed | skipped`). El `FlowPort` de Hermes tiene exactamente esa forma, y `serveFlows` (Hermes) la sirve sobre `InProcessFlows`.
+
+Lo que no se verificó: el almacén Redis (`run-store-redis.ts`), `worker-process.ts` ni `server.ts` más allá de sus firmas.
+
+## 2. Principios
+
+1. **Core define contratos y el motor; las apps son adaptadores.** El planner con LLM, la cola entre procesos, el servidor MCP/HTTP, la flota, la salud y los roles no son de core.
+2. **Hacia fuera se habla el vocabulario de `agent-protocol`.** No se inventa un segundo `FlowRunState`.
+3. **Un flujo es datos.** Un flujo escrito en YAML y un plan que genera un LLM son el mismo objeto.
+4. **Dos registros, uno por nivel.** El supervisor (Hermes) guarda "esta capacidad corre" (`RunRecord`). El anfitrión del flujo guarda "este flujo va por el paso 3" (`RunJournal`). Los une `connectorRunId` = `flowRunId`. Hermes no necesita el journal del anfitrión, solo su vista.
+
+## 3. Capas
+
+```
+OBSERVAR   FlowRunState (agent-protocol)  ← lo que ven Hermes, una UI u otro orquestador
+              ▲  flowRunView(record)          createFlowHandler(flows, journal) → AgentServer
+EJECUTAR   runFlow(def, ports)            ← core
+              ├─ StepExecutor   cómo corre un paso (un agente, una tool, código propio, un worker remoto)
+              ├─ RunJournal     estado durable, claim y reanudación
+              ├─ FlowControl    pausar, reanudar, cancelar (cooperativo)
+              ├─ ConcurrencyLimiter   tope por flujo, por agente y por tenant
+              └─ Approvals / ToolPolicy   SPEC-0014 (ya existe)
+DEFINIR    FlowDefinition (datos)         ← YAML, o un plan efímero que genera un planner
+```
+
+## 4. Contratos (propuesta)
 
 ```ts
 interface FlowDefinition {
-  name: string; version: string;
-  trigger?: FlowTrigger;                  // manual | queue | webhook | cron (el disparo lo hace la app)
+  flow: string; version: number;
+  trigger?: FlowTrigger;                       // lo dispara la app; core solo lo declara
   steps: FlowStep[];
-  compensate?: FlowCompensation[];
+  compensation?: FlowCompensation[];
 }
 interface FlowStep {
-  id: string; agent: string; prompt: string;      // {{payload.x}} y {{steps.id.output}}
-  after?: string[];
+  id: string; after?: string[];
+  kind?: 'agent' | 'tool' | 'gate';            // por defecto 'agent' (D2)
+  agent?: string; prompt?: string;             // {{payload.x}} en el prompt
+  tool?: { name: string; args?: Record<string, unknown> };
   gate?: { criteria?: string[]; evaluator?: string; evidence?: 'required' | 'optional'; approval?: 'human' | 'none' };
   timeoutMs?: number;
 }
 
-runFlow(def, { payload, agents, policy?, approvals?, journal?, gates?, maxConcurrency?, signal? }): Promise<FlowResult>
+interface StepExecutor {                       // el integrador lo da; core trae el de un proceso
+  run(step: FlowStep, input: { prompt: string; context?: string; idempotencyKey: string; signal: AbortSignal }): Promise<StepOutput>;
+}
+
+type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'awaiting_approval' | 'interrupted';
+interface RunRecord {
+  runId: string; flow: string; tenantId?: string; startedAt: string; updatedAt: string; finishedAt?: string;
+  status: 'running' | 'paused' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled' | 'lost';
+  inputPreview: string;                        // enmascarado y cortado, nunca crudo (de Hermes)
+  steps: Record<string, { status: StepStatus; output?: string; error?: string; attempt: number; at: string; costUsd?: number }>;
+  waiting?: { stepId: string; approvalId: string; criteria?: string[] };   // de `waitingGate` del orquestador
+  transitions: FlowTransition[];               // el registro append-only de enterprise
+  costUsd?: number;
+}
+interface RunJournal {
+  begin(rec): Promise<void>;
+  /** Escribe el cambio ANTES de ejecutar el paso (running) y DESPUÉS (done/failed). Falla cerrado. */
+  step(runId, stepId, patch): Promise<void>;
+  /** Cierre con caducidad: una persona o un proceso por ejecución. false si otro lo tiene vigente. De `claim` del orquestador. */
+  claim(runId, owner, ttlMs): Promise<(() => Promise<void>) | null>;
+  get(runId): Promise<RunRecord | undefined>;
+  list(filter?: { status?: RunRecord['status'][]; flow?: string; tenantId?: string }): Promise<RunRecord[]>;
+}
+interface FlowControl {                        // de `InProcessFlows` (Hermes)
+  readonly signal: AbortSignal;
+  step(name: string, detail?: string): Promise<void>;   // espera aquí si está en pausa; lanza si se canceló
+  checkpoint(): Promise<void>;
+}
 ```
 
-- El orden de ejecución se calcula por `after` (oleadas, como hoy). Un ciclo se rechaza al validar, no al ejecutar.
-- El runner no posee engines: llama a un `runAgent(agentId, input, context, stepId)` que da el integrador, como hoy. Ese callback puede devolver el `RunResult` del engine (SPEC-0020 y SPEC-0021 lo aprovechan) además del texto.
-- `FlowResult` guarda por paso: estado, salida, error y la evidencia del gate.
-- Sin `journal`, el flujo corre en memoria, como hoy.
+### 4.1 Vista hacia fuera
 
-## 4. Fases
+`flowRunView(record): FlowRunState` proyecta el registro al vocabulario del protocolo:
 
-- **F1. `FlowDefinition` y su validación en core.** El esquema zod de `enterprise` se mueve; `enterprise` lo reexporta. Test: los YAML de ejemplo de `enterprise` validan sin cambios.
-- **F2. Mover la capa de datos a core.** `runFlow` absorbe lo que hoy hace `FlowRunner` (interpolación, gates enchufables, compensación, transiciones) sobre el `WorkflowRunner` de core. Test de aceptación: los tests de `core/workflow` y los de `enterprise/flow` pasan sin cambios contra el runner de core.
-- **F3. Aprobación y política por paso (D2, D3).** Test: un paso con `approval: human` queda `awaiting_approval` en el `ApprovalStore`; una regla aprobada que dice `ask` para `flow.step:pagar` detiene ese paso.
-- **F4. Reanudación (con SPEC-0020 F2).** Test: la caída entre dos pasos no repite el primero.
-- **F5. Gates enchufables y compensación (D4, D5).** `ComplianceGate` pasa a implementar `Gate`. Test: un paso que falla compensa en orden inverso.
-- **F6. Retirada.** `WorkflowRunner` y `FlowRunner` salen marcados como obsoletos un minor y se retiran en el siguiente. Con ruptura.
+| Estado de core | `FlowStatus` del protocolo 1.1 | Con protocolo 1.2 (D1) |
+|---|---|---|
+| `running` | `running` | igual |
+| `paused` | `paused` | igual |
+| `awaiting_approval` | `paused` (motivo en `detail`) | `awaiting_approval` |
+| `done` / `failed` / `cancelled` | igual | igual |
+| `lost` | `failed` (`error`: "lost") | `lost` |
 
-## 5. Criterios de aceptación
+Paso: `awaiting_approval` e `interrupted` se proyectan como `running`/`failed` con `detail`, hasta 1.2.
 
-- Un flujo escrito en YAML corre igual en un agente de negocio, en `enterprise` y en una app que lo cargue con `runFlow`.
-- Todo el motor (datos, orden, aprobación, compensación) en core; `enterprise` conserva `ComplianceGate` y las políticas propias de una empresa.
-- La aprobación de un paso usa `ApprovalStore`; no queda ningún callback como único mecanismo.
-- Un ciclo en `after` se rechaza al cargar la definición (como ya hace `FlowLoader`).
+`createFlowHandler(flows, journal)` devuelve un `FlowHandler` listo para `AgentServer`: reemplaza a `serveFlows`/`InProcessFlows` de Hermes. Un agente con flujos de core queda controlable por Hermes sin código extra.
 
-## 6. Fuera de alcance
+## 5. Multitarea
 
+Hoy hay seis niveles de concurrencia, cada uno con su propio tope (o ninguno):
+
+| Nivel | Hoy | Propuesta |
+|---|---|---|
+| **Dentro de un paso**: tool calls en paralelo | ADR-0001, con `concurrencySafe` | sin cambios |
+| **Dentro de un flujo**: pasos listos a la vez | core: oleadas con `maxConcurrency` (8). Orquestador: `Promise.all` **sin tope** | `maxConcurrency` por flujo en el motor (8 por defecto); el orquestador lo hereda y deja de ser ilimitado |
+| **Por agente**, entre ejecuciones | Hermes: `limits.maxConcurrent`, rechaza con `AGENT_BUSY`, no encola, y no cuenta flujos | `ConcurrencyLimiter` de core, clave `agentId`, compartido por los pasos de todos los flujos del proceso (D4) |
+| **Por tenant** | sin tope | misma interfaz, clave `tenantId` (D4) |
+| **Entre procesos** | orquestador: cola BullMQ por agente, worker `concurrency: 4`, plazo 900 s | el motor no trae cola: un `StepExecutor` remoto es el adaptador (D5) |
+| **Gates simultáneos** | orquestador: **una a la vez por ejecución** (`waitingGate` único; las demás se difieren) | primera versión igual, por compatibilidad (D6) |
+
+Más:
+
+- **Varias ejecuciones del mismo flujo a la vez:** cada una tiene su `runId`; `claim(runId)` evita que dos procesos reanuden la misma (D7).
+- **`ask_agent` (delegación) y los trabajos en segundo plano (`JobRegistry`) no son pasos de flujo:** siguen aparte. Un paso de agente puede usarlos dentro, pero el motor no los cuenta como pasos (D8).
+- **Dentro de un flujo un paso que se topa con `maxConcurrent` espera** (acotado por su `timeoutMs`); al **admitir** una ejecución nueva desde fuera se **rechaza** con `AGENT_BUSY`, como hace Hermes. Rechazar un paso a mitad de flujo rompería el flujo por una carga pasajera.
+
+## 6. Decisiones
+
+| # | Pregunta | Propuesta | Estado |
+|---|---|---|---|
+| D1 | Vocabulario de estados hacia fuera | Ampliar el protocolo a 1.2 de forma aditiva (`awaiting_approval`, `lost`). Hasta entonces, la proyección de §4.1 | Aceptada |
+| D2 | Tipos de paso | `agent`, `tool` y `gate`. Sin subflujos, bucles ni condicionales hasta que un caso real los pida | Aceptada |
+| D3 | Forma de `RunJournal` | El `RunState` del orquestador (pasos con salida, `waiting`) más los campos de privacidad y coste de Hermes (`inputPreview`, `costUsd`); `redact` opcional y sin valor por defecto (el journal es tan sensible como el historial) | Aceptada |
+| D4 | Topes de concurrencia | `ConcurrencyLimiter` con clave `agentId` o `tenantId`, en proceso; `maxConcurrency` por flujo. Un límite distribuido (Redis) lo aporta el integrador implementando la misma interfaz | Propuesta |
+| D5 | Ejecución repartida entre procesos | Core define `StepExecutor` y la clave de idempotencia `runId:stepId:attempt`; la cola (BullMQ) es un adaptador de la app. Semántica **al menos una vez**: un paso con efecto externo usa la clave o se marca `interrupted` tras caer | Propuesta |
+| D6 | Gates simultáneos | Una a la vez por ejecución en la primera versión (paridad con el orquestador); levantarlo cuando un caso lo pida | Propuesta |
+| D7 | Ejecuciones concurrentes de un flujo | Permitidas; `maxActiveRuns` opcional por flujo, con rechazo al admitir | Propuesta |
+| D8 | Delegación y trabajos en segundo plano | Fuera del motor | Propuesta |
+
+## 7. Fases
+
+- **F1. `FlowDefinition` en core.** El esquema de `enterprise` se mueve; se añaden los conversores de `StaticFlow` del orquestador (`gate: boolean` + `gate_criteria` → `gate`) y de `TaskPlan`. Test: los YAML de ejemplo de `enterprise` y los `flows/*.yaml` del orquestador validan y dan la misma definición.
+- **F2. `runFlow` y `StepExecutor`.** Oleadas, `maxConcurrency`, `ConcurrencyLimiter`, interpolación, gates enchufables, compensación (como hoy: en el orden declarado, tras el flujo). Test de aceptación: los tests de `core/workflow` y de `enterprise/flow` pasan sin cambios contra el motor.
+- **F3. `RunJournal` y reanudar.** Implementación en archivo con la técnica de `FileApprovalStore` (publicar con hard link que falla si existe) también para `claim`. Test: matar el proceso entre dos pasos no repite el primero; dos procesos no reanudan la misma ejecución.
+- **F4. `FlowControl`, `flowRunView` y `createFlowHandler`.** Se mueven `InProcessFlows` y `serveFlows` de Hermes a core. Test: un agente servido con `AgentServer` se pausa, reanuda y cancela desde un `FlowPort` de Hermes sin cambios en Hermes.
+- **F5. Aprobación por paso.** `awaiting_approval` enlaza con el `ApprovalStore` (`{ kind: 'workflow_step', workflow, step, input }`). Test: aprobar reanuda el paso; una regla aprendida `ask` para `flow.step:<id>` lo detiene.
+- **F6. Adaptadores.** `orchestrator-agent` (ya en `bk-platform`) cambia su `PlanExecutor` por `runFlow` y su `RunStore` por `RunJournal`; Hermes sustituye `InProcessFlows` por el de core; `enterprise.FlowRunner` queda como una capa fina. Protocolo 1.2.
+- **F7. Retirada** de `WorkflowRunner` y `FlowRunner` como obsoletos un minor y luego fuera. Con ruptura.
+
+## 8. Cómo encaja cada uno
+
+| | Pone | Recibe de core |
+|---|---|---|
+| **Hermes** | flota, salud, roles, aprobación, auditoría, `RunRecord` y `reconcile` | motor de flujos y `createFlowHandler` para los agentes que alojan flujos; el `FlowPort` no cambia |
+| **orchestrator-agent** | planner con LLM, matching de flujos por `trigger`, cola BullMQ como `StepExecutor`, MCP/HTTP, auth, RAG | `FlowDefinition`, `runFlow`, `RunJournal`, topes |
+| **enterprise** | `ComplianceGate`, `FlowLoader`, triggers | el motor; sus gates implementan `Gate` |
+| **Un orquestador futuro** (Temporal, una cola propia, otro planner) | un `StepExecutor` o un `RunJournal` propio | el resto; hacia fuera habla `FlowRunState` |
+
+## 9. Criterios de aceptación
+
+- Un flujo escrito en YAML corre igual en un agente de negocio, en `enterprise` y en el orquestador.
+- Matar el proceso en cualquier punto no repite un paso `done` ni reintenta un efecto en curso; dos procesos no reanudan la misma ejecución.
+- Hermes controla (inicia, mira, pausa, reanuda, cancela) un flujo de core sin saber que es de core.
+- Ningún nivel de concurrencia queda sin tope por defecto (hoy el orquestador lo está).
+- La aprobación de un paso usa `ApprovalStore`; un ciclo en `after` se rechaza al cargar.
+- Sin `RunJournal` configurado, el flujo corre en memoria como hoy.
+
+## 10. Fuera de alcance
+
+- El planner con LLM, la cola entre procesos, el servidor, la flota, la salud y los roles.
+- Un motor durable completo (temporizadores, señales, versionado de definiciones en vuelo): es terreno de Temporal; el integrador implementa `RunJournal` sobre él.
+- Bucles, condicionales y subflujos (D2).
 - Un editor visual de flujos.
-- Planificar con un LLM: el plan de `orchestrator-agent` se serializa como `FlowDefinition`, pero generarlo no es de este spec.
-- Bucles y condicionales dentro de un flujo: si un caso real los exige, se decide aparte (los flujos con bucles tienden a necesitar un lenguaje, y eso es otro riesgo).
-- Disparar los triggers (cola, webhook, cron): lo hace la app; el framework solo los declara.
+- Reanudar un turno del engine a mitad (el journal es por paso). Depende de SPEC-0004.

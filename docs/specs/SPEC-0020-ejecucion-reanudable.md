@@ -1,7 +1,7 @@
 # SPEC-0020: ejecución reanudable
 
 **Fecha:** 2026-11-16
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar. **Prioridad baja:** se hace cuando aparezca un caso real de caída a mitad de un flujo con efectos externos. `STEWARD.md` no describe hoy ninguno; la aprobación asíncrona, que era el argumento original, ya está resuelta (SPEC-0014 §6).
+**Estado:** **Absorbido por [SPEC-0023](SPEC-0023-flujos-declarativos.md)** (2026-11-16). Al leer el código de `orchestrator-agent` y de Hermes resultó que el journal, el `claim` con caducidad y la reanudación ya existen en las apps (`RunState` y `claim` del orquestador, `RunRecord` y `reconcile` de Hermes); el caso real que aquí faltaba existe. Se conserva como historial. Lo que sigue valiendo: D3 (una caída en un efecto externo queda `unknown`/`interrupted`, no se reintenta sola), D4 (clave de idempotencia) y D6 (`redact` opcional, sin valor por defecto). **Prioridad baja:** se hace cuando aparezca un caso real de caída a mitad de un flujo con efectos externos. `STEWARD.md` no describe hoy ninguno; la aprobación asíncrona, que era el argumento original, ya está resuelta (SPEC-0014 §6).
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) §6 (aprobación durable, opción A, hecha), [SPEC-0004](SPEC-0004-agent-session.md) (log de sesión, borrador) y [SPEC-0023](SPEC-0023-flujos-declarativos.md) (flujos).
 **Tipo de cambio:** aditivo. Sin persistencia configurada, el comportamiento no cambia.
 **Objetivo:** que un trabajo largo sobreviva a un reinicio del proceso sin repetir efectos externos, y que se sepa con certeza qué llegó a ejecutarse.

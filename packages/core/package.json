@@ -17,6 +17,10 @@
       "types": "./dist/workflow/index.d.ts",
       "default": "./dist/workflow/index.js"
     },
+    "./flow": {
+      "types": "./dist/flow/index.d.ts",
+      "default": "./dist/flow/index.js"
+    },
     "./triggers": {
       "types": "./dist/triggers/index.d.ts",
       "default": "./dist/triggers/index.js"

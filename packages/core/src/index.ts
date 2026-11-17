@@ -119,6 +119,10 @@ export { workflow, agent, WorkflowBuilder } from './workflow/WorkflowBuilder';
 export type { StepOptions } from './workflow/WorkflowBuilder';
 export { WorkflowRunner } from './workflow/WorkflowRunner';
 export type { WorkflowDef, WorkflowResult, WorkflowRunOptions } from './workflow/types';
+export {
+    FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowCompensationSchema, FlowDefinitionSchema, parseFlow, loadFlow, loadFlowsFromDir, validateFlow, FlowLoadError,
+} from './flow';
+export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
 
 // ── Triggers — createAutonomousAgent is a standalone public utility ────────────
 export { createAutonomousAgent } from './triggers/createAutonomousAgent';

@@ -133,9 +133,9 @@ export type { PlannerAgent, PlanFlowOptions, PlannedFlow } from './flow';
 export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './flow';
 export { stepApprovalId } from './flow';
 export type { FlowApprovals } from './flow';
-export { runFlow, FlowClaimError, KeyedConcurrencyLimiter, interpolate, MemoryRunJournal, FileRunJournal } from './flow';
+export { runFlow, FlowClaimError, KeyedConcurrencyLimiter, interpolate, MemoryRunJournal, FileRunJournal, foldEvents, journalMatches } from './flow';
 export type {
-    RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
+    JournalEvent, RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
 } from './flow';
 export type {
     StepExecutor, StepInput, StepOutput, FlowResult, FlowStepResult, FlowCompensationResult, FlowRunStatus, GateContext, RunFlowOptions, ConcurrencyLimiter, KeyedLimiterOptions,

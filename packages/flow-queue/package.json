@@ -1,0 +1,50 @@
+{
+  "name": "@backendkit-labs/agent-flow-queue",
+  "version": "0.1.0",
+  "description": "BullMQ StepExecutor for @backendkit-labs/agent-core flows: run each step on a worker in another process",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "test": "jest"
+  },
+  "dependencies": {
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@backendkit-labs/agent-core": ">=0.42.0 <0.43.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BackendKit-labs/backendkit-agent-framework.git",
+    "directory": "packages/flow-queue"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

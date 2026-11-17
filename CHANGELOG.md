@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+- **`agent-flow-queue`, un paso instantáneo no vuelve a esperar hasta el plazo por un aviso perdido:** BullMQ anuncia el fin de un job por un flujo de eventos (`XREAD ... ), y un aviso emitido antes de que un `QueueEvents` recién creado empiece a leer no se entrega nunca. Un paso que termina en milisegundos en una cola usada por primera vez (en el banco `audit-desk`, el paso `report`, en 2 de cada 3 reanudaciones tras matar el orquestador) esperaba hasta `timeoutMs` y fallaba aunque el worker lo hubiera completado. `QueueStepExecutor` mira ahora el propio job cada `pollMs` (por defecto 1000; 0 lo apaga) además del aviso, y devuelve la salida o el fallo que encuentre. Hallado probando el journal y la cola contra un Redis real.
+
 ## v0.45.0 (2026-11-17)
 
 Tres arreglos del motor de flujos que halló el banco de pruebas del research desk, y los docs de v0.44.0 en los paquetes. En 0.x, `^0.43` no cubre 0.44, así que se barrieron los rangos de `agent-core` (`^0.44.0`) y los peers anchos pasan a `<0.45.0`. Solo suben los paquetes afectados; `mcp-connectors` y `agent-web-ui` no cambian (su rango ya cubre las versiones nuevas).

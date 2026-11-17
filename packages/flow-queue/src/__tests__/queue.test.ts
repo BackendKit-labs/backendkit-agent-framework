@@ -3,6 +3,8 @@ import type { FlowStep } from '@backendkit-labs/agent-core';
 const adds: any[] = [];
 let finish: (() => Promise<any>) | undefined;
 let removed = 0;
+/** What the queue says about a job when it is looked at (the polling fallback). */
+let polled: { completed?: unknown; failed?: string } | undefined;
 const workerHandlers: { fn?: (job: any) => Promise<any>; opts?: any; name?: string }[] = [];
 
 jest.mock('ioredis', () => ({ Redis: jest.fn().mockImplementation(() => ({ disconnect: jest.fn() })) }));
@@ -11,8 +13,12 @@ jest.mock('bullmq', () => ({
         name,
         add: jest.fn(async (_n: string, data: any, opts: any) => {
             adds.push({ name, data, opts });
-            return { remove: async () => { removed++; }, waitUntilFinished: () => finish!() };
+            return { id: opts.jobId, remove: async () => { removed++; }, waitUntilFinished: () => finish!() };
         }),
+        getJob: jest.fn(async () => polled ? ({
+            isCompleted: async () => polled!.completed !== undefined, returnvalue: polled!.completed,
+            isFailed: async () => polled!.failed !== undefined, failedReason: polled!.failed,
+        }) : undefined),
         close: jest.fn(async () => undefined),
     })),
     QueueEvents: jest.fn().mockImplementation(() => ({ close: jest.fn(async () => undefined) })),
@@ -27,7 +33,7 @@ import { QueueStepExecutor, createStepWorker } from '../index';
 const step = { id: 's1', agent: 'writer', prompt: 'p' } as unknown as FlowStep;
 const input = (signal = new AbortController().signal) => ({ prompt: 'hi', context: 'c', idempotencyKey: 'r:s1:1', signal });
 
-beforeEach(() => { adds.length = 0; removed = 0; workerHandlers.length = 0; });
+beforeEach(() => { polled = undefined; adds.length = 0; removed = 0; workerHandlers.length = 0; });
 
 describe('QueueStepExecutor', () => {
     it('enqueues on flow.<agent> with the idempotency key as job id and returns the output', async () => {
@@ -63,6 +69,37 @@ describe('QueueStepExecutor', () => {
         const ac = new AbortController(); ac.abort();
         await expect(new QueueStepExecutor({ redis: 'redis://x' }).run(step, input(ac.signal))).rejects.toThrow('cancelled');
         expect(adds).toHaveLength(0);
+    });
+});
+
+describe('a job whose end was never announced', () => {
+    // BullMQ delivers the end of a job through an event stream; one announced before a new QueueEvents starts reading is lost.
+    const never = () => new Promise<never>(() => undefined);
+
+    it('is found by looking at the job, instead of waiting until the timeout', async () => {
+        finish = never; polled = { completed: { content: 'found it' } };
+        const ex = new QueueStepExecutor({ redis: 'redis://x', timeoutMs: 60_000, pollMs: 10 });
+        await expect(ex.run(step, input())).resolves.toEqual({ content: 'found it' });
+        await ex.close();
+    });
+
+    it('a failure found by looking at the job rejects with its reason', async () => {
+        finish = never; polled = { failed: 'boom in the worker' };
+        const ex = new QueueStepExecutor({ redis: 'redis://x', timeoutMs: 60_000, pollMs: 10 });
+        await expect(ex.run(step, input())).rejects.toThrow('boom in the worker');
+    });
+
+    it('keeps waiting while the job has not finished, and the announcement still wins when it does arrive', async () => {
+        finish = async () => { await new Promise(r => setTimeout(r, 40)); return { content: 'announced' }; };
+        polled = {}; // the job exists and is not finished
+        const ex = new QueueStepExecutor({ redis: 'redis://x', pollMs: 10 });
+        await expect(ex.run(step, input())).resolves.toEqual({ content: 'announced' });
+    });
+
+    it('polling can be turned off', async () => {
+        finish = async () => ({ content: 'announced' }); polled = { completed: { content: 'polled' } };
+        const ex = new QueueStepExecutor({ redis: 'redis://x', pollMs: 0 });
+        await expect(ex.run(step, input())).resolves.toEqual({ content: 'announced' });
     });
 });
 

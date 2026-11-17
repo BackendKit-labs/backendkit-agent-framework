@@ -123,6 +123,22 @@ export {
     FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowCompensationSchema, FlowDefinitionSchema, parseFlow, loadFlow, loadFlowsFromDir, validateFlow, FlowLoadError,
 } from './flow';
 export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './flow';
+export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
+export { flowFromDefinition, flowRunView } from './flow';
+export { flowFromTaskPlan, flowFromStaticFlow } from './flow';
+export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './flow';
+export { stepApprovalId } from './flow';
+export type { FlowApprovals } from './flow';
+export { runFlow, FlowClaimError, KeyedConcurrencyLimiter, interpolate, MemoryRunJournal, FileRunJournal } from './flow';
+export type {
+    RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
+} from './flow';
+export type {
+    StepExecutor, StepInput, StepOutput, FlowResult, FlowStepResult, FlowCompensationResult, FlowRunStatus, GateContext, RunFlowOptions, ConcurrencyLimiter, KeyedLimiterOptions,
+} from './flow';
+export type {
+    FlowControl, FlowInfo, FlowRunView, FlowStatus, FlowStepView, InProcessFlow, FlowHandlerPort,
+} from './flow';
 
 // ── Triggers — createAutonomousAgent is a standalone public utility ────────────
 export { createAutonomousAgent } from './triggers/createAutonomousAgent';

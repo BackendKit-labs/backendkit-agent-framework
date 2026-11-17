@@ -45,6 +45,8 @@ export const FlowStepSchema = z.object({
     /** Step ids this step waits for. Steps with no `after` run in parallel. */
     after: z.array(z.string()).default([]),
     gate: FlowGateSchema.optional(),
+    /** Deadline for the step, in ms. A step that exceeds it fails; the steps that wait for it are skipped (or run, with `onStepFailure: 'continue'`). */
+    timeoutMs: z.number().int().positive().optional(),
 });
 
 export const FlowCompensationSchema = z.object({

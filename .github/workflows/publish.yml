@@ -22,7 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Build in dependency order — core must exist before coding/mcp-server can compile
+      # Build in dependency order — core must exist before coding/mcp-server can compile.
+      # agent-protocol goes first: core's flow tests (compat with the protocol) import its build.
+      - name: Build @backendkit-labs/agent-protocol
+        run: npm run build
+        working-directory: packages/agent-protocol
+
       - name: Build @backendkit-labs/agent-core
         run: npm run build
         working-directory: packages/core

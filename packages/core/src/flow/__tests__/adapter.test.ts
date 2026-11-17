@@ -4,6 +4,8 @@ import { MemoryRunJournal } from '../journal';
 import { runFlow } from '../run';
 import type { StepExecutor } from '../run';
 import { FlowDefinitionSchema } from '../types';
+import { stepApprovalId } from '../approval';
+import { MemoryApprovalStore } from '../../governance/approval-store';
 
 const def = FlowDefinitionSchema.parse({
     flow: 'f', trigger: { type: 'manual' },
@@ -116,5 +118,58 @@ describe('flowRunView', () => {
         expect(lost.status).toBe('failed');
         expect(lost.error).toBe('lost');
         expect(lost.steps[0]).toEqual({ name: 'a', status: 'failed', detail: 'died' });
+    });
+});
+
+describe('flowFromDefinition with a human gate in a FlowHost', () => {
+    const gated = FlowDefinitionSchema.parse({
+        flow: 'g', trigger: { type: 'manual' },
+        steps: [
+            { id: 'a', agent: 'x', prompt: 'a' },
+            { id: 'pay', agent: 'x', prompt: 'pay', after: ['a'], gate: { approval: 'human' } },
+            { id: 'c', agent: 'x', prompt: 'c', after: ['pay'] },
+        ],
+    });
+    const setup = () => {
+        const ran: string[] = [];
+        const executor: StepExecutor = { run: async (s) => { ran.push(s.id); return { content: `out-${s.id}` }; } };
+        const store = new MemoryApprovalStore();
+        const journal = new MemoryRunJournal();
+        const host = new FlowHost({ g: flowFromDefinition(gated, { executor, journal, approvals: { store } }) });
+        return { ran, store, journal, host };
+    };
+
+    it('waits for the person as awaiting_approval (not failed), under the id of the run, and goes on after the decision', async () => {
+        const { ran, store, journal, host } = setup();
+        const { flowRunId } = await host.start('g', {});
+        await sleep(60);
+        const v = await host.status(flowRunId);
+        expect(v.status).toBe('awaiting_approval');
+        expect(v.currentStep).toBe('pay');
+        expect(v.steps.map(s => s.status)).toEqual(['done', 'awaiting_approval', 'pending']);
+        expect(v.steps[1].detail).toBe(`approval ${stepApprovalId(flowRunId, 'pay')}`);
+        expect(v.error).toBeUndefined();
+        expect((await journal.get(flowRunId))!.status).toBe('awaiting_approval'); // the journal is keyed by the host's id
+        expect((await store.list({ status: 'pending' })).map(a => a.id)).toEqual([stepApprovalId(flowRunId, 'pay')]);
+
+        await host.resume(flowRunId); // not decided yet: it waits again, nothing else runs
+        await sleep(60);
+        expect((await host.status(flowRunId)).status).toBe('awaiting_approval');
+        expect(ran).toEqual(['a']);
+
+        await store.resolve(stepApprovalId(flowRunId, 'pay'), { decision: 'approve', by: { kind: 'human', id: 'ana' }, at: new Date().toISOString() });
+        await host.resume(flowRunId);
+        await sleep(80);
+        const end = await host.status(flowRunId);
+        expect(end.status).toBe('done');
+        expect(end.steps.map(s => s.status)).toEqual(['done', 'done', 'done']);
+        expect(ran).toEqual(['a', 'pay', 'c']); // a was not run again
+    });
+
+    it('can be cancelled while it waits', async () => {
+        const { host } = setup();
+        const { flowRunId } = await host.start('g', {});
+        await sleep(60);
+        expect((await host.cancel(flowRunId)).status).toBe('cancelled');
     });
 });

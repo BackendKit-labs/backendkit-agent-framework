@@ -44,6 +44,10 @@ jobs:
         run: npm run build
         working-directory: packages/coding
 
+      - name: Build @backendkit-labs/agent-flow-queue
+        run: npm run build
+        working-directory: packages/flow-queue
+
       - name: Build @backendkit-labs/mcp-server
         run: npm run build
         working-directory: packages/mcp-server
@@ -53,5 +57,8 @@ jobs:
       - name: Run tests
         run: npm run test --workspace packages/core
 
+      - name: Test flow-queue
+        run: npm run test --workspace packages/flow-queue
+
   # Manual publish: cd packages/core && npm publish --access public
-  # then packages/coding, then packages/mcp-server
+  # then packages/coding, packages/flow-queue, then packages/mcp-server

@@ -20,3 +20,5 @@ export type {
 } from './journal';
 export { FileRunJournal } from './file-journal';
 export { flowFromDefinition, flowRunView } from './adapter';
+export { decideStepApproval, stepApprovalId } from './approval';
+export type { FlowApprovals, StepApproval } from './approval';

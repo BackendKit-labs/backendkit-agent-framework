@@ -2,6 +2,8 @@ import type { Transport } from '../transport/Transport';
 import type { FlowDefinition, FlowStep, FlowTransition } from './types';
 import type { ConcurrencyLimiter } from './limiter';
 import { interpolate } from './interpolate';
+import { decideStepApproval } from './approval';
+import type { FlowApprovals } from './approval';
 import type { RunJournal, JournalRun } from './journal';
 
 /**
@@ -25,7 +27,8 @@ export interface StepExecutor {
     run(step: FlowStep, input: StepInput): Promise<StepOutput>;
 }
 
-export type FlowRunStatus = 'completed' | 'failed' | 'rejected' | 'cancelled';
+/** `awaiting_approval`: a step waits for a person; resolve the approval and run again with the same `runId` to continue. */
+export type FlowRunStatus = 'completed' | 'failed' | 'rejected' | 'cancelled' | 'awaiting_approval';
 
 export interface FlowStepResult {
     stepId: string;
@@ -77,6 +80,8 @@ export interface RunFlowOptions {
     checkpoint?: () => Promise<void>;
     /** Transport for `workflow_*` events, as `WorkflowRunner` emits. */
     transport?: Transport;
+    /** Approval through the `ApprovalStore` (F5); replaces `approve`. A step can stop the run as `awaiting_approval`. */
+    approvals?: FlowApprovals;
     /** Asks a person for a step with `gate.approval: human`. Default: approve. False rejects the step and what depends on it. */
     approve?: (step: FlowStep, previousOutputs: Record<string, string>) => Promise<boolean>;
     /** After a step succeeds and has a `gate`: throw to fail the step (a gate is never skipped silently). */
@@ -173,6 +178,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const completed = new Set<string>();
     const failed = new Set<string>();
     const remaining = new Set(def.steps.map(s => s.id));
+    /** Steps that stopped for approval: the run is suspended, not failed. */
+    const awaiting = new Map<string, string>();
 
     // Resume: what the journal shows as done is not run again; its output feeds the steps that follow.
     if (prior) {
@@ -202,7 +209,32 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         const prev: Record<string, string> = {};
         for (const dep of step.after) if (results[dep]?.status === 'completed') prev[dep] = results[dep].content;
 
-        if (step.gate?.approval === 'human') {
+        if (opts.approvals) {
+            let verdict;
+            try {
+                verdict = await decideStepApproval(opts.approvals, def.flow, runId, step, prev);
+            } catch (err) {
+                verdict = { kind: 'denied' as const, reason: err instanceof Error ? err.message : String(err) };
+            }
+            if (verdict.kind === 'pending') {
+                opts.transport?.emit({ type: 'workflow_approval_required', step: step.id });
+                record(step.id, 'approval_requested', verdict.approvalId);
+                awaiting.set(step.id, verdict.approvalId);
+                await journal?.step(runId, step.id, { status: 'awaiting_approval', transitions: flush() }).catch(() => undefined);
+                return;
+            }
+            if (verdict.kind === 'rejected' || verdict.kind === 'denied') {
+                const rejected = verdict.kind === 'rejected';
+                record(step.id, rejected ? 'rejected' : 'failed', verdict.reason);
+                await journal?.step(runId, step.id, { status: 'failed', error: redact(verdict.reason), transitions: flush() }).catch(() => undefined);
+                results[step.id] = {
+                    stepId: step.id, agentId: step.agent, content: '', status: rejected ? 'rejected' : 'failed',
+                    ...(rejected ? {} : { error: verdict.reason }),
+                };
+                failed.add(step.id);
+                return;
+            }
+        } else if (step.gate?.approval === 'human') {
             opts.transport?.emit({ type: 'workflow_approval_required', step: step.id });
             record(step.id, 'approval_requested');
             const ok = await (opts.approve?.(step, prev) ?? Promise.resolve(true));
@@ -301,7 +333,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     }
 
     const cancelled = controller.signal.aborted;
-    if (!cancelled) {
+    const suspended = !cancelled && awaiting.size > 0;
+    if (!cancelled && !suspended) {
         // Unsatisfiable (cycle or unknown step in a definition that skipped validation): report it, do not drop it.
         for (const id of remaining) {
             const step = def.steps.find(s => s.id === id)!;
@@ -312,7 +345,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     }
 
     const compensations: FlowCompensationResult[] = [];
-    if (!cancelled) {
+    if (!cancelled && !suspended) {
         for (const comp of def.compensation) {
             const stepId = comp.on.replace(/\.failed$/, '');
             if (results[stepId]?.status !== 'failed') continue;
@@ -339,15 +372,17 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
 
     const vals = Object.values(results);
     const status: FlowRunStatus = cancelled ? 'cancelled'
+        : suspended ? 'awaiting_approval'
         : vals.some(r => r.status === 'rejected') ? 'rejected'
         : vals.some(r => r.status === 'failed') ? 'failed'
         : 'completed';
     await journal?.update(runId, {
-        status: status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : 'failed',
+        status: status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : status === 'awaiting_approval' ? 'awaiting_approval' : 'failed',
+        ...(suspended ? { waiting: { stepId: [...awaiting.keys()][0], approvalId: [...awaiting.values()][0] } } : { waiting: null }),
         ...(status === 'rejected' ? { error: 'rejected' } : {}),
         ...(vals.some(r => r.costUsd !== undefined) ? { costUsd: vals.reduce((a, r) => a + (r.costUsd ?? 0), 0) } : {}),
         transitions: flush(),
     });
-    opts.transport?.emit({ type: 'workflow_complete', name: def.flow, status: status === 'cancelled' ? 'failed' : status });
+    opts.transport?.emit({ type: 'workflow_complete', name: def.flow, status: status === 'completed' ? 'completed' : status === 'rejected' ? 'rejected' : 'failed' });
     return { runId, flow: def.flow, version: def.version, status, steps: results, transitions, compensations };
 }

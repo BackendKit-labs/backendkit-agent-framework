@@ -176,11 +176,11 @@ describe('the claim is renewed while the run lives', () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-'));
         try {
             const journal = new FileRunJournal(dir);
-            const running = runFlow(one, { executor: slow(1500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 800, claimRenewMs: 150 });
-            await sleep(1100); // past the TTL; file writes are slow under load, so the TTL is generous
-            expect(await journal.claim('file-run', 'p2', 800)).toBeNull();
+            const running = runFlow(one, { executor: slow(3500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 2000, claimRenewMs: 400 });
+            await sleep(2800); // past the TTL; file writes are slow when the whole suite runs at once, so the margins are wide
+            expect(await journal.claim('file-run', 'p2', 2000)).toBeNull();
             expect((await running).status).toBe('completed');
-            expect(await journal.claim('file-run', 'p2', 800)).not.toBeNull();
+            expect(await journal.claim('file-run', 'p2', 2000)).not.toBeNull();
         } finally { await fs.rm(dir, { recursive: true, force: true }); }
     });
 

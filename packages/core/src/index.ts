@@ -126,6 +126,8 @@ export type { FlowTrigger, FlowGate, FlowStep, FlowCompensation, FlowDefinition,
 export { FlowHost, FlowCancelled, FlowHostError, createFlowHandler, FlowControlError } from './flow';
 export { flowFromDefinition, flowRunView } from './flow';
 export { flowFromTaskPlan, flowFromStaticFlow } from './flow';
+export { createApprovalHandler, summarizeApproval, ApprovalControlError, createFlowTools } from './flow';
+export type { ApprovalHandlerPort, ApprovalHandlerOptions, ApprovalSummaryView, ApprovalDecisionInput, FlowToolsOptions } from './flow';
 export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './flow';
 export { stepApprovalId } from './flow';
 export type { FlowApprovals } from './flow';

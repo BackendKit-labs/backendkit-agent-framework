@@ -39,18 +39,21 @@ export function flowFromDefinition(def: FlowDefinition, opts: Omit<RunFlowOption
 }
 
 /**
- * Projects a journal record to the `FlowRunState` vocabulary of protocol 1.1 (SPEC-0023 §4.1): `awaiting_approval` shows as
- * `paused` and `lost` as `failed`, with the reason in `detail`/`error`, until the protocol grows those states.
+ * Projects a journal record to the `FlowRunState` vocabulary of the protocol (SPEC-0023 §4.1). For a supervisor that speaks 1.1
+ * (`protocolMinor` below 2, the default) `awaiting_approval` shows as `paused` and `lost` as `failed`, with the reason in
+ * `detail`/`error`; from 1.2 on they are sent as they are, and so are the step states `awaiting_approval` and `interrupted`.
  * `stepOrder` (the flow's step ids) gives the steps their declared order.
  */
-export function flowRunView(run: JournalRun, stepOrder?: string[]): FlowRunView {
-    const status: FlowStatus = run.status === 'awaiting_approval' ? 'paused' : run.status === 'lost' ? 'failed' : run.status;
+export function flowRunView(run: JournalRun, stepOrder?: string[], options: { protocolMinor?: number } = {}): FlowRunView {
+    const native = (options.protocolMinor ?? 1) >= 2;
+    const status: FlowStatus = native ? run.status
+        : run.status === 'awaiting_approval' ? 'paused' : run.status === 'lost' ? 'failed' : run.status;
     const ids = [...new Set([...(stepOrder ?? []), ...Object.keys(run.steps)])];
     const steps: FlowStepView[] = ids.map((name): FlowStepView => {
         const j = run.steps[name];
         if (!j) return { name, status: 'pending' };
-        if (j.status === 'awaiting_approval') return { name, status: 'running', detail: 'awaiting approval' };
-        if (j.status === 'interrupted') return { name, status: 'failed', detail: j.error ?? 'interrupted' };
+        if (!native && j.status === 'awaiting_approval') return { name, status: 'running', detail: 'awaiting approval' };
+        if (!native && j.status === 'interrupted') return { name, status: 'failed', detail: j.error ?? 'interrupted' };
         return { name, status: j.status, ...(j.error ? { detail: j.error } : {}) };
     });
     const current = run.waiting?.stepId ?? steps.find(s => s.status === 'running')?.name;
@@ -64,6 +67,6 @@ export function flowRunView(run: JournalRun, stepOrder?: string[]): FlowRunView 
         startedAt: run.startedAt,
         ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
         ...(status === 'done' && last?.output !== undefined ? { output: last.output } : {}),
-        ...(run.status === 'lost' ? { error: 'lost' } : run.error ? { error: run.error } : {}),
+        ...(run.status === 'lost' && !native ? { error: 'lost' } : run.error ? { error: run.error } : {}),
     };
 }

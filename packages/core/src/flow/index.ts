@@ -24,3 +24,7 @@ export { decideStepApproval, stepApprovalId } from './approval';
 export type { FlowApprovals, StepApproval } from './approval';
 export { flowFromTaskPlan, flowFromStaticFlow } from './convert';
 export type { TaskPlanLike, PlanStepLike, StaticFlowLike } from './convert';
+export { createApprovalHandler, summarizeApproval, ApprovalControlError } from './approval-handler';
+export type { ApprovalHandlerPort, ApprovalHandlerOptions, ApprovalSummaryView, ApprovalDecisionInput } from './approval-handler';
+export { createFlowTools } from './tools';
+export type { FlowToolsOptions } from './tools';

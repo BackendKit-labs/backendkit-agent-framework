@@ -16,11 +16,15 @@ import {
 } from '../types';
 import { ControlError, statusForCode, type ControlHandler } from './ControlHandler';
 import type { FlowHandler } from './FlowHandler';
+import type { ApprovalHandler } from './ApprovalHandler';
+import type { ApprovalDecision, ApprovalStatus } from '../types';
 import { FLOW_STEER_ACTIONS, type FlowSteerAction } from '../types';
 import { TaskStore } from './TaskStore';
 
 const CONTROL_PATHS = new Set(['/v1/agent/control', '/v1/agent/runs', '/v1/agent/audit']);
 /** Pausing, resuming and cancelling a flow run are control: they need the control key. */
+/** Approvals carry the input and output of steps: all of them (list, read, decide) need the control key. */
+const APPROVALS_PATH = /^\/v1\/agent\/approvals(\/.*)?$/;
 const FLOW_STEER_PATH = /^\/v1\/agent\/flow-runs\/[^/]+\/(pause|resume|cancel)$/;
 
 /** Constant-time comparison of a presented Bearer token with the expected key. */
@@ -65,6 +69,8 @@ export interface AgentServerOptions {
     flows?: FlowDescriptor[];
     /** Runs the flows this agent hosts so a supervisor can start, watch and steer them. Its flows are published in `info.flows`. */
     flowHandler?: FlowHandler;
+    /** Lets a supervisor list what waits for a person and decide it (protocol 1.2). Needs `controlApiKey`. */
+    approvalHandler?: ApprovalHandler;
 }
 
 const isLoopback = (host: string): boolean => host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
@@ -80,6 +86,7 @@ export class AgentServer {
     private readonly controlApiKey?: string;
     private readonly control?:   ControlHandler;
     private readonly flowHandler?: FlowHandler;
+    private readonly approvalHandler?: ApprovalHandler;
     private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
@@ -94,6 +101,7 @@ export class AgentServer {
         this.controlApiKey = opts.controlApiKey;
         this.control   = opts.control;
         this.flowHandler = opts.flowHandler;
+        this.approvalHandler = opts.approvalHandler;
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
         this.info      = {
@@ -102,6 +110,7 @@ export class AgentServer {
             ...(opts.limits ? { limits: opts.limits } : {}),
             ...(opts.flows || opts.flowHandler ? { flows: opts.flows ?? opts.flowHandler!.flows() } : {}),
             ...(opts.flowHandler ? { flowControl: true } : {}),
+            ...(opts.approvalHandler ? { approvals: true } : {}),
             ...(opts.controlApiKey ? { control: this.controlActions() } : {}),
         };
         this.app       = express();
@@ -125,7 +134,7 @@ export class AgentServer {
 
         // Auth. Control endpoints need the control key and nothing else opens them.
         this.app.use((req: Request, res: Response, next: NextFunction) => {
-            if (CONTROL_PATHS.has(req.path) || (req.method === 'POST' && FLOW_STEER_PATH.test(req.path))) {
+            if (CONTROL_PATHS.has(req.path) || (req.method === 'POST' && FLOW_STEER_PATH.test(req.path)) || APPROVALS_PATH.test(req.path)) {
                 if (!this.controlApiKey) {
                     return res.status(403).json(this.errEnvelope('FORBIDDEN', 'Control endpoints are disabled: no controlApiKey is configured'));
                 }
@@ -336,6 +345,45 @@ export class AgentServer {
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             try { res.json(this.okEnvelope(await this.flowHandler[action](String(req.params.id)))); }
             catch (err) { this.sendControlError(res, err); }
+        });
+
+        // ── Approvals (protocol 1.2) ────────────────────────────────────────────
+
+        const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'executed'];
+        const noApprovals = (res: Response) => res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent has no approvals'));
+
+        this.app.get('/v1/agent/approvals', async (req: Request, res: Response) => {
+            if (!this.approvalHandler) return noApprovals(res);
+            const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+            if (status !== undefined && !(APPROVAL_STATUSES as readonly string[]).includes(status)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'status' must be pending, approved, rejected or executed"));
+            }
+            try { res.json(this.okEnvelope({ approvals: await this.approvalHandler.list(status ? { status: status as ApprovalStatus } : {}) })); }
+            catch (err) { this.sendControlError(res, err); }
+        });
+
+        this.app.get('/v1/agent/approvals/:id', async (req: Request, res: Response) => {
+            if (!this.approvalHandler) return noApprovals(res);
+            try { res.json(this.okEnvelope(await this.approvalHandler.get(String(req.params.id)))); }
+            catch (err) { this.sendControlError(res, err); }
+        });
+
+        this.app.post('/v1/agent/approvals/:id/decision', async (req: Request, res: Response) => {
+            if (!this.approvalHandler) return noApprovals(res);
+            const b = req.body as Partial<ApprovalDecision> | undefined;
+            const by = b?.by;
+            if ((b?.decision !== 'approve' && b?.decision !== 'reject')
+                || !by || typeof by.id !== 'string' || !by.id || !['human', 'agent', 'service'].includes(by.kind)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "Body needs 'decision' (approve | reject) and 'by' ({ kind: human | agent | service, id })"));
+            }
+            if (b.reason !== undefined && typeof b.reason !== 'string') {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'reason' must be a string"));
+            }
+            const context = extractContext(req);
+            try {
+                const decision: ApprovalDecision = { decision: b.decision, by: { kind: by.kind, id: by.id }, ...(b.reason !== undefined ? { reason: b.reason } : {}) };
+                res.json(this.okEnvelope(await this.approvalHandler.decide(String(req.params.id), decision, context)));
+            } catch (err) { this.sendControlError(res, err, context.traceId); }
         });
 
         // 404 fallback

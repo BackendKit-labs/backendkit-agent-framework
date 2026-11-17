@@ -26,6 +26,11 @@ export type {
     FlowStepState,
     FlowStatus,
     FlowSteerAction,
+    ApprovalStatus,
+    ApprovalSummary,
+    ApprovalDecision,
+    ApproverKind,
+    ApproverRef,
 } from './types';
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -34,6 +39,7 @@ export type { AgentServerOptions, CapabilityHandler } from './server/AgentServer
 export { TaskStore }           from './server/TaskStore';
 export { ControlError, statusForCode } from './server/ControlHandler';
 export type { FlowHandler } from './server/FlowHandler';
+export type { ApprovalHandler } from './server/ApprovalHandler';
 export type { ControlHandler } from './server/ControlHandler';
 
 // ── Client ────────────────────────────────────────────────────────────────────

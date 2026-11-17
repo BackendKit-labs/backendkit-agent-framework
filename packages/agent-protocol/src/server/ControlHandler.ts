@@ -34,6 +34,7 @@ export function statusForCode(code: ErrorCode): number {
         case 'CAPABILITY_NOT_FOUND':
         case 'TASK_NOT_FOUND': return 404;
         case 'CONTROL_UNSUPPORTED': return 501;
+        case 'CONFLICT': return 409;
         case 'AGENT_UNAVAILABLE': return 503;
         case 'TIMEOUT': return 504;
         default: return 500;

@@ -7,6 +7,9 @@ import type {
     FlowDescriptor,
     FlowRunState,
     FlowSteerAction,
+    ApprovalStatus,
+    ApprovalSummary,
+    ApprovalDecision,
     RunRequest,
     RunResponse,
     RunSummary,
@@ -352,6 +355,23 @@ export class AgentClient {
     /** Pause, resume or cancel a flow run. Control: needs the control key, and like every control call it is never retried. */
     async steerFlow(flowRunId: string, action: FlowSteerAction): Promise<FlowRunState> {
         return this.controlRequest<FlowRunState>(`/v1/agent/flow-runs/${encodeURIComponent(flowRunId)}/${action}`, { method: 'POST', body: '{}' });
+    }
+
+    // ── Approvals (protocol 1.2) ────────────────────────────────────────────
+
+    /** What waits for a person (or, with a status, what was decided). Control: needs the control key. */
+    async listApprovals(filter: { status?: ApprovalStatus } = {}): Promise<ApprovalSummary[]> {
+        const data = await this.controlRequest<{ approvals: ApprovalSummary[] }>(`/v1/agent/approvals${filter.status ? `?status=${filter.status}` : ''}`);
+        return data.approvals;
+    }
+
+    async approval(id: string): Promise<ApprovalSummary> {
+        return this.controlRequest<ApprovalSummary>(`/v1/agent/approvals/${encodeURIComponent(id)}`);
+    }
+
+    /** Approves or rejects. Never retried: a decision is made once (a second one answers `CONFLICT`). */
+    async decideApproval(id: string, decision: ApprovalDecision, context?: AgentContext): Promise<ApprovalSummary> {
+        return this.controlRequest<ApprovalSummary>(`/v1/agent/approvals/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(decision) }, context);
     }
 
     /** Returns the current circuit breaker state ('closed', 'open', 'half_open'). */

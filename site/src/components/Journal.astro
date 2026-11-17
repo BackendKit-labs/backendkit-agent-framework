@@ -1,0 +1,52 @@
+---
+// The signature of the home page: a run journal as the framework writes it. Events are real vocabulary
+// (flow transitions, approvals), taken from the release-captain agent run described in the examples.
+const rows: Array<[string, string, string, 'ok' | 'wait' | 'deny' | 'dim']> = [
+  ['0', 'begin', 'flow alpha · 11 steps', 'dim'],
+  ['1', 'started', 'build-core, registry-core, tags', 'dim'],
+  ['2', 'completed', 'build-core', 'dim'],
+  ['3', 'started', 'build-util', 'dim'],
+  ['4', 'completed', 'verify → VERIFY: ok 5 to publish', 'ok'],
+  ['5', 'approval_requested', 'report · accepts human', 'wait'],
+  ['·', 'approval_decide', 'captain (service) → denied: only a person decides', 'deny'],
+  ['6', 'approved', 'ana (human) · read the plan', 'ok'],
+  ['7', 'completed', 'report · build steps not run again', 'ok'],
+];
+---
+<figure class="journal" aria-label="A run journal">
+  <div class="journal-head">
+    <span class="dot"></span>
+    <span class="file">runs/0b94bdee.ndjson</span>
+    <span class="chain">illustrative, abridged</span>
+  </div>
+  <ol>
+    {rows.map(([n, ev, detail, kind]) => (
+      <li class={kind}>
+        <span class="n">{n}</span>
+        <span class="ev">{ev}</span>
+        <span class="detail">{detail}</span>
+      </li>
+    ))}
+  </ol>
+</figure>
+
+<style>
+  .journal { margin: 0; border: 1px solid var(--rule); border-radius: 10px; background: #fff; overflow: hidden; font-family: var(--sl-font-mono); font-size: .8rem; box-shadow: 0 1px 0 var(--rule-2); }
+  .journal-head { display: flex; align-items: center; gap: .6rem; padding: .6rem .9rem; background: var(--wash); border-bottom: 1px solid var(--rule); color: var(--ink-3); }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--accent); }
+  .file { color: var(--ink); }
+  .chain { margin-left: auto; font-family: var(--sl-font); font-size: .75rem; }
+  ol { list-style: none; margin: 0; padding: .4rem 0; }
+  li { display: grid; grid-template-columns: 2rem 11.5rem 1fr; gap: .5rem; padding: .32rem .9rem; line-height: 1.5; align-items: baseline; }
+  li + li { border-top: 1px solid var(--rule-2); }
+  .n { color: var(--ink-3); text-align: right; }
+  .ev { color: var(--ink); }
+  .detail { color: var(--ink-2); overflow-wrap: anywhere; }
+  li.ok .ev { color: var(--accent); font-weight: 500; }
+  li.wait { background: #fffbeb; }
+  li.wait .ev { color: #92600a; font-weight: 500; }
+  li.deny { background: #fef3f2; }
+  li.deny .ev, li.deny .detail { color: var(--deny); }
+  li.dim .ev { color: var(--ink-2); }
+  @media (max-width: 40rem) { li { grid-template-columns: 1.4rem 1fr; } .detail { grid-column: 2; } }
+</style>

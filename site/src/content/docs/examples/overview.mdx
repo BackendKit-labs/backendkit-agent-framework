@@ -1,0 +1,55 @@
+---
+title: Examples
+description: Seven working agents chosen for what they teach, in the order to read them. All run on the current framework.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Seven examples, chosen because each teaches one thing the others do not. All of them run on the current framework (**agent-core 0.45**), and each one has a script that checks it.
+
+## Read them in this order
+
+Each step adds one idea to the previous one.
+
+| Step | Example | What it teaches | You need |
+|---|---|---|---|
+| 1 | [`flows`](../starters/#flows) | A process as data: a journal, an approval, a resume. No model, so you see the engine alone | Node |
+| 2 | [`git-agent`](../starters/#git-agent) | A real agent in a terminal: your own tools, a team with delegation, a read-only switch, a typed result, a budget | A model key |
+| 3 | [`git-analyst`](../starters/#git-analyst) | An agent **served over MCP** that other programs call | A model key |
+| 4 | [`vault-pilot`](../starters/#vault-pilot) | **Knowledge agents**: department agents answering from a shared vault, each limited to its own folders | A model key |
+| 5 | [`research-desk`](../research-desk/) | Several agents as a flow: parallel analysts, a decision, an approved action, **memory and learning** | A model key |
+| 6 | [`release-captain`](../release-captain/) | A **model that supervises flows**: several at once, and it cannot approve its own report | A model key |
+| 7 | [`audit-desk`](../audit-desk/) | Flows **across processes** against a real Redis, surviving a hard kill | Docker (for the Redis part) |
+
+Steps 1 to 4 are [starter examples](../starters/): small, in the monorepo. Steps 5 to 7 are the deep dives: larger programs, in the `agent-framework-examples` repository.
+
+## What to read for what
+
+| I want to learn | Read |
+|---|---|
+| Tools and the engine | `git-agent` |
+| Serving an agent to others | `git-analyst` |
+| Agents over your own documents | `vault-pilot` |
+| Durable flows | `flows`, then `audit-desk` |
+| Governance and approvals | [Govern a payment tool](../../guides/govern-a-payment-tool/), then `release-captain` |
+| Memory and learning | `research-desk` |
+| A model supervising work | `release-captain` |
+| Testing | [Test an agent](../../guides/test-an-agent/), and the `smoke` script of each example |
+
+## What they have in common
+
+Every example has a way to check it **without trusting a model**: `git-agent` has 8 offline checks, the deep dives have offline suites (deterministic, or with a scripted model), and the ones that use a real model have a capped live script. That is the pattern to copy in your own agents.
+
+<Aside type="note" title="Why only these seven">
+There are more programs in the repositories, but an example is listed here only if it runs on the current framework and teaches something the others do not. When a new one qualifies, it joins the list.
+</Aside>
+
+## How the deep dives improved the framework
+
+Writing a real program is the best test of a library. The three deep dives found real problems, and each was **fixed in the framework**, not worked around in the example:
+
+- the desk showed a flow claim that was not renewed on a long run, and no way to skip a step conditionally (`when`);
+- the audit desk showed a queue that could lose the completion of an instant step, and a file journal that failed under a wide fan-out;
+- the release captain showed that a hosted flow with a human gate ended `failed` instead of waiting, and that a supervising model had no way to wait without polling (`flow_wait`).
+
+If you build something with the framework and hit a wall, that is useful: the answer is usually a change in the framework, not a trick in your code.

@@ -1,0 +1,97 @@
+---
+title: Quickstart
+description: Scaffold a ready-to-run agent project with create-bk-agent and run it.
+---
+
+import { Steps, Tabs, TabItem, FileTree, Aside } from '@astrojs/starlight/components';
+
+The fastest path is the scaffolder. It needs Node.js 20 or newer.
+
+<Steps>
+
+1. **Create the project.**
+
+   <Tabs syncKey="pm">
+     <TabItem label="npm">
+       ```bash
+       npm create bk-agent@latest my-agent
+       ```
+     </TabItem>
+     <TabItem label="pnpm">
+       ```bash
+       pnpm create bk-agent my-agent
+       ```
+     </TabItem>
+     <TabItem label="npx">
+       ```bash
+       npx create-bk-agent my-agent
+       ```
+     </TabItem>
+   </Tabs>
+
+2. **Answer three questions.** The CLI asks for the architecture, the deploy mode and the provider (below).
+
+3. **Give it a key.** The project lists the variables it needs in `.env.example`. Copy it and fill in the key of the provider you chose (for DeepSeek, `DEEPSEEK_API_KEY`):
+
+   ```bash
+   cd my-agent
+   cp .env.example .env     # then edit .env; never commit it
+   ```
+
+4. **Run it.**
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+</Steps>
+
+## The three questions
+
+1. **Architecture** - what kind of agent?
+2. **Deploy mode** - how will it be used?
+3. **Provider** - which LLM API?
+
+| Architecture | What you get | You provide |
+|---|---|---|
+| `single` | One agent with tools. With the `mcp-http` deploy mode it is an MCP server. | Your tools |
+| `multi-agent` | A routing orchestrator and specialists. | Agents and tools for your domain |
+| `coding` | 10 coding agents and the file and command tools. | An LLM key and an `AGENT.md` |
+| `autonomous` | Cron, webhook and event triggers. | What to do on each trigger |
+| `enterprise` | A local LLM and an Obsidian knowledge base. | Your vault |
+| `minimal` | The bare engine. | Everything |
+
+<Aside type="tip" title="Learning? Pick single">
+It is the smallest project with a real tool in it, and the one the [first agent](../first-agent/) page grows from.
+</Aside>
+
+A `single` project looks like this:
+
+<FileTree>
+
+- my-agent
+  - src
+    - agents/ the agent profiles
+    - tools/ your typed tool definitions
+    - config.ts the settings and the provider
+    - engine.ts builds the engine
+  - .env.example
+  - package.json
+  - tsconfig.json
+
+</FileTree>
+
+## Add tests from the start
+
+```bash
+npx create-bk-agent add testing
+```
+
+This installs `@backendkit-labs/agent-testkit` and jest and drops in an example test that runs with **no API key and no network**. [How to test an agent](../../guides/test-an-agent/) explains it.
+
+## What next
+
+- Read the project's `src/`: it is the [first agent](../first-agent/) page, grown a little.
+- Learn [what the engine does](../../concepts/engine-and-tools/) each turn.
+- The reference for the scaffolder is on its [package page](../../packages/create-bk-agent/).

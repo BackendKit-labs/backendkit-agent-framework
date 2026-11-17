@@ -1,0 +1,41 @@
+---
+title: What it is
+description: The framework in one page - what it gives you, how it is split in packages, and what it is not.
+---
+
+import EngineLoop from '../../../components/EngineLoop.astro';
+
+BackendKit Agent Framework is a set of TypeScript packages for building agents. The center is `@backendkit-labs/agent-core`:
+an **engine** that runs a model in a loop, calling **tools** you define, with a **governance** layer that decides which calls may run.
+
+## The shape of an agent
+
+<EngineLoop />
+
+Three ideas carry most of the framework:
+
+1. **Tools declare facts.** A tool says whether it is `readOnly` or `destructive`. The engine decides what to do with that: a read-only tool runs, a destructive one asks a person. Forgetting to declare asks more, never less.
+2. **Governance is outside the model.** The policy, the approver and the audit sink are configuration of the engine. A model cannot talk its way past them.
+3. **Work that matters is durable.** A *flow* is data (YAML): steps, dependencies, approvals. It is journalled, so a crash, a deploy or a night's wait does not lose it, and running it again resumes where it stopped.
+
+## The packages
+
+| Package | Use it for |
+|---|---|
+| `@backendkit-labs/agent-core` | The engine, tools, governance, flows, memory, MCP. Everything starts here. |
+| `@backendkit-labs/agent-providers` | The model: OpenAI-compatible APIs (OpenAI, DeepSeek, Ollama) and Anthropic. |
+| `@backendkit-labs/agent-testkit` | Tests with no API key: a scripted provider, a mock transport, a mock LLM server. |
+| `@backendkit-labs/agent-flow-queue` | Flows across processes: steps on BullMQ workers, runs in Redis. |
+| `@backendkit-labs/agent-sandbox` | Confining what agents run. |
+| `@backendkit-labs/mcp-server`, `agent-protocol`, `agent-web` | Serving agents to other programs and to browsers. |
+| `create-bk-agent` | The project scaffolder. |
+
+Each has its own page under **Packages**.
+
+## What it is not
+
+- It is not a hosted product or a no-code builder. It is a library you import.
+- It does not pick your model. Providers are swappable and the engine works with any that implements one small interface.
+- It does not make a weak model smart. It makes what a model does *safe, observable and testable*.
+
+Next: [run an agent in five minutes](../quickstart/) or [write one by hand](../first-agent/).

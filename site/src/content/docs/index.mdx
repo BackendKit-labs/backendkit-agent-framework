@@ -1,0 +1,141 @@
+---
+title: Build agents you can trust
+description: A TypeScript SDK for agents that act on real systems - typed tools, a policy and approval layer around every call, durable flows, MCP and tests.
+template: splash
+---
+
+import { Tabs, TabItem, LinkButton } from '@astrojs/starlight/components';
+import Journal from '../../components/Journal.astro';
+
+<div class="home-hero">
+  <div class="home-copy">
+    <h1>Build agents you can trust</h1>
+    <p class="lede">
+      A TypeScript SDK for agents that act on real systems. Tools that declare what they do, a policy and approval
+      layer around every call that the model cannot talk its way past, flows that survive a crash, and tests that need no API key.
+    </p>
+
+```bash
+npm create bk-agent@latest my-agent
+```
+
+    <div class="home-actions">
+      <LinkButton href="/backendkit-agent-framework/start/quickstart/" variant="primary">Run an agent in 5 minutes</LinkButton>
+      <LinkButton href="/backendkit-agent-framework/concepts/engine-and-tools/" variant="secondary">Read the concepts</LinkButton>
+    </div>
+  </div>
+  <div class="home-panel">
+    <Journal />
+    <p class="home-note">A run of the release-captain agent, abridged. The model asked to approve its own report and was refused; a person approved it.</p>
+  </div>
+</div>
+
+<div class="cols home-cols">
+  <div>
+    <h3>Tools declare facts</h3>
+    <p>A tool says it is <code>readOnly</code> or <code>destructive</code>. The engine runs the first, asks a person for the second, and asks when a tool says nothing.</p>
+  </div>
+  <div>
+    <h3>Governance lives outside the model</h3>
+    <p>Policy, approver, approval store and audit are configuration of the engine. "Payments over 10k need a human" holds whatever the prompt says.</p>
+  </div>
+  <div>
+    <h3>Work that survives</h3>
+    <p>A flow is YAML: steps, dependencies, approvals. Journalled, so a crash or a night of waiting loses nothing, and a rerun resumes.</p>
+  </div>
+</div>
+
+## One governed call
+
+<Tabs>
+  <TabItem label="Tool">
+
+```ts
+import { defineTool, z } from '@backendkit-labs/agent-core';
+
+export const pay = defineTool({
+  name: 'pay_invoice',
+  description: 'Pay an invoice',
+  destructive: true,                       // cannot be undone: the engine will ask
+  input: z.object({ invoiceId: z.string(), amount: z.number() }),
+  execute: async ({ invoiceId }) => `paid ${invoiceId}`,
+});
+```
+
+  </TabItem>
+  <TabItem label="Policy">
+
+```ts
+import type { ToolPolicy } from '@backendkit-labs/agent-core';
+
+export const rules: ToolPolicy = {
+  decide(_principal, call) {
+    if (call.tool.name === 'pay_invoice' && (call.args.amount as number) > 10_000) {
+      return { effect: 'ask', reason: 'payment above 10k', accepts: ['human'] };
+    }
+    return { effect: 'allow' };
+  },
+};
+```
+
+  </TabItem>
+  <TabItem label="Engine">
+
+```ts
+const engine = createBaseEngine({
+  providers: { main: provider }, defaultProvider: 'main',
+  agents: [treasurer], defaultAgent: 'treasurer', tools: [pay],
+  transport, workingDir: process.cwd(),
+  policy: rules,                                       // who may do what
+  approvals: new FileApprovalStore('./approvals'),     // asks wait for a person, even across processes
+  audit: new HashChainAuditSink('./audit.log'),        // one tamper-evident record per call
+});
+```
+
+  </TabItem>
+</Tabs>
+
+[The full guide](/backendkit-agent-framework/guides/govern-a-payment-tool/) runs it twice: a payment of 500 goes through, one of 25,000 asks and is refused.
+
+## What you can build
+
+| Kind of agent | What it is | Start from |
+|---|---|---|
+| [Assistants](/backendkit-agent-framework/agents/assistants/) | Chat with a few typed tools | `agent-core` |
+| [Coding agents](/backendkit-agent-framework/agents/coding/) | Ten specialists that read, edit and run code | `agent-coding` |
+| [Teams of agents](/backendkit-agent-framework/concepts/multi-agent/) | Specialists and routing between them | `agent-core` |
+| [Autonomous agents](/backendkit-agent-framework/agents/autonomous/) | Cron, webhook and event triggers, unattended | `agent-core`, `agent-web` |
+| [Knowledge agents](/backendkit-agent-framework/agents/knowledge/) | Support, HR, sales, finance and ops over your documents | `agent-enterprise` |
+| [Agents as services](/backendkit-agent-framework/agents/services/) | Served to a browser, over MCP, or to other agents | `agent-web`, `mcp-server`, `agent-protocol` |
+| [Agents that run code](/backendkit-agent-framework/agents/sandboxed/) | Commands confined by a policy that fails closed | `agent-sandbox` |
+| [Agents that connect](/backendkit-agent-framework/agents/connected/) | HubSpot, Jira, calendars, documents, payments | `mcp-connectors`, `document-extract`, `aval-tools` |
+| [Durable flows](/backendkit-agent-framework/concepts/flows/) | Business processes that survive a crash and wait for a person | `agent-core`, `agent-flow-queue` |
+
+[All kinds of agents, and how to choose](/backendkit-agent-framework/agents/overview/).
+
+## Where to go
+
+<div class="cols">
+  <a href="/backendkit-agent-framework/start/first-agent/"><div><h3>Write your first agent</h3><p>A tool, a profile and an engine in about forty lines. It runs offline.</p></div></a>
+  <a href="/backendkit-agent-framework/guides/durable-flow-with-approval/"><div><h3>Run a durable flow</h3><p>A flow that stops for a person, resumes after the decision and does not repeat finished work.</p></div></a>
+  <a href="/backendkit-agent-framework/guides/test-an-agent/"><div><h3>Test without an API key</h3><p>A scripted model, a mock LLM server with injectable failures, assertions on the real world.</p></div></a>
+</div>
+
+<div class="cols">
+  <a href="/backendkit-agent-framework/examples/overview/"><div><h3>Read real programs</h3><p>A release captain, an audit desk run against a real Redis, a trading desk. What each taught the framework.</p></div></a>
+  <a href="/backendkit-agent-framework/guides/let-a-model-supervise-flows/"><div><h3>Let a model supervise flows</h3><p>An agent that starts, waits for and explains runs, and cannot approve its own report.</p></div></a>
+  <a href="/backendkit-agent-framework/packages/core/"><div><h3>Look something up</h3><p>One reference page per package, generated from its README.</p></div></a>
+</div>
+
+## The packages
+
+| Package | Use it for |
+|---|---|
+| [`agent-core`](/backendkit-agent-framework/packages/core/) | The engine, tools, governance, flows, memory, MCP. Everything starts here. |
+| [`agent-providers`](/backendkit-agent-framework/packages/providers/) | The model: OpenAI-compatible APIs (OpenAI, DeepSeek, Ollama) and Anthropic. |
+| [`agent-testkit`](/backendkit-agent-framework/packages/testkit/) | A scripted provider, a mock transport and a mock LLM server. |
+| [`agent-flow-queue`](/backendkit-agent-framework/packages/flow-queue/) | Flows across processes: steps on BullMQ workers, runs in Redis. |
+| [`agent-sandbox`](/backendkit-agent-framework/packages/sandbox/) | Confining what agents run. |
+| [`mcp-server`](/backendkit-agent-framework/packages/mcp-server/), [`agent-protocol`](/backendkit-agent-framework/packages/agent-protocol/), [`agent-web`](/backendkit-agent-framework/packages/web/) | Serving agents to other programs and to browsers. |
+| [`create-bk-agent`](/backendkit-agent-framework/packages/create-bk-agent/) | The project scaffolder. |
+

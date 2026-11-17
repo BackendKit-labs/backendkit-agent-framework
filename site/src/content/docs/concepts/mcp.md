@@ -1,0 +1,45 @@
+---
+title: MCP
+description: Using MCP servers as tools, and serving your own tools over MCP - with or without a model in between.
+---
+
+The **Model Context Protocol** lets programs share tools. The framework speaks it in both directions.
+
+## As a client: use someone else's tools
+
+Give the engine MCP servers and their tools appear next to yours. The client can watch the connection and report when a server drops.
+
+## As a server, without a model
+
+`createToolServer` exposes your `ToolDefinition`s as MCP tools that run **directly**: the arguments the client sends are the arguments `execute` receives, with no language model between. Use it for anything a program or a person should call deterministically.
+
+```ts
+import { createToolServer, startToolServerHttp, runToolServer } from '@backendkit-labs/agent-core';
+
+const options = {
+  name: 'ledger',
+  version: '1.0.0',
+  tools: [balancesTool, payTool],
+  // required because payTool is destructive: a direct tool skips the engine's gates
+  authorize: async ({ tool, args }) => !tool.destructive || approvals.isValid(args.approvalId as string),
+  audit: record => fs.appendFile('tool-calls.ndjson', JSON.stringify(record) + '\n'),
+};
+
+await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });   // stdio by default; --http for HTTP
+```
+
+What each call gets:
+
+- validation against the tool's schema **before** anything runs;
+- your `authorize` gate (mandatory when a tool is `destructive`, so you cannot forget it);
+- a bounded output (default 1 MiB) and an audit record.
+
+`isError: true` always means the call did not run to completion: denied, timed out, threw (the message only, no stack) or returned too much.
+
+**HTTP is closed by default.** Without an auth token the server listens only on loopback, and rejects requests whose `Host` or `Origin` is not loopback (DNS rebinding, cross-site POST).
+
+## Serving an agent
+
+`AgentMCPServer` from `@backendkit-labs/mcp-server` serves an agent's prompt tools and direct tools together. `bk-mcp` serves skills and code intelligence. The flow tools (`createFlowTools`) are plain `ToolDefinition`s, so they can be served the same way: any MCP client gets "start, watch, pause, cancel a flow" with no code of its own.
+
+Reference: [`mcp-server`](../../packages/mcp-server/), [`mcp-connectors`](../../packages/mcp-connectors/) (HubSpot, Jira, Google Calendar).

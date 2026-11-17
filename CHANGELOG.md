@@ -1,6 +1,14 @@
 # Changelog
 
-## Sin publicar
+## v0.45.0 (2026-11-17)
+
+Tres arreglos del motor de flujos que halló el banco de pruebas del research desk, y los docs de v0.44.0 en los paquetes. En 0.x, `^0.43` no cubre 0.44, así que se barrieron los rangos de `agent-core` (`^0.44.0`) y los peers anchos pasan a `<0.45.0`. Solo suben los paquetes afectados; `mcp-connectors` y `agent-web-ui` no cambian (su rango ya cubre las versiones nuevas).
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.44.0 | claim renovado mientras el run vive, `when` en los pasos, `FlowResult.costUsd` |
+| `agent-protocol` 0.7.1, `agent-flow-queue` 0.1.1 | patch | solo el README (aprobaciones 1.2; cola BullMQ y journal Redis con ejemplos) |
+| `agent-coding` 0.32.2, `agent-enterprise` 0.11.1, `mcp-server` 0.19.6, `agent-web` 0.6.11, `agent-providers` 0.3.11, `agent-sandbox` 0.1.14, `agent-testkit` 0.1.14, `agent-otel` 0.1.17, `document-extract` 0.1.7, `aval-tools` 0.1.21, `create-bk-agent` 0.24.1 | patch | solo el rango de `agent-core` (y los templates) |
 
 Tres arreglos del motor de flujos que halló el banco de pruebas del research desk (`agent-framework-examples/trading-bot`, hallazgos 6, 7 y 9):
 

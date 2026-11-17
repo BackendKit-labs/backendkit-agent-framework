@@ -121,10 +121,10 @@ describe('createFlowTools', () => {
     it('declares what is irreversible, so a server demands authorize or policy for it', () => {
         const tools = createFlowTools({ flows: createFlowHandler({}).handler, approvals: createApprovalHandler(new MemoryApprovalStore()), approver: human });
         expect(tools.map(t => t.name)).toEqual([
-            'flow_list', 'flow_start', 'flow_status', 'flow_pause', 'flow_resume', 'flow_cancel', 'approval_list', 'approval_get', 'approval_decide',
+            'flow_list', 'flow_start', 'flow_status', 'flow_wait', 'flow_pause', 'flow_resume', 'flow_cancel', 'approval_list', 'approval_get', 'approval_decide',
         ]);
         expect(tools.filter(t => t.destructive).map(t => t.name)).toEqual(['flow_cancel', 'approval_decide']);
-        expect(tools.filter(t => t.readOnly).map(t => t.name)).toEqual(['flow_list', 'flow_status', 'approval_list', 'approval_get']);
+        expect(tools.filter(t => t.readOnly).map(t => t.name)).toEqual(['flow_list', 'flow_status', 'flow_wait', 'approval_list', 'approval_get']);
     });
 
     it('an MCP tool server refuses the destructive ones until authorize or policy decides who may call them', () => {
@@ -144,6 +144,28 @@ describe('createFlowTools', () => {
         expect(JSON.parse(await find(tools, 'f_flow_pause').execute({ flowRunId }, ctx) as string).status).toBe('paused');
         expect(JSON.parse(await find(tools, 'f_flow_resume').execute({ flowRunId }, ctx) as string).status).toBe('running');
         expect(JSON.parse(await find(tools, 'f_flow_cancel').execute({ flowRunId }, ctx) as string).status).toBe('cancelled');
+    });
+
+    it('flow_wait blocks until the run stops running, or times out saying so', async () => {
+        const { handler } = createFlowHandler({
+            quick: { steps: ['a'], run: async (_i, c) => { await c.step('a'); await new Promise(r => setTimeout(r, 120)); return 'ok'; } },
+            slow: { steps: ['a'], run: async (_i, c) => { await c.step('a'); await new Promise(r => setTimeout(r, 2000)); await c.checkpoint(); return 'late'; } },
+        });
+        const wait = createFlowTools({ flows: handler, waitPollMs: 20 }).find(t => t.name === 'flow_wait')!;
+        const a = await handler.start('quick', {});
+        const done = JSON.parse(await wait.execute({ flowRunId: a.flowRunId, timeoutMs: 5000 }, ctx) as string);
+        expect(done).toMatchObject({ status: 'done', timedOut: false, output: 'ok' });
+        const b = await handler.start('slow', {});
+        const t0 = Date.now();
+        const still = JSON.parse(await wait.execute({ flowRunId: b.flowRunId, timeoutMs: 200 }, ctx) as string);
+        expect(still).toMatchObject({ status: 'running', timedOut: true });
+        expect(Date.now() - t0).toBeLessThan(1500);
+        const ac = new AbortController();
+        const p = wait.execute({ flowRunId: b.flowRunId, timeoutMs: 30_000 }, { signal: ac.signal } as ExecutionContext) as Promise<string>;
+        setTimeout(() => ac.abort(), 50);
+        expect(JSON.parse(await p).timedOut).toBe(true); // an aborted turn does not hold the engine for 30 s
+        await handler.cancel(b.flowRunId);
+        await expect(wait.execute({ flowRunId: 'nope', timeoutMs: 100 }, ctx)).rejects.toThrow();
     });
 
     it('rejects arguments that do not match', async () => {

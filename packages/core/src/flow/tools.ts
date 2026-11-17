@@ -25,7 +25,12 @@ export interface FlowToolsOptions {
     approver?: ApproverRef;
     /** Prefix for the tool names. Default none (`flow_start`, `approval_decide`...). */
     prefix?: string;
+    /** How often `flow_wait` looks at the run, in ms. Default 200. */
+    waitPollMs?: number;
 }
+
+/** The longest a single `flow_wait` call blocks. A model that needs longer calls it again. */
+export const FLOW_WAIT_MAX_MS = 60_000;
 
 const text = (v: unknown): string => JSON.stringify(v, null, 2);
 
@@ -56,6 +61,29 @@ export function createFlowTools(opts: FlowToolsOptions): ToolDefinition[] {
                 name: n('flow_status'), description: 'Where a flow run is: its status, the current step and each step\'s state.',
                 input: z.object({ flowRunId: runId }), readOnly: true,
                 execute: async ({ flowRunId }) => text(await flows.status(flowRunId)),
+            }),
+            defineTool({
+                name: n('flow_wait'),
+                description: 'Wait until a flow run stops running (done, failed, cancelled, paused, awaiting approval) or the timeout passes, and return its status. '
+                    + 'Use it instead of calling flow_status in a loop: one call costs one turn however long the wait. timedOut=true means it is still running: call again.',
+                input: z.object({
+                    flowRunId: runId,
+                    timeoutMs: z.number().int().min(100).max(FLOW_WAIT_MAX_MS).optional().describe(`how long to wait, up to ${FLOW_WAIT_MAX_MS} ms (default 30000)`),
+                }),
+                readOnly: true,
+                execute: async ({ flowRunId, timeoutMs }, ctx) => {
+                    const deadline = Date.now() + (timeoutMs ?? 30_000);
+                    const every = Math.max(10, opts.waitPollMs ?? 200);
+                    let view = await flows.status(flowRunId);
+                    while (view.status === 'running' && Date.now() < deadline && !ctx.signal?.aborted) {
+                        await new Promise<void>(r => {
+                            const t = setTimeout(r, Math.min(every, Math.max(0, deadline - Date.now())));
+                            ctx.signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true });
+                        });
+                        view = await flows.status(flowRunId);
+                    }
+                    return text({ ...view, timedOut: view.status === 'running' });
+                },
             }),
             defineTool({
                 name: n('flow_pause'), description: 'Pause a flow run at its next step boundary. Steps already running finish.',

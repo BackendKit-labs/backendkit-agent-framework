@@ -6,6 +6,8 @@ import type { JournalEvent, JournalRun, JournalRunStatus, NewJournalRun, RunJour
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SEQ_WIDTH = 8;
+/** Attempts to take the next event number against other processes before giving up. */
+const APPEND_ATTEMPTS = 100;
 
 /**
  * A run journal in a directory, with the technique of `FileApprovalStore`: every file is written under a temporary name and
@@ -18,6 +20,8 @@ const SEQ_WIDTH = 8;
  */
 export class FileRunJournal implements RunJournal {
     private ready?: Promise<unknown>;
+    /** The last append of each run in this process, for serialising them. */
+    private readonly tails = new Map<string, Promise<void>>();
 
     constructor(private readonly dir: string) {}
 
@@ -117,16 +121,33 @@ export class FileRunJournal implements RunJournal {
             .sort((a, b) => a - b);
     }
 
-    private async append(runId: string, ev: JournalEvent): Promise<void> {
+    /**
+     * The appends of one run go one after another within this process: a flow with a wide fan-out (dozens of steps finishing at
+     * once) would otherwise have them all racing for the same next number and run out of attempts. Between processes the race
+     * stays, and is settled by retrying with a little jitter.
+     */
+    private append(runId: string, ev: JournalEvent): Promise<void> {
         this.checkId(runId);
-        for (let attempt = 0; attempt < 20; attempt++) {
+        const previous = this.tails.get(runId) ?? Promise.resolve();
+        const result = previous.then(() => this.appendNow(runId, ev));
+        const tail = result.catch(() => undefined);
+        this.tails.set(runId, tail);
+        void tail.then(() => { if (this.tails.get(runId) === tail) this.tails.delete(runId); });
+        return result;
+    }
+
+    private async appendNow(runId: string, ev: JournalEvent): Promise<void> {
+        for (let attempt = 0; attempt < APPEND_ATTEMPTS; attempt++) {
             const seqs = await this.seqs(runId, 'ev');
             if (seqs.length === 0) throw new Error(`run "${runId}" does not exist`);
             try {
                 await this.publish(this.file(runId, 'ev', seqs[seqs.length - 1] + 1), JSON.stringify(ev));
                 return;
             } catch (err) {
-                if ((err as { alreadyExists?: boolean }).alreadyExists) continue; // another writer took that number
+                if ((err as { alreadyExists?: boolean }).alreadyExists) { // another process took that number
+                    if (attempt > 2) await new Promise<void>(r => setTimeout(r, Math.random() * Math.min(attempt, 20)));
+                    continue;
+                }
                 throw err;
             }
         }

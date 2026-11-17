@@ -34,6 +34,22 @@ export const FlowGateSchema = z.object({
     approval: z.enum(['human', 'none']).default('none'),
 });
 
+/**
+ * Runs a step only when the output of one of the steps it waits for says so. Exactly one of `contains`, `equals` (after trimming)
+ * or `matches` (a regular expression); `not` negates it. If the step it looks at produced no output (it failed or was skipped),
+ * the condition cannot be evaluated and the step is skipped: a flow does not act on what it does not know.
+ */
+export const FlowConditionSchema = z.object({
+    /** A step this one waits for (it must be listed in `after`). */
+    step: z.string().min(1),
+    contains: z.string().optional(),
+    equals: z.string().optional(),
+    matches: z.string().optional(),
+    not: z.boolean().default(false),
+}).refine(c => [c.contains, c.equals, c.matches].filter(v => v !== undefined).length === 1, {
+    message: 'a condition needs exactly one of contains, equals or matches',
+});
+
 export const FlowStepSchema = z.object({
     id: z.string().min(1),
     /** Agent id that executes this step. */
@@ -44,6 +60,8 @@ export const FlowStepSchema = z.object({
     tools: z.array(z.string()).optional(),
     /** Step ids this step waits for. Steps with no `after` run in parallel. */
     after: z.array(z.string()).default([]),
+    /** Run this step only if the condition holds. A step that is not run is `skipped` (it does not fail the flow), and so are the steps that wait for it. No approval is asked for it. */
+    when: FlowConditionSchema.optional(),
     gate: FlowGateSchema.optional(),
     /** Deadline for the step, in ms. A step that exceeds it fails; the steps that wait for it are skipped (or run, with `onStepFailure: 'continue'`). */
     timeoutMs: z.number().int().positive().optional(),
@@ -69,6 +87,7 @@ export const FlowDefinitionSchema = z.object({
 
 export type FlowTrigger      = z.infer<typeof FlowTriggerSchema>;
 export type FlowGate         = z.infer<typeof FlowGateSchema>;
+export type FlowCondition    = z.infer<typeof FlowConditionSchema>;
 export type FlowStep         = z.infer<typeof FlowStepSchema>;
 export type FlowCompensation = z.infer<typeof FlowCompensationSchema>;
 export type FlowDefinition   = z.infer<typeof FlowDefinitionSchema>;

@@ -1,0 +1,28 @@
+flow: close-month
+version: 1
+trigger:
+  type: manual
+steps:
+  # No `after`: these two run in parallel.
+  - id: collect-sales
+    agent: sales
+    prompt: "Collect the sales of {{payload.month}} for {{payload.company}}"
+  - id: collect-costs
+    agent: finance
+    prompt: "Collect the costs of {{payload.month}} for {{payload.company}}"
+    timeoutMs: 60000
+  # Waits for both; a person approves it before it runs.
+  - id: report
+    agent: analyst
+    prompt: "Write the month report for {{payload.company}}"
+    after: [collect-sales, collect-costs]
+    gate:
+      approval: human
+  - id: publish
+    agent: comms
+    prompt: "Send the approved report to the board"
+    after: [report]
+compensation:
+  - on: publish.failed
+    agent: comms
+    prompt: "Tell the board the report is delayed"

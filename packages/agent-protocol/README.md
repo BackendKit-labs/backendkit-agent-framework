@@ -56,6 +56,7 @@ await server.start();
 | `POST /v1/agent/run` | Run a capability |
 | `GET` / `DELETE /v1/agent/tasks/:id` | Poll or cancel an async run |
 | `POST /v1/agent/control`, `GET /v1/agent/runs`, `GET /v1/agent/audit` | Control surface (separate key, see below) |
+| `GET /v1/agent/approvals`, `GET /v1/agent/approvals/:id`, `POST /v1/agent/approvals/:id/decision` | Approvals waiting for a person (protocol 1.2, control key) |
 | `GET /v1/agent/flows`, `POST /v1/agent/flows/:name/runs`, `GET /v1/agent/flow-runs/:id`, `POST /v1/agent/flow-runs/:id/:action` | Flows hosted by the agent (protocol 1.1) |
 
 Every request except `health` needs `Authorization: Bearer <apiKey>` when `apiKey` is set. Answers use one envelope: `{ ok, data | error, meta }`, with stable error codes (`ErrorCode`).
@@ -106,6 +107,37 @@ const server = new AgentServer({
 ```
 
 `drain` and `resume` (stop and resume accepting runs) are built in. The available actions are `CONTROL_ACTIONS`: `pause`, `resume`, `drain`, `set_budget`, `get_sandbox_policy`, `set_sandbox_policy`, `list_jobs` and `cancel_job`. With a `flowHandler`, the server also starts, watches and steers the flows it hosts.
+
+## Approvals (protocol 1.2)
+
+A flow step (or a tool call) that needs a person stops, and the supervisor has to see it and answer. With an `approvalHandler` the server lists what waits and takes the decision. Like control, it needs the control key, because an approval carries the input and output of steps.
+
+```typescript
+import { createApprovalHandler, MemoryApprovalStore } from '@backendkit-labs/agent-core';
+
+const store = new MemoryApprovalStore();            // or FileApprovalStore
+const server = new AgentServer({
+  ...opts,
+  controlApiKey: process.env.AGENT_CONTROL_KEY,
+  flowHandler,                                       // see createFlowHandler in agent-core
+  approvalHandler: createApprovalHandler(store, {
+    onDecided: approval => resumeFlow(approval),     // run the flow again with the same runId
+  }),
+});
+
+// supervisor side
+const client = new AgentClient({ url, apiKey, controlApiKey });
+const pending = await client.listApprovals({ status: 'pending' });
+await client.decideApproval(pending[0].id, { decision: 'approve', by: { kind: 'human', id: 'ana' }, reason: 'ok' });
+```
+
+| Endpoint | |
+|---|---|
+| `GET /v1/agent/approvals?status=` | Pending, approved, rejected or executed |
+| `GET /v1/agent/approvals/:id` | One approval: subject, reason, who may decide, outcome |
+| `POST /v1/agent/approvals/:id/decision` | `{ decision: 'approve' \| 'reject', by: { kind, id }, reason? }` |
+
+The host checks who decides: an approval that `accepts: ['human']` refuses an agent or a service, and the requester's own chain cannot approve it (`FORBIDDEN`, and the request stays open). A second decision for the same id is a `CONFLICT`. `AgentInfo` reports `approvals: true` and `protocolMinor`; flow runs can now be `awaiting_approval` or `lost` (a supervisor that restarted and no longer finds the run), and steps `awaiting_approval` or `interrupted`. A server older than 1.2 never sends them.
 
 ## Resilience helpers
 

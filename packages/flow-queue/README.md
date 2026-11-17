@@ -37,6 +37,7 @@ const workers = createStepWorker({
 - **Retries belong to the engine.** `attempts` is 1 by default; BullMQ retries of the same job keep the same key.
 - **Cancel.** Aborting the run removes a step no worker has taken yet; one already running finishes (the worker's signal never aborts).
 - **Deadline.** `timeoutMs` (default 900 s) per step; on expiry the step fails and the flow handles it like any failed step.
+- **A lost announcement is not a lost step.** BullMQ announces the end of a job through an event stream, and an announcement made before a new `QueueEvents` has started reading is never delivered. The executor also looks at the job itself every `pollMs` (default 1 s; 0 turns it off), so a step that finishes in milliseconds on the first use of a queue does not wait for `timeoutMs`.
 - **Names.** `prefix` (default `flow`) lets several environments share a Redis.
 
 ## A run that survives the process

@@ -34,6 +34,13 @@ export interface QueueStepExecutorOptions {
     timeoutMs?: number;
     /** BullMQ retries of the same job (same idempotency key). Default 1: no retry, the engine owns retries. */
     attempts?: number;
+    /**
+     * How often to look at a job that has not reported back, in ms. BullMQ announces the end of a job through an event stream, and
+     * an announcement that is made before a new `QueueEvents` has started reading is never delivered: a step that finishes within
+     * milliseconds on the first use of a queue would then wait until `timeoutMs` for nothing. Looking at the job itself closes that
+     * gap. Default 1000; 0 turns it off.
+     */
+    pollMs?: number;
 }
 
 function connect(redis: RedisConnection): { connection: IORedis; owned: boolean } {
@@ -46,12 +53,25 @@ export function queueName(prefix: string, agentId: string): string {
     return `${prefix}.${agentId}`;
 }
 
+/** Resolves with the output (or rejects with the failure) of a job that finished without its event reaching us. Never settles once `state.stop` is set. */
+async function pollFinished(queue: Queue<StepJobData, StepOutput>, id: string, everyMs: number, state: { stop: boolean }): Promise<StepOutput> {
+    for (;;) {
+        await new Promise<void>(r => { const t = setTimeout(r, everyMs); t.unref?.(); });
+        if (state.stop) return new Promise<never>(() => undefined);
+        const job = await queue.getJob(id).catch(() => undefined);
+        if (!job) continue;
+        if (await job.isCompleted().catch(() => false)) return job.returnvalue as StepOutput;
+        if (await job.isFailed().catch(() => false)) throw new Error(job.failedReason || 'the job failed');
+    }
+}
+
 export class QueueStepExecutor implements StepExecutor {
     private readonly connection: IORedis;
     private readonly owned: boolean;
     private readonly prefix: string;
     private readonly timeoutMs: number;
     private readonly attempts: number;
+    private readonly pollMs: number;
     private readonly queues = new Map<string, { queue: Queue<StepJobData, StepOutput>; events: QueueEvents }>();
 
     constructor(opts: QueueStepExecutorOptions) {
@@ -61,6 +81,7 @@ export class QueueStepExecutor implements StepExecutor {
         this.prefix = opts.prefix ?? DEFAULT_QUEUE_PREFIX;
         this.timeoutMs = opts.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
         this.attempts = opts.attempts ?? 1;
+        this.pollMs = opts.pollMs ?? 1000;
     }
 
     private ensure(agentId: string) {
@@ -100,9 +121,12 @@ export class QueueStepExecutor implements StepExecutor {
             };
             input.signal.addEventListener('abort', onAbort, { once: true });
         });
+        const state = { stop: false };
+        const polled = this.pollMs > 0 && job.id ? pollFinished(queue, job.id, this.pollMs, state) : new Promise<never>(() => undefined);
         try {
-            return await Promise.race([job.waitUntilFinished(events, this.timeoutMs) as Promise<StepOutput>, aborted]);
+            return await Promise.race([job.waitUntilFinished(events, this.timeoutMs) as Promise<StepOutput>, polled, aborted]);
         } finally {
+            state.stop = true;
             if (onAbort) input.signal.removeEventListener('abort', onAbort);
         }
     }

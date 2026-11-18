@@ -143,10 +143,11 @@ const diff = compare(reportV1, report);            // per case and in total, wit
 ```
 
 - **Graders** read the `RunResult`: `toolCalled` (optionally `times` and a check on the arguments), `toolNotCalled`, `noToolErrors`, `errorCode`, `textMatches`, `withinBudget`, `maxToolCalls`, or your own with `grader(name, fn)`. A judge model is a grader you write; the framework brings none.
-- **Arguments** are in the result only with `recordArgs: true` in the engine: they can carry sensitive data, and the audit log keeps only their hash. A grader that reads them fails, saying so, when they are missing.
+- **Arguments** are in the result only with `recordArgs: true` in the engine. They go to the `RunResult` and nowhere else (the `tool_result` event does not carry them): they can be sensitive, and the audit log keeps only their hash. A grader that reads them fails, saying so, when they are missing.
 - **Repetitions.** A real model is not deterministic, so one run is not evidence. The report gives a pass rate per case and for the suite. `build` receives `seed` (`seed + repetition - 1`) to seed your simulated world.
 - **The report is repeatable.** The same suite over the same scripted provider gives the same JSON, byte for byte: timing is left out unless you ask for it (`includeTiming`).
 - **It does not hide a stop.** When a run reports `budgetExceeded`, the suite stops and the report says `stoppedEarly: 'budget'`. A run that throws is a failed run with its message.
+- **Save it to compare later.** `writeReport(report, file)` writes the JSON (mode `0o600`, creating the folder) and `readReport(file)` reads it back, so a new run can `compare` against a baseline from another day. Nothing is saved unless you call it.
 - **Treat the report as sensitive data.** It keeps the `RunResult` of each run, with `preview` text and, with `recordArgs`, arguments.
 - **In CI, without a model:** build the engine over a scripted provider, or over a `ReplayProvider` of a recorded session. A tool that stops being called, or an error code that appears, breaks the suite.
 

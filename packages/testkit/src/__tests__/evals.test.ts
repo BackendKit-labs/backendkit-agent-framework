@@ -181,3 +181,29 @@ describe('compare: the difference of two configurations', () => {
         expect(text).toContain('only in before: onlyA');
     });
 });
+
+describe('writeReport and readReport: a report survives the process', () => {
+    const { mkdtempSync, rmSync, statSync, writeFileSync } = jest.requireActual('node:fs') as typeof import('node:fs');
+    const { tmpdir } = jest.requireActual('node:os') as typeof import('node:os');
+    const { join } = jest.requireActual('node:path') as typeof import('node:path');
+    const { writeReport, readReport } = jest.requireActual('../index') as typeof import('../index');
+    let dir: string;
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'evals-')); });
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    it('what is read back is the report that was written, in a folder that did not exist, and compare works on it', async () => {
+        const report = await evalSuite({ name: 'saved', cases, build: buildOk, repeat: 2 });
+        const file = join(dir, 'deep', 'baseline.json');
+        await writeReport(report, file);
+        const back = await readReport(file);
+        expect(back).toEqual(JSON.parse(JSON.stringify(report)));
+        expect(compare(back, report).delta).toBe(0);
+        if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
+    });
+
+    it('a file that is not a report of this version is refused, with its name', async () => {
+        const file = join(dir, 'other.json');
+        writeFileSync(file, JSON.stringify({ schema: 2, name: 'x', cases: [] }));
+        await expect(readReport(file)).rejects.toThrow(/other\.json is not an evaluation report.*schema 2/);
+    });
+});

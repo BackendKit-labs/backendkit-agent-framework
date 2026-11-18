@@ -188,8 +188,8 @@ export interface AgentEngineOptions extends EngineOptions {
      */
     emitSystemPrompt?: boolean;
     /**
-     * Put the arguments of each tool call in its `tool_result` event, so `RunResult.toolCalls[].args` has them (SPEC-0021 D7).
-     * Off by default: the arguments can carry sensitive data and the event goes to every transport. For tests and evaluations.
+     * Put the arguments of each tool call in `RunResult.toolCalls[].args` (SPEC-0021 D7). They are not added to the `tool_result`
+     * event, so no transport receives them. Off by default: the arguments can carry sensitive data. For tests and evaluations.
      */
     recordArgs?: boolean;
 }
@@ -1748,13 +1748,15 @@ export class AgentEngine {
         // Strip ANSI before slicing to avoid partial escape sequences in the preview
         // eslint-disable-next-line no-control-regex
         const cleanPreview = result.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-        emitEvent({
+        const resultEvent: import('../types').AgentEvent = {
             type: 'tool_result', name: call.name, success, preview: cleanPreview.slice(0, 120),
             agent_id: profile.id, started_at: callStart, duration_ms: Date.now() - callStart,
             ...(outcome ? { outcome } : {}),
             ...(errorCode ? { error_code: errorCode } : {}),
-            ...(this.opts.recordArgs ? { args: this.parseArgs(call.args) } : {}),
-        });
+        };
+        // The arguments go to the result of the run and nowhere else: not in the event, so no transport receives them.
+        if (this.opts.recordArgs) this.recorder?.attachArgs(resultEvent, this.parseArgs(call.args));
+        emitEvent(resultEvent);
         return result;
     }
 

@@ -1,4 +1,6 @@
 import type { AgentEngine, RunResult } from '@backendkit-labs/agent-core';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 /**
  * Evaluations of agents (SPEC-0021): cases as data, graders that read a `RunResult`, repetitions, a JSON report and a
@@ -270,4 +272,24 @@ export function formatComparison(c: Comparison): string {
     if (c.onlyInA.length) lines.push(`  only in ${c.a}: ${c.onlyInA.join(', ')}`);
     if (c.onlyInB.length) lines.push(`  only in ${c.b}: ${c.onlyInB.join(', ')}`);
     return lines.join('\n');
+}
+
+// ── Saving a report ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Writes a report as JSON, so a later run can `compare` against it. The file is `0o600` (only its owner reads it): it keeps the
+ * `RunResult` of each run, with text and, with `recordArgs`, arguments. Creates the folder if it is missing.
+ */
+export async function writeReport(report: EvalReport, file: string): Promise<void> {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+}
+
+/** Reads a report written by `writeReport`. Throws when the file is not a report of a version this one understands. */
+export async function readReport(file: string): Promise<EvalReport> {
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as Partial<EvalReport>;
+    if (parsed.schema !== 1 || !Array.isArray(parsed.cases) || typeof parsed.name !== 'string') {
+        throw new Error(`${file} is not an evaluation report this version understands (schema ${String(parsed.schema)})`);
+    }
+    return parsed as EvalReport;
 }

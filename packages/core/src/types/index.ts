@@ -293,7 +293,7 @@ export type AgentEvent =
     | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     /** `agent_id`, `started_at` (epoch ms) and `duration_ms` let tracing build an accurate span per tool call. */
-    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number; outcome?: 'timeout' | 'aborted'; error_code?: string; args?: Record<string, unknown> }
+    | { type: 'tool_result'; name: string; success: boolean; preview?: string; agent_id?: string; started_at?: number; duration_ms?: number; outcome?: 'timeout' | 'aborted'; error_code?: string }
     | { type: 'tool_approval_request'; tool_name: string; agent_id: string; args_preview: string }
     | { type: 'agent_switch'; from: string; to: string; to_name?: string; to_icon?: string }
     | { type: 'block_start'; agent_id: string; agent_name?: string; agent_icon?: string }

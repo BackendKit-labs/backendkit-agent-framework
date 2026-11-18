@@ -5,7 +5,7 @@ description: The framework in one page - what it gives you, how it is split in p
 
 import EngineLoop from '../../../components/EngineLoop.astro';
 
-BackendKit Agent Framework is a TypeScript toolkit for building agents that act on real systems, and for controlling what they are allowed to do.
+BackendKit Agent Framework is a TypeScript framework for **enterprise agents**: the agents a business deploys on real systems and has to answer for. General-purpose agent frameworks compete on what an agent can do. This one is built around what a company needs before it lets an agent run: to know what a call can do before it runs, to decide outside the model, to survive a crash, to account for what happened and what it cost, and to change only with a person's approval.
 
 - **Tools, two ways.** Define a tool once and run it driven by a model, or call it directly and deterministically.
 - **Governance outside the model.** Policy, approval and audit decide which calls may run, so a destructive call waits for a person.
@@ -13,6 +13,20 @@ BackendKit Agent Framework is a TypeScript toolkit for building agents that act 
 - **Multitasking.** Flow steps run in parallel by dependency, read-only calls of one turn run together, many runs share a concurrency limit, and autonomous agents work on cron, webhook and event triggers.
 - **Self-learning.** Repeated failures become lessons in an agent's prompt and proposed rules that a person approves. An agent cannot approve what it learned.
 - **Testable offline.** Scripted models and mock servers, so checks need no API key.
+
+## What makes it for enterprise agents
+
+| A company needs | The framework gives |
+|---|---|
+| To know what a call can do before it runs | Tools declare facts (`readOnly`, `destructive`, `idempotent`); a tool that says nothing is asked about |
+| A decision the model cannot change | Policy, approval and audit are engine configuration; the model cannot approve its own work |
+| Work that survives failure | Durable flows with a journal, resumable mid-approval, on files, Redis, SQLite or Postgres |
+| To answer for what happened | A tamper-evident audit log with who approved each call, and the cost of each run |
+| Spend that stops | Budgets per run and per day with a hard stop |
+| Change under control | Lessons and rules proposed from failures; a person approves, an agent cannot |
+| Proof before production | Agent logic and failures tested offline, with no API key |
+
+It is a library you embed in your own services, not a hosted platform.
 
 The center is `@backendkit-labs/agent-core`: an **engine** that runs a model in a loop, calling the tools you define, with the governance layer around it.
 

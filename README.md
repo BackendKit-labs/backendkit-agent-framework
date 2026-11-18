@@ -1,6 +1,6 @@
 # BackendKit Agent Framework
 
-TypeScript toolkit for building agents that act on real systems, and for controlling what they may do. Typed tools that run driven by a model or called directly and deterministically; governance outside the model (policy, approval, audit); orchestration by delegation or as durable flows that survive a crash; multitasking by dependency, concurrency limit and triggers; self-learning that a person approves; MCP in both directions; and tests that need no API key.
+TypeScript framework for **enterprise agents**: the ones a business deploys on real systems and has to answer for. Unlike general-purpose agent frameworks, it is built around what a company needs before it lets an agent run. Tools that declare what a call can do; governance outside the model (policy, approval, audit) that the model cannot talk its way past; durable flows that survive a crash and wait for a person; cost budgets with a hard stop; self-learning that a person approves; MCP in both directions; and tests that need no API key.
 
 ```bash
 npx create-bk-agent my-project

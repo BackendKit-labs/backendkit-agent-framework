@@ -1,7 +1,7 @@
 # SPEC-0025: mejoras tras comparar con otros frameworks (índice y orden de ejecución)
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Índice de SPEC-0026 a SPEC-0037, sin implementar.
+**Estado:** Índice vigente. Ola A: 0029, 0028 y 0030 hechas y publicadas; 0037 en pausa. Ola B: 0021 en curso; 0026, 0027 y 0031 sin empezar. *(Revisado el 2026-11-18; antes decía: Borrador. Índice de SPEC-0026 a SPEC-0037, sin implementar.)*
 **Origen:** análisis comparativo del código de Mastra, LangGraph.js, OpenAI Agents JS y Vercel AI SDK, pedido por el usuario el 2026-11-17 ("analizar código de otros framework para ver qué tienen que nosotros no").
 **Relacionado:** [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) (hoja de ruta del framework como librería), [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) (evals, ya en borrador), [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) F5 (contrato de RAG).
 **Tipo de cambio:** ninguno. Este documento solo ordena.

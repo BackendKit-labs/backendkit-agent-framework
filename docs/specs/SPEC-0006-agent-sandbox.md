@@ -1,7 +1,7 @@
 # SPEC-0006: agent-sandbox — confinamiento y permisos de ejecución
 
 **Fecha:** 2026-10-22
-**Estado:** Borrador
+**Estado:** Parcial: S1 (sandbox de ejecución, PR #73 y #74, v0.30.0) y S3a (herramientas de archivo detrás del sandbox, PR #76, v0.31.0) publicadas en `agent-sandbox`. El resto de fases, sin revisar contra el código. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Inspiración:** `sandbox/*`, `interaction/permission-presets`, `interaction/user-approval`, `fs/fs-sandbox`, `docs/defensive-patterns.md` de deepseek-harness (diseño, no código).
 **Cierra:** el pendiente de la auditoría "sandbox de `run_command` (decidir docker)".
 

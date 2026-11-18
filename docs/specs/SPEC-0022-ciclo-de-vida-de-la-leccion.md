@@ -1,7 +1,7 @@
 # SPEC-0022: ciclo de vida de la lección
 
 **Fecha:** 2026-11-16
-**Estado:** Decisiones D1-D5 aceptadas el 2026-11-16 con las propuestas. F1-F4 implementadas (sin publicar). F5 medida en el banco `trading-bot` con el modelo simulado (sus dos sondas son ahora aserciones): **3 rechazos del error que la lección evita antes de que entrara en el prompt y 0 en las 230 sesiones posteriores**, frente a 19 en 245 sesiones sin este cambio. Sustituye a F3 de [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) (su D5).
+**Estado:** Implementado y publicado (F1 a F4 en v0.44.0). F5 medida en el banco `trading-bot` con el modelo simulado; decisiones D1-D5 aceptadas el 2026-11-16. *(Revisado el 2026-11-18; antes decía: Decisiones D1-D5 aceptadas el 2026-11-16 con las propuestas. F1-F4 implementadas (sin publicar). F5 medida en el banco `trading-bot` con el modelo simulado (sus dos sondas son ahora aserciones): 3 rechazos del error que la lección evita antes de que entrara en el prompt y 0 en las 230 sesiones posteriores, frente a 19 en 245 sesiones sin este cambio. Sustituye a F3 de [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) (su D5).)*
 **Depende de:** SPEC-0019 F1 y F2 (señal y lecciones por tool, mergeados y sin publicar), `createLearning`, `SuccessCounters`, `QualifiedPatterns`.
 **Tipo de cambio:** aditivo, salvo la caducidad por defecto (D1), que **cambia el comportamiento de 0.42.0, ya publicado** (la histéresis de #193 iba en esa versión).
 **Objetivo:** que una lección que funciona no desaparezca por funcionar, y que una persona pueda ver y decidir cuándo una lección ya no hace falta.

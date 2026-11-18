@@ -1,7 +1,7 @@
 # SPEC-0001: Ola 1 de capacidades de agent-core
 
 **Fecha:** 2026-10-21
-**Estado:** En revisión (decisiones de la §10 aceptadas el 2026-10-21; pendiente de aprobación final)
+**Estado:** Implementado y publicado (Ola 1, core 0.27.0, v0.27.0). *(Revisado el 2026-11-18; antes decía: En revisión (decisiones de la §10 aceptadas el 2026-10-21; pendiente de aprobación final))*
 **Versión base:** `@backendkit-labs/agent-core` 0.24.1, `agent-coding` 0.20.1
 **ADR:** [0001](../adr/0001-ejecucion-paralela-de-tool-calls.md) · [0002](../adr/0002-aborto-automatico-por-presupuesto.md) · [0003](../adr/0003-salida-estructurada.md) · [0004](../adr/0004-cache-de-prompt-y-razonamiento-anthropic.md) · [0005](../adr/0005-unificacion-de-providers.md)
 

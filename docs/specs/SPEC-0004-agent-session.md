@@ -1,7 +1,7 @@
 # SPEC-0004: agent-session — log de sesión orientado a eventos
 
 **Fecha:** 2026-10-22
-**Estado:** Borrador
+**Estado:** Borrador, sin implementar (no hay log de sesión por eventos en `agent-core`). Sin revisar desde 2026-10-22: comprobar si SPEC-0034 y los journals de flujos ya cubren parte de lo que pide. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Inspiración:** `core/session`, `session-persistence*`, `session-checkpoint-policy`, `session-projection`, `session-query*` de deepseek-harness (diseño, no código).
 **Habilita:** hijos continuables y fork (SPEC-0005), goals y recordatorios durables (SPEC-0007), Hermes completo (SPEC-0003 H3), ejecución durable y evals con replay.
 

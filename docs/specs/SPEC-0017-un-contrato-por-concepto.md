@@ -1,7 +1,7 @@
 # SPEC-0017: un contrato por concepto
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador (inventario y decisiones; el diseño detallado de cada fase se escribe al empezarla)
+**Estado:** Parcial: F6 (autoaprendizaje) publicada (v0.42.0). F1 pasó a SPEC-0023 (implementada). F5 se amplía en SPEC-0033 (borrador). F2 a F4 sin confirmar. *(Revisado el 2026-11-18; antes decía: Borrador (inventario y decisiones; el diseño detallado de cada fase se escribe al empezarla))*
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md); [SPEC-0015](SPEC-0015-extraer-coding-de-los-contratos-de-core.md) y [SPEC-0016](SPEC-0016-desamarrar-modulos-mixtos.md) para las fases que tocan módulos movidos.
 **Tipo de cambio:** por fases. Cada una es aditiva: introduce el contrato, adapta las implementaciones y marca las viejas como obsoletas. La retirada va en el minor siguiente.
 **Fases:** F1 workflow, F2 política, F3 auditoría, F4 memoria, F5 RAG, F6 autoaprendizaje (la única con diseño ya decidido).

@@ -1,7 +1,7 @@
 # SPEC-0019: aprendizaje, segunda iteración
 
 **Fecha:** 2026-11-15
-**Estado:** Decisiones D1-D10 aceptadas el 2026-11-16 con las propuestas de §2. F1 y F2 implementadas; F3-F7 pendientes.
+**Estado:** Decisiones D1-D10 aceptadas el 2026-11-16. F1 y F2 implementadas y publicadas (v0.43.0); F3 pasó a SPEC-0022; F4 a F7 sin hacer. *(Revisado el 2026-11-18; antes decía: Decisiones D1-D10 aceptadas el 2026-11-16 con las propuestas de §2. F1 y F2 implementadas; F3-F7 pendientes.)*
 **Depende de:** [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) F6 (módulo `learning`, mergeado) y [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`AuditSink`, `ToolPolicy`, `ApprovalStore`).
 **Tipo de cambio:** por fases, aditivas salvo F4 (esquema de regla único) y F7 (retirada de `reflection`).
 **Objetivo:** que el aprendizaje sea una capacidad estándar del framework: que aprenda de una señal fiable, que la lección diga qué hacer, y que una regla tenga el mismo ciclo de vida en cualquier agente.

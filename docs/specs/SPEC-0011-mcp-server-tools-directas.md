@@ -1,7 +1,7 @@
 # SPEC-0011: tools directas (sin LLM) servidas por MCP
 
 **Fecha:** 2026-10-28. Revisada el 2026-11-14 tras verificar el uso real en Steward.
-**Estado:** **D1–D4 implementados** (rama `feat/spec-0011-tool-server`, sin publicar). D5 (migrar Steward) aplazado por decisión del usuario.
+**Estado:** D1 a D4 implementados y publicados (core 0.37.2, mcp-server 0.18.6, v0.38.2). D5 (migrar Steward) aplazado por decisión del usuario. *(Revisado el 2026-11-18; antes decía: D1–D4 implementados (rama `feat/spec-0011-tool-server`, sin publicar). D5 (migrar Steward) aplazado por decisión del usuario.)*
 **Depende de:** [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md), SPEC-0009 (confianza y límites)
 **Origen:** propuesta de Steward (Fase 7). Verificado contra el código el 2026-10-28; disparador cumplido el 2026-11-14.
 **Objetivo:** que el SDK sirva tools deterministas (`execute` directo, sin pasar por el engine) por MCP con transporte, auth y guards propios, para que ningún consumidor tenga que reimplementar el servidor.

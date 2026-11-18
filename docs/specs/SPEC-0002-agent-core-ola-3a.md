@@ -1,7 +1,7 @@
 # SPEC-0002: Ola 3a — mejoras rápidas en agent-core
 
 **Fecha:** 2026-10-22
-**Estado:** Borrador
+**Estado:** Implementado y publicado (Ola 3a: plazo y cancelación por tool, desbordamiento de contexto, credenciales por referencia y jobs; PR #63 a #66, v0.29.0). *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Versión base:** `@backendkit-labs/agent-core` 0.28.0, `agent-coding` 0.24.0
 **Contexto:** análisis de deepseek-harness (`docs/notes/analisis-dsh-vs-framework-actual.md`). Cuatro huecos que se cierran dentro de `agent-core` sin crear librerías nuevas y que son prerrequisito de Hermes (SPEC-0003).
 

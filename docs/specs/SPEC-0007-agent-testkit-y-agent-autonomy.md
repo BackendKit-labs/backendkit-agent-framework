@@ -1,7 +1,7 @@
 # SPEC-0007: agent-testkit y agent-autonomy
 
 **Fecha:** 2026-10-22
-**Estado:** Borrador
+**Estado:** Parcial: la parte A existe como `agent-testkit` (proveedor con guion, servidor mock OpenAI-compatible con fallos, grabar y reproducir); faltan el servidor mock en formato Anthropic y el reloj falso. La parte B (autonomía) no se ha revisado contra lo que ya hay en `triggers` y `jobs` de `agent-core`. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Inspiración:** `test-support/llm-replay`, `llm-mock-server`, `session-snapshot`, `goal/*`, `schedule/*`, `webhook/*`, `jobs/*` de deepseek-harness (diseño, no código).
 
 ## Parte A — agent-testkit

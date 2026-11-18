@@ -1,7 +1,7 @@
 # SPEC-0029: adaptador de modelos del AI SDK de Vercel a `LLMProvider`
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: contrato verificado, ver §8; D1, D3 y D5 cambian. **F1 hecha (2026-11-18)**, junto con F2 y F3 que salieron en el mismo código, ver §9. F4 y F5 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel documenta unos 50 providers (Google, Vertex, Bedrock, Azure, Mistral, Cohere, Groq, Perplexity...). Nosotros ofrecemos OpenAI-compatible y Anthropic.
 **Depende de:** nada. Es aditivo en `agent-providers`.
 **Tipo de cambio:** aditivo; un punto de entrada nuevo y una dependencia opcional.
@@ -66,3 +66,70 @@ const engine = createBaseEngine({
 - El AI SDK cambia de versión de interfaz con frecuencia; se fija un rango y se prueba contra el mínimo y el máximo.
 - Dos capas de reintento y de normalización de errores pueden contradecirse: D3.
 - Fuera de alcance: exponer nuestros providers como modelos del AI SDK (la dirección inversa), imágenes, audio y vídeo.
+
+## 8. F0: el contrato real (2026-11-18)
+
+Verificado instalando `ai` 7.0.176, `@ai-sdk/provider` 4.0.39, `@ai-sdk/google` 4.0.122 y `@ai-sdk/openai` 4.0.121 en un directorio aparte y leyendo sus tipos.
+
+**Lo que se sabía mal o faltaba**
+
+- **Hay tres versiones de interfaz vivas.** `ai` define `LanguageModel = string | LanguageModelV4 | LanguageModelV3 | LanguageModelV2`. Las líneas `ai-v5` y `ai-v6` de npm son V2 y V3; la actual (`latest`) es V4. Los paquetes de proveedor actuales (`@ai-sdk/google`, `@ai-sdk/openai`) devuelven modelos `specificationVersion: 'v4'`. Un adaptador que solo entienda V4 deja fuera a quien no ha migrado.
+- **`doStream` no reintenta.** `LanguageModelV4CallOptions` no tiene `maxRetries`: el reintento vive en `ai` (`generateText`), no en el modelo. D3 se simplifica: no hay nada que poner a 0, reintentamos nosotros.
+- **El tipo `LanguageModel` incluye un `string`** (id global de proveedor del AI SDK Gateway). El adaptador exige un objeto modelo y rechaza el string con un error claro.
+
+**Contrato V4** (`doStream(options)` devuelve `{ stream: ReadableStream<Part> }`; `doGenerate` existe pero no se usa)
+
+| Nuestro `LLMProvider.chat` | Opción V4 |
+|---|---|
+| mensajes `system` / `user` / `assistant` / `tool` | `prompt`: `system` con `content: string`; `user` y `assistant` con arreglos de partes (`text`, `reasoning`, `tool-call`); `tool` con partes `tool-result` |
+| una llamada de tool del asistente | parte `tool-call { toolCallId, toolName, input: unknown }` (objeto, no string) |
+| su resultado | parte `tool-result { toolCallId, toolName, output: { type: 'text', value } \| { type: 'json', value } \| { type: 'execution-denied', ... } }` |
+| `ToolDefinition` | `tools: [{ type: 'function', name, description, inputSchema: JSONSchema7 }]`, sin `execute` |
+| `ChatOptions.toolChoice` | `{ type: 'auto' \| 'none' \| 'required' }` o `{ type: 'tool', toolName }` |
+| `ChatOptions.responseFormat` | `{ type: 'json', schema, name?, description? }` |
+| `callbacks.signal` | `abortSignal` |
+| temperatura, tokens máximos | `temperature`, `maxOutputTokens`, `topP`, `stopSequences`, `seed` |
+
+**Partes del stream → callbacks:** `text-delta { delta }` → `onChunk`; `reasoning-delta { delta }` → `onReasoning`; `tool-call { toolCallId, toolName, input: string JSON }` → `onToolCall` (llega completa; `tool-input-start/delta/end` son solo progreso y se ignoran); `finish { usage, finishReason }` → `onMetrics` y `onDone`; `error { error }` → `onError`; `stream-start` (avisos), `response-metadata`, `ping`, `raw`, `source`, `file` se ignoran. `finishReason` es `{ unified: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'interrupted' | 'other', raw }` en V3 y V4, y un string en V2.
+
+**Uso:** V3 y V4: `inputTokens { total, noCache, cacheRead, cacheWrite }` y `outputTokens { total, text, reasoning }`. V2: números planos `inputTokens`, `outputTokens`, `totalTokens`, `reasoningTokens?`, `cachedInputTokens?` (sin `cacheWrite`).
+
+**Pruebas:** `ai/test` exporta `MockLanguageModelV4` y `MockLanguageModelV3`, no `V2`: el caso V2 se prueba con un modelo escrito a mano.
+
+**Decisiones que cambian**
+
+| # | Antes | Ahora |
+|---|---|---|
+| D1 | `@ai-sdk/provider` como dependencia opcional | **Ninguna dependencia.** El adaptador declara una interfaz estructural mínima (`doStream`, `specificationVersion`, `modelId`, `provider`) y normaliza V2/V3/V4 por `specificationVersion`. Así no hay rango de peer que mantener ni versión del SDK que fijar. Las pruebas usan `ai` como devDependency. |
+| D3 | el AI SDK invocado con sus reintentos a 0 | `doStream` no reintenta: reintentamos nosotros con `withRetry`, sin más. |
+| D5 | `capabilities.structuredOutput = none` hasta F0 | Se mantiene `none` por defecto: `responseFormat` con esquema existe en el contrato, pero que el modelo lo aplique depende del proveedor, y F0 no puede probarlo sin clave. Con `opts.structuredOutput` el integrador lo declara; F4 lo cablea. |
+
+**Qué queda sin comprobar:** el comportamiento real de un proveedor (nadie probó aún un `google(...)` en vivo), que es F5 y lo ejecuta el usuario con su clave.
+
+## 9. F1 (con F2 y F3): `fromAiSdk` (2026-11-18)
+
+`packages/providers/src/AiSdkProvider.ts`, exportado desde la entrada principal de `agent-providers` (no hace falta una subruta `/ai-sdk`: sin dependencia, no cuesta nada a quien no lo usa). `fromAiSdk(model, opts)` devuelve un `AiSdkProvider extends BaseStreamingProvider`, así que hereda el reintento, el no reintentar tras salida o aborto, y la clasificación de errores. Opciones: `structuredOutput`, `temperature`, `maxOutputTokens`, `providerOptions`, y los de reintento.
+
+- **Sin dependencia del SDK:** el parámetro es una interfaz estructural (`AiSdkModelLike`). Rechaza un `string` (id del Gateway) y una versión de interfaz que no sea v2, v3 o v4, con un mensaje claro.
+- **Las tools salen sin `execute`:** solo `type`, `name`, `description` e `inputSchema`. El engine las ejecuta, con su política y su aprobación.
+- **Cubre F2 y F3 por el camino:** aborto (la señal va como `abortSignal`), reintento de un 503 y no de un 401, un `error` del stream (tras salida no se reintenta), uso con tokens de caché (v3/v4 anidado, v2 plano) y razonamiento a `onReasoning`.
+
+**Pruebas:** 16 en `AiSdkProvider.test.ts` con un modelo escrito a mano que reproduce las partes de §8 (83 en el paquete, todas verdes). Además, **contra los modelos simulados reales del SDK** (`MockLanguageModelV4` y `MockLanguageModelV3` de `ai/test`, `ai` 7.0.176), con un script aparte que no está en el repo: texto, llamada a tool completa y uso con caché llegan igual por las dos versiones, y las tools salen con las cuatro claves esperadas. `ai` no se añadió como devDependency: es solo ESM, pide Node 22 y arrastraría un árbol grande de dependencias a un paquete que declara Node 20.
+
+### Prueba en vivo (2026-11-18, `deepseek-v4-flash` a través de `@ai-sdk/deepseek`)
+
+Con la clave de DeepSeek del usuario, el modelo de un proveedor **real** del AI SDK (`createDeepSeek(...)('deepseek-v4-flash')`) pasado por `fromAiSdk`:
+
+| Prueba | Resultado |
+|---|---|
+| **Engine completo** (`createBaseEngine`, un agente con una tool `get_weather` de solo lectura; "¿temperatura en Lima? usa la tool") | La tool se llamó **una vez**, la ejecutó el engine (no el SDK), el modelo recibió el resultado en la **segunda vuelta** y contestó "18 °C"; sin errores. |
+| Abortar a mitad de stream (tras 4 fragmentos) | Corta a los 2,4 s y llega `AbortError` a `onError`, sin respuesta final. |
+| Clave inválida | Un solo intento, 481 ms, error legible de DeepSeek en `onError`: es permanente y no se reintenta. |
+| `responseFormat` con esquema | Devolvió `{"name":"Ana","age":30}`, JSON válido. No se sabe si lo impuso el modelo o el propio SDK degradando a `json_object`: por eso D5 se queda en `none` por defecto. |
+
+### Sigue sin comprobar
+
+- **Proveedores que exigen devolver bloques opacos entre turnos** (D6): las firmas de `thinking` de Anthropic y las firmas de pensamiento de Gemini en un bucle de tools. DeepSeek no lo exige y su segunda vuelta funciona; con los otros no hay clave, y `LLMMessage.raw` aún no transporta nada de este adaptador. Es el hueco con más riesgo real.
+- Modelos de Google, Anthropic, Bedrock, Azure y Mistral a través del SDK (solo DeepSeek se ejecutó en vivo).
+- Interfaces V2 y V3 contra un proveedor real (se probaron con los modelos simulados del SDK y con un doble propio).
+- F4: cablear `structuredOutput` según lo que cada proveedor garantice, y F5: el ejemplo documentado.

@@ -10,3 +10,5 @@ export { AnthropicProvider } from './AnthropicProvider';
 export type { AnthropicProviderOptions, AnthropicClientLike, AnthropicStreamEvent, AnthropicCacheMode } from './AnthropicProvider';
 export { withRetry, isTransient, isNetworkError } from './retry';
 export type { RetryOptions } from './retry';
+export { AiSdkProvider, fromAiSdk } from './AiSdkProvider';
+export type { AiSdkModelLike, AiSdkProviderOptions } from './AiSdkProvider';

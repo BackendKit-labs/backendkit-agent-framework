@@ -116,4 +116,20 @@ Verificado instalando `ai` 7.0.176, `@ai-sdk/provider` 4.0.39, `@ai-sdk/google` 
 
 **Pruebas:** 16 en `AiSdkProvider.test.ts` con un modelo escrito a mano que reproduce las partes de §8 (83 en el paquete, todas verdes). Además, **contra los modelos simulados reales del SDK** (`MockLanguageModelV4` y `MockLanguageModelV3` de `ai/test`, `ai` 7.0.176), con un script aparte que no está en el repo: texto, llamada a tool completa y uso con caché llegan igual por las dos versiones, y las tools salen con las cuatro claves esperadas. `ai` no se añadió como devDependency: es solo ESM, pide Node 22 y arrastraría un árbol grande de dependencias a un paquete que declara Node 20.
 
-**Sin comprobar:** una corrida del engine completo (el motor pide una tool, la ejecuta y vuelve al modelo) con este provider; el provider se prueba aislado. Un modelo real (`google(...)`), que es F5 y lo ejecuta el usuario con su clave. `ChatOptions.responseFormat` se envía pero no hay prueba de que un proveedor concreto lo aplique (F4). No se transportan `raw` ni los bloques opacos de razonamiento entre turnos (D6): si un proveedor los exige de vuelta, fallará en la segunda vuelta de una tool.
+### Prueba en vivo (2026-11-18, `deepseek-v4-flash` a través de `@ai-sdk/deepseek`)
+
+Con la clave de DeepSeek del usuario, el modelo de un proveedor **real** del AI SDK (`createDeepSeek(...)('deepseek-v4-flash')`) pasado por `fromAiSdk`:
+
+| Prueba | Resultado |
+|---|---|
+| **Engine completo** (`createBaseEngine`, un agente con una tool `get_weather` de solo lectura; "¿temperatura en Lima? usa la tool") | La tool se llamó **una vez**, la ejecutó el engine (no el SDK), el modelo recibió el resultado en la **segunda vuelta** y contestó "18 °C"; sin errores. |
+| Abortar a mitad de stream (tras 4 fragmentos) | Corta a los 2,4 s y llega `AbortError` a `onError`, sin respuesta final. |
+| Clave inválida | Un solo intento, 481 ms, error legible de DeepSeek en `onError`: es permanente y no se reintenta. |
+| `responseFormat` con esquema | Devolvió `{"name":"Ana","age":30}`, JSON válido. No se sabe si lo impuso el modelo o el propio SDK degradando a `json_object`: por eso D5 se queda en `none` por defecto. |
+
+### Sigue sin comprobar
+
+- **Proveedores que exigen devolver bloques opacos entre turnos** (D6): las firmas de `thinking` de Anthropic y las firmas de pensamiento de Gemini en un bucle de tools. DeepSeek no lo exige y su segunda vuelta funciona; con los otros no hay clave, y `LLMMessage.raw` aún no transporta nada de este adaptador. Es el hueco con más riesgo real.
+- Modelos de Google, Anthropic, Bedrock, Azure y Mistral a través del SDK (solo DeepSeek se ejecutó en vivo).
+- Interfaces V2 y V3 contra un proveedor real (se probaron con los modelos simulados del SDK y con un doble propio).
+- F4: cablear `structuredOutput` según lo que cada proveedor garantice, y F5: el ejemplo documentado.

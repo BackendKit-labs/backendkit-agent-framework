@@ -20,8 +20,8 @@ npm create bk-agent@latest my-agent
 ```
 
     <div class="home-actions">
-      <LinkButton href="/backendkit-agent-framework/start/quickstart/" variant="primary">Run an agent in 5 minutes</LinkButton>
-      <LinkButton href="/backendkit-agent-framework/concepts/engine-and-tools/" variant="secondary">Read the concepts</LinkButton>
+      <LinkButton href="/start/quickstart/" variant="primary">Run an agent in 5 minutes</LinkButton>
+      <LinkButton href="/concepts/engine-and-tools/" variant="secondary">Read the concepts</LinkButton>
     </div>
   </div>
   <div class="home-panel">
@@ -95,47 +95,47 @@ const engine = createBaseEngine({
   </TabItem>
 </Tabs>
 
-[The full guide](/backendkit-agent-framework/guides/govern-a-payment-tool/) runs it twice: a payment of 500 goes through, one of 25,000 asks and is refused.
+[The full guide](/guides/govern-a-payment-tool/) runs it twice: a payment of 500 goes through, one of 25,000 asks and is refused.
 
 ## What you can build
 
 | Kind of agent | What it is | Start from |
 |---|---|---|
-| [Assistants](/backendkit-agent-framework/agents/assistants/) | Chat with a few typed tools | `agent-core` |
-| [Coding agents](/backendkit-agent-framework/agents/coding/) | Ten specialists that read, edit and run code | `agent-coding` |
-| [Teams of agents](/backendkit-agent-framework/concepts/multi-agent/) | Specialists and routing between them | `agent-core` |
-| [Autonomous agents](/backendkit-agent-framework/agents/autonomous/) | Cron, webhook and event triggers, unattended | `agent-core`, `agent-web` |
-| [Knowledge agents](/backendkit-agent-framework/agents/knowledge/) | Support, HR, sales, finance and ops over your documents | `agent-enterprise` |
-| [Agents as services](/backendkit-agent-framework/agents/services/) | Served to a browser, over MCP, or to other agents | `agent-web`, `mcp-server`, `agent-protocol` |
-| [Agents that run code](/backendkit-agent-framework/agents/sandboxed/) | Commands confined by a policy that fails closed | `agent-sandbox` |
-| [Agents that connect](/backendkit-agent-framework/agents/connected/) | HubSpot, Jira, calendars, documents, payments | `mcp-connectors`, `document-extract`, `aval-tools` |
-| [Durable flows](/backendkit-agent-framework/concepts/flows/) | Business processes that survive a crash and wait for a person | `agent-core`, `agent-flow-queue` |
+| [Assistants](/agents/assistants/) | Chat with a few typed tools | `agent-core` |
+| [Coding agents](/agents/coding/) | Ten specialists that read, edit and run code | `agent-coding` |
+| [Teams of agents](/concepts/multi-agent/) | Specialists and routing between them | `agent-core` |
+| [Autonomous agents](/agents/autonomous/) | Cron, webhook and event triggers, unattended | `agent-core`, `agent-web` |
+| [Knowledge agents](/agents/knowledge/) | Support, HR, sales, finance and ops over your documents | `agent-enterprise` |
+| [Agents as services](/agents/services/) | Served to a browser, over MCP, or to other agents | `agent-web`, `mcp-server`, `agent-protocol` |
+| [Agents that run code](/agents/sandboxed/) | Commands confined by a policy that fails closed | `agent-sandbox` |
+| [Agents that connect](/agents/connected/) | HubSpot, Jira, calendars, documents, payments | `mcp-connectors`, `document-extract`, `aval-tools` |
+| [Durable flows](/concepts/flows/) | Business processes that survive a crash and wait for a person | `agent-core`, `agent-flow-queue` |
 
-[All kinds of agents, and how to choose](/backendkit-agent-framework/agents/overview/).
+[All kinds of agents, and how to choose](/agents/overview/).
 
 ## Where to go
 
 <div class="cols">
-  <a href="/backendkit-agent-framework/start/first-agent/"><div><h3>Write your first agent</h3><p>A tool, a profile and an engine in about forty lines. It runs offline.</p></div></a>
-  <a href="/backendkit-agent-framework/guides/durable-flow-with-approval/"><div><h3>Run a durable flow</h3><p>A flow that stops for a person, resumes after the decision and does not repeat finished work.</p></div></a>
-  <a href="/backendkit-agent-framework/guides/test-an-agent/"><div><h3>Test without an API key</h3><p>A scripted model, a mock LLM server with injectable failures, assertions on the real world.</p></div></a>
+  <a href="/start/first-agent/"><div><h3>Write your first agent</h3><p>A tool, a profile and an engine in about forty lines. It runs offline.</p></div></a>
+  <a href="/guides/durable-flow-with-approval/"><div><h3>Run a durable flow</h3><p>A flow that stops for a person, resumes after the decision and does not repeat finished work.</p></div></a>
+  <a href="/guides/test-an-agent/"><div><h3>Test without an API key</h3><p>A scripted model, a mock LLM server with injectable failures, assertions on the real world.</p></div></a>
 </div>
 
 <div class="cols">
-  <a href="/backendkit-agent-framework/examples/overview/"><div><h3>Read real programs</h3><p>A release captain, an audit desk run against a real Redis, a trading desk. What each taught the framework.</p></div></a>
-  <a href="/backendkit-agent-framework/guides/let-a-model-supervise-flows/"><div><h3>Let a model supervise flows</h3><p>An agent that starts, waits for and explains runs, and cannot approve its own report.</p></div></a>
-  <a href="/backendkit-agent-framework/packages/core/"><div><h3>Look something up</h3><p>One reference page per package, generated from its README.</p></div></a>
+  <a href="/examples/overview/"><div><h3>Read real programs</h3><p>A release captain, an audit desk run against a real Redis, a trading desk. What each taught the framework.</p></div></a>
+  <a href="/guides/let-a-model-supervise-flows/"><div><h3>Let a model supervise flows</h3><p>An agent that starts, waits for and explains runs, and cannot approve its own report.</p></div></a>
+  <a href="/packages/core/"><div><h3>Look something up</h3><p>One reference page per package, generated from its README.</p></div></a>
 </div>
 
 ## The packages
 
 | Package | Use it for |
 |---|---|
-| [`agent-core`](/backendkit-agent-framework/packages/core/) | The engine, tools, governance, flows, memory, MCP. Everything starts here. |
-| [`agent-providers`](/backendkit-agent-framework/packages/providers/) | The model: OpenAI-compatible APIs (OpenAI, DeepSeek, Ollama) and Anthropic. |
-| [`agent-testkit`](/backendkit-agent-framework/packages/testkit/) | A scripted provider, a mock transport and a mock LLM server. |
-| [`agent-flow-queue`](/backendkit-agent-framework/packages/flow-queue/) | Flows across processes: steps on BullMQ workers, runs in Redis. |
-| [`agent-sandbox`](/backendkit-agent-framework/packages/sandbox/) | Confining what agents run. |
-| [`mcp-server`](/backendkit-agent-framework/packages/mcp-server/), [`agent-protocol`](/backendkit-agent-framework/packages/agent-protocol/), [`agent-web`](/backendkit-agent-framework/packages/web/) | Serving agents to other programs and to browsers. |
-| [`create-bk-agent`](/backendkit-agent-framework/packages/create-bk-agent/) | The project scaffolder. |
+| [`agent-core`](/packages/core/) | The engine, tools, governance, flows, memory, MCP. Everything starts here. |
+| [`agent-providers`](/packages/providers/) | The model: OpenAI-compatible APIs (OpenAI, DeepSeek, Ollama) and Anthropic. |
+| [`agent-testkit`](/packages/testkit/) | A scripted provider, a mock transport and a mock LLM server. |
+| [`agent-flow-queue`](/packages/flow-queue/) | Flows across processes: steps on BullMQ workers, runs in Redis. |
+| [`agent-sandbox`](/packages/sandbox/) | Confining what agents run. |
+| [`mcp-server`](/packages/mcp-server/), [`agent-protocol`](/packages/agent-protocol/), [`agent-web`](/packages/web/) | Serving agents to other programs and to browsers. |
+| [`create-bk-agent`](/packages/create-bk-agent/) | The project scaffolder. |
 

@@ -2,8 +2,11 @@
 title: Governance
 description: Policy, approvers, durable approvals and audit - the layer that decides which tool calls may run, outside the model.
 ---
+import PolicyDecision from '../../../components/PolicyDecision.astro';
 
 An agent that can act on real systems needs a layer that is **not** the model deciding what is allowed. In this framework that layer is configuration of the engine: a policy, an approver, an approval store and an audit sink.
+
+<PolicyDecision />
 
 ## The decision for every call
 

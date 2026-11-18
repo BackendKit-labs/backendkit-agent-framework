@@ -1,0 +1,62 @@
+---
+// Delegation (the model picks the path) next to a flow (you declare it). Inline SVG.
+---
+<figure class="diagram">
+  <svg viewBox="0 0 760 250" role="img" aria-label="Delegation: an orchestrator asks specialists as the model decides. Flow: declared steps, two in parallel, then an approval gate">
+    <defs>
+      <marker id="df-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#697080"/></marker>
+    </defs>
+
+    <text x="10" y="20" font-size="14" font-weight="600" fill="#14171f">Delegation: the model decides</text>
+    <g stroke="#14171f" stroke-width="1.2" fill="#fff">
+      <rect x="10" y="88" width="120" height="56" rx="8"/>
+      <rect x="230" y="40" width="130" height="48" rx="8"/>
+      <rect x="230" y="144" width="130" height="48" rx="8"/>
+    </g>
+    <g font-size="14" font-weight="600" fill="#14171f" text-anchor="middle">
+      <text x="70" y="111">Orchestrator</text>
+      <text x="295" y="68">billing</text>
+      <text x="295" y="172">support</text>
+    </g>
+    <g font-size="12" fill="#697080" text-anchor="middle">
+      <text x="70" y="129">delegatesTo</text>
+      <text x="165" y="77">ask_agent</text>
+      <text x="165" y="171">ask_agent</text>
+    </g>
+    <g stroke="#697080" stroke-width="1.3" fill="none" marker-end="url(#df-ah)">
+      <path d="M130 106L228 66"/><path d="M130 126L228 168"/>
+    </g>
+    <g font-size="12" fill="#697080">
+      <text x="10" y="216">The path is not known in advance.</text>
+      <text x="10" y="234">Depth is limited, the chain is recorded.</text>
+    </g>
+
+    <line x1="395" y1="12" x2="395" y2="236" stroke="#e3e6ec" stroke-width="1"/>
+
+    <text x="420" y="20" font-size="14" font-weight="600" fill="#14171f">Flow: you decide</text>
+    <g stroke="#14171f" stroke-width="1.2" fill="#fff">
+      <rect x="420" y="88" width="80" height="56" rx="8"/>
+      <rect x="560" y="40" width="80" height="48" rx="8"/>
+      <rect x="560" y="144" width="80" height="48" rx="8"/>
+      <rect x="670" y="88" width="80" height="56" rx="8" fill="#e8f3f0" stroke="#0e6b5c"/>
+    </g>
+    <g font-size="14" font-weight="600" fill="#14171f" text-anchor="middle">
+      <text x="460" y="121">collect</text>
+      <text x="600" y="69">check</text>
+      <text x="600" y="173">report</text>
+      <text x="710" y="111">approve</text>
+    </g>
+    <g font-size="12" fill="#697080" text-anchor="middle">
+      <text x="710" y="129">a person</text>
+    </g>
+    <g stroke="#697080" stroke-width="1.3" fill="none" marker-end="url(#df-ah)">
+      <path d="M500 106L558 66"/><path d="M500 126L558 168"/>
+      <path d="M640 66L694 86"/><path d="M640 168L694 146"/>
+    </g>
+    <g font-size="12" fill="#697080">
+      <text x="420" y="216">A YAML file: steps run by dependency.</text>
+      <text x="420" y="234">The journal lets it resume.</text>
+    </g>
+  </svg>
+  <figcaption>Delegation when the model should choose who handles what. A flow when the steps are known and a person must approve one.</figcaption>
+</figure>

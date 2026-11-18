@@ -3,4 +3,8 @@
 ---
 <script is:inline>
   document.documentElement.dataset.theme = 'light';
+  // Restore the navigation column choice before first paint, so the page does not jump.
+  try {
+    if (localStorage.getItem('bk-sidebar') === 'hidden') document.documentElement.dataset.sidebar = 'hidden';
+  } catch (e) {}
 </script>

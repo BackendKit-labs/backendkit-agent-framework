@@ -49,7 +49,7 @@ body { background: #fff; -webkit-font-smoothing: antialiased; text-rendering: op
 /* ---------- header ---------- */
 header.header { border-bottom: 1px solid var(--rule); }
 .site-title { font-weight: 600; font-size: 1rem; letter-spacing: -0.005em; color: var(--ink); }
-.site-title::before { content: ''; width: 1.35rem; height: 1.35rem; border-radius: 5px; background: var(--ink); display: inline-block; margin-right: .1rem; }
+.site-title::before { content: "BK"; display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; border-radius: 6px; background: var(--ink); color: #fff; font-family: var(--sl-font-mono); font-size: .68rem; font-weight: 600; letter-spacing: -.02em; margin-right: .15rem; }
 site-search button[data-open-modal] { border-radius: 6px; border-color: var(--rule); box-shadow: none; }
 
 /* ---------- sidebar: sentence case, quiet ---------- */
@@ -164,3 +164,21 @@ a.cols-link:hover h3, .cols > a:hover h3 { color: var(--accent-ink); }
 /* tighter gap between the page title and the first paragraph */
 :root[data-has-sidebar] .main-pane .content-panel:first-child { padding-bottom: .4rem; }
 :root[data-has-sidebar] .main-pane .content-panel:first-child + .content-panel { padding-top: .4rem; }
+
+/* ---------- collapsible navigation (desktop only; on small screens Starlight's own menu is used) ---------- */
+.title-row { display: flex; align-items: center; gap: .6rem; }
+.sidebar-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted, #5b6470); cursor: pointer;
+}
+.sidebar-toggle:hover { background: var(--wash); color: var(--ink); }
+.sidebar-toggle:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+@media (min-width: 50rem) {
+  :root[data-has-sidebar] .sidebar-toggle { display: inline-flex; }
+  :root[data-sidebar='hidden'] { --sl-sidebar-width: 0rem; --sl-content-width: 78rem; }
+  :root[data-sidebar='hidden'] .sidebar-pane { visibility: hidden; border-inline-end: 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .main-pane, .sidebar-pane { transition: padding .15s ease; }
+}

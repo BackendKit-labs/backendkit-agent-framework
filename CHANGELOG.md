@@ -16,7 +16,7 @@
 - **`agent-core`, arreglo de `runFlow` (#234):** una renovación del claim aún en vuelo cuando la corrida terminaba podía llegar después de liberar el claim y volver a tomarlo, dejando la corrida retenida hasta que vencía el TTL; ahora `runFlow` espera la renovación (con tope) antes de liberar. Era la causa de las pruebas intermitentes en Windows.
 - **`agent-core/testing`:** `journalConformance`, la batería que cualquier `RunJournal` debe pasar (la usa `agent-flow-sql`).
 - **`agent-providers`, `AiSdkProvider` / `fromAiSdk` (SPEC-0029):** cualquier modelo del AI SDK (interfaces v2, v3 y v4) como proveedor del framework. Probado en vivo con DeepSeek; sin probar con Anthropic ni Gemini, y los bloques de razonamiento opacos (`raw`) no se transportan.
-- **`agent-flow-sql`, nuevo:** `RunJournal` sobre SQLite y Postgres: las corridas sobreviven al proceso y cualquier proceso que comparta la base puede reanudarlas. Sin probar con Neon, PG ≤ 14 ni pgbouncer en modo statement.
+- **`agent-flow-sql`, nuevo:** `RunJournal` sobre SQLite y Postgres: las corridas sobreviven al proceso y cualquier proceso que comparta la base puede reanudarlas. Probado con Postgres 14 a 18 y pgbouncer en modo transaction; en modo statement no funciona (rechaza las transacciones, con un error claro). Sin probar con Neon.
 - **`codemod`, nuevo:** `npx @backendkit-labs/codemod <nombre> ./src` con `scope-rename`, `coding-split`, `terminal-app-split` y `zod4-record`; `--list` y `--dry-run`. Probado contra la migración manual de `mcp-server` y sobre `aiops-agent`; `coding-split` solo con fixtures. Guía: [Migrate between versions](https://backendkit-agent-framework.vercel.app/guides/migrate-between-versions/).
 
 ## v0.46.0 (2026-11-17)

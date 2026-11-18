@@ -58,7 +58,7 @@ const journal = new PostgresRunJournal(new Pool({ connectionString }), { schema:
 await journal.migrate();
 ```
 
-The package has no driver dependency: you pass the handle. `journal.ddl()` returns the statements if you apply migrations with your own tool.
+The package has no driver dependency: you pass the handle. Reference: the [`agent-flow-sql` page](../../packages/flow-sql/). `journal.ddl()` returns the statements if you apply migrations with your own tool.
 
 ## Things to know before you rely on it
 

@@ -1,7 +1,7 @@
 # SPEC-0037: codemods y guías de migración
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 hecha (2026-11-18)**: inventario de las rupturas reales, ver §8. **F1 hecha (2026-11-18)**: el paquete, `--list`, `--dry-run` y cuatro transformaciones (`scope-rename`, `coding-split`, `terminal-app-split`, `zod4-record`), ver §9; la herramienta final es el compilador de TypeScript, no `ts-morph`. **Probado con un proyecto real (`aiops-agent`), ver §10.** F2, el resto de la parte de zod 4 de F3 y F4 sin hacer.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: inventario de las rupturas reales, ver §8. **F1 hecha (2026-11-18)**: el paquete, `--list`, `--dry-run` y cuatro transformaciones (`scope-rename`, `coding-split`, `terminal-app-split`, `zod4-record`), ver §9; la herramienta final es el compilador de TypeScript, no `ts-morph`. **Probado con un proyecto real (`aiops-agent`), ver §10.** **F4 hecha (2026-11-18)**: guía `guides/migrate-between-versions` en la web, ver §12. F2 y el resto de la parte de zod 4 de F3 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel y Mastra publican un paquete `codemod` y guías de migración por versión; nosotros hemos publicado rupturas con solo una nota en el CHANGELOG.
 **Depende de:** nada. Aditivo, en un paquete nuevo.
 **Tipo de cambio:** aditivo.
@@ -146,3 +146,11 @@ Una forma de probar un codemod sin inventar un proyecto: la ruptura de SPEC-0016
 **Lo que la orden no hace, y la persona sí hizo:** en dos sitios de ese commit había `const { SkillActivator } = await import('@backendkit-labs/agent-core')` seguido de `new SkillActivator().detectStack(cwd)`, y quedó `const { detectStack } = await import('@backendkit-labs/agent-coding/cli')` y `detectStack(cwd)`. Son dos cosas fuera del alcance declarado: un `import()` **dinámico** (la orden solo lee `import` y `export ... from` estáticos) y un **método** que pasó a ser una función suelta (no es un export de `agent-core` que desaparezca, así que no sale de la lista de nombres). Va a la guía de migración de F4, que lo dice en su sitio; y queda como límite documentado del README.
 
 **`coding-split` sigue probado solo con fixtures.** En el commit anterior a la ruptura de SPEC-0015 ningún paquete ni ejemplo del repositorio, fuera de `core` y `coding`, importaba esos nombres de `agent-core` (las coincidencias de una búsqueda por la palabra eran nombres de agentes "orchestrator"). Hace falta un proyecto externo que use `Orchestrator`, `QAService` o los hooks de auditoría de `agent-core` para probarlo de verdad.
+
+## 12. F4: la guía y la regla de cierre (2026-11-18)
+
+**La guía:** `site/src/content/docs/guides/migrate-between-versions.md`, una sola página con las rupturas en orden cronológico (scope, `ToolArgumentError`, zod 4, `coding-split`, `terminal-app-split`). Cada sección dice qué cambió, qué hace la orden y qué queda a mano. Abre con el orden que funcionó en §10 (subir rangos, correr las órdenes, `tsc`, **y las pruebas**) y recoge los dos casos reales que la orden no cubre: el cambio de comportamiento de `defineTool` y el `import()` dinámico con `SkillActivator.detectStack`.
+
+**La regla "una ruptura sale con su transformación y su guía":** el repo no tiene un documento de cierre de release donde ponerla (el procedimiento vive en la memoria del mantenedor, no en un archivo versionado), así que queda aquí como criterio de §6 y como la pregunta que se hace al cerrar un release con ruptura: ¿tiene su sección en `migrate-between-versions` y, si es mecánica, su transformación en `packages/codemod`? Pendiente: llevarla a un archivo versionado si se crea uno.
+
+**Sin comprobar:** que los enlaces y fragmentos (`#validation-throws-since-agent-core-034`) resuelvan en el sitio desplegado; el build de Astro pasa.

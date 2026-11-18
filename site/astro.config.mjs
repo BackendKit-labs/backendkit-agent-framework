@@ -72,6 +72,7 @@ export default defineConfig({
             { slug: 'guides/choose-a-journal' },
             { slug: 'guides/test-an-agent' },
             { slug: 'guides/let-a-model-supervise-flows' },
+            { slug: 'guides/migrate-between-versions' },
           ],
         },
         {

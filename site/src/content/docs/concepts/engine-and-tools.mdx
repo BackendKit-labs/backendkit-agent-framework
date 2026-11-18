@@ -64,7 +64,7 @@ await runToolServer({ name: 'weather', tools: [weather] }, { bin: 'weather-mcp' 
 ```
 
 ```ts
-// any MCP client: a script, a job, another service. It is the MCP SDK's client: the framework serves tools, it does not ship a client for calling them.
+// any MCP client: a script, a job, another service. This one is the MCP SDK client.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 

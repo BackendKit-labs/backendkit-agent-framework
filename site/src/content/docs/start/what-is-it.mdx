@@ -34,6 +34,7 @@ Three ideas carry most of the framework:
 | `@backendkit-labs/agent-providers` | The model: OpenAI-compatible APIs (OpenAI, DeepSeek, Ollama) and Anthropic. |
 | `@backendkit-labs/agent-testkit` | Tests with no API key: a scripted provider, a mock transport, a mock LLM server. |
 | `@backendkit-labs/agent-flow-queue` | Flows across processes: steps on BullMQ workers, runs in Redis. |
+| `@backendkit-labs/agent-flow-sql` | Flows that survive restarts on SQLite or Postgres: the run journal in a database. |
 | `@backendkit-labs/agent-sandbox` | Confining what agents run. |
 | `@backendkit-labs/mcp-server`, `agent-protocol`, `agent-web` | Serving agents to other programs and to browsers. |
 | `create-bk-agent` | The project scaffolder. |

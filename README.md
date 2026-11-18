@@ -1,6 +1,6 @@
 # BackendKit Agent Framework
 
-TypeScript SDK for building agents: a model- and transport-agnostic engine with typed tools, delegation, governance (policy, approval, audit), MCP in both directions, and the pieces you need to run agents as infrastructure.
+TypeScript toolkit for building agents that act on real systems, and for controlling what they may do. Typed tools that run driven by a model or called directly and deterministically; governance outside the model (policy, approval, audit); orchestration by delegation or as durable flows that survive a crash; multitasking by dependency, concurrency limit and triggers; self-learning that a person approves; MCP in both directions; and tests that need no API key.
 
 ```bash
 npx create-bk-agent my-project

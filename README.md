@@ -51,6 +51,7 @@ Policies, approvers (a person, another agent, a service), hooks and the MCP tool
 | [`@backendkit-labs/agent-coding`](packages/coding) | Coding agents: profiles, file and command tools, a terminal transport |
 | [`@backendkit-labs/agent-enterprise`](packages/enterprise) | Business agents: department profiles, Obsidian RAG with per-folder isolation, YAML flows with compliance gates |
 | [`@backendkit-labs/agent-flow-queue`](packages/flow-queue) | Flows across processes: a BullMQ `StepExecutor` (each step on a worker) and a Redis `RunJournal` |
+| [`@backendkit-labs/agent-flow-sql`](packages/flow-sql) | A `RunJournal` on SQL (SQLite today, Postgres next): runs survive the process and any process sharing the database can resume them |
 | [`@backendkit-labs/agent-sandbox`](packages/sandbox) | Confinement of what agents run: modes, presets, one policy point, a docker backend (or none) |
 | [`@backendkit-labs/agent-protocol`](packages/agent-protocol) | Agent HTTP protocol: server, client and resilience for agents that call each other over the network |
 | [`@backendkit-labs/agent-web`](packages/web) | HTTP/WebSocket server for browser-ready streaming sessions, auth, metrics and triggers |

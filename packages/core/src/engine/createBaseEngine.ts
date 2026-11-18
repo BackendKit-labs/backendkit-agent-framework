@@ -325,6 +325,9 @@ export interface BaseEngineOptions {
     /** See `AgentEngineOptions.emitSystemPrompt`. */
     emitSystemPrompt?: boolean;
 
+    /** See `AgentEngineOptions.recordArgs`. */
+    recordArgs?: boolean;
+
     /**
      * Lifecycle hooks (SPEC-0014): beforeRun, systemPrompt, afterTurn (may force another pass), beforeTool,
      * afterTool, afterRun. Registration order; a throwing hook fails the turn.
@@ -506,6 +509,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
+        ...(opts.recordArgs ? { recordArgs: true } : {}),
         ...(opts.hooks?.length || opts.instructionSources?.length || opts.learning
             ? {
                 hooks: [

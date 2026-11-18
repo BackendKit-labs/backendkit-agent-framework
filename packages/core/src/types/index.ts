@@ -268,6 +268,8 @@ export interface RunToolCall {
     outcome?: 'timeout' | 'aborted';
     /** The first characters of what the call returned. */
     preview?: string;
+    /** The arguments the model passed. Only with `recordArgs`: they can carry sensitive data, and the audit log keeps only their hash. */
+    args?: Record<string, unknown>;
 }
 
 /** What `engine.run` returns: what happened in the turn, collected from its events. */

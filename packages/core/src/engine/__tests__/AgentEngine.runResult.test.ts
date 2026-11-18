@@ -135,3 +135,41 @@ describe('the budget', () => {
         expect(engine.budgetExceeded).toBe(false);
     });
 });
+
+describe('recordArgs: the arguments of each call in the result (SPEC-0021 D7)', () => {
+    const withArgs = (): Turn => ({ tool_calls: [{ id: 'c1', name: 'ok', args: { symbol: 'AAPL', sizePct: 12 } }, { id: 'c2', name: 'coded', args: { n: 1 } }] });
+
+    it('with the option, each call carries what the model passed, failed calls included', async () => {
+        const { engine } = build([withArgs(), { content: 'done' }], { recordArgs: true });
+        const r = await engine.run('go');
+        expect(r.toolCalls.map(t => [t.name, t.args])).toEqual([['ok', { symbol: 'AAPL', sizePct: 12 }], ['coded', { n: 1 }]]);
+    });
+
+    it('the arguments reach the result only: no event, so no transport, carries them', async () => {
+        const { engine, events } = build([withArgs(), { content: 'done' }], { recordArgs: true });
+        const r = await engine.run('go');
+        expect(r.toolCalls[0].args).toEqual({ symbol: 'AAPL', sizePct: 12 });
+        expect(events.filter(e => e.type === 'tool_result')).toHaveLength(2);
+        // The event of the result carries no arguments. (The older tool_call event shows the first 200 characters of them as args_preview, with or without the option.)
+        expect(JSON.stringify(events.filter(e => e.type === 'tool_result'))).not.toContain('AAPL');
+        expect(events.filter(e => e.type === 'tool_result').every(e => !('args' in e))).toBe(true);
+    });
+
+    it('calls of a parallel wave and of a delegate keep their own arguments', async () => {
+        const par: Turn = { tool_calls: [{ id: 'p1', name: 'ok', args: { n: 1 } }, { id: 'p2', name: 'ok', args: { n: 2 } }] };
+        const { engine } = build([par, { content: 'done' }], { recordArgs: true, maxParallelTools: 2 });
+        const r = await engine.run('go');
+        expect(r.toolCalls.map(t => t.args)).toEqual([{ n: 1 }, { n: 2 }]);
+        const del: Turn = { tool_calls: [{ id: 'd1', name: 'ask_agent', args: { agent_id: 'helper', question: 'q' } }] };
+        const d = build([del, { tool_calls: [{ id: 'h1', name: 'ok', args: { from: 'helper' } }] }, { content: 'helper says' }, { content: 'done' }], { recordArgs: true });
+        const rd = await d.engine.run('go');
+        expect(rd.toolCalls.find(t => t.name === 'ok')?.args).toEqual({ from: 'helper' });
+    });
+
+    it('without it, the result has no args: they can be sensitive, and the audit log keeps only their hash', async () => {
+        const { engine, events } = build([withArgs(), { content: 'done' }]);
+        const r = await engine.run('go');
+        expect(r.toolCalls.every(t => !('args' in t))).toBe(true);
+        expect(events.filter(e => e.type === 'tool_result').every(e => !('args' in e))).toBe(true);
+    });
+});

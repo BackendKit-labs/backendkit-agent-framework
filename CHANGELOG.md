@@ -1,5 +1,10 @@
 # Changelog
 
+## Sin publicar
+
+- **`agent-core`, `recordArgs`:** `createBaseEngine({ recordArgs: true })` pone los argumentos de cada llamada a una tool en `RunResult.toolCalls[].args` (SPEC-0021 F0). Van solo al resultado: el evento `tool_result` no los lleva, así que ningún transporte los recibe. Apagado por defecto: pueden llevar datos sensibles y la auditoría solo guarda su hash. Aditivo.
+- **`agent-testkit`, arnés de evaluación (SPEC-0021 F1 a F4):** `evalSuite`, `compare`, `formatReport`, `formatComparison`, `writeReport` / `readReport` (un informe guardado en un archivo `0o600`, para comparar entre ejecuciones) y graders (`toolCalled`, `toolNotCalled`, `noToolErrors`, `errorCode`, `textMatches`, `withinBudget`, `maxToolCalls`, `grader`). Casos como datos, repeticiones con semilla, informe JSON repetible (`schema: 1`) y comparación de dos configuraciones; con un proveedor guionizado o una grabación corre en CI sin modelo ni coste. La suite se detiene si una corrida supera el presupuesto del engine y lo dice en el informe. Sin probar con un modelo real ni con el banco `trading-bot` (F5). Ver la guía [Test an agent](https://backendkit-agent-framework.vercel.app/guides/test-an-agent/).
+
 ## v0.48.0 (2026-11-18)
 
 Se elimina `FileRunJournal` (ruptura de `agent-core`, SPEC-0024 F4). En 0.x, `^0.46` no cubre 0.47, así que se barrieron los rangos de `agent-core` (`^0.47.0`) y los peers anchos pasan a `<0.48.0`. `agent-flow-sql` no sube: su peer (`>=0.46.0 <0.48.0`) ya cubre 0.47. `codemod`, `agent-flow-sql`, `agent-protocol`, `mcp-connectors` y `agent-web-ui` no cambian.

@@ -26,6 +26,8 @@ export class ObservabilityManager {
 
     // Per-run state
     private runSpan: ActiveSpan | null = null;
+    /** The id of the run in progress (from the `ready` event): a tag of every span, so a span and the audit events of its run meet. */
+    private runId?: string;
     private runStart = 0;
     private runHadError = false;
     private blockSpans = new Map<string, { span: ActiveSpan; start: number }>();
@@ -81,6 +83,10 @@ export class ObservabilityManager {
         return { ...event, cost_usd: this.batchCostUsd };
     }
 
+    private runTag(): { run_id: string } | Record<string, never> {
+        return this.runId ? { run_id: this.runId } : {};
+    }
+
     private handleEvent(event: AgentEvent): void {
         this.batchCostUsd = 0;
         switch (event.type) {
@@ -89,7 +95,8 @@ export class ObservabilityManager {
                 this.runStart = Date.now();
                 this.runHadError = false;
                 this.cost?.onRunStart();
-                this.runSpan = this.tracer?.startRootSpan('run') ?? null;
+                this.runId = event.run_id;
+                this.runSpan = this.tracer?.startRootSpan('run', this.runTag()) ?? null;
                 break;
 
             case 'done': {
@@ -97,6 +104,7 @@ export class ObservabilityManager {
                 this.metrics?.recordRun(durationMs, this.runHadError);
                 this.runSpan?.end(this.runHadError ? 'error' : 'ok');
                 this.runSpan = null;
+                this.runId = undefined;
                 if (this.metricsConfig?.onSnapshot && this.metrics) {
                     this.metricsConfig.onSnapshot(this.metrics.getSnapshot());
                 }
@@ -105,6 +113,7 @@ export class ObservabilityManager {
 
             case 'block_start': {
                 const span = this.tracer?.startSpan('agent_block', this.runSpan?.spanId, {
+                    ...this.runTag(),
                     agent_id: event.agent_id,
                     ...(event.agent_name ? { agent_name: event.agent_name } : {}),
                 }) ?? null;
@@ -133,6 +142,7 @@ export class ObservabilityManager {
                         endedAt: event.started_at + event.duration_ms,
                         status: event.success ? 'ok' : 'error',
                         tags: {
+                            ...this.runTag(),
                             'tool.name': event.name,
                             success: event.success,
                             ...(event.outcome ? { outcome: event.outcome } : {}),
@@ -171,6 +181,7 @@ export class ObservabilityManager {
                         endedAt: event.started_at + event.duration_ms,
                         status: 'ok',
                         tags: {
+                            ...this.runTag(),
                             input_tokens: event.input_tokens,
                             output_tokens: event.output_tokens,
                             ...(event.cache_read_tokens !== undefined ? { cache_read_tokens: event.cache_read_tokens } : {}),

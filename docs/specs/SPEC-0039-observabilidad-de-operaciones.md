@@ -1,7 +1,7 @@
 # SPEC-0039: observabilidad de operaciones (coste atribuido, autoridad y replay de un incidente)
 
 **Fecha:** 2026-11-18
-**Estado:** Borrador. Sin implementar. **F1 sin condición; F2 a F4 con criterio de entrada** (§3).
+**Estado:** Borrador. **F0 y F1 hechas (2026-11-18)**, ver §7. F2 a F5 sin hacer y con criterio de entrada (§3).
 **Origen:** la identidad del framework como producto para agentes de empresa (2026-11-18). Cuando algo sale mal, una empresa pregunta tres cosas: **quién gastó qué**, **con qué autoridad se hizo esa acción** y **qué pasó exactamente**. Hoy el framework registra mucho, pero no deja contestarlas de punta a punta.
 **Depende de:** `ObservabilityManager` y `CostTracker` (`packages/core/src/observability`), `AuditEvent` (`governance/types.ts`), los journals de flujos y `agent-testkit` (`RecordingProvider`, `ReplayProvider`).
 **Tipo de cambio:** aditivo (campos opcionales y consultas de solo lectura). Sin paquete nuevo.
@@ -53,3 +53,19 @@ Verificado en `packages/core/src` el 2026-11-18:
 - **Datos del cliente.** Un paquete de incidente completo puede contener datos sensibles. Por eso D5 y la redacción por defecto.
 - **El replay no es exacto** si el flujo dependía del tiempo o de un servicio externo: sirve para diagnosticar, no para reproducir el efecto.
 - **Fuera de alcance:** presupuestos ejecutables por equipo, enrutamiento de modelo por criticidad y caché semántica (son otra decisión); versionado y canary de agentes (es de la plataforma de flota, no del SDK); un panel visual.
+
+## 7. F0 y F1 hechas (2026-11-18)
+
+**F0, lo verificado.** `engine.run()` no tenía identificador; `AuditEvent` no llevaba `runId` ni `traceId`; el `traceId` solo existe si hay tracing, y lo crea el `Tracer` al abrir el span raíz en el evento `ready` (que el motor emite en cada corrida). Los spans se crean a partir de eventos en el `ObservabilityManager`, que no sabía de qué corrida eran. Un flujo tiene su propio `runId` (de `runFlow`), sin relación con las corridas del motor.
+
+**F1, lo hecho.**
+- `engine.run(input, { runId? })`: cada corrida tiene un `runId` (el que se pase, o un UUID). Sale en `RunResult.runId`.
+- `AuditEvent.runId` opcional, el de la corrida en curso. Una tool llamada fuera de una corrida no lo lleva. Entra en la cadena de hashes como cualquier otro campo (se prueba que la cadena verifica y que cambiarlo la rompe).
+- El evento `ready` lleva `run_id`, y el `ObservabilityManager` pone la etiqueta `run_id` en el span raíz, en los de agente, en los de tool y en los de llamada al modelo.
+- Un delegado pertenece a la corrida del agente que preguntó: un id para todo el turno.
+- Para unir con un flujo, quien ejecuta un paso con un agente pasa el `runId` del flujo: `engine.run(input, { runId: flowRunId })`.
+- 6 pruebas (`AgentEngine.runId.test`); 585 pruebas de motor, observabilidad, gobierno y flujos pasan.
+
+**Diferencias con §2 D1:** (a) **no se añadió `traceId` al `AuditEvent`**: el motor no conoce el `Tracer` (vive en el `ObservabilityManager`, detrás del transporte), y el `runId` ya une las dos cosas: de un evento de auditoría se llega a los spans filtrando por la etiqueta `run_id`, que llevan su `traceId`. (b) El id de una corrida de flujo y el de las corridas del motor **siguen siendo dos cosas**; se unen si el integrador pasa el del flujo. El motor de flujos no lo hace solo.
+
+**Sin comprobar:** el flujo completo con un `AgentStepExecutor` real que pase el `runId` del flujo; las métricas de coste (F2) aún no llevan el `runId`. Sin publicar.

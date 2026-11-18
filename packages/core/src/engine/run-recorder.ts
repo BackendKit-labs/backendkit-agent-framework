@@ -18,6 +18,7 @@ export class RunRecorder {
                     ...(event.error_code ? { errorCode: event.error_code } : {}),
                     ...(event.outcome ? { outcome: event.outcome } : {}),
                     ...(event.preview ? { preview: event.preview } : {}),
+                    ...(event.args ? { args: event.args } : {}),
                 });
                 this.text = ''; // what the agent says is what comes after its last tool call
                 break;

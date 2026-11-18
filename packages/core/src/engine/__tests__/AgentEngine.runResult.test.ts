@@ -135,3 +135,20 @@ describe('the budget', () => {
         expect(engine.budgetExceeded).toBe(false);
     });
 });
+
+describe('recordArgs: the arguments of each call in the result (SPEC-0021 D7)', () => {
+    const withArgs = (): Turn => ({ tool_calls: [{ id: 'c1', name: 'ok', args: { symbol: 'AAPL', sizePct: 12 } }, { id: 'c2', name: 'coded', args: { n: 1 } }] });
+
+    it('with the option, each call carries what the model passed, failed calls included', async () => {
+        const { engine } = build([withArgs(), { content: 'done' }], { recordArgs: true });
+        const r = await engine.run('go');
+        expect(r.toolCalls.map(t => [t.name, t.args])).toEqual([['ok', { symbol: 'AAPL', sizePct: 12 }], ['coded', { n: 1 }]]);
+    });
+
+    it('without it, the result has no args: they can be sensitive, and the audit log keeps only their hash', async () => {
+        const { engine, events } = build([withArgs(), { content: 'done' }]);
+        const r = await engine.run('go');
+        expect(r.toolCalls.every(t => !('args' in t))).toBe(true);
+        expect(events.filter(e => e.type === 'tool_result').every(e => !('args' in e))).toBe(true);
+    });
+});

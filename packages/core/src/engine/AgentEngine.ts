@@ -187,6 +187,11 @@ export interface AgentEngineOptions extends EngineOptions {
      * every transport.
      */
     emitSystemPrompt?: boolean;
+    /**
+     * Put the arguments of each tool call in its `tool_result` event, so `RunResult.toolCalls[].args` has them (SPEC-0021 D7).
+     * Off by default: the arguments can carry sensitive data and the event goes to every transport. For tests and evaluations.
+     */
+    recordArgs?: boolean;
 }
 
 const MAX_INPUT_BYTES = 100_000; // Fix #17: 100 KB hard cap on user input
@@ -1748,6 +1753,7 @@ export class AgentEngine {
             agent_id: profile.id, started_at: callStart, duration_ms: Date.now() - callStart,
             ...(outcome ? { outcome } : {}),
             ...(errorCode ? { error_code: errorCode } : {}),
+            ...(this.opts.recordArgs ? { args: this.parseArgs(call.args) } : {}),
         });
         return result;
     }

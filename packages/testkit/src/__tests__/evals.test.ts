@@ -67,6 +67,11 @@ describe('evalSuite: cases as data, graders on the RunResult', () => {
         expect(formatReport(report)).toContain('toolCalled(place_order) failed');
     });
 
+    it('each run gets an id made of the suite, the case and the repetition, so its audit events can be found', async () => {
+        const report = await evalSuite({ name: 'nightly', cases: [cases[0]], repeat: 2, build: buildOk });
+        expect(report.cases[0].runs.map(r => r.result?.runId)).toEqual(['nightly/places an order/1', 'nightly/places an order/2']);
+    });
+
     it('with tags only the cases that have one run', async () => {
         const report = await evalSuite({ name: 's', cases, build: buildOk, tags: ['safety'] });
         expect(report.cases.map(c => c.id)).toEqual(['does not trade on a question']);

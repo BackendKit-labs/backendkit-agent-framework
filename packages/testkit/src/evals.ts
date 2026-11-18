@@ -177,7 +177,9 @@ export async function evalSuite(options: EvalSuiteOptions): Promise<EvalReport> 
             try {
                 const setup = c.setup ? await c.setup() : undefined;
                 const engine = await options.build(c, { repetition, seed: runSeed, setup });
-                const result = await engine.run(c.input);
+                // The run id is made from the suite, the case and the repetition: the same suite gives the same ids (and the same report),
+                // and the audit events and spans of a run can be found by it (core 0.47.1 and later; an older engine ignores it).
+                const result = await engine.run(c.input, { runId: `${options.name}/${c.id}/${repetition}` });
                 base.result = result;
                 for (let i = 0; i < c.expect.length; i++) {
                     const g = c.expect[i];

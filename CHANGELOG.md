@@ -2,7 +2,7 @@
 
 ## Sin publicar
 
-- **`agent-core`, un id por corrida (SPEC-0039 F1):** `engine.run(input, { runId? })` da a cada corrida un `runId` (el que pases, por ejemplo el de un flujo, o un UUID). Está en `RunResult.runId`, en cada `AuditEvent.runId` (opcional; entra en la cadena de hashes) y como etiqueta `run_id` en los spans, y el evento `ready` lo lleva. De un evento de auditoría se llega a su corrida y a su traza, y al revés. Un delegado comparte el id del turno. Aditivo: todo es opcional.
+- **`agent-core`, un id por corrida (SPEC-0039 F1):** `engine.run(input, { runId? })` da a cada corrida un `runId` (el que pases, por ejemplo el de un flujo, o un UUID). Está en `RunResult.runId`, en cada `AuditEvent.runId` (opcional; entra en la cadena de hashes) y como etiqueta `run_id` en los spans, y el evento `ready` lo lleva. De un evento de auditoría se llega a su corrida y a su traza, y al revés. Un delegado comparte el id del turno. Aditivo: todo es opcional. **`agent-testkit`:** `evalSuite` pasa a cada corrida un `runId` determinista (`suite/caso/repetición`), para que el mismo informe siga saliendo igual y se puedan encontrar los eventos de auditoría de una corrida de la suite.
 
 ## v0.48.1 (2026-11-18)
 

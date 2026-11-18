@@ -67,3 +67,14 @@ compare(a: EvalReport, b: EvalReport): Comparison
 - Panel web de resultados.
 - Evaluación de la calidad del texto (estilo, tono): depende del dominio.
 - Conclusiones estadísticas (intervalos, significancia). El informe da conteos; interpretarlos es del equipo.
+
+## 7. Aportes de la comparación con otros frameworks (2026-11-17, [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md))
+
+Mastra (commit `35745537`) tiene `packages/core/src/evals` (scorers de código, de LLM y prebuilt), `datasets` (conjuntos de casos y experimentos) y `evals/scoreTraces` (puntuar trazas ya guardadas). Lo que ya está aquí (casos como datos, graders deterministas, repeticiones, `compare`) coincide con su diseño. Dos cosas suyas no están en D1-D7:
+
+| # | Pregunta | Propuesta |
+|---|---|---|
+| D8 | ¿Un caso puede sustituir tools por respuestas fijas? | **Sí: `toolMocks` en el caso.** Mastra lo hace con `datasets/experiment/tool-mocks.ts`: cada mock nombra una tool y sus argumentos (`match: 'strict'` por igualdad profunda o `'ignore'` solo por nombre) y entrega una salida **en lugar de ejecutar la tool real**. Aquí se implementa con el hook que corta antes de ejecutar una tool (SPEC-0014), así que una prueba no necesita un mundo simulado entero. Solo salidas, no errores, en la primera versión. |
+| D9 | ¿Se puntúan trazas guardadas en lugar de ejecutar de nuevo? | **Después de F4, opcional.** Con `recordArgs` (D7) y el audit, se puede evaluar lo que un agente ya hizo en producción sin volver a llamar al modelo. Hace falta una decisión de privacidad antes (qué se guarda y con qué `redact`). |
+
+Se añade a las fases: **F2b** (`toolMocks`, con su prueba: una suite con una tool simulada no ejecuta la real) tras F2, y **F6** (puntuar trazas) como opcional tras F5.

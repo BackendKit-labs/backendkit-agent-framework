@@ -1,7 +1,7 @@
 # SPEC-0024: journal de corridas en un archivo por corrida, con cadena de integridad (evaluación del diseño de Steward)
 
 **Fecha:** 2026-11-17
-**Estado:** **Aceptada** (el usuario aceptó D1-D6 con las propuestas, 2026-11-17). **F1 y F2 implementadas**; F3 (vallado en Redis, solo si hace falta) y F4 (docs, decidir si `FileRunJournal` queda `@deprecated`) pendientes. Con la implementación el spec dice lo que se hizo, no solo lo propuesto.
+**Estado:** **Aceptada** (el usuario aceptó D1-D6 con las propuestas, 2026-11-17). **F1 y F2 implementadas**; **F4 hecha (2026-11-18): `FileRunJournal` se elimina** en vez de deprecarlo (decisión del usuario: el framework está en desarrollo; ver §8). F3 (vallado en Redis) **descartado**: preventivo, sin un caso que lo pida. Con la implementación el spec dice lo que se hizo, no solo lo propuesto.
 **Origen:** el banco `audit-desk` (`agent-framework-examples/audit-desk`) halló que `FileRunJournal` falla con un fan-out ancho (#214). Al compararlo con el journal de Steward (`steward/apps/hermes-server/src/file-journal.ts`, SPEC-0009 §6 del repo de Steward) resultó que Steward resuelve **por diseño** lo que aquí se arregló con parches, y es más rápido.
 **Relacionado:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (`RunJournal`, F3), [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) (un contrato por concepto: Steward y el SDK tienen hoy dos journals de corridas).
 **Tipo de cambio:** aditivo (una clase nueva, opt-in). No toca `FileRunJournal` ni `MemoryRunJournal` ni la interfaz `RunJournal`.
@@ -108,3 +108,11 @@ Hoy hay **dos journals de corridas**: `FileWorkflowJournal` (Steward, con su `Wo
 ## 10. Veredicto
 
 **Merece la pena.** El diseño de Steward no es solo "más seguro": es más rápido, no tiene el problema de contención que costó #214 y recupera una corrida caída al instante. Su límite es que asume **un host**, y se declara. Recomiendo F1 y F2 como un cambio (una clase nueva, opt-in); F3 solo cuando haya un caso.
+
+## 8. F4: `FileRunJournal` se elimina (2026-11-18)
+
+Se pensó en deprecarlo, pero el usuario decidió **quitarlo**: el framework está en desarrollo y publicar algo ya deprecado no aporta. Es una ruptura de `agent-core` (en 0.x, minor): se quita la clase, sus exportaciones y sus pruebas propias (`file-journal-contention`; el resto lo cubre la batería de contrato y las pruebas de `NdjsonRunJournal`: carrera por el claim, escrituras concurrentes, `begin` duplicado, ids no seguros, persistencia entre objetos, fan-out ancho). `examples/flows` usa `NdjsonRunJournal`. 214 pruebas del flujo pasan.
+
+**Lo que se pierde, dicho:** las corridas que dejó un `FileRunJournal` no se leen con `NdjsonRunJournal` (otro formato), y el claim por TTL sobre un directorio compartido entre contenedores (el de `NdjsonRunJournal` usa el pid). Para varios hosts o contenedores sigue `RedisRunJournal` o `PostgresRunJournal`. Documentado en el CHANGELOG (sin publicar) y en la guía "Migrate between versions".
+
+**Fuera de este cambio:** `audit-desk` (repo de ejemplos) puede seguir usando `FileRunJournal` y dejará de compilar al actualizar `agent-core`; se cambia ahí. **F3 descartado.**

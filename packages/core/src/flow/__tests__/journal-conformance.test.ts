@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryRunJournal } from '../journal';
-import { FileRunJournal } from '../file-journal';
 import { NdjsonRunJournal } from '../ndjson-journal';
 import { journalConformance } from '../../testing';
 
@@ -15,9 +14,6 @@ describe('RunJournals of agent-core', () => {
 
     const memory = new MemoryRunJournal(); // one object: every make() sees the same runs, as a file does
     journalConformance('MemoryRunJournal', { make: () => memory, shared: true });
-
-    const file = dir();
-    journalConformance('FileRunJournal', { make: () => new FileRunJournal(file), rejectsUnsafeIds: true });
 
     const ndjson = dir();
     // The ndjson journal frees a claim when its holder is gone and ignores the TTL (SPEC-0024 D2), and a second object

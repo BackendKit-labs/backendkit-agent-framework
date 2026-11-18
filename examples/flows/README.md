@@ -21,4 +21,4 @@ What it shows:
 3. A person decides through `createApprovalHandler` (over HTTP this is `POST /v1/agent/approvals/:id/decision`).
 4. The second run uses the same `runId`: the collectors are **not** run again, it continues with `report` and `publish`.
 
-To use it for real, replace the executor with one that calls your agents (or with `QueueStepExecutor` from [`agent-flow-queue`](../../packages/flow-queue) to run each step on a worker), and `FileRunJournal` with `RedisRunJournal` if several processes share the runs.
+To use it for real, replace the executor with one that calls your agents (or with `QueueStepExecutor` from [`agent-flow-queue`](../../packages/flow-queue) to run each step on a worker), and `NdjsonRunJournal` with `RedisRunJournal` if several processes share the runs.

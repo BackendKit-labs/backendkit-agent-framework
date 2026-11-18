@@ -1,6 +1,6 @@
 import * as net from 'net';
 import { Redis as IORedis } from 'ioredis';
-import { journalConformance, journalConformanceCases } from '@backendkit-labs/agent-testkit';
+import { journalConformance, journalConformanceCases } from '@backendkit-labs/agent-core/testing';
 import { APPEND_SCRIPT, BEGIN_SCRIPT, CLAIM_SCRIPT, RELEASE_SCRIPT, RedisRunJournal } from '../redis-journal';
 
 /** In-memory stand-in that runs each script's logic in JS. The real Lua runs in the integration block below. */

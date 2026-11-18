@@ -1,11 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MemoryRunJournal, FileRunJournal, NdjsonRunJournal } from '@backendkit-labs/agent-core';
-import { journalConformance } from '../index';
+import { MemoryRunJournal } from '../journal';
+import { FileRunJournal } from '../file-journal';
+import { NdjsonRunJournal } from '../ndjson-journal';
+import { journalConformance } from '../../testing';
 
-// The core journals against the shared battery (SPEC-0028 F0). It lives here, not in core, because core cannot depend on
-// the testkit (the testkit has core as a peer); the Redis journal runs the same battery from `agent-flow-queue`.
+// The journals of agent-core against the shared battery (SPEC-0028 F0). The Redis journal runs it from agent-flow-queue.
 
 describe('RunJournals of agent-core', () => {
     const dirs: string[] = [];

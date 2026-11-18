@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en `agent-testkit`, ver §8. F1 y F2 sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. F1 y F2 sin implementar.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -66,7 +66,7 @@ await runFlow(def, { journal, runId, executor });
 
 ## 8. Resultado de F0 (2026-11-17)
 
-**Qué se hizo.** La batería de contrato `journalConformance` (y `journalConformanceCases`, para otros ejecutores de pruebas) vive en `agent-testkit` (`packages/testkit/src/journalConformance.ts`). **No** está en core: el testkit tiene a core como peer, así que core no puede depender de él sin un ciclo. Las pruebas de los journals de core que la ejecutan están en `packages/testkit/src/__tests__/journals.test.ts`; las del journal de Redis, en `agent-flow-queue` (que gana `agent-testkit` como devDependency). El futuro `agent-flow-sql` hará lo mismo.
+**Qué se hizo.** La batería de contrato `journalConformance` (y `journalConformanceCases`, para otros ejecutores de pruebas) vive en **core**, en la subruta `@backendkit-labs/agent-core/testing` (`packages/core/src/testing/journalConformance.ts`): quien implementa un `RunJournal` ya depende de core, y las pruebas de core la ejecutan sin ciclos (`packages/core/src/flow/__tests__/journal-conformance.test.ts`). Se probó antes en `agent-testkit` y se movió: el testkit tiene a core como peer, y un lugar que core no puede importar obligaba a ejecutar los journals de core desde otro paquete. Como los paquetes resuelven con `moduleResolution: node` y no entienden las subrutas de `exports`, core declara `typesVersions` para `testing`. Las pruebas del journal de Redis, en `agent-flow-queue`, la importan de ahí. El futuro `agent-flow-sql` hará lo mismo.
 
 **La batería (13 casos de contrato y hasta 5 condicionados a una capacidad: el TTL, tres de almacenamiento compartido y los ids):** `get` de una corrida inexistente; `begin` crea una corrida `running` con flow, vista previa y tenant; `begin` de un id existente falla sin cambiar la corrida; `step` y `update` sobre una corrida inexistente fallan y no crean nada; los parches de `step` se funden; las transiciones se acumulan en orden; `update` fija el estado y solo uno terminal fija `finishedAt`; `waiting` se fija y se limpia con `null`; `list` filtra por estado, flow y tenant y **devuelve las corridas de la más antigua a la más reciente**; escritores simultáneos no pierden eventos; el `claim` es exclusivo, el mismo dueño puede renovarlo y `release` lo libera; un `release` obsoleto no libera un claim nuevo; un claim sin renovar caduca por TTL; una corrida escrita por un objeto la lee otro sobre el mismo almacenamiento; varios objetos se disputan un claim y gana uno solo; y varios objetos que escriben a la vez no pierden ninguna escritura confirmada. Con `rejectsUnsafeIds`, un id como `../escape` se rechaza.
 
@@ -85,6 +85,6 @@ await runFlow(def, { journal, runId, executor });
 2. `exclusiveWriter` nombra la decisión de D5. Si los journals SQL la adoptan, la batería ya la comprueba; si prefieren permitir escritores concurrentes como Redis, también.
 3. Las pruebas de `journal.test.ts` en core (que ejecutan `runFlow` sobre cada journal) **se quedan**: prueban el comportamiento del motor, no el contrato del journal. La batería no las sustituye.
 4. Para ejecutar la batería contra Redis real hace falta un Redis accesible (`REDIS_HOST` y `REDIS_PORT`); sin él se omiten esos casos, como ya hacía la prueba de integración existente. En esta sesión se usó un contenedor temporal.
-5. **Cambio de D6:** la batería no va en core ni como "batería de pruebas de core", sino en `agent-testkit`. La publicación de una versión nueva de `agent-testkit` es requisito para que `agent-flow-sql` la use fuera del monorepo.
+5. **D6 se cumple tal cual:** la batería queda en core. Sale con el próximo release de `agent-core`, y `agent-flow-sql` la usará de ahí. `agent-testkit` no cambia.
 
 **Pendiente de F0.** El CHANGELOG no se toca hasta el release que incluya el testkit nuevo.

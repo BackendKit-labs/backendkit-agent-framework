@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { RunJournal } from '@backendkit-labs/agent-core';
+import type { RunJournal } from '../flow/journal';
 
 /**
  * A battery every `RunJournal` must pass (SPEC-0028 F0). It exercises the contract directly, with no flow engine: what

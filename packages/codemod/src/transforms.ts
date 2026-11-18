@@ -1,4 +1,6 @@
-import type { MoveRule } from './move-imports';
+import { transformText } from './move-imports';
+import type { MoveReport, MoveRule } from './move-imports';
+import { zod4Text } from './zod4';
 
 /**
  * The transformations. Each one is data: which symbols moved where in a breaking release. The lists are not written by hand
@@ -10,8 +12,12 @@ export interface Transform {
     description: string;
     /** The release that broke it, for `--list`. */
     since: string;
-    rules: readonly MoveRule[];
+    /** The new text of one file (the same text if there is nothing to do). Adds what it did to `report`. */
+    apply(fileName: string, text: string, report: MoveReport): string;
 }
+
+/** A transformation that is only a list of moves. */
+const byRules = (rules: readonly MoveRule[]): Transform['apply'] => (fileName, text, report) => transformText(fileName, text, rules, report);
 
 const CORE = '@backendkit-labs/agent-core';
 const PIPELINE = '@backendkit-labs/agent-coding/pipeline';
@@ -22,7 +28,7 @@ const codingSplit: Transform = {
     name: 'coding-split',
     description: 'Orchestrator, QAService and the coding pipeline move from agent-core to agent-coding/pipeline',
     since: 'v0.40.0 (agent-core 0.39.0, agent-coding 0.29.0)',
-    rules: [
+    apply: byRules([
         {
             from: CORE,
             moves: [{
@@ -40,7 +46,7 @@ const codingSplit: Transform = {
             moves: [{ to: PIPELINE, symbols: ['AuditHook', 'AgentHook', 'TestHook', 'CommitHook', 'BootstrapHook', 'HistoricalLoader', 'LessonsMemoGenerator'] }],
             renameRest: CORE,
         },
-    ],
+    ]),
 };
 
 /** SPEC-0016 (v0.41.0, `agent-core` 0.40): the terminal app leaves `agent-core`. */
@@ -48,7 +54,7 @@ const terminalAppSplit: Transform = {
     name: 'terminal-app-split',
     description: 'Agent discovery, skill loading, built-in commands, checkpoints, workspaces and trust move from agent-core to agent-coding/cli',
     since: 'v0.41.0 (agent-core 0.40.0, agent-coding 0.30.0)',
-    rules: [{
+    apply: byRules([{
         from: CORE,
         moves: [{
             to: CLI,
@@ -65,7 +71,7 @@ const terminalAppSplit: Transform = {
                 'untrustedLayerWarning',
             ],
         }],
-    }],
+    }]),
 };
 
 /** `@bk/*` to `@backendkit-labs/*`: the first rename of the packages. */
@@ -73,9 +79,17 @@ const scopeRename: Transform = {
     name: 'scope-rename',
     description: 'Imports of @bk/agent-core, @bk/agent-coding and @bk/mcp-server become @backendkit-labs/*',
     since: 'the rename of the npm scope',
-    rules: ['agent-core', 'agent-coding', 'mcp-server'].map(pkg => ({ from: `@bk/${pkg}`, moves: [], renameRest: `@backendkit-labs/${pkg}` })),
+    apply: byRules(['agent-core', 'agent-coding', 'mcp-server'].map(pkg => ({ from: `@bk/${pkg}`, moves: [], renameRest: `@backendkit-labs/${pkg}` }))),
 };
 
-export const TRANSFORMS: readonly Transform[] = [scopeRename, codingSplit, terminalAppSplit];
+/** zod 4: `z.record(x)` takes the key schema too. The rest of the move to zod 4 is flagged. */
+const zod4Record: Transform = {
+    name: 'zod4-record',
+    description: 'z.record(x) becomes z.record(z.string(), x); invalid_type_error and required_error are flagged',
+    since: 'the move to zod 4 (agent-core 0.33.0)',
+    apply: zod4Text,
+};
+
+export const TRANSFORMS: readonly Transform[] = [scopeRename, codingSplit, terminalAppSplit, zod4Record];
 
 export const findTransform = (name: string): Transform | undefined => TRANSFORMS.find(t => t.name === name);

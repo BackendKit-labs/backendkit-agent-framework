@@ -1,6 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { transformText } from './move-imports';
 import type { MoveReport } from './move-imports';
 import { TRANSFORMS, findTransform } from './transforms';
 import type { Transform } from './transforms';
@@ -47,7 +46,7 @@ export function applyTransform(files: readonly string[], t: Transform): { change
     const changed = new Map<string, string>();
     for (const file of files) {
         const before = readFileSync(file, 'utf8');
-        const after = transformText(file, before, t.rules, report);
+        const after = t.apply(file, before, report);
         if (after !== before) changed.set(file, after);
     }
     return { changed, report };

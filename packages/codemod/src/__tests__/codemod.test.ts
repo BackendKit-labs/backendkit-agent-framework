@@ -21,7 +21,7 @@ const read = (dir: string): Record<string, string> =>
     Object.fromEntries(readdirSync(dir).filter(f => f.endsWith('.ts')).sort().map(f => [f, lf(readFileSync(join(dir, f), 'utf8'))]));
 
 // Each transformation has a pair of folders: `before/` is what a project looks like, `after/` what the command must leave.
-describe.each(['scope-rename', 'coding-split', 'terminal-app-split'])('%s', name => {
+describe.each(['scope-rename', 'coding-split', 'terminal-app-split', 'zod4-record'])('%s', name => {
     const before = join(FIXTURES, name, 'before');
     const after = join(FIXTURES, name, 'after');
     const copy = (): string => { const d = tmp(); cpSync(before, d, { recursive: true }); return d; };

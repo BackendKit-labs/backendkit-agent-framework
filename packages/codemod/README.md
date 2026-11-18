@@ -13,12 +13,13 @@ npx @backendkit-labs/codemod coding-split ./src            # apply it
 | `scope-rename` | the rename of the npm scope | `@bk/agent-core`, `@bk/agent-coding`, `@bk/mcp-server` become `@backendkit-labs/*` |
 | `coding-split` | v0.40.0 (agent-core 0.39) | `Orchestrator`, `QAService` and their types move from `agent-core` to `agent-coding/pipeline`; the subpaths `agent-core/orchestration` and `agent-core/reflection` are replaced |
 | `terminal-app-split` | v0.41.0 (agent-core 0.40) | the 66 names of agent discovery, skill loading, built-in commands, checkpoints, workspaces and trust move to `agent-coding/cli` |
+| `zod4-record` | the move to zod 4 (agent-core 0.33) | `z.record(x)` becomes `z.record(z.string(), x)`; `invalid_type_error` and `required_error` (one `error` in zod 4, with other messages) are flagged |
 
 The lists of names are not copied from the changelog: they are the names `agent-core` exported before a release and no longer exports after it, checked against what the destination package exports today.
 
 ## What it does, and what it leaves to you
 
-It reads each file with the TypeScript parser and edits only the `import` and `export ... from` statements it understands. Spacing, comments, quotes and line endings of everything else stay byte for byte, and running it twice changes nothing.
+It reads each file with the TypeScript parser and edits only the statements it understands (the `import` and `export ... from` of the moves, and the `z.record(...)` calls of `zod4-record`). Spacing, comments, quotes and line endings of everything else stay byte for byte, and running it twice changes nothing.
 
 - **Moves** a name from one module to another, joining an import of the destination that is already there, keeping aliases and `type` marks.
 - **Renames** a module that stopped being a subpath.

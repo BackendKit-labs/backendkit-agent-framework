@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. F1 y F2 sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. F2 y F3 sin implementar.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -50,7 +50,7 @@ await runFlow(def, { journal, runId, executor });
 ## 5. Fases
 
 - **F0. Verificar y extraer la batería común. HECHA, ver §8.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
-- **F1. `SqliteRunJournal`** con adaptador de `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
+- **F1. `SqliteRunJournal`. HECHA, ver §9.** Con un adaptador estructural que sirve a `node:sqlite` y a `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
 - **F2. `PostgresRunJournal`.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
 - **F3. Guía** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
 
@@ -88,3 +88,23 @@ await runFlow(def, { journal, runId, executor });
 5. **D6 se cumple tal cual:** la batería queda en core. Sale con el próximo release de `agent-core`, y `agent-flow-sql` la usará de ahí. `agent-testkit` no cambia.
 
 **Pendiente de F0.** El CHANGELOG no se toca hasta el release que incluya el testkit nuevo.
+
+## 9. Resultado de F1 (2026-11-17)
+
+**Qué se hizo.** Paquete nuevo `@backendkit-labs/agent-flow-sql` 0.1.0 (`packages/flow-sql`), sin publicar, con paso de build en el CI y entrada en el lockfile:
+
+- `SqlRunJournal`: el journal, **neutro respecto a la base**. Recibe un `SqlClient` (`query` y `transaction`, con marcadores `?`) y escribe SQL portable: tablas `flow_run_events`, `flow_runs` y `flow_run_claims` con `TEXT` y `BIGINT`, `INSERT ... ON CONFLICT DO NOTHING` y un upsert condicionado para el claim. `migrate()` y `ddl()` son explícitos; el prefijo de tablas se valida (un nombre de tabla no se puede parametrizar).
+- `SqliteRunJournal` y `sqliteClient(db)`: un adaptador sobre un handle síncrono con `prepare(sql).all/run` y `exec`, que cumplen `node:sqlite` (`DatabaseSync`) y `better-sqlite3`. Activa `busy_timeout` y WAL.
+- **Un escritor por corrida (D5):** el objeto recuerda el último `seq` que escribió; un segundo objeto que escribió entre medias hace que el siguiente `INSERT` choque en `(run_id, seq)`, y eso es `JournalConflict`. Se detecta con `ON CONFLICT DO NOTHING` y `rowCount`, sin interpretar códigos de error de ningún driver. Las escrituras de un mismo objeto a una misma corrida se encadenan para no chocar entre sí.
+- **`list`:** un `JOIN` con el índice `flow_runs` (filtros por flow, tenant y estado), ordenado por `started_at`; el índice se actualiza en la misma transacción que el evento que lo cambia.
+
+**Verificación.** 34 pruebas, 100 % de líneas: la batería común de core (con `exclusiveWriter: true` y `rejectsUnsafeIds: true`, cada objeto con su propia conexión), el motor de flujos reanudando tras una caída, `FlowClaimError` entre dos corredores, el cliente (transacciones, reversión, serialización) y **dos pruebas con procesos reales**: de seis procesos que se disputan un claim gana exactamente uno, y cuatro procesos que escriben a la vez en una corrida solo reciben `JournalConflict` (nunca un error de lock) sin perder ninguna escritura confirmada. Las de procesos usan el paquete compilado y se omiten si falta `dist`. **Una carrera de claims no debe soltar el claim por tiempo:** la primera versión de la prueba lo soltaba a los 400 ms y, con la máquina cargada, un proceso que arrancaba tarde lo ganaba legítimamente (dos ganadores); ahora el claim solo caduca por TTL. Un estrés aparte (15 rondas de 8 procesos, 120 disputas) dio exactamente un ganador por ronda.
+
+**Hallazgos.**
+1. **Una cola de transacciones por proceso, no por cliente.** La primera versión serializaba por cliente y la batería falló con `database is locked`: un driver síncrono **bloquea el hilo** mientras espera el lock de otra conexión, y una transacción suspendida en un `await` retiene su lock sin poder avanzar, así que una segunda conexión **del mismo proceso** espera para siempre. Con una sola cola para todo el proceso las transacciones no se solapan; otro **proceso** no se ve afectado (espera en el lock de SQLite mientras este avanza). Esto cuenta para F2: `pg` es asíncrono y no tiene este problema.
+2. **El reloj del `claim` es el del proceso** (`Date.now()`), no el de la base. Con relojes muy desfasados entre procesos la caducidad se desplaza. Postgres permitiría usar `now()`; se decide en F2.
+3. **`better-sqlite3` comprobado (2026-11-17).** La misma batería y la reanudación de un flow pasan sobre un handle de `better-sqlite3` **12.11.1** (la versión que ya trae `mcp-server`, ahora devDependency del paquete) y **13.2.0** (instalada aparte), en Node 24 sobre Windows. La prueba (`better-sqlite3.test.ts`) corre por defecto si el driver se resuelve y se omite si no; `BETTER_SQLITE3_PATH` apunta a otra instalación. El CI la ejecuta en Linux con la 12.11.1. **Node:** el paquete declara `engines >=22.13` (decisión del 2026-11-18): el CI solo prueba Node 24, y `node:sqlite` viene sin flag desde la 22.13. El resto de paquetes sigue en `>=20`; revisar esa política para todo el repo queda como análisis aparte.
+4. **`list` lee todos los eventos de las corridas que coinciden** y las pliega en memoria, como el resto de journals; no hay paginación. Es aceptable para cientos de corridas; con miles habrá que paginar o guardar el estado resumido en `flow_runs`.
+5. Las pruebas importan `@backendkit-labs/agent-core/testing`, que aún no está en un `agent-core` publicado: dentro del monorepo funciona; la batería saldrá con el próximo release.
+
+**Lo que F2 reutiliza sin cambios:** `SqlRunJournal`, el DDL y la batería. Solo hacen falta un `SqlClient` para `pg` (conversión `?` → `$n`, transacción con una conexión dedicada) y sus pruebas, que corren con `TEST_POSTGRES_URL`.

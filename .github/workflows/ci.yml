@@ -53,6 +53,9 @@ jobs:
       - name: Build agent-flow-queue
         run: npm run build -w packages/flow-queue
 
+      - name: Build agent-flow-sql
+        run: npm run build -w packages/flow-sql
+
       - name: Build agent-otel
         run: npm run build -w packages/otel
 

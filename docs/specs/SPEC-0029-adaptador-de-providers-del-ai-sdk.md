@@ -1,7 +1,7 @@
 # SPEC-0029: adaptador de modelos del AI SDK de Vercel a `LLMProvider`
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 hecha (2026-11-18)**: contrato verificado contra el SDK instalado, ver §8; D1, D3 y D5 cambian. Sin implementar.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: contrato verificado, ver §8; D1, D3 y D5 cambian. **F1 hecha (2026-11-18)**, junto con F2 y F3 que salieron en el mismo código, ver §9. F4 y F5 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel documenta unos 50 providers (Google, Vertex, Bedrock, Azure, Mistral, Cohere, Groq, Perplexity...). Nosotros ofrecemos OpenAI-compatible y Anthropic.
 **Depende de:** nada. Es aditivo en `agent-providers`.
 **Tipo de cambio:** aditivo; un punto de entrada nuevo y una dependencia opcional.
@@ -105,3 +105,15 @@ Verificado instalando `ai` 7.0.176, `@ai-sdk/provider` 4.0.39, `@ai-sdk/google` 
 | D5 | `capabilities.structuredOutput = none` hasta F0 | Se mantiene `none` por defecto: `responseFormat` con esquema existe en el contrato, pero que el modelo lo aplique depende del proveedor, y F0 no puede probarlo sin clave. Con `opts.structuredOutput` el integrador lo declara; F4 lo cablea. |
 
 **Qué queda sin comprobar:** el comportamiento real de un proveedor (nadie probó aún un `google(...)` en vivo), que es F5 y lo ejecuta el usuario con su clave.
+
+## 9. F1 (con F2 y F3): `fromAiSdk` (2026-11-18)
+
+`packages/providers/src/AiSdkProvider.ts`, exportado desde la entrada principal de `agent-providers` (no hace falta una subruta `/ai-sdk`: sin dependencia, no cuesta nada a quien no lo usa). `fromAiSdk(model, opts)` devuelve un `AiSdkProvider extends BaseStreamingProvider`, así que hereda el reintento, el no reintentar tras salida o aborto, y la clasificación de errores. Opciones: `structuredOutput`, `temperature`, `maxOutputTokens`, `providerOptions`, y los de reintento.
+
+- **Sin dependencia del SDK:** el parámetro es una interfaz estructural (`AiSdkModelLike`). Rechaza un `string` (id del Gateway) y una versión de interfaz que no sea v2, v3 o v4, con un mensaje claro.
+- **Las tools salen sin `execute`:** solo `type`, `name`, `description` e `inputSchema`. El engine las ejecuta, con su política y su aprobación.
+- **Cubre F2 y F3 por el camino:** aborto (la señal va como `abortSignal`), reintento de un 503 y no de un 401, un `error` del stream (tras salida no se reintenta), uso con tokens de caché (v3/v4 anidado, v2 plano) y razonamiento a `onReasoning`.
+
+**Pruebas:** 16 en `AiSdkProvider.test.ts` con un modelo escrito a mano que reproduce las partes de §8 (83 en el paquete, todas verdes). Además, **contra los modelos simulados reales del SDK** (`MockLanguageModelV4` y `MockLanguageModelV3` de `ai/test`, `ai` 7.0.176), con un script aparte que no está en el repo: texto, llamada a tool completa y uso con caché llegan igual por las dos versiones, y las tools salen con las cuatro claves esperadas. `ai` no se añadió como devDependency: es solo ESM, pide Node 22 y arrastraría un árbol grande de dependencias a un paquete que declara Node 20.
+
+**Sin comprobar:** una corrida del engine completo (el motor pide una tool, la ejecuta y vuelve al modelo) con este provider; el provider se prueba aislado. Un modelo real (`google(...)`), que es F5 y lo ejecuta el usuario con su clave. `ChatOptions.responseFormat` se envía pero no hay prueba de que un proveedor concreto lo aplique (F4). No se transportan `raw` ni los bloques opacos de razonamiento entre turnos (D6): si un proveedor los exige de vuelta, fallará en la segunda vuelta de una tool.

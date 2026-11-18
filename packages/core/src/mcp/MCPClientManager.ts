@@ -4,6 +4,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ToolDefinition } from '../types';
+import { ToolError } from '../tools/tool-error';
 import type { MCPServerConfig } from './types';
 
 type ServerState = 'pending' | 'connected' | 'failed';
@@ -30,6 +31,9 @@ interface ConnectedServer {
  * Tool names are namespaced as `mcp__{safeName}__{originalToolName}` where
  * safeName replaces non-alphanumeric/dash/underscore characters with `_`.
  */
+/** The code of the error a tool of an MCP server raises when the server answers `isError: true`. */
+export const MCP_TOOL_ERROR = 'MCP_TOOL_ERROR';
+
 export class MCPClientManager {
     private servers: ConnectedServer[] = [];
     private serverStates = new Map<string, ServerState>();
@@ -379,7 +383,11 @@ export class MCPClientManager {
                     const textParts = (result.content as Array<{ type: string; text?: string }>)
                         .filter(b => b.type === 'text' && b.text)
                         .map(b => b.text!);
-                    return textParts.length > 0 ? textParts.join('\n') : JSON.stringify(result.content);
+                    const text = textParts.length > 0 ? textParts.join('\n') : JSON.stringify(result.content);
+                    // `isError: true` is how an MCP server says the call failed (denied, timed out, threw, bad arguments). It must reach the
+                    // caller as a failure: returned as text it looked like a success, in the audit log and to a script alike.
+                    if (result.isError) throw new ToolError(MCP_TOOL_ERROR, text);
+                    return text;
                 } finally {
                     clearTimeout(timerId);
                     // Absorb a late rejection from call to prevent unhandled promise rejection

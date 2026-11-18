@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+- **`agent-core`, un fallo de una tool MCP ya no vuelve como éxito (con cambio de comportamiento):** `MCPClientManager` no miraba `isError` en la respuesta de un servidor MCP. Cuando el servidor decía que la llamada había fallado (argumentos inválidos, denegada, error), el `execute` de la tool devolvía el texto del error **como un resultado normal**: la auditoría y el aprendizaje la contaban como éxito, y un script no podía distinguirla. Ahora, con `isError: true`, el `execute` lanza un `ToolError` con código `MCP_TOOL_ERROR` (constante exportada) y el texto del servidor. Dentro de un engine, la llamada pasa a ser un fallo con su código y el modelo sigue leyendo el texto del servidor. **Cambia el comportamiento** de quien tenga tools de servidores MCP que fallan: ahora cuentan como fallos en la auditoría y el aprendizaje, y un `execute` llamado directamente lanza. Descubierto al escribir el ejemplo determinista de la web: un script puede llamar a una tool remota con `MCPClientManager.getTools()` y `createToolContext`.
+
 ## v0.48.2 (2026-11-18)
 
 Patch aditivo: un id por corrida (SPEC-0039 F1), el registro de tools del motor y `extraTools` para el agente de código. `^0.47.0`, `^0.32.0` y `^0.1.0` cubren estas versiones, así que no hay barrido de rangos y solo suben tres paquetes.

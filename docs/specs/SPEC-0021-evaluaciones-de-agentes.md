@@ -1,7 +1,7 @@
 # SPEC-0021: evaluaciones de agentes
 
 **Fecha:** 2026-11-16
-**Estado:** **En curso (2026-11-18): F0 a F4 hechas**, ver §8. F5 (migrar el banco `trading-bot`, que está en otro repo) sin hacer. Antes: borrador con decisiones D1-D7.
+**Estado:** **En curso (2026-11-18): F0 a F5 hechas**, ver §8 y §9. Quedan la tanda de F2b y F6 de §7, sin hacer. Antes: borrador con decisiones D1-D7.
 **Depende de:** `engine.run()` y `RunResult` (core, sin publicar), `agent-testkit` (`scriptedProvider`, `RecordingProvider`, `ReplayProvider`).
 **Tipo de cambio:** aditivo, en `agent-testkit`. Core no cambia.
 **Objetivo:** que un equipo pueda decir "este agente ahora lo hace mejor o peor" con números repetibles, y que una regresión rompa el CI sin llamar a un modelo.
@@ -94,4 +94,22 @@ Se añade a las fases: **F2b** (`toolMocks`, con su prueba: una suite con una to
 - **Un grader sobre argumentos sin `recordArgs`** falla diciéndolo, no pasa por accidente.
 - **Sin repetición ni conteo por grader en `compare`:** compara tasas de acierto por caso y en total (sobre los casos que tienen los dos informes), con el número de corridas de cada lado.
 
-**Sin comprobar:** con un modelo real (las pruebas usan proveedor guionizado: prueban el arnés, no la calidad de ningún agente); F5, migrar el banco `trading-bot` (otro repo), que es la prueba de que la API alcanza para un caso real; que `compare` baste sin intervalos de confianza (fuera de alcance por diseño). Sin publicar: va en el próximo release de `agent-core` y `agent-testkit`.
+**Sin comprobar:** con un modelo real (las pruebas usan proveedor guionizado: prueban el arnés, no la calidad de ningún agente); que la API alcance para un caso real (F5, §9: alcanza con un adaptador, y destapó un hueco); que `compare` baste sin intervalos de confianza (fuera de alcance por diseño). Sin publicar: va en el próximo release de `agent-core` y `agent-testkit`.
+
+## 9. F5: el banco `trading-bot` con la suite (2026-11-18)
+
+`agent-framework-examples/trading-bot/src/evals.ts` (`npm run evals`), sin red ni modelo: el trader simulado que pide el 40 % de la equidad. Pregunta: ¿aprender de un rechazo cambia lo que hace el bot? Un caso, dos graders (como mucho 3 órdenes rechazadas en la corrida; ninguna en el último tercio), 4 semillas por configuración, 180 barras:
+
+| Configuración | Corridas que pasan | Órdenes rechazadas (primera corrida) |
+|---|---|---|
+| Sin aprendizaje | **0 de 4** | 18 |
+| Aprendizaje y aprobación | **3 de 4** | 7 |
+
+`compare` da 0 % a 75 % (+75 %, 4 corridas por lado). Es lo que el banco hacía a mano con su propio bucle, ahora con la suite.
+
+**Lo que mostró:**
+1. **La API alcanza, pero solo con un adaptador.** La unidad de la suite es **una** llamada a `engine.run`. Una simulación es un **episodio**: un engine durante cientos de barras, en un mundo que se mueve. Cada corrida aquí es una simulación entera envuelta en un objeto con `run` que devuelve lo ocurrido como un `RunResult` (las llamadas a tools de todas las sesiones). La suite solo necesita `run`, así que funciona sin cambios. Pero los graders ven un resultado agregado y no una sesión: no pueden preguntar "en la barra 120, ¿qué hizo?". Un episodio como ciudadano de primera (varias entradas por corrida, graders por turno) **no existe** y no se construye sin otro banco que lo pida.
+2. **Mismo resultado que el banco a mano**, y la comparación sale en una línea.
+3. **No se probó con un modelo real:** el trader es un mock.
+
+**Arrastrado por la eliminación de `FileRunJournal` (#243):** `desk-journal-bench.ts` y `desk-smoke.ts` del banco dejaron de compilar y se migraron a `NdjsonRunJournal`. Un check no fue un cambio de nombre: simulaba un proceso muerto **dentro del mismo proceso** con un claim de TTL de 50 ms, y `NdjsonRunJournal` libera el claim por el pid de su dueño (ignora el TTL), así que aquel pid, vivo, no se relevaba. Ese check usa ahora `MemoryRunJournal`; la caída real se prueba con procesos separados (core, `audit-desk`). Los 11 checks de `desk:smoke` pasan.

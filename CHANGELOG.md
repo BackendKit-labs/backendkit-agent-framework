@@ -1,6 +1,14 @@
 # Changelog
 
-## Sin publicar
+## v0.48.2 (2026-11-18)
+
+Patch aditivo: un id por corrida (SPEC-0039 F1), el registro de tools del motor y `extraTools` para el agente de código. `^0.47.0`, `^0.32.0` y `^0.1.0` cubren estas versiones, así que no hay barrido de rangos y solo suben tres paquetes.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.47.2 | `runId` en el resultado, la auditoría y los spans; `getTools()` |
+| `agent-coding` | 0.32.6 | `extraTools` |
+| `agent-testkit` | 0.1.19 | `evalSuite` da a cada corrida un `runId` determinista, para que el informe siga siendo repetible con `agent-core` 0.47.2 |
 
 - **`agent-core`, `engine.getTools()`; `agent-coding`, `extraTools`:** `getTools()` devuelve el registro de tools del motor, para inspeccionar, envolver o sustituir una definición sin bifurcar el framework (`unregister(name)` y `register(definición)`; la siguiente corrida usa la nueva). `createCodingEngine({ extraTools })` añade tools propias a las del agente de código, detrás de ellas; una con el nombre de una existente **no** la sustituye (para eso, `getTools()`). Venían del PR #19, reaplicado sobre `master`, con pruebas. Para decidir qué puede ejecutarse, la política y la aprobación siguen siendo el camino: `getTools()` cambia la definición, no el gobierno.
 - **`agent-core`, un id por corrida (SPEC-0039 F1):** `engine.run(input, { runId? })` da a cada corrida un `runId` (el que pases, por ejemplo el de un flujo, o un UUID). Está en `RunResult.runId`, en cada `AuditEvent.runId` (opcional; entra en la cadena de hashes) y como etiqueta `run_id` en los spans, y el evento `ready` lo lleva. De un evento de auditoría se llega a su corrida y a su traza, y al revés. Un delegado comparte el id del turno. Aditivo: todo es opcional. **`agent-testkit`:** `evalSuite` pasa a cada corrida un `runId` determinista (`suite/caso/repetición`), para que el mismo informe siga saliendo igual y se puedan encontrar los eventos de auditoría de una corrida de la suite.

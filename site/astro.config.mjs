@@ -69,6 +69,7 @@ export default defineConfig({
             { slug: 'guides/govern-a-payment-tool' },
             { slug: 'guides/durable-flow-with-approval' },
             { slug: 'guides/flows-across-processes' },
+            { slug: 'guides/choose-a-journal' },
             { slug: 'guides/test-an-agent' },
             { slug: 'guides/let-a-model-supervise-flows' },
           ],

@@ -1,7 +1,7 @@
 # SPEC-0018: plantilla de agente de negocio y scaffolder
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador
+**Estado:** Borrador. Sin confirmar si el template `enterprise` de `create-bk-agent` ya cubre lo que pide. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) a [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md) F1 (workflow).
 **Tipo de cambio:** aditivo (core y create-bk-agent).
 **Objetivo:** demostrar que la librería resultante sirve para construir un agente de negocio gobernado sin escribir infraestructura propia. Es la prueba de aceptación de los pasos 1 a 4 de SPEC-0013.

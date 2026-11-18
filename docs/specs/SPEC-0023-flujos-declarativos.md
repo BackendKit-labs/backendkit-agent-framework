@@ -1,7 +1,7 @@
 # SPEC-0023: motor de flujos (definición, ejecución, estado, control y observación)
 
 **Fecha:** 2026-11-16
-**Estado:** Borrador. D1-D3 aceptadas con las propuestas (el usuario pidió el spec "como indicas", 2026-11-16); D4-D8 son propuestas nuevas, pendientes. Sin implementar.
+**Estado:** Implementado en su mayor parte y publicado: F1 a F6c (v0.44.0 a v0.46.0: `runFlow`, journals, `FlowControl`, aprobación por paso, `planFlow`, cola BullMQ y journal Redis). Pendientes: F6d (Hermes, en `bk-platform`) y F7 (retirar `WorkflowRunner` y `FlowRunner`, que siguen en el código). *(Revisado el 2026-11-18; antes decía: Borrador. D1-D3 aceptadas con las propuestas (el usuario pidió el spec "como indicas", 2026-11-16); D4-D8 son propuestas nuevas, pendientes. Sin implementar.)*
 **Sustituye a:** [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) (que queda absorbido aquí) y a la primera versión de este SPEC. Es el diseño detallado de F1 de [SPEC-0017](SPEC-0017-un-contrato-por-concepto.md).
 **Depende de:** [SPEC-0014](SPEC-0014-puntos-de-extension-del-engine.md) (`ToolPolicy`, `ApprovalStore`), `agent-protocol` 1.1 (`FlowHandler`, `FlowRunState`).
 **Tipo de cambio:** por fases. Aditivo hasta F6 (que además deja obsoleto `orchestrator-agent`, D9); la retirada de los runners viejos va en el minor siguiente y es con ruptura.

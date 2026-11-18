@@ -1,7 +1,7 @@
 # SPEC-0009: Confianza del workspace y límites aplicados
 
 **Fecha:** 2026-10-24
-**Estado:** En curso (C1 y C3 implementados y publicados en 0.34; C3b implementado en master, sin publicar)
+**Estado:** En curso: C1 y C3 publicadas (v0.34), C3b publicada (v0.36.0). C2 sin confirmar (el motor resuelve `delegatesTo: ['*']`, la decisión abierta de §4 sigue); C4 con decisión pendiente; C5 solo diseño, sin código. *(Revisado el 2026-11-18; antes decía: En curso (C1 y C3 implementados y publicados en 0.34; C3b implementado en master, sin publicar))*
 **Depende de:** SPEC-0003 y SPEC-0008 (Hermes), SPEC-0006 (política de sandbox), [ADR-0002](../adr/0002-aborto-automatico-por-presupuesto.md) (presupuesto)
 **ADR:** [ADR-0006](../adr/0006-confianza-del-workspace.md) (confianza del workspace), [ADR-0007](../adr/0007-un-limite-declarado-debe-aplicarse.md) (un límite declarado debe aplicarse)
 **Origen:** la auditoría de 2026-10-24 (lotes #93–#96) y la opinión posterior del auditor sobre el modelo de capacidades, verificada punto por punto contra el código. Este spec recoge lo que esa opinión acierta y descarta lo que no resultó cierto.

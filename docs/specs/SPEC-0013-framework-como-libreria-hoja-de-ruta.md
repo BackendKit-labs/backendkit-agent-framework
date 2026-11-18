@@ -1,7 +1,7 @@
 # SPEC-0013: el framework como librería (hoja de ruta)
 
 **Fecha:** 2026-11-14
-**Estado:** Borrador
+**Estado:** Hoja de ruta. SPEC-0014, 0015 y 0016 implementadas y publicadas; SPEC-0017 parcial; SPEC-0018 sin confirmar contra los templates. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Decide:** [ADR-0008](../adr/0008-core-define-contratos-verticales-y-apps-fuera.md)
 **Depende de:** #166 y #167 (SPEC-0011 y bump v0.38.2) mergeados y publicados.
 **Objetivo:** convertir el SDK en una librería de agentes limpia. Core define contratos genéricos; coding, negocio y las apps se enganchan desde fuera. Este documento es el índice: dice qué se hace, en qué SPEC y en qué orden, y guarda la lista de hallazgos para que no se pierda ninguno.

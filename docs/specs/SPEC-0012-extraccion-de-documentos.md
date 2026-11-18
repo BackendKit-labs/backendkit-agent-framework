@@ -1,7 +1,7 @@
 # SPEC-0012: Extracción de documentos a texto (`@backendkit-labs/document-extract`)
 
 **Fecha:** 2026-10-28
-**Estado:** Capa 1 y OCR (1b) implementados en `packages/document-extract` (sin publicar); capa 2 (imagen nativa al modelo) pendiente
+**Estado:** Capa 1 y OCR (1b) implementados y publicados (`document-extract`, v0.38.1); capa 2 (imagen nativa al modelo) pendiente. *(Revisado el 2026-11-18; antes decía: Capa 1 y OCR (1b) implementados en `packages/document-extract` (sin publicar); capa 2 (imagen nativa al modelo) pendiente)*
 **Origen:** Steward SPEC-0006 §7 (consola de Hermes: soltar documentos para analizarlos o procesarlos)
 
 > **Decidido (propietario, 2026-10-28):**

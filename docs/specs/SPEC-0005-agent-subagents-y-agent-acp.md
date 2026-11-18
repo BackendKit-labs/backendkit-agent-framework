@@ -1,7 +1,7 @@
 # SPEC-0005: agent-subagents y agent-acp
 
 **Fecha:** 2026-10-22
-**Estado:** Borrador
+**Estado:** Borrador, sin implementar (no existen `agent-subagents` ni `agent-acp`). Sin revisar desde 2026-10-22; la parte continuable depende de SPEC-0004. *(Revisado el 2026-11-18; antes decía: Borrador)*
 **Inspiración:** `subagent/*`, `experimental/agent-team`, `acp`, `subagent-acp` de deepseek-harness (diseño, no código).
 **Depende de:** SPEC-0002 (señal de cancelación); la parte *continuable*, el fork y los equipos dependen de SPEC-0004.
 **Habilita:** Hermes H2 y H3 (SPEC-0003).

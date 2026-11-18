@@ -19,6 +19,22 @@ The codemod only moves `import` and `export ... from` statements (and the `z.rec
 3. Run `tsc`, then **run your tests**. The compiler catches renamed imports; it does not catch [a change of behavior](#validation-throws-since-agent-core-034).
 :::
 
+## `FileRunJournal` is removed (agent-core 0.47)
+
+The first file journal, one file per event, is gone. `NdjsonRunJournal` replaces it: one file per run, tamper-evident, faster to read and write, and it takes over a dead owner's claim at once.
+
+```ts
+// before
+const journal = new FileRunJournal(dir);
+
+// now
+const journal = new NdjsonRunJournal(dir);
+```
+
+- **Old runs are not read.** The two journals use different formats, so a run a `FileRunJournal` left on disk half done is not resumed, and a finished one is not found. Finish or read your open runs before you upgrade.
+- **The claim works differently.** `NdjsonRunJournal` frees a claim when the process that holds it is gone (it checks the pid) and ignores the TTL. Two containers that share a volume cannot see each other's pids: for that case use `RedisRunJournal` or `PostgresRunJournal`.
+- **Codemod:** none. TypeScript flags the missing export.
+
 ## Package scope: `@bk/*` to `@backendkit-labs/*` (v0.15.0)
 
 `@bk/agent-core`, `@bk/agent-coding` and `@bk/mcp-server` became `@backendkit-labs/agent-core`, `agent-coding` and `mcp-server`.

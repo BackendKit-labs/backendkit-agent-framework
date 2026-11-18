@@ -4,7 +4,7 @@ import { MemoryRunJournal } from '../journal';
 import type { RunJournal } from '../journal';
 import { FlowDefinitionSchema } from '../types';
 import { validateFlow, parseFlow } from '../loader';
-import { FileRunJournal } from '../file-journal';
+import { NdjsonRunJournal } from '../ndjson-journal';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -188,15 +188,15 @@ describe('the claim is renewed while the run lives', () => {
         expect(await inner.claim('tail', 'p2', 60_000)).not.toBeNull(); // before the fix: held for the whole TTL by nobody
     });
 
-    it('works with the file journal: each renewal replaces the claim and the run still releases it', async () => {
+    it('works with the ndjson journal: the claim is renewed while the run lives and released when it ends', async () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-'));
         try {
-            const journal = new FileRunJournal(dir);
-            const running = runFlow(one, { executor: slow(4500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 3000, claimRenewMs: 300 });
-            await sleep(3600); // past the TTL, with ten renewals in between; file writes are slow when the whole suite runs at once, so the margins are wide
-            expect(await journal.claim('file-run', 'p2', 3000)).toBeNull();
+            const journal = new NdjsonRunJournal(dir);
+            const running = runFlow(one, { executor: slow(1500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 3000, claimRenewMs: 200 });
+            await sleep(700);
+            expect(await journal.claim('file-run', 'p2', 3000)).toBeNull(); // held by a live owner
             expect((await running).status).toBe('completed');
-            expect(await journal.claim('file-run', 'p2', 3000)).not.toBeNull();
+            expect(await journal.claim('file-run', 'p2', 3000)).not.toBeNull(); // released
         } finally { await fs.rm(dir, { recursive: true, force: true }); }
     }, 20_000);
 

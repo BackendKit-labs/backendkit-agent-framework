@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+- **`agent-core`, con ruptura: `FileRunJournal` se elimina** (SPEC-0024 F4). Era el primer journal de archivo (un archivo por evento) y `NdjsonRunJournal` (0.45.0) lo mejora en todo para un host: unas 3 veces más rápido al escribir y 58 veces al leer, con integridad por cadena y relevo inmediato de un dueño muerto. Se quitó en vez de deprecarlo porque el framework está en desarrollo. **Migración:** cambia `new FileRunJournal(dir)` por `new NdjsonRunJournal(dir)`. Las corridas que un `FileRunJournal` dejó en disco **no las lee** `NdjsonRunJournal` (otro formato): una corrida a medias no se reanuda, y una terminada hay que leerla antes de actualizar si interesa. El claim de `NdjsonRunJournal` se libera al morir su dueño (comprobación del pid) y no por TTL, así que **dos contenedores que comparten un volumen no se ven los pids**: ahí usa `RedisRunJournal` o `PostgresRunJournal`. Ver [Migrate between versions](https://backendkit-agent-framework.vercel.app/guides/migrate-between-versions/). Al publicar, `agent-core` sube a 0.47.0 y hay que barrer los rangos.
+
 ## v0.47.1 (2026-11-18)
 
 Patch: un buscador propio y un modo nuevo para `tool_search`, y la documentación de `agent-flow-sql`. Es aditivo: `^0.46.0` cubre 0.46.1, así que no hay barrido de rangos y solo suben estos dos paquetes.

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import core from '@backendkit-labs/agent-core';
 
 const {
-    loadFlow, runFlow, FileRunJournal, MemoryApprovalStore, createApprovalHandler, stepApprovalId,
+    loadFlow, runFlow, NdjsonRunJournal, MemoryApprovalStore, createApprovalHandler, stepApprovalId,
 } = core;
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +27,7 @@ const executor = {
 };
 
 // 2. Durable state: a run survives the process and can be resumed with the same runId.
-const journal = new FileRunJournal(await mkdtemp(join(tmpdir(), 'flows-')));
+const journal = new NdjsonRunJournal(await mkdtemp(join(tmpdir(), 'flows-')));
 const approvals = { store: new MemoryApprovalStore() };
 const runId = 'close-2026-10';
 const options = { executor, journal, approvals, runId, payload: { company: 'Acme', month: '2026-10' } };

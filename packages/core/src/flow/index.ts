@@ -20,7 +20,6 @@ export type { NdjsonRunJournalOptions } from './ndjson-journal';
 export type {
     JournalEvent, RunJournal, JournalRun, JournalStep, JournalStepStatus, JournalRunStatus, NewJournalRun, StepPatch, RunPatch,
 } from './journal';
-export { FileRunJournal } from './file-journal';
 export { flowFromDefinition, flowRunView } from './adapter';
 export { decideStepApproval, stepApprovalId } from './approval';
 export type { FlowApprovals, StepApproval } from './approval';

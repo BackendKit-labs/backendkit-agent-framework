@@ -16,12 +16,11 @@ A journal records every step **before and after** it runs, and holds one owner p
 |---|---|---|---|---|---|
 | `MemoryRunJournal` | core | until the process ends | no | no | n/a |
 | `NdjsonRunJournal` | core | on disk, a file per run | yes, same host | no | at once (pid check) |
-| `FileRunJournal` | core | on disk, a file per event | yes, same host | no | by TTL |
 | `RedisRunJournal` | `agent-flow-queue` | in Redis | yes | yes | by TTL |
 | `SqliteRunJournal` | `agent-flow-sql` | in one SQLite file | yes, same host | no | by TTL |
 | `PostgresRunJournal` | `agent-flow-sql` | in your Postgres | yes | yes | by TTL |
 
-`FileRunJournal` was the first file journal; `NdjsonRunJournal` is faster, checks integrity and replaces it for new work.
+`FileRunJournal`, the first file journal, was removed in 0.47.0; `NdjsonRunJournal` replaces it. See [Migrate between versions](/guides/migrate-between-versions/).
 
 ## When to use which
 

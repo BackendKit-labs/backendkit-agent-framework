@@ -5,7 +5,6 @@ import { runFlow, FlowClaimError } from '../run';
 import type { StepExecutor } from '../run';
 import { MemoryRunJournal } from '../journal';
 import type { RunJournal } from '../journal';
-import { FileRunJournal } from '../file-journal';
 import { NdjsonRunJournal } from '../ndjson-journal';
 import { FlowDefinitionSchema } from '../types';
 
@@ -33,7 +32,6 @@ afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
 /** The last is whether the claim expires by TTL (the ndjson journal frees it when its holder is gone, and ignores the TTL). */
 const implementations: Array<[string, () => RunJournal, boolean]> = [
     ['MemoryRunJournal', () => new MemoryRunJournal(), true],
-    ['FileRunJournal', () => new FileRunJournal(dir), true],
     ['NdjsonRunJournal', () => new NdjsonRunJournal(dir), false],
 ];
 
@@ -146,36 +144,5 @@ describe.each(implementations)('%s', (_name, make, expiresByTtl) => {
         const journal = make();
         await journal.begin({ runId: 'x1', flow: 'other', inputPreview: '' });
         await expect(runFlow(def(['a']), { executor: counting().executor, journal, runId: 'x1' })).rejects.toThrow(/belongs to flow/);
-    });
-});
-
-describe('FileRunJournal across processes', () => {
-    it('of many journals on one directory racing for a claim, exactly one wins', async () => {
-        await new FileRunJournal(dir).begin({ runId: 'race', flow: 'f', inputPreview: '' });
-        const claims = await Promise.all(
-            Array.from({ length: 12 }, (_, i) => new FileRunJournal(dir).claim('race', `p${i}`, 60_000)),
-        );
-        expect(claims.filter(c => c !== null)).toHaveLength(1);
-    });
-
-    it('concurrent writers never lose or overwrite an event', async () => {
-        const a = new FileRunJournal(dir);
-        const b = new FileRunJournal(dir);
-        await a.begin({ runId: 'w', flow: 'f', inputPreview: '' });
-        await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 ? a : b).step('w', `s${i}`, { status: 'done', attempt: 1 })));
-        expect(Object.keys((await a.get('w'))!.steps)).toHaveLength(20);
-    });
-
-    it('a second begin for the same id fails; invalid ids are rejected', async () => {
-        const j = new FileRunJournal(dir);
-        await j.begin({ runId: 'dup', flow: 'f', inputPreview: '' });
-        await expect(j.begin({ runId: 'dup', flow: 'f', inputPreview: '' })).rejects.toThrow(/already exists/);
-        await expect(j.get('../escape')).rejects.toThrow(/invalid run id/);
-    });
-
-    it('a state written by one journal object is read by a new one (survives the process)', async () => {
-        await runFlow(def(['a']), { executor: counting().executor, journal: new FileRunJournal(dir), runId: 'persist' });
-        const fresh = new FileRunJournal(dir);
-        expect((await fresh.get('persist'))!.status).toBe('done');
     });
 });

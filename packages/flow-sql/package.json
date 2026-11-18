@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-flow-sql",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "RunJournal on SQL for @backendkit-labs/agent-core flows: SQLite and Postgres. Runs survive the process and any process sharing the database can resume them",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

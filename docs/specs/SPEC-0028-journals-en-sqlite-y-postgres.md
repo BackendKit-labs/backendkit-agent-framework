@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. **F2 hecha (2026-11-18)**: `PostgresRunJournal`, ver §10. F3 sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. **F2 hecha (2026-11-18)**: `PostgresRunJournal`, ver §10. **F3 hecha (2026-11-18)**: guía "Choose a journal" en la web (rama `docs/site-journal-guide`, sobre #223).
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -52,7 +52,7 @@ await runFlow(def, { journal, runId, executor });
 - **F0. Verificar y extraer la batería común. HECHA, ver §8.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
 - **F1. `SqliteRunJournal`. HECHA, ver §9.** Con un adaptador estructural que sirve a `node:sqlite` y a `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
 - **F2. `PostgresRunJournal`. HECHA, ver §10.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
-- **F3. Guía** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
+- **F3. Guía. HECHA** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
 
 ## 6. Criterios de aceptación
 
@@ -125,7 +125,7 @@ await runFlow(def, { journal, runId, executor });
 4. **El CI ejecuta las pruebas contra Postgres** desde el 2026-11-18: el job tiene un servicio `postgres:16-alpine` desechable y `TEST_POSTGRES_URL` en el paso de pruebas (ver el cierre, abajo).
 5. **Lo que estaba sin comprobar se cerró el 2026-11-18**, ver el cierre.
 
-**F3 pendiente:** la guía "elegir un journal" en la web.
+**F3 hecha:** `site/src/content/docs/guides/choose-a-journal.mdx` con el diagrama `JournalChoice`. Falta enlazar la página del paquete `flow-sql` cuando #226 esté en master (añadirlo a `ORDER` en `sync-packages.mjs`).
 
 ### Cierre de lo que quedó sin comprobar (2026-11-18)
 

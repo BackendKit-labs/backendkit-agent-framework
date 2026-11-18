@@ -42,8 +42,9 @@ export class RunRecorder {
         this.budgetExceeded = true;
     }
 
-    result(aborted: boolean): RunResult {
+    result(aborted: boolean, runId?: string): RunResult {
         return {
+            ...(runId ? { runId } : {}),
             text: this.text.trim(), toolCalls: this.toolCalls, errors: this.errors, aborted,
             budgetExceeded: this.budgetExceeded, systemPrompts: this.systemPrompts,
         };

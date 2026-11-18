@@ -286,10 +286,16 @@ export interface RunResult {
     budgetExceeded: boolean;
     /** The system prompt of every model call of the turn. Only with `emitSystemPrompt`; empty otherwise. */
     systemPrompts: string[];
+    /**
+     * The id of this run. The audit events and the spans of the run carry the same one (`AuditEvent.runId`, the `run_id` tag of a span),
+     * so a call can be followed to its run and back. The engine sets it; it is optional here only so that a `RunResult` can be built by hand.
+     */
+    runId?: string;
 }
 
 export type AgentEvent =
-    | { type: 'ready' }
+    /** `run_id`: the id of the run that starts (SPEC-0039). */
+    | { type: 'ready'; run_id?: string }
     | { type: 'token'; content: string; agent_id?: string }
     | { type: 'tool_call'; name: string; args_preview?: string }
     /** `agent_id`, `started_at` (epoch ms) and `duration_ms` let tracing build an accurate span per tool call. */

@@ -151,6 +151,8 @@ export interface AuditSandboxDecision {
 export interface AuditEvent {
     /** ISO time when the call started. */
     at: string;
+    /** The run (`engine.run`) the call belongs to: the same id as `RunResult.runId` and the `run_id` tag of its spans. Absent for a tool called outside a run. */
+    runId?: string;
     principal: Pick<Principal, 'agentId' | 'sessionId' | 'chain' | 'tenantId' | 'userId'>;
     tool: string;
     /** SHA-256 of the canonical JSON of the arguments (`hashArgs`). */

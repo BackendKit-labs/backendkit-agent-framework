@@ -299,6 +299,8 @@ export class AgentEngine {
     /** What the engine emits to: the transport of the caller, with the events of the current run also collected. */
     private readonly transport: Transport;
     private recorder?: RunRecorder;
+    /** The id of the run in progress; undefined outside `run()`. */
+    private currentRunId?: string;
     private budgetHit = false;
     /** Deferred tools each agent found with `tool_search` in this run, in the order found (SPEC-0030). Cleared when a run starts. */
     private readonly discovered = new Map<string, string[]>();
@@ -522,7 +524,11 @@ export class AgentEngine {
         return this.opts.providers.resolve(profile.provider, this.opts.defaultProvider);
     }
 
-    async run(input: string): Promise<RunResult> {
+    /**
+     * Runs one turn. Every run has an id (`RunResult.runId`), the same one the audit events and the spans of the run carry (SPEC-0039).
+     * Pass `options.runId` to use your own, for example the id of the flow run this turn belongs to; otherwise the engine makes one.
+     */
+    async run(input: string, options: { runId?: string } = {}): Promise<RunResult> {
         // Serialize concurrent calls — messages, currentAgentId, and other fields are
         // shared mutable state that is not safe for concurrent access.
         let release!: () => void;
@@ -534,14 +540,17 @@ export class AgentEngine {
         // an abort, an error) ends here, and the events of delegates are part of the turn.
         const recorder = new RunRecorder();
         this.recorder = recorder;
+        const runId = options.runId ?? randomUUID();
+        this.currentRunId = runId;
         this.discovered.clear();
         try {
             await this._run(input);
         } finally {
             this.recorder = undefined;
+            this.currentRunId = undefined;
             release();
         }
-        return recorder.result(this.aborted);
+        return recorder.result(this.aborted, runId);
     }
 
     /** The cost budget was exceeded at some point (`observability.costTracker.budget`). It stays true. */
@@ -562,7 +571,7 @@ export class AgentEngine {
     private async _run(input: string): Promise<void> {
         if (this.pendingContextLoad) await this.pendingContextLoad;
         this.aborted = false;
-        this.transport.emit({ type: 'ready' });
+        this.transport.emit({ type: 'ready', ...(this.currentRunId ? { run_id: this.currentRunId } : {}) });
 
         // Fix #17: reject inputs that exceed the hard cap to prevent prompt injection via huge payloads
         if (Buffer.byteLength(input, 'utf-8') > MAX_INPUT_BYTES) {
@@ -2016,6 +2025,7 @@ export class AgentEngine {
         const p = this.principalFor(c.agentId, c.chain);
         const event: AuditEvent = {
             at: new Date(c.startedAt).toISOString(),
+            ...(this.currentRunId ? { runId: this.currentRunId } : {}),
             principal: {
                 agentId: p.agentId, sessionId: p.sessionId, chain: p.chain,
                 ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}),

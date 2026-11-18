@@ -115,10 +115,10 @@ describe('SqliteRunJournal', () => {
 
     it('a claim is taken, kept by its owner, expires, and a release of an old token frees nothing', async () => {
         const { journal } = await fresh();
-        const first = await journal.claim('c', 'a', 30);
+        const first = await journal.claim('c', 'a', 300); // wide margins: a busy machine must not let the claim expire early
         expect(first).not.toBeNull();
         expect(await journal.claim('c', 'b', 60_000)).toBeNull();
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, 700));
         const second = await journal.claim('c', 'b', 60_000);
         expect(second).not.toBeNull();
         await first!(); // a's token is no longer the one stored

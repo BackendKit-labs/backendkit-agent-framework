@@ -1,7 +1,7 @@
 # SPEC-0037: codemods y guías de migración
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D5 con propuesta; sin implementar.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: herramienta elegida (`ts-morph`) e inventario de las rupturas reales, ver §8. F1 a F4 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel y Mastra publican un paquete `codemod` y guías de migración por versión; nosotros hemos publicado rupturas con solo una nota en el CHANGELOG.
 **Depende de:** nada. Aditivo, en un paquete nuevo.
 **Tipo de cambio:** aditivo.
@@ -60,3 +60,33 @@ npx @backendkit-labs/codemod --list                    # transformaciones dispon
 
 - Las rupturas ya publicadas son pocas; el valor crece con las futuras. Por eso F4 fija la regla de proceso, que es lo que dura.
 - Fuera de alcance: migrar **datos** (journals, archivos de aprobaciones) entre versiones; si una ruptura cambia un formato de datos, lleva su propio convertidor en su spec.
+
+## 8. F0: inventario de rupturas y elección de herramienta (2026-11-18)
+
+**Qué cambió en cada ruptura publicada** (leído del `CHANGELOG.md`, secciones v0.40.0, v0.41.0, la migración a zod 4 y el renombrado de paquetes)
+
+| Ruptura | Parte mecánica (candidata a transformación) | Parte que exige criterio (se avisa, no se adivina) |
+|---|---|---|
+| **SPEC-0015** (0.40.0, `agent-core` 0.39, `agent-coding` 0.29) | `Orchestrator`, `QAService`, los tipos de orchestration y los hooks de reflection (`AuditHook`, `HistoricalLoader`, `LessonsMemoGenerator`...) pasan de `agent-core` a `agent-coding/pipeline`; el subpath `agent-core/orchestration` desaparece; `agent-core/reflection` se sustituye por la raíz. | Las opciones `orchestrator`, `orchestratorFailureMode`, `qaService`, `noQA` y `onQAReview` de `createBaseEngine` pasan a un hook `codingPipelineHooks({...})`: es reestructurar una llamada, no mover un import. |
+| **SPEC-0016** (0.41.0, `agent-core` 0.40, `agent-coding` 0.30) | Una lista cerrada de símbolos (`discoverAgents`, `SkillLoader`, `SkillManager`, `registerBuiltinCommands`, los checkpoints, los workspaces, `runGlobalSeed`, `loadFrameworkConfig`, el trust...) pasa a `agent-coding/cli`. Siguen en core `SlashCommandRegistry`, `SkillRegistry`, `SkillActivator`, `cwdToProjectKey`, `getFrameworkDir`, `getProjectDir` y `atomicWrite`. | Ninguna: es solo mover imports. |
+| **Zod 4** | Ninguna segura. | `z.record(x)` a `z.record(z.string(), x)`, `invalid_type_error` a `error`, y los mensajes de error cambian: lo primero es casi mecánico, lo demás no. |
+| **Renombrado de paquetes** (`@bk/*`) | `@bk/agent-core`, `@bk/agent-coding`, `@bk/mcp-server` a `@backendkit-labs/*`, en imports y en `package.json`. | Ninguna. |
+| **Rangos 0.x** (cada ruptura) | `^0.38` a `^0.39` y los peers `<0.41.0`, en todos los `package.json`. | Ninguna, pero hoy se hace con scripts sueltos. |
+
+**Lo mecánico es sobre todo mover símbolos entre módulos.** Eso fija lo que `ts-morph` tiene que hacer bien: partir un `import` que mueve solo algunos de sus símbolos, sin tocar el resto.
+
+**Prueba de las dos herramientas** (`ts-morph` y `jscodeshift`, sobre un archivo con tres `import` de `agent-core`, uno multilínea con un comentario y un `import * as core`):
+
+| | `ts-morph` | `jscodeshift` |
+|---|---|---|
+| Mueve `Orchestrator`, `QAService` y `AuditHook` a `agent-coding/pipeline` | Sí, **en un solo import nuevo** (junta lo que mueve) | Sí, pero en **dos imports nuevos**, uno por cada origen |
+| Lo que no se mueve | Intacto, con su formato y su comilla | El `import { defineTool }` multilínea pasa a una línea |
+| Un comentario dentro del import multilínea | Se queda donde estaba | **Viaja** al import nuevo y deja el import partido en tres líneas sin sangría |
+| Peso instalado | 14 MB (con su copia de TypeScript) | 12 MB (con Babel) |
+| API | Tipada y legible (`getNamedImports`, `addNamedImports`) | Más baja (nodos del AST) |
+
+**D2 se cierra: `ts-morph`.** Respeta mejor el código ajeno, que es el criterio 6 ("no reescribe lo que no entiende"). El `import` nuevo sale con comilla doble: se ajusta con `manipulationSettings.quoteKind`, y F1 lo cubre con una prueba.
+
+**Un caso que ninguna herramienta resuelve sola** y que D3 ya prevé: `import * as core from '@backendkit-labs/agent-core'` seguido de `core.Orchestrator`. No es un import con nombres: la transformación lo detecta por el uso del namespace y deja `// TODO(codemod)`, no lo reescribe.
+
+**Sin comprobar:** el rendimiento en un proyecto grande, y que la orden se pueda lanzar con `npx` sin traer a quien la use los 14 MB de `ts-morph` dos veces (se resolverá en F1 con el paquete publicado).

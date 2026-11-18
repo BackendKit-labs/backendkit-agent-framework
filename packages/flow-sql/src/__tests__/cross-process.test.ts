@@ -8,9 +8,8 @@ import { SqliteRunJournal } from '../index';
 // it tests); without `dist` they are skipped, not failed.
 const worker = join(__dirname, 'fixtures', 'worker.js');
 const built = existsSync(join(__dirname, '..', '..', 'dist', 'index.js'));
-let DatabaseSync: (new (path: string) => { exec(sql: string): void; prepare(sql: string): never; close(): void }) | undefined;
-try { DatabaseSync = (require('node:sqlite') as { DatabaseSync: typeof DatabaseSync }).DatabaseSync; } catch { /* old Node */ }
-const suite = built && DatabaseSync ? describe : describe.skip;
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => { exec(sql: string): void; prepare(sql: string): never; close(): void } };
+const suite = built ? describe : describe.skip;
 if (!built) console.warn('dist is not built: cross-process tests skipped');
 
 function run(args: string[]): Promise<Array<Record<string, unknown>>> {
@@ -32,7 +31,7 @@ suite('SqliteRunJournal across processes', () => {
     beforeEach(async () => {
         dir = mkdtempSync(join(tmpdir(), 'flow-sql-xp-'));
         file = join(dir, 'x.db');
-        db = new DatabaseSync!(file);
+        db = new DatabaseSync(file);
         journal = new SqliteRunJournal(db as never);
         await journal.migrate();
     });

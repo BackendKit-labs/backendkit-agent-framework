@@ -8,10 +8,10 @@ const out = o => process.stdout.write(JSON.stringify(o) + '\n');
 
 (async () => {
     if (mode === 'claim') {
+        // Never released: the claim stays valid for its TTL, so a process that starts late (a loaded machine) still finds it taken.
+        // Releasing it after a pause would let a late starter win legitimately and make the race depend on timing.
         const release = await journal.claim(runId, who, 60_000);
         out({ who, won: release !== null });
-        await new Promise(r => setTimeout(r, 400)); // hold it while the others try
-        if (release) await release();
     } else {
         for (let i = 0; i < Number(count); i++) {
             const stepId = `${who}-${i}`;

@@ -7,18 +7,13 @@ import { journalConformance } from '@backendkit-labs/agent-core/testing';
 import { SqliteRunJournal, SqlRunJournal, sqliteClient } from '../index';
 import type { SyncSqliteDb } from '../index';
 
-// `node:sqlite` ships with Node 22.5+; the CI runs Node 24. On older Node these tests are skipped, not failed.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let DatabaseSync: (new (path: string) => SyncSqliteDb & { close(): void }) | undefined;
-try { DatabaseSync = (require('node:sqlite') as { DatabaseSync: typeof DatabaseSync }).DatabaseSync; } catch { /* old Node */ }
-
-const available = DatabaseSync !== undefined;
-if (!available) console.warn('node:sqlite is not available on this Node: SqliteRunJournal tests skipped');
+// `node:sqlite` is built in from Node 22.13, the `engines` of this package.
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => SyncSqliteDb & { close(): void } };
 
 const dirs: string[] = [];
 const handles: Array<{ close(): void }> = [];
 const tmp = (): string => { const d = mkdtempSync(join(tmpdir(), 'flow-sql-')); dirs.push(d); return d; };
-const open = (file: string) => { const db = new DatabaseSync!(file); handles.push(db); return db; };
+const open = (file: string) => { const db = new DatabaseSync(file); handles.push(db); return db; };
 afterAll(() => {
     for (const h of handles) { try { h.close(); } catch { /* already closed */ } }
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -41,7 +36,7 @@ function counting(fail: Set<string> = new Set()) {
     return { executor, calls };
 }
 
-if (available) {
+{
     // The shared RunJournal battery (SPEC-0028 F0): the contract every journal passes. Each journal object gets its own
     // connection to the same file, as two processes would.
     const file = join(tmp(), 'conformance.db');
@@ -52,9 +47,7 @@ if (available) {
     });
 }
 
-const suite = available ? describe : describe.skip;
-
-suite('SqliteRunJournal', () => {
+describe('SqliteRunJournal', () => {
     const fresh = async (file = join(tmp(), 'j.db')) => {
         const journal = new SqliteRunJournal(open(file));
         await journal.migrate();
@@ -178,10 +171,9 @@ suite('SqliteRunJournal', () => {
 });
 
 describe('sqliteClient', () => {
-    const maybe = available ? it : it.skip;
     const memory = () => sqliteClient(open(':memory:'));
 
-    maybe('a transaction commits when it resolves and rolls back when it throws', async () => {
+    it('a transaction commits when it resolves and rolls back when it throws', async () => {
         const c = memory();
         await c.query('CREATE TABLE t (n INTEGER)');
         await c.transaction(async tx => { await tx.query('INSERT INTO t VALUES (1)'); });
@@ -189,7 +181,7 @@ describe('sqliteClient', () => {
         expect((await c.query('SELECT n FROM t ORDER BY n')).rows).toEqual([{ n: 1 }]);
     });
 
-    maybe('statements of two transactions never interleave, even when they await in the middle', async () => {
+    it('statements of two transactions never interleave, even when they await in the middle', async () => {
         const c = memory();
         await c.query('CREATE TABLE t (who TEXT, step INTEGER)');
         const slow = (who: string) => c.transaction(async tx => {
@@ -202,7 +194,7 @@ describe('sqliteClient', () => {
         expect(['aabb', 'bbaa']).toContain(order);
     });
 
-    maybe('undefined is bound as NULL, and rowCount counts the rows a statement changed or returned', async () => {
+    it('undefined is bound as NULL, and rowCount counts the rows a statement changed or returned', async () => {
         const c = memory();
         await c.query('CREATE TABLE t (a TEXT, b TEXT)');
         expect((await c.query('INSERT INTO t VALUES (?, ?)', ['x', undefined])).rowCount).toBe(1);

@@ -10,7 +10,7 @@ Use it when you want one file and no service (SQLite), or, later, the database y
 npm install @backendkit-labs/agent-flow-sql @backendkit-labs/agent-core
 ```
 
-There is no driver dependency: you give it an open handle. On Node 22.5+ that is `node:sqlite`; on older Node, `better-sqlite3` (any handle with `prepare(sql).all/run` and `exec`).
+Node 22.13 or newer (`engines`). There is no driver dependency: you give it an open handle, `node:sqlite` (built in) or `better-sqlite3` (any handle with `prepare(sql).all/run` and `exec`).
 
 ## Use
 

@@ -9,3 +9,5 @@ export { RecordingProvider, serializeError, deserializeError } from './recording
 export type { RecordedCall, RecordedEvent, RecordedError, RecordingSink, RecordingOptions } from './recording';
 export { ReplayProvider, readRecording } from './replay';
 export type { ReplayOptions, ReplayOverrides, ReplayFault } from './replay';
+export { journalConformance, journalConformanceCases } from './journalConformance';
+export type { JournalConformanceOptions, JournalConformanceCase } from './journalConformance';

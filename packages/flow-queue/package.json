@@ -29,6 +29,7 @@
     "@backendkit-labs/agent-core": ">=0.43.0 <0.46.0"
   },
   "devDependencies": {
+    "@backendkit-labs/agent-testkit": "^0.1.15",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",
     "jest": "^29.0.0",

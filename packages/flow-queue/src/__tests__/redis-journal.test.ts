@@ -1,5 +1,6 @@
 import * as net from 'net';
 import { Redis as IORedis } from 'ioredis';
+import { journalConformance, journalConformanceCases } from '@backendkit-labs/agent-testkit';
 import { APPEND_SCRIPT, BEGIN_SCRIPT, CLAIM_SCRIPT, RELEASE_SCRIPT, RedisRunJournal } from '../redis-journal';
 
 /** In-memory stand-in that runs each script's logic in JS. The real Lua runs in the integration block below. */
@@ -128,4 +129,29 @@ describe('RedisRunJournal (real Redis)', () => {
         const j = new RedisRunJournal({ redis, prefix: `${prefix}-${Math.random().toString(36).slice(2)}` });
         return { j, done: async () => { redis.disconnect(); } };
     });
+});
+
+// The shared RunJournal battery (SPEC-0028 F0): the contract every journal passes, with the fake and with real Redis.
+// Redis appends atomically and does not fence writers, so concurrent writers on one run all land (exclusiveWriter stays false).
+const fakeForConformance = new FakeRedis();
+journalConformance('RedisRunJournal (fake)', {
+    make: () => new RedisRunJournal({ redis: fakeForConformance as unknown as IORedis }),
+    rejectsUnsafeIds: true,
+});
+
+describe('RedisRunJournal (real Redis): RunJournal conformance', () => {
+    let up = false;
+    const clients: IORedis[] = [];
+    const prefix = `conformance-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    beforeAll(async () => { up = await reachable(); });
+    afterAll(() => { for (const r of clients) r.disconnect(); });
+    const cases = journalConformanceCases({
+        make: () => {
+            const redis = new IORedis({ host: HOST, port: PORT });
+            clients.push(redis);
+            return new RedisRunJournal({ redis, prefix });
+        },
+        rejectsUnsafeIds: true,
+    });
+    for (const c of cases) it(c.name, async () => { if (!up) return; await c.run(); }); // skipped when Redis is not reachable
 });

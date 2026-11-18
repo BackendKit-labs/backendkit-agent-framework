@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en `agent-testkit`, ver §8. F1 y F2 sin implementar.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -49,7 +49,7 @@ await runFlow(def, { journal, runId, executor });
 
 ## 5. Fases
 
-- **F0. Verificar y extraer la batería común.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
+- **F0. Verificar y extraer la batería común. HECHA, ver §8.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
 - **F1. `SqliteRunJournal`** con adaptador de `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
 - **F2. `PostgresRunJournal`.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
 - **F3. Guía** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
@@ -63,3 +63,28 @@ await runFlow(def, { journal, runId, executor });
 
 - El `fsync` y la cadena de integridad de SPEC-0024 no se replican: la base garantiza la durabilidad; la cadena queda como propiedad de ndjson.
 - Fuera de alcance: migraciones entre journals y retención automática (se documenta que borrar corridas viejas es del integrador, como en Redis).
+
+## 8. Resultado de F0 (2026-11-17)
+
+**Qué se hizo.** La batería de contrato `journalConformance` (y `journalConformanceCases`, para otros ejecutores de pruebas) vive en `agent-testkit` (`packages/testkit/src/journalConformance.ts`). **No** está en core: el testkit tiene a core como peer, así que core no puede depender de él sin un ciclo. Las pruebas de los journals de core que la ejecutan están en `packages/testkit/src/__tests__/journals.test.ts`; las del journal de Redis, en `agent-flow-queue` (que gana `agent-testkit` como devDependency). El futuro `agent-flow-sql` hará lo mismo.
+
+**La batería (13 casos de contrato y hasta 5 condicionados a una capacidad: el TTL, tres de almacenamiento compartido y los ids):** `get` de una corrida inexistente; `begin` crea una corrida `running` con flow, vista previa y tenant; `begin` de un id existente falla sin cambiar la corrida; `step` y `update` sobre una corrida inexistente fallan y no crean nada; los parches de `step` se funden; las transiciones se acumulan en orden; `update` fija el estado y solo uno terminal fija `finishedAt`; `waiting` se fija y se limpia con `null`; `list` filtra por estado, flow y tenant y **devuelve las corridas de la más antigua a la más reciente**; escritores simultáneos no pierden eventos; el `claim` es exclusivo, el mismo dueño puede renovarlo y `release` lo libera; un `release` obsoleto no libera un claim nuevo; un claim sin renovar caduca por TTL; una corrida escrita por un objeto la lee otro sobre el mismo almacenamiento; varios objetos se disputan un claim y gana uno solo; y varios objetos que escriben a la vez no pierden ninguna escritura confirmada. Con `rejectsUnsafeIds`, un id como `../escape` se rechaza.
+
+**Resultado.** `MemoryRunJournal`, `FileRunJournal`, `NdjsonRunJournal` y `RedisRunJournal` (con el Redis simulado de su prueba **y con Redis real 7**, que ejecuta los scripts Lua) la pasan. Core, testkit y flow-queue no cambian de comportamiento: no se tocó ningún journal.
+
+**Divergencias que salieron, y cómo quedan como capacidades declaradas** (en lugar de relajar la batería):
+
+| Divergencia | Opción | Quién |
+|---|---|---|
+| El claim de ndjson ignora el TTL y se libera cuando su dueño desaparece (SPEC-0024 D2) | `expiresByTtl: false` | `NdjsonRunJournal` |
+| Un segundo objeto que escribe en una corrida que otro ya escribió recibe `JournalConflict` en lugar de añadir (un escritor por corrida) | `exclusiveWriter: true`. Aun así, **una escritura confirmada nunca se pierde** y toda negativa es `JournalConflict` | `NdjsonRunJournal`; **es la semántica que D5 propone para SQL** |
+| Memory no valida los ids; File, ndjson y Redis rechazan los que no son seguros | `rejectsUnsafeIds: true` | File, ndjson, Redis |
+
+**Hallazgos para F1 y F2.**
+1. El orden de `list` (más antigua primero, por `startedAt`) era un hecho de los cuatro journals que no estaba escrito en ninguna parte. Ahora es parte del contrato y de la batería: un journal SQL debe `ORDER BY started_at`.
+2. `exclusiveWriter` nombra la decisión de D5. Si los journals SQL la adoptan, la batería ya la comprueba; si prefieren permitir escritores concurrentes como Redis, también.
+3. Las pruebas de `journal.test.ts` en core (que ejecutan `runFlow` sobre cada journal) **se quedan**: prueban el comportamiento del motor, no el contrato del journal. La batería no las sustituye.
+4. Para ejecutar la batería contra Redis real hace falta un Redis accesible (`REDIS_HOST` y `REDIS_PORT`); sin él se omiten esos casos, como ya hacía la prueba de integración existente. En esta sesión se usó un contenedor temporal.
+5. **Cambio de D6:** la batería no va en core ni como "batería de pruebas de core", sino en `agent-testkit`. La publicación de una versión nueva de `agent-testkit` es requisito para que `agent-flow-sql` la use fuera del monorepo.
+
+**Pendiente de F0.** El CHANGELOG no se toca hasta el release que incluya el testkit nuevo.

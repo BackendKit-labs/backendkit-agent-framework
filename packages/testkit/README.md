@@ -20,6 +20,7 @@ It does not depend on a test runner: assertions throw plain `Error`s, so it work
 | `RecordingProvider(inner, sink)` | wraps a real provider and writes every call (request, chunks, tool calls, metrics, errors, timings) as JSONL |
 | `ReplayProvider(file, options)` | replays a recording with no network; a sidecar file or `overrides` injects faults the recording does not contain |
 | `world.fileEquals / untouched / processGone` | assertions about the real system, not about what the agent claims |
+| `journalConformance(name, { make })` | the battery every `RunJournal` must pass: `begin`, `step`, `update`, `claim`, `get` and `list`, with no flow engine |
 
 ## How to test an agent
 
@@ -120,6 +121,21 @@ guard.verify();                                       // throws if .env changed,
 world.fileEquals(join(dir, 'out.txt'), 'done');
 await world.processGone(pid);                         // the background process really stopped
 ```
+
+### 5. Write a `RunJournal`: pass the conformance battery
+
+```ts
+import { journalConformance } from '@backendkit-labs/agent-testkit';
+
+journalConformance('MyJournal', {
+  make: () => new MyJournal(connection),   // every call: a journal over the SAME storage
+  expiresByTtl: true,                       // a claim that is not renewed expires (default true)
+  exclusiveWriter: false,                   // true if a second writer on a run gets JournalConflict (ndjson, SQL)
+  rejectsUnsafeIds: true,                   // ids like ../x are refused
+});
+```
+
+It registers the cases with the global `describe` and `it` (jest, vitest with globals). For another runner, `journalConformanceCases(options)` returns `{ name, run }` pairs. The cases never reuse a run id, a flow or a tenant, so one storage serves the whole battery; clean it up in your own `afterAll`. The journals of `agent-core` and the Redis journal of `agent-flow-queue` pass it.
 
 ## Not here yet
 

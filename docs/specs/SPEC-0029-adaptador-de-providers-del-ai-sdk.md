@@ -1,7 +1,7 @@
 # SPEC-0029: adaptador de modelos del AI SDK de Vercel a `LLMProvider`
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: contrato verificado contra el SDK instalado, ver §8; D1, D3 y D5 cambian. Sin implementar.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel documenta unos 50 providers (Google, Vertex, Bedrock, Azure, Mistral, Cohere, Groq, Perplexity...). Nosotros ofrecemos OpenAI-compatible y Anthropic.
 **Depende de:** nada. Es aditivo en `agent-providers`.
 **Tipo de cambio:** aditivo; un punto de entrada nuevo y una dependencia opcional.
@@ -66,3 +66,42 @@ const engine = createBaseEngine({
 - El AI SDK cambia de versión de interfaz con frecuencia; se fija un rango y se prueba contra el mínimo y el máximo.
 - Dos capas de reintento y de normalización de errores pueden contradecirse: D3.
 - Fuera de alcance: exponer nuestros providers como modelos del AI SDK (la dirección inversa), imágenes, audio y vídeo.
+
+## 8. F0: el contrato real (2026-11-18)
+
+Verificado instalando `ai` 7.0.176, `@ai-sdk/provider` 4.0.39, `@ai-sdk/google` 4.0.122 y `@ai-sdk/openai` 4.0.121 en un directorio aparte y leyendo sus tipos.
+
+**Lo que se sabía mal o faltaba**
+
+- **Hay tres versiones de interfaz vivas.** `ai` define `LanguageModel = string | LanguageModelV4 | LanguageModelV3 | LanguageModelV2`. Las líneas `ai-v5` y `ai-v6` de npm son V2 y V3; la actual (`latest`) es V4. Los paquetes de proveedor actuales (`@ai-sdk/google`, `@ai-sdk/openai`) devuelven modelos `specificationVersion: 'v4'`. Un adaptador que solo entienda V4 deja fuera a quien no ha migrado.
+- **`doStream` no reintenta.** `LanguageModelV4CallOptions` no tiene `maxRetries`: el reintento vive en `ai` (`generateText`), no en el modelo. D3 se simplifica: no hay nada que poner a 0, reintentamos nosotros.
+- **El tipo `LanguageModel` incluye un `string`** (id global de proveedor del AI SDK Gateway). El adaptador exige un objeto modelo y rechaza el string con un error claro.
+
+**Contrato V4** (`doStream(options)` devuelve `{ stream: ReadableStream<Part> }`; `doGenerate` existe pero no se usa)
+
+| Nuestro `LLMProvider.chat` | Opción V4 |
+|---|---|
+| mensajes `system` / `user` / `assistant` / `tool` | `prompt`: `system` con `content: string`; `user` y `assistant` con arreglos de partes (`text`, `reasoning`, `tool-call`); `tool` con partes `tool-result` |
+| una llamada de tool del asistente | parte `tool-call { toolCallId, toolName, input: unknown }` (objeto, no string) |
+| su resultado | parte `tool-result { toolCallId, toolName, output: { type: 'text', value } \| { type: 'json', value } \| { type: 'execution-denied', ... } }` |
+| `ToolDefinition` | `tools: [{ type: 'function', name, description, inputSchema: JSONSchema7 }]`, sin `execute` |
+| `ChatOptions.toolChoice` | `{ type: 'auto' \| 'none' \| 'required' }` o `{ type: 'tool', toolName }` |
+| `ChatOptions.responseFormat` | `{ type: 'json', schema, name?, description? }` |
+| `callbacks.signal` | `abortSignal` |
+| temperatura, tokens máximos | `temperature`, `maxOutputTokens`, `topP`, `stopSequences`, `seed` |
+
+**Partes del stream → callbacks:** `text-delta { delta }` → `onChunk`; `reasoning-delta { delta }` → `onReasoning`; `tool-call { toolCallId, toolName, input: string JSON }` → `onToolCall` (llega completa; `tool-input-start/delta/end` son solo progreso y se ignoran); `finish { usage, finishReason }` → `onMetrics` y `onDone`; `error { error }` → `onError`; `stream-start` (avisos), `response-metadata`, `ping`, `raw`, `source`, `file` se ignoran. `finishReason` es `{ unified: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'interrupted' | 'other', raw }` en V3 y V4, y un string en V2.
+
+**Uso:** V3 y V4: `inputTokens { total, noCache, cacheRead, cacheWrite }` y `outputTokens { total, text, reasoning }`. V2: números planos `inputTokens`, `outputTokens`, `totalTokens`, `reasoningTokens?`, `cachedInputTokens?` (sin `cacheWrite`).
+
+**Pruebas:** `ai/test` exporta `MockLanguageModelV4` y `MockLanguageModelV3`, no `V2`: el caso V2 se prueba con un modelo escrito a mano.
+
+**Decisiones que cambian**
+
+| # | Antes | Ahora |
+|---|---|---|
+| D1 | `@ai-sdk/provider` como dependencia opcional | **Ninguna dependencia.** El adaptador declara una interfaz estructural mínima (`doStream`, `specificationVersion`, `modelId`, `provider`) y normaliza V2/V3/V4 por `specificationVersion`. Así no hay rango de peer que mantener ni versión del SDK que fijar. Las pruebas usan `ai` como devDependency. |
+| D3 | el AI SDK invocado con sus reintentos a 0 | `doStream` no reintenta: reintentamos nosotros con `withRetry`, sin más. |
+| D5 | `capabilities.structuredOutput = none` hasta F0 | Se mantiene `none` por defecto: `responseFormat` con esquema existe en el contrato, pero que el modelo lo aplique depende del proveedor, y F0 no puede probarlo sin clave. Con `opts.structuredOutput` el integrador lo declara; F4 lo cablea. |
+
+**Qué queda sin comprobar:** el comportamiento real de un proveedor (nadie probó aún un `google(...)` en vivo), que es F5 y lo ejecuta el usuario con su clave.

@@ -122,7 +122,20 @@ await runFlow(def, { journal, runId, executor });
 1. **El reloj del claim sigue siendo el del proceso** (la duda de §9, punto 2). Usar `now()` de la base exigiría una expresión distinta por dialecto, y el claim se renueva cada tercio del TTL, así que un desfase razonable no lo rompe. Queda documentado en la clase y en el README: el TTL debe ser muy superior al desfase entre procesos.
 2. **`BIGINT` vuelve como cadena en `pg`.** Solo se lee `MAX(seq)`, y se convierte con `Number`. Ninguna otra columna numérica se lee.
 3. **La valla funciona bajo `READ COMMITTED`.** Dos escritores que leen el mismo `MAX(seq)` insertan el mismo `seq`: el segundo espera a que el primero confirme, `ON CONFLICT DO NOTHING` no inserta y `rowCount` da 0, que es `JournalConflict`. No hizo falta `SERIALIZABLE` ni bloqueos.
-4. **El CI no ejecuta las pruebas contra Postgres** (no tiene servicio, como las de Redis real). Un servicio de Postgres en el job costaría segundos y las haría correr siempre; queda como decisión.
-5. **Sin comprobar:** otras versiones de Postgres (se probó la 16; hay imágenes de la 15 en local), un `pgbouncer` en modo transacción, conexiones con SSL y otros drivers (`postgres.js`, `@neondatabase/serverless`). Un driver distinto necesita solo un `SqlClient` propio.
+4. **El CI ejecuta las pruebas contra Postgres** desde el 2026-11-18: el job tiene un servicio `postgres:16-alpine` desechable y `TEST_POSTGRES_URL` en el paso de pruebas (ver el cierre, abajo).
+5. **Lo que estaba sin comprobar se cerró el 2026-11-18**, ver el cierre.
 
 **F3 pendiente:** la guía "elegir un journal" en la web.
+
+### Cierre de lo que quedó sin comprobar (2026-11-18)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **Versiones de Postgres** | La misma suite (33 pruebas) contra contenedores `postgres:*-alpine` | **15.18, 16.14, 17.10 y 18.7**: 33 de 33 en cada una. La 14 no se probó (fin de vida en noviembre de 2026) |
+| **pgbouncer en modo transacción** | pgbouncer 1.22.1 (de los repositorios de Alpine) con `pool_mode = transaction` y solo **4** conexiones de servidor, delante de Postgres 16, con autenticación SCRAM | 33 de 33. Más de cien conexiones de cliente se multiplexaron sobre 4; una transacción mantiene su conexión de servidor de `BEGIN` a `COMMIT`, que es lo que necesita `pgClient` |
+| **SSL** | Postgres 16 con `ssl=on` y un `pg_hba.conf` que **rechaza toda conexión sin SSL**; certificado autofirmado, `sslmode=verify-full` con `sslrootcert` | 33 de 33. Se comprobó aparte: la conexión sin SSL se rechaza, la verificada usa TLS 1.3 (`pg_stat_ssl`) y el certificado autofirmado sin su CA falla la verificación |
+| **Otro driver** | `postgres` (postgres.js) con un `SqlClient` de 10 líneas (`unsafe`, `begin`, `toPositional`) | La batería de contrato: **18 de 18** casos. El adaptador está en el README del paquete |
+| **Lockfile y Linux** | Contenedor `node:24-slim` (Linux x64, glibc, Node 24.22.3) con una copia del commit: `npm ci`, el paso de rolldown del CI, build, typecheck y pruebas con cobertura | `npm ci` instala desde el lockfile; `better-sqlite3` 12.11.1 carga su binario nativo; sin Postgres 61 pasan, 7 se omiten y 100 % de líneas; con Postgres, **86 pasan** |
+| **Servicio de Postgres en el CI** | `services: postgres:16-alpine` y `TEST_POSTGRES_URL` en el paso de pruebas | Añadido. Se confirma con la primera ejecución real del CI |
+
+**Sigue sin comprobarse:** `@neondatabase/serverless` y otros servicios gestionados (necesitan su proxy; su `Pool` tiene la forma de `pg`, así que `PgPoolLike` debería bastar, pero no está probado), Postgres 14 y anteriores, y pgbouncer en modo `statement` (no admite transacciones de varias sentencias: no sirve para esto, y nada lo prueba).

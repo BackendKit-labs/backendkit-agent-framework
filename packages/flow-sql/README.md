@@ -36,7 +36,31 @@ const journal = new PostgresRunJournal(new Pool({ connectionString }), { schema:
 await journal.migrate();                       // CREATE SCHEMA and the tables, if they do not exist
 ```
 
-It takes a `pg.Pool` (anything with `query` and `connect`; `pg` is not a dependency of this package). Each transaction uses its own connection from the pool, so the transactions of one process run in parallel and Postgres keeps them apart. `schema` is optional. For another driver, write a `SqlClient` (`query` and `transaction`, with `?` placeholders): `pgClient` is about twenty lines.
+It takes a `pg.Pool` (anything with `query` and `connect`; `pg` is not a dependency of this package). Each transaction uses its own connection from the pool, so the transactions of one process run in parallel and Postgres keeps them apart. `schema` is optional.
+
+**Tested with** Postgres 15, 16, 17 and 18; behind pgbouncer 1.22 in `transaction` mode (a transaction keeps its server connection from `BEGIN` to `COMMIT`, which is all it needs); and over SSL with `sslmode=verify-full`. Postgres 14 and older are untested.
+
+**Another driver** needs a `SqlClient`: `query` and `transaction`, with `?` placeholders (`toPositional` converts them). This one, for [`postgres`](https://www.npmjs.com/package/postgres) (postgres.js), passes the whole journal battery:
+
+```ts
+import postgres from 'postgres';
+import { SqlRunJournal, toPositional } from '@backendkit-labs/agent-flow-sql';
+import type { SqlClient } from '@backendkit-labs/agent-flow-sql';
+
+function postgresJsClient(sql: postgres.Sql): SqlClient {
+  const run = async (q: postgres.Sql, text: string, params: readonly unknown[] = []) => {
+    const res = await q.unsafe(toPositional(text), params.map(p => (p === undefined ? null : p)) as never[]);
+    return { rows: Array.from(res) as Array<Record<string, unknown>>, rowCount: res.count ?? res.length };
+  };
+  return {
+    query: (text, params) => run(sql, text, params),
+    transaction: fn => sql.begin(tx => fn({ query: (text, params) => run(tx as never, text, params) })) as never,
+  };
+}
+
+const journal = new SqlRunJournal(postgresJsClient(postgres(url)), { schema: 'flows' });
+await journal.migrate();   // with a schema, create it first: CREATE SCHEMA IF NOT EXISTS flows
+```
 
 `migrate()` is explicit: the journal never creates tables by itself. `journal.ddl()` returns the statements if you apply migrations with your own tool, and `tablePrefix` (default `flow_`) keeps several journals in one database apart.
 

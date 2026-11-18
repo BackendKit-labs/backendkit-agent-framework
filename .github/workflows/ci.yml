@@ -11,6 +11,21 @@ jobs:
     name: Build · Typecheck · Test
     runs-on: ubuntu-latest
 
+    # A Postgres for the journal tests of agent-flow-sql (SPEC-0028). Throwaway: it lives for this job only. Redis is not here: its
+    # integration tests skip themselves when it is not reachable.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     steps:
       - uses: actions/checkout@v4
 
@@ -91,6 +106,7 @@ jobs:
           # The coverage report transforms every src file, tested or not; the largest packages
           # hits the default ~2 GB heap on the runner.
           NODE_OPTIONS: --max-old-space-size=4096
+          TEST_POSTGRES_URL: postgres://postgres:ci-test-only@localhost:5432/postgres
         run: |
           # Run every package and fail at the end, so one run reports all failing packages.
           failed=""

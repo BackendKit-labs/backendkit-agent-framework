@@ -32,6 +32,7 @@ import type { Learning } from '../learning/types';
 import { LEARNED_RULES_SERVICE } from '../tools/services';
 import type { EngineHooks } from '../governance/hooks';
 import type { Guardrail } from '../guardrails/types';
+import type { ToolSearchOptions } from './toolSearch';
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -109,6 +110,8 @@ export interface BaseEngineOptions {
     iterationMode?: IterationMode;
     /** Max concurrencySafe tool calls of one turn run at once. Default 1 (sequential). */
     maxParallelTools?: number;
+    /** How `tool_search` looks for deferred tools: a search of your own (embeddings, say) and the number of results. */
+    toolSearch?: ToolSearchOptions;
 
     /**
      * Called when maxIterations is reached in 'interactive' mode.
@@ -438,6 +441,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.onToolApproval ? { onToolApproval: opts.onToolApproval } : {}),
         ...(opts.iterationMode ? { iterationMode: opts.iterationMode } : {}),
         ...(opts.maxParallelTools ? { maxParallelTools: opts.maxParallelTools } : {}),
+        ...(opts.toolSearch ? { toolSearch: opts.toolSearch } : {}),
         ...(opts.toolTimeoutMs ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
         ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
         ...(jobs ? { jobs } : {}),

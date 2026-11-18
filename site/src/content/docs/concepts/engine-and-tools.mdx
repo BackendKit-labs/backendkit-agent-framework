@@ -113,6 +113,37 @@ const readFile = defineTool({
 
 A tool that declares nothing is treated as "may change things": it asks. This is deliberate: forgetting a fact asks too much, never too little.
 
+### Many tools: let the model search
+
+Forty tool definitions cost tokens on every call, and most turns use two. Mark a tool `defer: true`, or list patterns in the agent's `deferTools` (`'crm_*'`, wildcards only), and the model no longer receives its schema. It receives `tool_search` instead, finds a tool by name or description, and from that step on the tool is in its list.
+
+```ts
+const sales = {
+  id: 'sales', /* ... */
+  allowedTools: ['read_file', 'crm_find_contact', 'crm_find_deal' /* ... */],
+  deferTools: ['crm_*'],
+};
+```
+
+- The list only grows, and at the end, so the start of the prompt does not change and the prompt cache keeps working.
+- What was found lasts for one run. The next run starts from the short list.
+- **Finding authorizes nothing.** The search only looks among tools the agent may already call. A tool that a policy or the sandbox denies is not offered, and calling a deferred tool before finding it fails without running. Approval still applies.
+- The default search scores words in the name (more weight) and the description, and returns up to 5 tools. To use your own, for example embeddings, pass `toolSearch`:
+
+```ts
+createBaseEngine({
+  /* ... */
+  toolSearch: {
+    maxResults: 3,
+    search: async (query, candidates) => rankWithEmbeddings(query, candidates), // candidates are already the allowed ones
+  },
+});
+```
+
+A search of your own can only return tools from `candidates`; anything else it returns is dropped.
+
+A model that is weak at tool use may not search. Check with your model before deferring tools it needs on most turns, and leave those out of `deferTools`.
+
 ## Agents
 
 An `AgentProfile` is an identity and a list: `id`, `name`, `systemPrompt`, and `allowedTools`, the names of the tools this agent may call. A tool that is registered but not in `allowedTools` is invisible to that agent. With several agents, `delegatesTo` says which others it may ask for help ([multi-agent](../multi-agent/)).

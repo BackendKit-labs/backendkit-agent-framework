@@ -7,6 +7,20 @@ import type { AgentProfile, ToolDefinition } from '../types';
 export const TOOL_SEARCH_NAME = 'tool_search';
 export const TOOL_SEARCH_DEFAULT_RESULTS = 5;
 
+/**
+ * A search of your own for `tool_search` (SPEC-0030 D3), for example one that uses embeddings. It receives the query and the
+ * candidates, which are already the deferred tools the agent may call and that no policy or sandbox denies, and returns the matches, best first.
+ * Whatever it returns that is not one of the candidates is dropped, so a search cannot make a tool available that governance hid.
+ */
+export type ToolSearchFn = (query: string, candidates: readonly ToolDefinition[]) => readonly ToolDefinition[] | Promise<readonly ToolDefinition[]>;
+
+export interface ToolSearchOptions {
+    /** Replaces the search by words. */
+    search?: ToolSearchFn;
+    /** At most this many tools per search. Default 5. */
+    maxResults?: number;
+}
+
 /** `crm_find` matches `crm_find` and `crm_*`; a lone `*` matches every tool. */
 export function matchesDeferPattern(name: string, patterns: readonly string[]): boolean {
     return patterns.some(p => (p.endsWith('*') ? name.startsWith(p.slice(0, -1)) : name === p));

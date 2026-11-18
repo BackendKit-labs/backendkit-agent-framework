@@ -9,7 +9,7 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
-import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition } from './toolSearch';
+import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition, type ToolSearchOptions } from './toolSearch';
 import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
@@ -84,6 +84,8 @@ export interface AgentEngineOptions extends EngineOptions {
      * Set true to keep that behavior while the profiles are fixed.
      */
     allowUnlistedTools?: boolean;
+    /** How `tool_search` looks for deferred tools: a search of your own and the number of results (SPEC-0030). */
+    toolSearch?: ToolSearchOptions;
     /** MCP client manager — connects to external MCP servers and registers their tools */
     mcpManager?: MCPClientManager;
     /**
@@ -1099,7 +1101,12 @@ export class AgentEngine {
                 if (this.governed && (await evaluatePolicies(this.policies, principal, { tool: t, args: {} })).effect === 'deny') continue;
                 candidates.push(t);
             }
-            const found = rankTools(query, candidates, TOOL_SEARCH_DEFAULT_RESULTS);
+            const max = Math.max(1, this.opts.toolSearch?.maxResults ?? TOOL_SEARCH_DEFAULT_RESULTS);
+            const custom = this.opts.toolSearch?.search;
+            // A search of the user's own can only return candidates: the rest was hidden by governance, and finding never authorizes.
+            const found = custom
+                ? [...new Set(await custom(query, candidates))].filter(t => candidates.includes(t)).slice(0, max)
+                : rankTools(query, candidates, max);
             const known = this.discovered.get(profile.id) ?? [];
             this.discovered.set(profile.id, [...known, ...found.map(t => t.name).filter(n => !known.includes(n))]);
             return describeFound(found);

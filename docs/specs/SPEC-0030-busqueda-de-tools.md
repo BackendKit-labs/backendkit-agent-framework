@@ -1,7 +1,7 @@
 # SPEC-0030: búsqueda de tools con carga diferida
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 a F4 hechas (2026-11-18)**, ver §8. F5 (buscador enchufable y documentación) sin hacer.
+**Estado:** Borrador. **F0 a F5 hechas (2026-11-18)**, ver §8 y §9.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel ofrece `toolSearch()` con `deferLoading`: el modelo encuentra las tools que necesita sin que todas sus definiciones ocupen el contexto desde el principio.
 **Depende de:** nada. Aditivo en `agent-core`.
 **Tipo de cambio:** aditivo. Sin `deferLoading` en ninguna tool, el engine se comporta igual que hoy.
@@ -87,3 +87,9 @@ const engine = createBaseEngine({
 **Pruebas:** 20 (14 del engine, con 30 tools diferidas y un proveedor que registra la lista de cada llamada, y 6 unitarias del buscador; 1025 verdes en core). Dos pruebas de TTL de `FileRunJournal` (`journal-conformance` y `when-claim-cost`) fallan a veces cuando se corre toda la suite en paralelo en Windows, y pasan solas: no tienen relación con este cambio.
 
 **Sin comprobar:** un modelo real que decida buscar (los modelos débiles pueden no hacerlo, §7); el efecto en la caché de prompts de un proveedor real; el buscador enchufable y la documentación (F5).
+
+## 9. F5: buscador enchufable y documentación (2026-11-18)
+
+`createBaseEngine({ toolSearch: { search, maxResults } })`. `search(query, candidates)` (síncrono o asíncrono) recibe como candidatas **solo** las tools diferidas que el agente puede llamar y que ni la política ni la sandbox deniegan; lo que devuelva y no sea candidata se descarta, así que un buscador propio no puede hacer visible lo que el gobierno ocultó (D5). `maxResults` (por defecto 5) vale también para la búsqueda por palabras. 3 pruebas nuevas (17 en el archivo): el buscador propio se usa y se respeta su orden y límite; una candidata denegada por política y una tool ajena que devuelve no entran; búsqueda asíncrona y `maxResults` solo.
+**Documentación:** sección "Many tools: let the model search" en `concepts/engine-and-tools`.
+**Sin comprobar:** un buscador real con embeddings (la interfaz se probó con funciones de prueba); un modelo real que decida buscar y el efecto en la caché de un proveedor real (como en §8). Sin publicar: va en el próximo release de `agent-core`.

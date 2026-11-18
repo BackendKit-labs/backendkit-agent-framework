@@ -1,6 +1,7 @@
 // ── Engine ─────────────────────────────────────────────────────────────────────
 export { AgentEngine } from './engine/AgentEngine';
 export type { AgentEngineOptions } from './engine/AgentEngine';
+export type { ToolSearchFn, ToolSearchOptions } from './engine/toolSearch';
 export { AgentRegistry } from './engine/AgentRegistry';
 export { ToolRegistry } from './engine/ToolRegistry';
 export { ProviderRegistry } from './engine/ProviderRegistry';

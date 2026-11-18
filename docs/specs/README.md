@@ -40,7 +40,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0034](SPEC-0034-agente-durable.md) | Bucle del agente reanudable (con criterio de entrada) | Borrador |
 | [SPEC-0035](SPEC-0035-code-mode.md) | Code mode: el modelo escribe código que llama tools en un sandbox (decisión previa abierta) | Borrador |
 | [SPEC-0036](SPEC-0036-handoff.md) | Traspaso de control entre agentes (con criterio de entrada) | Borrador |
-| [SPEC-0037](SPEC-0037-codemods-y-guias-de-migracion.md) | Codemods y guías de migración | Borrador |
+| [SPEC-0037](SPEC-0037-codemods-y-guias-de-migracion.md) | Codemods y guías de migración | En pausa (el paquete se retirará; la guía sigue) |
 
 Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** queda absorbido por 0023 (el journal, el `claim` y la reanudación ya existen en el orquestador y en Hermes).
 

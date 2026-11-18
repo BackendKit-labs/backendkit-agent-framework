@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.47.1 (2026-11-18)
+
+Patch: un buscador propio y un modo nuevo para `tool_search`, y la documentación de `agent-flow-sql`. Es aditivo: `^0.46.0` cubre 0.46.1, así que no hay barrido de rangos y solo suben estos dos paquetes.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.46.1 | `toolSearch.search` y `toolSearch.mode` (SPEC-0030 F5 y §11) |
+| `agent-flow-sql` | 0.1.1 | solo el README: probado con Postgres 14 a 18; pgbouncer en modo statement no funciona (rechaza las transacciones) |
+
+- **`agent-core`, un buscador propio para `tool_search`:** `createBaseEngine({ toolSearch: { search, maxResults } })`. `search(query, candidates)` (síncrono o asíncrono) recibe solo las tools diferidas que el agente puede llamar y que ni la política ni la sandbox deniegan; lo que devuelva y no sea candidata se descarta, así que no puede saltarse el gobierno. Sin probar con embeddings reales.
+- **`agent-core`, `toolSearch.mode: 'message'`:** la lista de tools del modelo no cambia; la respuesta de `tool_search` trae nombre, descripción y parámetros de lo encontrado y el modelo llama a la tool por su nombre. Evita cortar la caché del proveedor en cada búsqueda. Con DeepSeek (40 tools, 9 corridas por variante) costó lo mismo que listar las 40 tools, con un 64 % menos de tokens de entrada y sin fallos; el modo por defecto (`'list'`) costó un 10 % más. No ahorra dinero con pocas tools; sirve con listas grandes o cuando el límite es el contexto. Sin probar con Anthropic ni OpenAI: si un proveedor rechaza la llamada a una tool que no está en su lista, no sirve con él. Ver SPEC-0030 §10 y §11.
+
 ## v0.47.0 (2026-11-18)
 
 `tool_search` para tools diferidas, un arreglo real de la renovación del claim, el adaptador del AI SDK y dos paquetes nuevos (`agent-flow-sql`, `codemod`). En 0.x, `^0.45` no cubre 0.46, así que se barrieron los rangos de `agent-core` (`^0.46.0`) y los peers anchos pasan a `<0.47.0`.

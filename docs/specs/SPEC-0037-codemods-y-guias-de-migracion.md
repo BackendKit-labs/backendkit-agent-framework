@@ -1,7 +1,7 @@
 # SPEC-0037: codemods y guías de migración
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 hecha (2026-11-18)**: herramienta elegida (`ts-morph`) e inventario de las rupturas reales, ver §8. F1 a F4 sin hacer.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: inventario de las rupturas reales, ver §8. **F1 hecha (2026-11-18)**: el paquete, `--list`, `--dry-run` y tres transformaciones (`scope-rename`, `coding-split`, `terminal-app-split`), ver §9; la herramienta final es el compilador de TypeScript, no `ts-morph`. F2, la parte de zod 4 de F3 y F4 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel y Mastra publican un paquete `codemod` y guías de migración por versión; nosotros hemos publicado rupturas con solo una nota en el CHANGELOG.
 **Depende de:** nada. Aditivo, en un paquete nuevo.
 **Tipo de cambio:** aditivo.
@@ -90,3 +90,25 @@ npx @backendkit-labs/codemod --list                    # transformaciones dispon
 **Un caso que ninguna herramienta resuelve sola** y que D3 ya prevé: `import * as core from '@backendkit-labs/agent-core'` seguido de `core.Orchestrator`. No es un import con nombres: la transformación lo detecta por el uso del namespace y deja `// TODO(codemod)`, no lo reescribe.
 
 **Sin comprobar:** el rendimiento en un proyecto grande, y que la orden se pueda lanzar con `npx` sin traer a quien la use los 14 MB de `ts-morph` dos veces (se resolverá en F1 con el paquete publicado).
+
+## 9. F1: `@backendkit-labs/codemod` (2026-11-18)
+
+`packages/codemod`, con la orden `codemod <transformación> [ruta] [--dry-run]` y `codemod --list`. Tres transformaciones, cada una **datos** (qué símbolos pasan de qué módulo a cuál) sobre un mismo motor:
+
+| Transformación | Qué hace |
+|---|---|
+| `scope-rename` | `@bk/agent-core`, `@bk/agent-coding`, `@bk/mcp-server` a `@backendkit-labs/*`. |
+| `coding-split` (SPEC-0015) | 9 nombres de `agent-core` a `agent-coding/pipeline`; el subpath `agent-core/orchestration` pasa a ser el pipeline; en `agent-core/reflection`, los hooks de auditoría van al pipeline y el resto a la raíz. `ProjectStoreData` y `SessionUpdates` (existían en `agent-core` y ya no existen en ningún sitio) se **marcan**, no se mueven. |
+| `terminal-app-split` (SPEC-0016) | Los 66 nombres de descubrimiento de agentes, skills, comandos, checkpoints, workspaces y trust, a `agent-coding/cli`. |
+
+**Las listas no salen del changelog:** son los nombres que `packages/core/src/index.ts` exportaba antes de cada ruptura y ya no exporta después (calculados con el compilador sobre los commits de #179 y #182), y cada uno se comprobó contra lo que exporta hoy el paquete de destino (66 de 66 para `cli`; 9 de 11 para `pipeline`, y los 2 que faltan son los marcados).
+
+**D2 cambia: el compilador de TypeScript, no `ts-morph`.** §8 eligió `ts-morph` por cómo respeta el código ajeno. Al añadirlo como dependencia de producción, el `audit-gate` del CI se pone rojo: arrastra `picomatch` (por `@ts-morph/common`, `tinyglobby` y `fdir`), que tiene un ReDoS de severidad alta **sin versión corregida** (el aviso cubre hasta la 4.0.7, la última). Solo se explotaría con un patrón de glob controlado por un atacante, que aquí no existe, pero abrir una excepción en el gate de seguridad por una comodidad no compensa. El motor usa directamente la API del compilador (`typescript`, sin `picomatch`) y edita **el texto por posiciones**: lo que no es un `import` o un `export ... from` que entienda queda byte por byte igual, con su espaciado, comentarios, comillas y saltos de línea (CRLF incluido). Resultado más fino que con `ts-morph`, que reformateaba. Los mismos pares `antes/después` pasaron con ambos motores.
+
+**Cumple los criterios de §6:** cada transformación es idempotente (se prueba corriéndola dos veces), tiene su par `antes/después`, y lo que no entiende lo marca con `// TODO(codemod): ...` en vez de reescribirlo: un nombre que ya no existe, `import * as core` seguido de `core.Nombre` de algo que se movió, y un `export { Nombre } from` de algo que se movió.
+
+**Desviación de §4:** no se negará a correr fuera de un rango de versiones. Con las transformaciones idempotentes, correrla en un proyecto que ya migró no cambia nada, y detectar la versión instalada añade un modo de fallo (monorepos, `workspace:`, rangos) sin proteger de nada. `--list` dice la versión que pide cada una.
+
+**Pruebas:** 38 (100 % de líneas): los tres pares `antes/después`, idempotencia, `--dry-run`, 13 casos de un solo archivo con la salida exacta (nombre en medio o al final, todos los nombres, `import` por defecto más nombrados, alias y `type`, sin salto de línea final, sin punto y coma, dos declaraciones hacia un mismo import nuevo, unirse a un import existente, import de efectos, `export *`), listas en varias líneas con comentarios, CRLF y comillas, JavaScript, carpetas ignoradas (`node_modules`, `dist`, `*.d.ts`), un archivo suelto como ruta y los errores de la línea de comandos.
+
+**Sin comprobar:** un proyecto grande de verdad (es lo siguiente: `aiops-agent`); la distribución con `npx` del paquete publicado; `require()` y `import()` dinámico (no se tocan, y el README lo dice). El paquete no está publicado.

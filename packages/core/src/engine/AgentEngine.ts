@@ -9,6 +9,7 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
+import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition } from './toolSearch';
 import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
@@ -292,6 +293,8 @@ export class AgentEngine {
     private readonly transport: Transport;
     private recorder?: RunRecorder;
     private budgetHit = false;
+    /** Deferred tools each agent found with `tool_search` in this run, in the order found (SPEC-0030). Cleared when a run starts. */
+    private readonly discovered = new Map<string, string[]>();
 
     constructor(private readonly opts: AgentEngineOptions) {
         this.transport = {
@@ -524,6 +527,7 @@ export class AgentEngine {
         // an abort, an error) ends here, and the events of delegates are part of the turn.
         const recorder = new RunRecorder();
         this.recorder = recorder;
+        this.discovered.clear();
         try {
             await this._run(input);
         } finally {
@@ -1051,7 +1055,11 @@ export class AgentEngine {
     }
 
     private getToolsForAgent(profile: AgentProfile): ToolDefinition[] {
-        const tools = this.opts.tools.getForAgent(profile.allowedTools);
+        const allowed = this.opts.tools.getForAgent(profile.allowedTools);
+        const hasDeferred = allowed.some(t => isDeferred(t, profile));
+        const found = this.discovered.get(profile.id) ?? [];
+        // Deferred tools stay out until found. Without any, the list is exactly what it always was.
+        const tools = hasDeferred ? allowed.filter(t => !isDeferred(t, profile)) : allowed;
         // ask_agent solo tiene sentido si el agente por defecto tiene a quien
         // delegar. En un engine de un solo agente, profile.id === defaultAgentId
         // es trivialmente cierto y antes se le ofrecia la tool igual, sin ningun
@@ -1062,7 +1070,40 @@ export class AgentEngine {
         if (profile.id === this.opts.defaultAgentId && hasDelegationTarget) {
             tools.push(ASK_AGENT_TOOL);
         }
+        if (hasDeferred) {
+            // The list only grows, at the end: what the provider has cached of the prefix stays valid (D4).
+            tools.push(this.toolSearchTool(profile));
+            for (const name of found) {
+                const t = allowed.find(a => a.name === name);
+                if (t) tools.push(t);
+            }
+        }
         return tools;
+    }
+
+    private agentHasDeferred(profile: AgentProfile): boolean {
+        return this.opts.tools.getForAgent(profile.allowedTools).some(t => isDeferred(t, profile));
+    }
+
+    /** `tool_search` for one agent: it looks only among the deferred tools the agent may call, and makes what it returns visible. */
+    private toolSearchTool(profile: AgentProfile): ToolDefinition {
+        return toolSearchDefinition(async (args) => {
+            const query = typeof (args as { query?: unknown })?.query === 'string' ? (args as { query: string }).query : '';
+            const principal = this.principalFor(profile.id);
+            const candidates: ToolDefinition[] = [];
+            for (const t of this.opts.tools.getForAgent(profile.allowedTools)) {
+                if (!isDeferred(t, profile)) continue;
+                // A tool the sandbox refuses outright, or a policy denies, is not offered: the model would only be told it exists.
+                const verdict = this.opts.sandbox?.authorizeTool?.({ agentId: profile.id, sessionId: this.opts.sessionId ?? 'default' }, t.name);
+                if (verdict && !verdict.ok) continue;
+                if (this.governed && (await evaluatePolicies(this.policies, principal, { tool: t, args: {} })).effect === 'deny') continue;
+                candidates.push(t);
+            }
+            const found = rankTools(query, candidates, TOOL_SEARCH_DEFAULT_RESULTS);
+            const known = this.discovered.get(profile.id) ?? [];
+            this.discovered.set(profile.id, [...known, ...found.map(t => t.name).filter(n => !known.includes(n))]);
+            return describeFound(found);
+        });
     }
 
     /**
@@ -1576,7 +1617,9 @@ export class AgentEngine {
     ): Promise<string> {
         const emitEvent = emit ?? ((e) => this.transport.emit(e));
         const callStart = Date.now();
-        const toolDef = this.opts.tools.get(call.name);
+        // `tool_search` exists only for an agent that has deferred tools, and needs no entry in its allowedTools.
+        const isToolSearch = call.name === TOOL_SEARCH_NAME && this.agentHasDeferred(profile);
+        const toolDef = isToolSearch ? this.toolSearchTool(profile) : this.opts.tools.get(call.name);
         const principal = this.principalFor(profile.id, chain);
         let result: string;
         let success: boolean;
@@ -1595,6 +1638,7 @@ export class AgentEngine {
             success = false;
             decision = 'not_found';
         } else if (
+            !isToolSearch &&
             !profile.allowedTools.includes(call.name) &&
             !(this.opts.allowUnlistedTools && profile.allowedTools.length === 0 && !(profile.delegatesTo && profile.delegatesTo.length > 0))
         ) {
@@ -1605,6 +1649,12 @@ export class AgentEngine {
             success = false;
             decision = 'not_allowed';
             reason = `not in the allowedTools of agent "${profile.id}"`;
+        } else if (!isToolSearch && !approved && isDeferred(toolDef, profile) && !(this.discovered.get(profile.id) ?? []).includes(call.name)) {
+            // The model knows this tool only by name: it must find it first, not guess its arguments. A stored approval already did.
+            result  = `Tool "${call.name}" is not loaded yet. Call tool_search to find it, then call it.`;
+            success = false;
+            decision = 'not_found';
+            reason = 'a deferred tool was called before tool_search found it';
         } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id, sandboxDecisions)) !== undefined) {
             // The policy refuses this tool outright (e.g. a writer while read-only). Nobody is asked and nothing runs.
             result  = sandboxRefusal;

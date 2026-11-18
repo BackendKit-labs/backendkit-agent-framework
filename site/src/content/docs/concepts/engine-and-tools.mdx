@@ -125,7 +125,7 @@ const sales = {
 };
 ```
 
-- The list only grows, and at the end, so the start of the prompt does not change and the prompt cache keeps working.
+- The list only grows, and at the end. Each search still changes the tool list, and the provider's prompt cache stops at the first change, so the history after that point is billed again for that step. Measured with DeepSeek (40 tools, about 2,800 tokens): input tokens fell 45% to 88%, but with cached tokens at a tenth of the price the cost was lower in two of three tasks and higher in one. The gain is certain when the tool list is large (hundreds of tools, MCP servers) or the context window is the limit; with a few dozen tools and a cache, measure first.
 - What was found lasts for one run. The next run starts from the short list.
 - **Finding authorizes nothing.** The search only looks among tools the agent may already call. A tool that a policy or the sandbox denies is not offered, and calling a deferred tool before finding it fails without running. Approval still applies.
 - The default search scores words in the name (more weight) and the description, and returns up to 5 tools. To use your own, for example embeddings, pass `toolSearch`:

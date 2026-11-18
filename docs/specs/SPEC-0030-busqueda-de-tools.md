@@ -28,7 +28,7 @@ Vercel `ai`, commit `486e08f` (solo documentación: `content/docs/03-ai-sdk-core
 | D1 | ¿Cómo se marca una tool diferida? | **`defer: true` en `defineTool`** (y en `ToolDefinition`), o por agente: `AgentProfile.deferTools: ['crm_*']` con comodines, para diferir las de un servidor MCP sin tocarlas. |
 | D2 | ¿Cómo las encuentra el modelo? | Una tool incorporada, **`tool_search({ query })`**, que el engine añade a un agente con alguna tool diferida. Devuelve nombre y descripción de las mejores coincidencias (`maxResults`, por defecto 5) y las deja visibles. |
 | D3 | ¿Cómo busca? | Por defecto, **puntuación por palabras sobre nombre y descripción** (sin dependencias ni modelo). Enchufable: `search(query, candidates) => ToolDefinition[]`, para quien quiera embeddings. |
-| D4 | ¿Cuánto dura una tool descubierta? | **Hasta el fin de la ejecución (`run`)**, en orden estable (se añaden al final de la lista, no se reordenan). Así el prefijo del prompt solo crece y se aprovecha la caché hasta ese punto. |
+| D4 | ¿Cuánto dura una tool descubierta? | **Hasta el fin de la ejecución (`run`)**, en orden estable (se añaden al final de la lista, no se reordenan). Se pensó para que el prefijo del prompt solo creciera; §10 mide que la caché igualmente se corta en cada cambio de la lista. |
 | D5 | ¿La búsqueda puede saltarse el control? | **No.** Solo busca entre tools que el agente **ya tiene permitidas** (`allowedTools` y política `deny` aplicados antes). Una tool oculta por política no aparece en los resultados. Encontrar una tool no la autoriza: la llamada pasa por todas las puertas de siempre. |
 | D6 | ¿Se registra? | Sí: cada búsqueda es un evento (`tool_search`) con la consulta y los nombres devueltos, y llega a la auditoría. |
 
@@ -86,10 +86,31 @@ const engine = createBaseEngine({
 
 **Pruebas:** 20 (14 del engine, con 30 tools diferidas y un proveedor que registra la lista de cada llamada, y 6 unitarias del buscador; 1025 verdes en core). Dos pruebas de TTL de `FileRunJournal` (`journal-conformance` y `when-claim-cost`) fallan a veces cuando se corre toda la suite en paralelo en Windows, y pasan solas: no tienen relación con este cambio.
 
-**Sin comprobar:** un modelo real que decida buscar (los modelos débiles pueden no hacerlo, §7); el efecto en la caché de prompts de un proveedor real; el buscador enchufable y la documentación (F5).
+**Sin comprobar:** los modelos débiles (§7: solo se probó DeepSeek v4-flash, §10); un proveedor con caché explícita (Anthropic) o con otro formato de caché.
 
 ## 9. F5: buscador enchufable y documentación (2026-11-18)
 
 `createBaseEngine({ toolSearch: { search, maxResults } })`. `search(query, candidates)` (síncrono o asíncrono) recibe como candidatas **solo** las tools diferidas que el agente puede llamar y que ni la política ni la sandbox deniegan; lo que devuelva y no sea candidata se descarta, así que un buscador propio no puede hacer visible lo que el gobierno ocultó (D5). `maxResults` (por defecto 5) vale también para la búsqueda por palabras. 3 pruebas nuevas (17 en el archivo): el buscador propio se usa y se respeta su orden y límite; una candidata denegada por política y una tool ajena que devuelve no entran; búsqueda asíncrona y `maxResults` solo.
 **Documentación:** sección "Many tools: let the model search" en `concepts/engine-and-tools`.
 **Sin comprobar:** un buscador real con embeddings (la interfaz se probó con funciones de prueba); un modelo real que decida buscar y el efecto en la caché de un proveedor real (como en §8). Sin publicar: va en el próximo release de `agent-core`.
+
+## 10. Prueba en vivo con DeepSeek (2026-11-18)
+
+`deepseek-v4-flash` por el adaptador del AI SDK, 40 tools de un CRM inventado (10 dominios por 4 verbos, unos 2 800 tokens de definiciones), con `deferTools: ['crm_*']` frente a las mismas tools listadas. El system prompt **no** menciona `tool_search`. Los tokens salen de `onMetrics` (los cacheados, de `cacheReadTokens`); "equivalente" cuenta un token cacheado a una décima de uno normal.
+
+| Tarea | Llamadas con diferidas | Entrada (todas / cacheada) | Equivalente (diferidas / listadas) |
+|---|---|---|---|
+| Buscar un envío por id | `tool_search`, `crm_find_shipment` | 2 345 / 1 152 (frente a 6 133 / 5 760) | n/m (primera prueba) |
+| Dos consultas (factura y reembolso) | `tool_search` ×2, y cada consulta dos veces | 4 811 / 3 328 (frente a 6 127 / 5 760) | **1 816 / 943** (peor) |
+| Crear un presupuesto de un producto | `tool_search`, `crm_create_quote` | 2 218 / 1 152 (frente a 9 181 / 8 576) | **1 181 / 1 463** (mejor) |
+| `2+2` (sin tool) | ninguna | 376 / 128 (frente a 2 969 / 2 816) | **261 / 435** (mejor) |
+
+**Lo que se comprobó**
+1. **El modelo busca solo.** En las 4 tareas con tool, sin pista en el prompt, llamó a `tool_search` y luego a la tool correcta; la descripción de `tool_search` basta. En la tarea sin tool no buscó. Es una muestra de 4 con un modelo; no dice nada de modelos débiles.
+2. **Los tokens de entrada bajan** entre un 45 % y un 88 %.
+3. **El dinero no baja siempre.** Cada búsqueda cambia la lista de tools, y la caché del proveedor se corta en el primer cambio: la lectura de caché cae a 128 tokens en el paso siguiente a la búsqueda, y el historial se paga de nuevo. Con 40 tools (2 800 tokens) y caché, el resultado fue mejor en dos tareas y **peor en una** (la del modelo que repitió llamadas tras buscar). La premisa de D4 ("el prefijo solo crece y se aprovecha la caché") es cierta solo hasta la lista de tools: el historial va **después**.
+
+**Consecuencias**
+- La ventaja es segura cuando la lista es grande (cientos de tools, servidores MCP) o cuando el límite es el contexto, no el precio. Con pocas decenas de tools y caché, conviene medir antes de diferir. La documentación lo dice así.
+- Una mejora posible, **sin hacer**: no cortar la caché en cada búsqueda, p. ej. enviando las tools descubiertas en el mensaje y no en la lista; cambia el contrato con el modelo y exige medirlo.
+- **Sin comprobar:** Anthropic (caché explícita con `cache_control`, donde el efecto puede ser distinto), Gemini, y modelos débiles.

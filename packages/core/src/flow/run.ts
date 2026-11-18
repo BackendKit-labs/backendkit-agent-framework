@@ -126,6 +126,17 @@ export class FlowClaimError extends Error {
 const DEFAULT_MAX_CONCURRENCY = 8;
 
 const DEFAULT_CLAIM_TTL_MS = 10 * 60_000;
+/** How long the end of a run waits for a renewal that is still in flight before it frees the claim anyway. */
+const RENEWAL_SETTLE_MS = 5_000;
+
+/** Resolves when `p` settles or after `ms`, whichever comes first. */
+function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
+    return new Promise<void>(resolve => {
+        const t = setTimeout(resolve, ms);
+        t.unref?.();
+        p.then(() => { clearTimeout(t); resolve(); }, () => { clearTimeout(t); resolve(); });
+    });
+}
 const PREVIEW_CHARS = 200;
 
 export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promise<FlowResult> {
@@ -147,10 +158,12 @@ export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promis
     if (opts.signal?.aborted) stop.abort(); else opts.signal?.addEventListener('abort', forward, { once: true });
     const renewMs = opts.claimRenewMs ?? Math.floor(ttl / 3);
     let renewing = false;
+    /** The renewal in flight, if any. It never rejects. */
+    let renewal: Promise<void> | undefined;
     const timer = renewMs > 0 ? setInterval(() => {
         if (renewing) return;
         renewing = true;
-        journal.claim(runId, owner, ttl)
+        renewal = journal.claim(runId, owner, ttl)
             .then(next => { if (next) release = next; else { state.lost = true; stop.abort(); } })
             .catch(() => undefined) // a journal that cannot be reached now may answer at the next tick
             .finally(() => { renewing = false; });
@@ -180,6 +193,10 @@ export async function runFlow(def: FlowDefinition, opts: RunFlowOptions): Promis
     } finally {
         if (timer) clearInterval(timer);
         opts.signal?.removeEventListener('abort', forward);
+        // A renewal that is still in flight would take the claim again after we freed it, and nobody would free that one: the run
+        // would stay held until the TTL. Let it land first, so the release below is the one that matches what the journal holds.
+        // The wait is bounded: a journal that does not answer cannot be asked to release either.
+        if (renewal) await waitAtMost(renewal, Math.min(ttl, RENEWAL_SETTLE_MS));
         if (!state.lost) await release().catch(() => undefined);
     }
 }

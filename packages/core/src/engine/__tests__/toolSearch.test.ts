@@ -50,4 +50,12 @@ describe('describeFound', () => {
         expect(describeFound([t('a', 'does  a\nthing')])).toBe('1 tool is now available to call:\n- a: does a thing');
         expect(describeFound([t('a', 'x'), t('b', 'y')])).toMatch(/^2 tools are now available/);
     });
+
+    it('with the schema, it says to call by name and carries the parameters of each tool', () => {
+        const withParams = { ...t('a', 'x'), parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } };
+        const out = describeFound([withParams], true);
+        expect(out).toContain('1 tool is now available to call by name, with arguments that match its parameters:');
+        expect(out).toContain('parameters (JSON Schema): {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}');
+        expect(describeFound([withParams])).not.toContain('JSON Schema');
+    });
 });

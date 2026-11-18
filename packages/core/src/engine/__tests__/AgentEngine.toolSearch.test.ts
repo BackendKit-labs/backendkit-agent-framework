@@ -171,3 +171,77 @@ describe('deferTools: defer the tools of an agent without touching their definit
         expect(lists[0]).toContain('tool_search');
     });
 });
+
+describe('toolSearch: a search of your own', () => {
+    it('is used instead of the search by words, and its order and limit are respected', async () => {
+        const seen: Array<[string, number]> = [];
+        const { engine, lists } = build([call('tool_search', { query: 'anything' }), done], {
+            extra: {
+                toolSearch: {
+                    maxResults: 2,
+                    search: (q, candidates) => { seen.push([q, candidates.length]); return [...candidates].reverse(); },
+                },
+            },
+        });
+        await engine.run('x');
+        expect(seen).toEqual([['anything', 30]]);
+        // the last two candidates, in the order the search gave them, join the list
+        expect(lists[1].slice(2)).toEqual(['crm_op_27', 'crm_op_26']);
+    });
+
+    it('cannot bring back a tool that governance hid: only candidates survive', async () => {
+        const denyDeal: ToolPolicy = { decide: (_p, c) => (c.tool.name === 'crm_find_deal' ? { effect: 'deny', reason: 'no' } : { effect: 'allow' }) };
+        const outsider: ToolDefinition = { name: 'crm_secret', description: 'x', parameters: { type: 'object' }, execute: async () => 'leak' };
+        const { engine, lists } = build([call('tool_search', { query: 'deal' }), done], {
+            extra: { policy: denyDeal, toolSearch: { search: (_q, c) => [outsider, ...c] } },
+        });
+        await engine.run('x');
+        expect(lists[1]).toContain('crm_find_contact');
+        expect(lists[1]).not.toContain('crm_find_deal');
+        expect(lists[1]).not.toContain('crm_secret');
+    });
+
+    it('an async search works, and maxResults alone changes how many the words search returns', async () => {
+        const a = build([call('tool_search', { query: 'op' }), done], { extra: { toolSearch: { search: async (_q, c) => c.slice(0, 1) } } });
+        await a.engine.run('x');
+        expect(a.lists[1].slice(2)).toEqual(['crm_find_contact']);
+        const b = build([call('tool_search', { query: 'invoices' }), done], { extra: { toolSearch: { maxResults: 3 } } });
+        await b.engine.run('x');
+        expect(b.lists[1].length).toBe(2 + 3);
+    });
+});
+
+describe("toolSearch mode 'message': the list of tools never changes", () => {
+    const withParams = (executed: string[]): ToolDefinition[] => [plain, ...crmTools(executed).map(t =>
+        t.name === 'crm_find_contact' ? { ...t, parameters: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] } } : t)];
+
+    it('every request carries the same list, the answer carries the parameters, and the found tool runs', async () => {
+        const executed: string[] = [];
+        const { engine, lists, results } = build([call('tool_search', { query: 'find contact' }), call('crm_find_contact', { email: 'a@b.c' }, 'c2'), done],
+            { tools: withParams(executed), extra: { toolSearch: { mode: 'message' } }, executed });
+        await engine.run('look up Ana');
+        expect(lists).toEqual([['read_file', 'tool_search'], ['read_file', 'tool_search'], ['read_file', 'tool_search']]);
+        const found = results()[0];
+        expect(found.preview).toContain('by name, with arguments that match its parameters');
+        expect(executed).toEqual(['crm_find_contact']);
+        expect(results().map(r => [r.name, r.success])).toEqual([['tool_search', true], ['crm_find_contact', true]]);
+    });
+
+    it('a tool that was not found still fails without running; finding does not skip governance', async () => {
+        const executed: string[] = [];
+        const denyContacts: ToolPolicy = { decide: (_p, c) => (c.tool.name === 'crm_find_contact' ? { effect: 'deny', reason: 'off limits' } : { effect: 'allow' }) };
+        const a = build([call('crm_find_contact', {}, 'c1'), done], { extra: { toolSearch: { mode: 'message' } }, executed });
+        await a.engine.run('x');
+        expect(executed).toEqual([]);
+        const b = build([call('tool_search', { query: 'find contact' }), call('crm_find_contact', {}, 'c2'), done], { extra: { toolSearch: { mode: 'message' }, policy: denyContacts }, executed });
+        await b.engine.run('x');
+        expect(executed).toEqual([]);
+        expect(b.results()[0].preview).not.toContain('crm_find_contact');
+    });
+
+    it("the default mode is 'list': the found tool joins the list", async () => {
+        const { engine, lists } = build([call('tool_search', { query: 'find contact' }), done]);
+        await engine.run('x');
+        expect(lists[1]).toContain('crm_find_contact');
+    });
+});

@@ -38,7 +38,7 @@ await journal.migrate();                       // CREATE SCHEMA and the tables, 
 
 It takes a `pg.Pool` (anything with `query` and `connect`; `pg` is not a dependency of this package). Each transaction uses its own connection from the pool, so the transactions of one process run in parallel and Postgres keeps them apart. `schema` is optional.
 
-**Tested with** Postgres 15, 16, 17 and 18; behind pgbouncer 1.22 in `transaction` mode (a transaction keeps its server connection from `BEGIN` to `COMMIT`, which is all it needs); and over SSL with `sslmode=verify-full`. Postgres 14 and older are untested.
+**Tested with** Postgres 14, 15, 16, 17 and 18; behind pgbouncer 1.22 in `transaction` mode (a transaction keeps its server connection from `BEGIN` to `COMMIT`, which is all it needs); and over SSL with `sslmode=verify-full`. Postgres 14 and older are untested. In `statement` mode it does not work: it refuses transactions (`transaction blocks not allowed in statement pooling mode`).
 
 **Another driver** needs a `SqlClient`: `query` and `transaction`, with `?` placeholders (`toPositional` converts them). This one, for [`postgres`](https://www.npmjs.com/package/postgres) (postgres.js), passes the whole journal battery:
 

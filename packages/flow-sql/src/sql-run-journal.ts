@@ -24,15 +24,21 @@ import type { SqlClient } from './client';
 export interface SqlRunJournalOptions {
     /** Prefix of the three table names. Letters, digits and `_`, starting with a letter or `_`. Default `flow_`. */
     tablePrefix?: string;
+    /** Schema that holds the tables (`flows` makes `flows.flow_runs`). Same character rules as the prefix. Default: the connection's own. */
+    schema?: string;
 }
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const PREFIX = /^[A-Za-z_][A-Za-z0-9_]{0,40}$/;
+const SCHEMA = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 
 export class SqlRunJournal implements RunJournal {
     protected readonly events: string;
     protected readonly runs: string;
     protected readonly claims: string;
+    protected readonly schema: string | undefined;
+    /** Index names are not schema-qualified: an index lives in the schema of its table. */
+    private readonly indexPrefix: string;
     /** The sequence number of the last event this object wrote or saw written by itself, per run. */
     private readonly tails = new Map<string, number>();
     /** Writes of one run, one after another: an object's own concurrent writes must not collide with each other. */
@@ -42,9 +48,13 @@ export class SqlRunJournal implements RunJournal {
         const prefix = opts.tablePrefix ?? 'flow_';
         // A table name cannot be a bound parameter, so the prefix is checked, never escaped.
         if (!PREFIX.test(prefix)) throw new Error(`invalid table prefix "${prefix}"`);
-        this.events = `${prefix}run_events`;
-        this.runs = `${prefix}runs`;
-        this.claims = `${prefix}run_claims`;
+        if (opts.schema !== undefined && !SCHEMA.test(opts.schema)) throw new Error(`invalid schema "${opts.schema}"`);
+        this.schema = opts.schema;
+        const table = (name: string): string => (opts.schema ? `${opts.schema}.${prefix}${name}` : `${prefix}${name}`);
+        this.events = table('run_events');
+        this.runs = table('runs');
+        this.claims = table('run_claims');
+        this.indexPrefix = `${prefix}runs`;
     }
 
     /** Creates the tables and indexes if they do not exist. Safe to call on every start. The journal never creates them by itself. */
@@ -73,9 +83,9 @@ export class SqlRunJournal implements RunJournal {
                 started_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )`,
-            `CREATE INDEX IF NOT EXISTS ${this.runs}_flow_idx ON ${this.runs} (flow, started_at)`,
-            `CREATE INDEX IF NOT EXISTS ${this.runs}_status_idx ON ${this.runs} (status, started_at)`,
-            `CREATE INDEX IF NOT EXISTS ${this.runs}_tenant_idx ON ${this.runs} (tenant_id, started_at)`,
+            `CREATE INDEX IF NOT EXISTS ${this.indexPrefix}_flow_idx ON ${this.runs} (flow, started_at)`,
+            `CREATE INDEX IF NOT EXISTS ${this.indexPrefix}_status_idx ON ${this.runs} (status, started_at)`,
+            `CREATE INDEX IF NOT EXISTS ${this.indexPrefix}_tenant_idx ON ${this.runs} (tenant_id, started_at)`,
             `CREATE TABLE IF NOT EXISTS ${this.claims} (
                 run_id TEXT PRIMARY KEY,
                 owner TEXT NOT NULL,
@@ -119,9 +129,9 @@ export class SqlRunJournal implements RunJournal {
         // One statement: take the claim if it is free, expired or already this owner's. Another owner's valid claim leaves it
         // untouched and the statement changes no row. A renewal replaces the token, so the previous release no longer matches.
         const taken = await this.client.query(
-            `INSERT INTO ${this.claims} (run_id, owner, token, expires_at) VALUES (?, ?, ?, ?)
+            `INSERT INTO ${this.claims} AS c (run_id, owner, token, expires_at) VALUES (?, ?, ?, ?)
              ON CONFLICT (run_id) DO UPDATE SET owner = excluded.owner, token = excluded.token, expires_at = excluded.expires_at
-             WHERE ${this.claims}.expires_at <= ? OR ${this.claims}.owner = excluded.owner`,
+             WHERE c.expires_at <= ? OR c.owner = excluded.owner`,
             [runId, owner, token, now + Math.max(1, Math.ceil(ttlMs)), now],
         );
         if (taken.rowCount !== 1) return null;

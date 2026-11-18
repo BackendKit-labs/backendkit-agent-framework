@@ -1,8 +1,8 @@
 # @backendkit-labs/agent-flow-sql
 
-A `RunJournal` on SQL for the flows of [`@backendkit-labs/agent-core`](https://www.npmjs.com/package/@backendkit-labs/agent-core): the runs of a flow survive the process, and any process that shares the database can resume them. **SQLite today; Postgres is the next step of [SPEC-0028](../../docs/specs/SPEC-0028-journals-en-sqlite-y-postgres.md).**
+A `RunJournal` on SQL for the flows of [`@backendkit-labs/agent-core`](https://www.npmjs.com/package/@backendkit-labs/agent-core): the runs of a flow survive the process, and any process that shares the database can resume them. **SQLite and Postgres** ([SPEC-0028](../../docs/specs/SPEC-0028-journals-en-sqlite-y-postgres.md)).
 
-Use it when you want one file and no service (SQLite), or, later, the database you already run (Postgres). For one process that must not lose a run, `NdjsonRunJournal` in core is enough; this package is for runs that several processes or a restarted process share.
+Use it when you want one file and no service (SQLite), or the database you already run (Postgres). For one process that must not lose a run, `NdjsonRunJournal` in core is enough; this package is for runs that several processes or a restarted process share.
 
 ## Install
 
@@ -26,6 +26,42 @@ await runFlow(await loadFlow('./flows/invoices.yaml'), { journal, runId: 'invoic
 // after a crash or a deploy: the same call resumes; steps that are done are not run again
 ```
 
+### Postgres
+
+```ts
+import { Pool } from 'pg';
+import { PostgresRunJournal } from '@backendkit-labs/agent-flow-sql';
+
+const journal = new PostgresRunJournal(new Pool({ connectionString }), { schema: 'flows' });
+await journal.migrate();                       // CREATE SCHEMA and the tables, if they do not exist
+```
+
+It takes a `pg.Pool` (anything with `query` and `connect`; `pg` is not a dependency of this package). Each transaction uses its own connection from the pool, so the transactions of one process run in parallel and Postgres keeps them apart. `schema` is optional.
+
+**Tested with** Postgres 15, 16, 17 and 18; behind pgbouncer 1.22 in `transaction` mode (a transaction keeps its server connection from `BEGIN` to `COMMIT`, which is all it needs); and over SSL with `sslmode=verify-full`. Postgres 14 and older are untested.
+
+**Another driver** needs a `SqlClient`: `query` and `transaction`, with `?` placeholders (`toPositional` converts them). This one, for [`postgres`](https://www.npmjs.com/package/postgres) (postgres.js), passes the whole journal battery:
+
+```ts
+import postgres from 'postgres';
+import { SqlRunJournal, toPositional } from '@backendkit-labs/agent-flow-sql';
+import type { SqlClient } from '@backendkit-labs/agent-flow-sql';
+
+function postgresJsClient(sql: postgres.Sql): SqlClient {
+  const run = async (q: postgres.Sql, text: string, params: readonly unknown[] = []) => {
+    const res = await q.unsafe(toPositional(text), params.map(p => (p === undefined ? null : p)) as never[]);
+    return { rows: Array.from(res) as Array<Record<string, unknown>>, rowCount: res.count ?? res.length };
+  };
+  return {
+    query: (text, params) => run(sql, text, params),
+    transaction: fn => sql.begin(tx => fn({ query: (text, params) => run(tx as never, text, params) })) as never,
+  };
+}
+
+const journal = new SqlRunJournal(postgresJsClient(postgres(url)), { schema: 'flows' });
+await journal.migrate();   // with a schema, create it first: CREATE SCHEMA IF NOT EXISTS flows
+```
+
 `migrate()` is explicit: the journal never creates tables by itself. `journal.ddl()` returns the statements if you apply migrations with your own tool, and `tablePrefix` (default `flow_`) keeps several journals in one database apart.
 
 ## What it guarantees
@@ -40,6 +76,7 @@ await runFlow(await loadFlow('./flows/invoices.yaml'), { journal, runId: 'invoic
 
 - **`node:sqlite` is still marked as under development in Node.** The package only needs the small `prepare` / `exec` interface, so a `better-sqlite3` handle works the same way: the journal passes its tests over both, with `better-sqlite3` 12.11 and 13.2.
 - **Transactions of one process are serialized.** A synchronous SQLite driver blocks the thread while it waits for another connection's lock, and a transaction suspended at an `await` would never release it; so every transaction of the process goes through one queue. Other processes wait in SQLite's own lock (`busyTimeoutMs`, default 5000) and are not affected.
+- **The claim expires by the clock of the process that takes it**, in both databases. Keep the TTL well above the clock difference between your processes; a running flow renews its claim every third of the TTL.
 - **WAL is on by default** (`wal: false` to turn it off), so readers do not wait for the writer.
 - **Retention is yours.** The journal keeps every run; delete finished ones with your own job (`DELETE` from the three tables by `run_id`).
 - The payload of a run is not stored, only a cut and masked preview (`redact` in `runFlow`): pass it again when you resume.

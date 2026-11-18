@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. F2 y F3 sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. **F2 hecha (2026-11-18)**: `PostgresRunJournal`, ver §10. **F3 hecha (2026-11-18)**: guía "Choose a journal" en la web (rama `docs/site-journal-guide`, sobre #223).
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -51,8 +51,8 @@ await runFlow(def, { journal, runId, executor });
 
 - **F0. Verificar y extraer la batería común. HECHA, ver §8.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
 - **F1. `SqliteRunJournal`. HECHA, ver §9.** Con un adaptador estructural que sirve a `node:sqlite` y a `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
-- **F2. `PostgresRunJournal`.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
-- **F3. Guía** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
+- **F2. `PostgresRunJournal`. HECHA, ver §10.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
+- **F3. Guía. HECHA** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
 
 ## 6. Criterios de aceptación
 
@@ -108,3 +108,36 @@ await runFlow(def, { journal, runId, executor });
 5. Las pruebas importan `@backendkit-labs/agent-core/testing`, que aún no está en un `agent-core` publicado: dentro del monorepo funciona; la batería saldrá con el próximo release.
 
 **Lo que F2 reutiliza sin cambios:** `SqlRunJournal`, el DDL y la batería. Solo hacen falta un `SqlClient` para `pg` (conversión `?` → `$n`, transacción con una conexión dedicada) y sus pruebas, que corren con `TEST_POSTGRES_URL`.
+
+## 10. Resultado de F2 (2026-11-18)
+
+**Qué se hizo.** `PostgresRunJournal` y `pgClient(pool)` en `agent-flow-sql`, sobre el `SqlRunJournal` de F1 **sin cambiar su lógica**: solo hacen falta el cliente y su DDL (`CREATE SCHEMA` cuando hay esquema).
+
+- **`pgClient`** recibe un `pg.Pool` (o cualquier cosa con `query` y `connect`; el paquete no depende de `pg`, que es devDependency para las pruebas) y convierte los marcadores `?` en `$1, $2…` sin tocar un `?` dentro de un literal. Cada transacción toma **su propia conexión** del pool, hace `BEGIN`, `COMMIT` o `ROLLBACK`, y la libera; una conexión que no puede hacer `ROLLBACK` se destruye en lugar de devolverse. **No hay cola por proceso**: `pg` es asíncrono y no tiene el problema de F1.
+- **Opción `schema`** en `SqlRunJournal` (los nombres de tabla pasan a `esquema.prefijo_runs`; los de índice no se califican, porque un índice vive en el esquema de su tabla). El upsert del claim usa un alias (`INSERT … AS c`), que aceptan Postgres y SQLite.
+
+**Verificación.** 61 pruebas pasan sin base de datos y **33 más contra un Postgres 16.14 real** (contenedor temporal, ya borrado), con `TEST_POSTGRES_URL`: la batería de contrato completa (cada objeto con su propio pool, como procesos distintos), treinta pools que se disputan un claim (gana uno), sesenta escrituras desde seis objetos a la vez sobre una corrida (cada una se confirma o se rechaza como `JournalConflict`, y toda confirmada está guardada; la valla sí rechazó algunas), reanudación de un flow por otro pool, `FlowClaimError` y el orden y los filtros de `list`. Se repitió seis veces y no dejó esquemas. Sin la variable esas 33 se omiten; el cliente se prueba con un pool simulado y el paquete da 100 % de líneas sin base de datos.
+
+**Decisiones y hallazgos.**
+1. **El reloj del claim sigue siendo el del proceso** (la duda de §9, punto 2). Usar `now()` de la base exigiría una expresión distinta por dialecto, y el claim se renueva cada tercio del TTL, así que un desfase razonable no lo rompe. Queda documentado en la clase y en el README: el TTL debe ser muy superior al desfase entre procesos.
+2. **`BIGINT` vuelve como cadena en `pg`.** Solo se lee `MAX(seq)`, y se convierte con `Number`. Ninguna otra columna numérica se lee.
+3. **La valla funciona bajo `READ COMMITTED`.** Dos escritores que leen el mismo `MAX(seq)` insertan el mismo `seq`: el segundo espera a que el primero confirme, `ON CONFLICT DO NOTHING` no inserta y `rowCount` da 0, que es `JournalConflict`. No hizo falta `SERIALIZABLE` ni bloqueos.
+4. **El CI ejecuta las pruebas contra Postgres** desde el 2026-11-18: el job tiene un servicio `postgres:16-alpine` desechable y `TEST_POSTGRES_URL` en el paso de pruebas (ver el cierre, abajo).
+5. **Lo que estaba sin comprobar se cerró el 2026-11-18**, ver el cierre.
+
+**F3 hecha:** `site/src/content/docs/guides/choose-a-journal.mdx` con el diagrama `JournalChoice`. Falta enlazar la página del paquete `flow-sql` cuando #226 esté en master (añadirlo a `ORDER` en `sync-packages.mjs`).
+
+### Cierre de lo que quedó sin comprobar (2026-11-18)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **Versiones de Postgres** | La misma suite (33 pruebas) contra contenedores `postgres:*-alpine` | **15.18, 16.14, 17.10 y 18.7**: 33 de 33 en cada una. La 14 no se probó (fin de vida en noviembre de 2026) |
+| **pgbouncer en modo transacción** | pgbouncer 1.22.1 (de los repositorios de Alpine) con `pool_mode = transaction` y solo **4** conexiones de servidor, delante de Postgres 16, con autenticación SCRAM | 33 de 33. Más de cien conexiones de cliente se multiplexaron sobre 4; una transacción mantiene su conexión de servidor de `BEGIN` a `COMMIT`, que es lo que necesita `pgClient` |
+| **SSL** | Postgres 16 con `ssl=on` y un `pg_hba.conf` que **rechaza toda conexión sin SSL**; certificado autofirmado, `sslmode=verify-full` con `sslrootcert` | 33 de 33. Se comprobó aparte: la conexión sin SSL se rechaza, la verificada usa TLS 1.3 (`pg_stat_ssl`) y el certificado autofirmado sin su CA falla la verificación |
+| **Otro driver** | `postgres` (postgres.js) con un `SqlClient` de 10 líneas (`unsafe`, `begin`, `toPositional`) | La batería de contrato: **18 de 18** casos. El adaptador está en el README del paquete |
+| **Lockfile y Linux** | Contenedor `node:24-slim` (Linux x64, glibc, Node 24.22.3) con una copia del commit: `npm ci`, el paso de rolldown del CI, build, typecheck y pruebas con cobertura | `npm ci` instala desde el lockfile; `better-sqlite3` 12.11.1 carga su binario nativo; sin Postgres 61 pasan, 7 se omiten y 100 % de líneas; con Postgres, **86 pasan** |
+| **Servicio de Postgres en el CI** | `services: postgres:16-alpine` y `TEST_POSTGRES_URL` en el paso de pruebas | Añadido y **confirmado en el CI real** (GitHub, ubuntu-latest, Node 24): `agent-flow-sql` ejecutó 4 suites y **86 pruebas**, con `postgres.test.ts` incluida y ningún aviso de omitida, y 100 % de líneas. Build, typecheck, guardrails y el resto de paquetes en verde |
+
+**Una advertencia sobre el CI:** solo corre para PRs hacia `master` (y para pushes a `master`). Los PR apilados (#223, #225, #226, #227) **no tienen CI propio**; esta comprobación se hizo con un PR borrador temporal de la rama de arriba contra `master` (el #228, ya cerrado), que reúne toda la pila excepto la web.
+
+**Sigue sin comprobarse:** `@neondatabase/serverless` y otros servicios gestionados (necesitan su proxy; su `Pool` tiene la forma de `pg`, así que `PgPoolLike` debería bastar, pero no está probado), Postgres 14 y anteriores, y pgbouncer en modo `statement` (no admite transacciones de varias sentencias: no sirve para esto, y nada lo prueba).

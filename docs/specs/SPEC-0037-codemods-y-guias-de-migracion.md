@@ -132,3 +132,17 @@ Un agente de producción de 2 459 líneas en `src/` y 10 suites de pruebas (78 c
 3. **El proyecto no usa los nombres de las rupturas grandes:** `coding-split` y `terminal-app-split` solo se han probado con fixtures. Falta un proyecto que use `Orchestrator`, `QAService` o `discoverAgents` de verdad. Candidatos dentro de este mismo repositorio: `packages/coding` y los ejemplos de `examples/`.
 
 **Sin comprobar:** `agent-enterprise` y `mcp-server` en uso real más allá de que compilan (las pruebas de `mcp` y de conocimiento pasan); una subida de versión que atraviese una ruptura que el proyecto sí use.
+
+## 11. Contra una migración que ya hizo una persona (2026-11-18)
+
+Una forma de probar un codemod sin inventar un proyecto: la ruptura de SPEC-0016 la migró a mano el commit `854b3a32` en `packages/mcp-server`. Se exportó `mcp-server/src` **antes** (`854b3a32^`) y **después** de ese commit, se aplicó `terminal-app-split` al "antes" y se comparó con el "después".
+
+| | |
+|---|---|
+| Archivos que cambió la orden | 3, 4 símbolos movidos (`createSkillManager`, `SkillManager`, `InstalledPack`, `SkillLoader`). |
+| Líneas de `import` que difieren de lo que escribió la persona | **1**, y no es un movimiento: la persona añadió `detectStack` al import de `SkillLoader`. |
+| Casos que la orden resolvió igual que la persona | `import type { Skill, InstalledPack }` partido en dos (`Skill` se queda en `agent-core`, `InstalledPack` va a `cli`); `SkillActivator` se queda y `SkillLoader` se va, del mismo `import`. |
+
+**Lo que la orden no hace, y la persona sí hizo:** en dos sitios de ese commit había `const { SkillActivator } = await import('@backendkit-labs/agent-core')` seguido de `new SkillActivator().detectStack(cwd)`, y quedó `const { detectStack } = await import('@backendkit-labs/agent-coding/cli')` y `detectStack(cwd)`. Son dos cosas fuera del alcance declarado: un `import()` **dinámico** (la orden solo lee `import` y `export ... from` estáticos) y un **método** que pasó a ser una función suelta (no es un export de `agent-core` que desaparezca, así que no sale de la lista de nombres). Va a la guía de migración de F4, que lo dice en su sitio; y queda como límite documentado del README.
+
+**`coding-split` sigue probado solo con fixtures.** En el commit anterior a la ruptura de SPEC-0015 ningún paquete ni ejemplo del repositorio, fuera de `core` y `coding`, importaba esos nombres de `agent-core` (las coincidencias de una búsqueda por la palabra eran nombres de agentes "orchestrator"). Hace falta un proyecto externo que use `Orchestrator`, `QAService` o los hooks de auditoría de `agent-core` para probarlo de verdad.

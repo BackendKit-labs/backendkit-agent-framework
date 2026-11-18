@@ -24,7 +24,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0018](SPEC-0018-plantilla-de-agente-de-negocio-y-scaffolder.md) | Plantilla de agente de negocio y scaffolder | Borrador |
 | [SPEC-0019](SPEC-0019-aprendizaje-segunda-iteracion.md) | Aprendizaje, segunda iteración | F1 y F2 implementadas (sin publicar); F3 pasa a SPEC-0022 |
 | [SPEC-0020](SPEC-0020-ejecucion-reanudable.md) | Ejecución reanudable (absorbido por SPEC-0023) | Absorbido |
-| [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) | Evaluaciones de agentes sobre `RunResult` (casos, graders, repeticiones, comparación) | Borrador |
+| [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) | Evaluaciones de agentes sobre `RunResult` (casos, graders, repeticiones, comparación) | En curso (F0 a F4 hechas, F5 pendiente) |
 | [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Implementado F1-F5 (sin publicar) |
 | [SPEC-0023](SPEC-0023-flujos-declarativos.md) | Motor de flujos: definición, journal, control y vista para Hermes y futuros orquestadores (diseño de SPEC-0017 F1; absorbe 0020) | Borrador |
 | [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md) | Journal de corridas en un archivo por corrida, con cadena de integridad | Aceptada (F1 y F2 implementadas) |

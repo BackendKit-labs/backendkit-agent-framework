@@ -9,3 +9,5 @@ export { RecordingProvider, serializeError, deserializeError } from './recording
 export type { RecordedCall, RecordedEvent, RecordedError, RecordingSink, RecordingOptions } from './recording';
 export { ReplayProvider, readRecording } from './replay';
 export type { ReplayOptions, ReplayOverrides, ReplayFault } from './replay';
+export { evalSuite, compare, formatReport, formatComparison, grader, toolCalled, toolNotCalled, noToolErrors, errorCode, textMatches, withinBudget, maxToolCalls } from './evals';
+export type { EvalCase, EvalRunInfo, EvalSuiteOptions, EvalReport, EvalCaseReport, EvalRunReport, GraderOutcome, GraderResult, Grader, ToolCalledOptions, Comparison, CaseComparison } from './evals';

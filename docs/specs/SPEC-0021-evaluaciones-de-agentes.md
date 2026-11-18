@@ -1,7 +1,7 @@
 # SPEC-0021: evaluaciones de agentes
 
 **Fecha:** 2026-11-16
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar.
+**Estado:** **En curso (2026-11-18): F0 a F4 hechas**, ver §8. F5 (migrar el banco `trading-bot`, que está en otro repo) sin hacer. Antes: borrador con decisiones D1-D7.
 **Depende de:** `engine.run()` y `RunResult` (core, sin publicar), `agent-testkit` (`scriptedProvider`, `RecordingProvider`, `ReplayProvider`).
 **Tipo de cambio:** aditivo, en `agent-testkit`. Core no cambia.
 **Objetivo:** que un equipo pueda decir "este agente ahora lo hace mejor o peor" con números repetibles, y que una regresión rompa el CI sin llamar a un modelo.
@@ -78,3 +78,20 @@ Mastra (commit `35745537`) tiene `packages/core/src/evals` (scorers de código, 
 | D9 | ¿Se puntúan trazas guardadas en lugar de ejecutar de nuevo? | **Después de F4, opcional.** Con `recordArgs` (D7) y el audit, se puede evaluar lo que un agente ya hizo en producción sin volver a llamar al modelo. Hace falta una decisión de privacidad antes (qué se guarda y con qué `redact`). |
 
 Se añade a las fases: **F2b** (`toolMocks`, con su prueba: una suite con una tool simulada no ejecuta la real) tras F2, y **F6** (puntuar trazas) como opcional tras F5.
+
+## 8. Implementación (2026-11-18)
+
+**F0.** `recordArgs` en el engine (`createBaseEngine({ recordArgs: true })`): cada `tool_result` y cada `RunResult.toolCalls[]` lleva `args`. Sin la opción no hay `args` (ni en el resultado ni en el evento): pueden llevar datos sensibles y la auditoría solo guarda su hash. 2 pruebas en core.
+
+**F1 a F3.** `agent-testkit`: `evalSuite`, `compare`, `formatReport`, `formatComparison`, `grader` y los graders `toolCalled` (con `times` y `with` sobre los argumentos), `toolNotCalled`, `noToolErrors`, `errorCode`, `textMatches`, `withinBudget` y `maxToolCalls`. Informe JSON con `schema: 1`. 13 pruebas en el testkit, con un engine real sobre un proveedor guionizado: informe esperado, informe idéntico byte a byte en dos ejecuciones, una regresión que rompe la suite sin modelo, `setup`, etiquetas, semillas, repeticiones, una corrida que lanza, corte por presupuesto, graders con y sin `recordArgs`, y `compare`.
+
+**F4.** No hizo falta código: `build` devuelve el engine, así que una grabación por caso es un `ReplayProvider` dentro de `build`. La regresión en CI sin red se prueba con un proveedor guionizado (F1); con una grabación real es lo mismo.
+
+**Diferencias con el diseño de §3**
+- **`spendCap` (un número de dólares) no se hizo:** el engine no expone una API de coste que la suite pueda leer. En su lugar `stopOnBudget` (por defecto `true`): la suite se detiene cuando una corrida informa `budgetExceeded` (el presupuesto del propio engine) y el informe dice `stoppedEarly: 'budget'`.
+- **`includeTiming`:** la duración y la hora de inicio se omiten por defecto para que la misma suite dé el mismo informe.
+- **`EvalRunInfo.setup`:** `build` recibe también lo que devolvió el `setup` del caso.
+- **Un grader sobre argumentos sin `recordArgs`** falla diciéndolo, no pasa por accidente.
+- **Sin repetición ni conteo por grader en `compare`:** compara tasas de acierto por caso y en total (sobre los casos que tienen los dos informes), con el número de corridas de cada lado.
+
+**Sin comprobar:** con un modelo real (las pruebas usan proveedor guionizado: prueban el arnés, no la calidad de ningún agente); F5, migrar el banco `trading-bot` (otro repo), que es la prueba de que la API alcanza para un caso real; que `compare` baste sin intervalos de confianza (fuera de alcance por diseño). Sin publicar: va en el próximo release de `agent-core` y `agent-testkit`.

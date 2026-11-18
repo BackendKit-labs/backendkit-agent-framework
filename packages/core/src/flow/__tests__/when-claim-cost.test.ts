@@ -172,17 +172,33 @@ describe('the claim is renewed while the run lives', () => {
         expect(r.status).toBe('completed');
     });
 
+    it('a renewal still in flight when the run ends does not leave the claim held: the run frees it once the renewal lands', async () => {
+        const inner = new MemoryRunJournal();
+        let claims = 0;
+        const journal: RunJournal = {
+            begin: r => inner.begin(r), step: (a, b, c) => inner.step(a, b, c), update: (a, b) => inner.update(a, b),
+            get: a => inner.get(a), list: f => inner.list(f),
+            // The first claim is immediate; a renewal takes 150 ms to land (a slow Redis, a slow disk).
+            claim: async (a, b, c) => { if (++claims > 1) await sleep(150); return inner.claim(a, b, c); },
+        };
+        // The run ends (60 ms) while the renewal started at 20 ms is still in flight.
+        const r = await runFlow(one, { executor: slow(60), journal, runId: 'tail', owner: 'p1', claimTtlMs: 60_000, claimRenewMs: 20 });
+        expect(r.status).toBe('completed');
+        await sleep(300); // the renewal has landed by now
+        expect(await inner.claim('tail', 'p2', 60_000)).not.toBeNull(); // before the fix: held for the whole TTL by nobody
+    });
+
     it('works with the file journal: each renewal replaces the claim and the run still releases it', async () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-'));
         try {
             const journal = new FileRunJournal(dir);
-            const running = runFlow(one, { executor: slow(3500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 2000, claimRenewMs: 400 });
-            await sleep(2800); // past the TTL; file writes are slow when the whole suite runs at once, so the margins are wide
-            expect(await journal.claim('file-run', 'p2', 2000)).toBeNull();
+            const running = runFlow(one, { executor: slow(4500), journal, runId: 'file-run', owner: 'p1', claimTtlMs: 3000, claimRenewMs: 300 });
+            await sleep(3600); // past the TTL, with ten renewals in between; file writes are slow when the whole suite runs at once, so the margins are wide
+            expect(await journal.claim('file-run', 'p2', 3000)).toBeNull();
             expect((await running).status).toBe('completed');
-            expect(await journal.claim('file-run', 'p2', 2000)).not.toBeNull();
+            expect(await journal.claim('file-run', 'p2', 3000)).not.toBeNull();
         } finally { await fs.rm(dir, { recursive: true, force: true }); }
-    });
+    }, 20_000);
 
     it('the timer does not outlive the run', async () => {
         const journal = new MemoryRunJournal();

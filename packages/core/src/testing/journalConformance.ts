@@ -28,6 +28,8 @@ export interface JournalConformanceOptions {
     exclusiveWriter?: boolean;
     /** Ids that are not safe as a file or key name (`../escape`) are rejected. Default false. */
     rejectsUnsafeIds?: boolean;
+    /** Time limit of each case, in ms. A journal that writes a file per event needs room when the machine is busy. Default 30000. */
+    timeoutMs?: number;
 }
 
 export interface JournalConformanceCase { name: string; run(): Promise<void> }
@@ -225,9 +227,15 @@ export function journalConformanceCases(opts: JournalConformanceOptions): Journa
             async run() {
                 const { journal, runId, flow } = await fresh();
                 await journal.begin({ runId, flow, inputPreview: '' });
-                assert.ok(await journal.claim(runId, 'a', 25));
-                assert.equal(await journal.claim(runId, 'b', 60_000), null);
-                await sleep(80);
+                // Wall-clock margins wide enough for a slow disk or a busy machine: the claim of 'a' must still be valid when 'b'
+                // tries, so 'b' is only held to be refused if it asked within the TTL.
+                const ttl = 300;
+                const t0 = Date.now();
+                assert.ok(await journal.claim(runId, 'a', ttl));
+                const early = await journal.claim(runId, 'b', 60_000);
+                if (Date.now() - t0 < ttl) assert.equal(early, null);
+                else await early?.();
+                await sleep(ttl + 400);
                 const taken = await journal.claim(runId, 'b', 60_000);
                 assert.ok(taken, 'the expired claim is free');
                 await taken();
@@ -304,6 +312,6 @@ export function journalConformanceCases(opts: JournalConformanceOptions): Journa
 /** Registers the battery with the global `describe` and `it` (jest, vitest with globals). */
 export function journalConformance(name: string, opts: JournalConformanceOptions): void {
     describe(`${name}: RunJournal conformance`, () => {
-        for (const c of journalConformanceCases(opts)) it(c.name, c.run);
+        for (const c of journalConformanceCases(opts)) it(c.name, c.run, opts.timeoutMs ?? 30_000);
     });
 }

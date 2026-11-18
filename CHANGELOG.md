@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.47.0 (2026-11-18)
+
+`tool_search` para tools diferidas, un arreglo real de la renovación del claim, el adaptador del AI SDK y dos paquetes nuevos (`agent-flow-sql`, `codemod`). En 0.x, `^0.45` no cubre 0.46, así que se barrieron los rangos de `agent-core` (`^0.46.0`) y los peers anchos pasan a `<0.47.0`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.46.0 | `tool_search` y `defer` / `deferTools` (#233); arreglo de la renovación del claim en `runFlow` (#234); `agent-core/testing` con `journalConformance` |
+| `agent-providers` | 0.3.13 | `AiSdkProvider` y `fromAiSdk` (#232); el peer de `agent-core` sube a `<0.47.0` |
+| `agent-flow-sql` | 0.1.0 | **nuevo:** `RunJournal` sobre SQLite y Postgres; peer `agent-core >=0.46.0 <0.48.0` |
+| `@backendkit-labs/codemod` | 0.1.0 | **nuevo:** migraciones automáticas de las rupturas ([SPEC-0037](docs/specs/SPEC-0037-codemods-y-guias-de-migracion.md)) |
+| `agent-coding` 0.32.4, `agent-enterprise` 0.11.3, `mcp-server` 0.19.8, `agent-web` 0.6.13, `agent-sandbox` 0.1.16, `agent-testkit` 0.1.16, `agent-otel` 0.1.19, `agent-flow-queue` 0.1.3, `document-extract` 0.1.9, `aval-tools` 0.1.23, `create-bk-agent` 0.24.3 | patch | solo el rango de `agent-core` (y los templates) |
+
+- **`agent-core`, `tool_search` (SPEC-0030):** una tool con `defer: true` (o que case con `deferTools` del agente, solo comodines) no se manda al modelo con su esquema; el modelo la descubre con `tool_search` y desde ese momento forma parte de la lista, siempre al final para no invalidar la caché del prompt. El gobierno no se salta: lo que la sandbox o la política deniegan sigue oculto, y encontrar una tool nunca la autoriza.
+- **`agent-core`, arreglo de `runFlow` (#234):** una renovación del claim aún en vuelo cuando la corrida terminaba podía llegar después de liberar el claim y volver a tomarlo, dejando la corrida retenida hasta que vencía el TTL; ahora `runFlow` espera la renovación (con tope) antes de liberar. Era la causa de las pruebas intermitentes en Windows.
+- **`agent-core/testing`:** `journalConformance`, la batería que cualquier `RunJournal` debe pasar (la usa `agent-flow-sql`).
+- **`agent-providers`, `AiSdkProvider` / `fromAiSdk` (SPEC-0029):** cualquier modelo del AI SDK (interfaces v2, v3 y v4) como proveedor del framework. Probado en vivo con DeepSeek; sin probar con Anthropic ni Gemini, y los bloques de razonamiento opacos (`raw`) no se transportan.
+- **`agent-flow-sql`, nuevo:** `RunJournal` sobre SQLite y Postgres: las corridas sobreviven al proceso y cualquier proceso que comparta la base puede reanudarlas. Sin probar con Neon, PG ≤ 14 ni pgbouncer en modo statement.
+- **`codemod`, nuevo:** `npx @backendkit-labs/codemod <nombre> ./src` con `scope-rename`, `coding-split`, `terminal-app-split` y `zod4-record`; `--list` y `--dry-run`. Probado contra la migración manual de `mcp-server` y sobre `aiops-agent`; `coding-split` solo con fixtures. Guía: [Migrate between versions](https://backendkit-agent-framework.vercel.app/guides/migrate-between-versions/).
+
 ## v0.46.0 (2026-11-17)
 
 El banco de pruebas `audit-desk` (una auditoría exhaustiva con Redis real, procesos reales y un kill duro) destapó dos fallos del motor de flujos y permitió probar por primera vez los scripts Lua de Redis; de ahí sale además un journal nuevo para un host ([SPEC-0024](docs/specs/SPEC-0024-journal-de-corridas-ndjson.md), el diseño del journal de Steward llevado al SDK). En 0.x, `^0.44` no cubre 0.45, así que se barrieron los rangos de `agent-core` (`^0.45.0`) y los peers anchos pasan a `<0.46.0`. Solo suben los paquetes afectados; `web-ui` cambió solo su README y no sube; `mcp-connectors`, `agent-protocol` y `agent-web-ui` no cambian.

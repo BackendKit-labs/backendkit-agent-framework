@@ -22,7 +22,7 @@
     "test": "jest"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.45.0 <0.47.0"
+    "@backendkit-labs/agent-core": ">=0.46.0 <0.48.0"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

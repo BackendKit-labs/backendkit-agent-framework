@@ -1073,9 +1073,10 @@ export class AgentEngine {
             tools.push(ASK_AGENT_TOOL);
         }
         if (hasDeferred) {
-            // The list only grows, at the end: what the provider has cached of the prefix stays valid (D4).
+            // The list only grows, at the end: what the provider has cached of the prefix stays valid up to there (D4).
+            // In 'message' mode it does not grow: what was found is described in the answer of tool_search.
             tools.push(this.toolSearchTool(profile));
-            for (const name of found) {
+            for (const name of this.opts.toolSearch?.mode === 'message' ? [] : found) {
                 const t = allowed.find(a => a.name === name);
                 if (t) tools.push(t);
             }
@@ -1109,7 +1110,7 @@ export class AgentEngine {
                 : rankTools(query, candidates, max);
             const known = this.discovered.get(profile.id) ?? [];
             this.discovered.set(profile.id, [...known, ...found.map(t => t.name).filter(n => !known.includes(n))]);
-            return describeFound(found);
+            return describeFound(found, this.opts.toolSearch?.mode === 'message');
         });
     }
 

@@ -1,7 +1,7 @@
 # SPEC-0030: búsqueda de tools con carga diferida
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 a F5 hechas (2026-11-18)**, ver §8 y §9.
+**Estado:** Borrador. **F0 a F5 hechas (2026-11-18)**, ver §8 y §9; el modo `message` que evita cortar la caché, §11.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel ofrece `toolSearch()` con `deferLoading`: el modelo encuentra las tools que necesita sin que todas sus definiciones ocupen el contexto desde el principio.
 **Depende de:** nada. Aditivo en `agent-core`.
 **Tipo de cambio:** aditivo. Sin `deferLoading` en ninguna tool, el engine se comporta igual que hoy.
@@ -114,3 +114,19 @@ const engine = createBaseEngine({
 - La ventaja es segura cuando la lista es grande (cientos de tools, servidores MCP) o cuando el límite es el contexto, no el precio. Con pocas decenas de tools y caché, conviene medir antes de diferir. La documentación lo dice así.
 - Una mejora posible, **sin hacer**: no cortar la caché en cada búsqueda, p. ej. enviando las tools descubiertas en el mensaje y no en la lista; cambia el contrato con el modelo y exige medirlo.
 - **Sin comprobar:** Anthropic (caché explícita con `cache_control`, donde el efecto puede ser distinto), Gemini, y modelos débiles.
+
+## 11. Modo `message`: la lista de tools no cambia (2026-11-18)
+
+§10 midió que cada búsqueda cambia la lista de tools y corta la caché del proveedor. `createBaseEngine({ toolSearch: { mode: 'message' } })` (por defecto sigue `'list'`) deja la lista fija: la respuesta de `tool_search` trae nombre, descripción y los parámetros (JSON Schema) de lo encontrado, y el modelo llama a la tool por su nombre. El motor la ejecuta porque fue encontrada; una tool no encontrada sigue fallando sin ejecutarse, y la política y la sandbox siguen mandando (`tool_search` no ofrece lo que deniegan). 4 pruebas nuevas (27 entre los dos archivos): la lista no cambia en ninguna petición, la respuesta lleva los parámetros y la tool corre, lo no encontrado o denegado no corre, y el modo por defecto no cambia.
+
+**Medido con DeepSeek** (`deepseek-v4-flash`, 40 tools, 3 tareas por 3 repeticiones = 9 corridas por variante; equivalente = tokens cacheados a una décima):
+
+| Variante | Entrada media | Coste equivalente medio | Llamadas medias | Fallos |
+|---|---|---|---|---|
+| Las 40 tools listadas | 7 129 | 1 126 | 1,7 | 0 |
+| Diferidas, modo `list` | 3 153 | 1 234 (+10 %) | 3,3 | 0 |
+| Diferidas, modo `message` | 2 568 | **1 136** | 3,1 | 0 |
+
+**Lectura honesta:** el modo `message` quita la penalización de la caché (de +10 % a empate con listarlo todo) y baja un 64 % los tokens de entrada, sin un solo fallo; DeepSeek acepta y ejecuta llamadas a una tool que no está en su lista. Pero **con 40 tools no es más barato que listarlas**: gana quien tenga cientos de tools o el límite en el contexto, no en el precio. Es una mejora modesta y por eso es opt-in.
+
+**Sin comprobar:** Anthropic y OpenAI. Si un proveedor rechaza, o el modelo no llama bien, una tool que no está en su lista, el modo `message` no sirve con él; DeepSeek sí. El historial con una llamada a una tool que no está en la lista también depende del proveedor. Otros modelos más débiles: solo se probó uno.

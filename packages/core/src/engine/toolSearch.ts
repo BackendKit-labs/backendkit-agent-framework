@@ -19,6 +19,15 @@ export interface ToolSearchOptions {
     search?: ToolSearchFn;
     /** At most this many tools per search. Default 5. */
     maxResults?: number;
+    /**
+     * Where a found tool shows up for the model.
+     * - `'list'` (default): in the tool list of the next request. Each search changes that list, and a provider's prompt cache stops at the
+     *   first change, so the history after it is billed again.
+     * - `'message'`: the list never changes. The answer of `tool_search` carries the name, description and parameters of what it found, and
+     *   the model calls it by name. The engine runs the call because the tool was found. Keeps the cache, but it needs a provider that lets
+     *   the model call a name that is not in the list, so check yours (SPEC-0030 §11).
+     */
+    mode?: 'list' | 'message';
 }
 
 /** `crm_find` matches `crm_find` and `crm_*`; a lone `*` matches every tool. */
@@ -75,8 +84,10 @@ export function rankTools(query: string, candidates: readonly ToolDefinition[], 
         .map(r => r.tool);
 }
 
-export function describeFound(found: readonly ToolDefinition[]): string {
+/** What `tool_search` answers. With `withSchema` (mode 'message') the parameters go in the text, because the tool is not in the list. */
+export function describeFound(found: readonly ToolDefinition[], withSchema = false): string {
     if (found.length === 0) return 'No tool matches. Try other words, or a part of the tool name.';
-    const lines = found.map(t => `- ${t.name}: ${t.description.replace(/\s+/g, ' ').slice(0, 200)}`);
-    return `${found.length === 1 ? '1 tool is' : `${found.length} tools are`} now available to call:\n${lines.join('\n')}`;
+    const lines = found.map(t => `- ${t.name}: ${t.description.replace(/\s+/g, ' ').slice(0, 200)}${withSchema ? `\n  parameters (JSON Schema): ${JSON.stringify(t.parameters)}` : ''}`);
+    const head = `${found.length === 1 ? '1 tool is' : `${found.length} tools are`} now available to call${withSchema ? ' by name, with arguments that match its parameters' : ''}:`;
+    return `${head}\n${lines.join('\n')}`;
 }

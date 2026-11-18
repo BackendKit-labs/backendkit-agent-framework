@@ -210,3 +210,38 @@ describe('toolSearch: a search of your own', () => {
         expect(b.lists[1].length).toBe(2 + 3);
     });
 });
+
+describe("toolSearch mode 'message': the list of tools never changes", () => {
+    const withParams = (executed: string[]): ToolDefinition[] => [plain, ...crmTools(executed).map(t =>
+        t.name === 'crm_find_contact' ? { ...t, parameters: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] } } : t)];
+
+    it('every request carries the same list, the answer carries the parameters, and the found tool runs', async () => {
+        const executed: string[] = [];
+        const { engine, lists, results } = build([call('tool_search', { query: 'find contact' }), call('crm_find_contact', { email: 'a@b.c' }, 'c2'), done],
+            { tools: withParams(executed), extra: { toolSearch: { mode: 'message' } }, executed });
+        await engine.run('look up Ana');
+        expect(lists).toEqual([['read_file', 'tool_search'], ['read_file', 'tool_search'], ['read_file', 'tool_search']]);
+        const found = results()[0];
+        expect(found.preview).toContain('by name, with arguments that match its parameters');
+        expect(executed).toEqual(['crm_find_contact']);
+        expect(results().map(r => [r.name, r.success])).toEqual([['tool_search', true], ['crm_find_contact', true]]);
+    });
+
+    it('a tool that was not found still fails without running; finding does not skip governance', async () => {
+        const executed: string[] = [];
+        const denyContacts: ToolPolicy = { decide: (_p, c) => (c.tool.name === 'crm_find_contact' ? { effect: 'deny', reason: 'off limits' } : { effect: 'allow' }) };
+        const a = build([call('crm_find_contact', {}, 'c1'), done], { extra: { toolSearch: { mode: 'message' } }, executed });
+        await a.engine.run('x');
+        expect(executed).toEqual([]);
+        const b = build([call('tool_search', { query: 'find contact' }), call('crm_find_contact', {}, 'c2'), done], { extra: { toolSearch: { mode: 'message' }, policy: denyContacts }, executed });
+        await b.engine.run('x');
+        expect(executed).toEqual([]);
+        expect(b.results()[0].preview).not.toContain('crm_find_contact');
+    });
+
+    it("the default mode is 'list': the found tool joins the list", async () => {
+        const { engine, lists } = build([call('tool_search', { query: 'find contact' }), done]);
+        await engine.run('x');
+        expect(lists[1]).toContain('crm_find_contact');
+    });
+});

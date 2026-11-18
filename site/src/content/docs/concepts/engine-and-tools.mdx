@@ -142,6 +142,8 @@ createBaseEngine({
 
 A search of your own can only return tools from `candidates`; anything else it returns is dropped.
 
+To stop searches from changing the tool list (and so from cutting the cache), use `toolSearch: { mode: 'message' }`. The list stays fixed; the answer of `tool_search` carries the name, description and parameters of what it found, and the model calls it by name. With DeepSeek (40 tools, 9 runs per variant) it cost the same as listing all 40 tools, 64% fewer input tokens, and no failures; the default `list` mode cost 10% more. It needs a provider that lets the model call a name that is not in the list, so test yours first. Anthropic and OpenAI are not tested.
+
 A model that is weak at tool use may not search. Check with your model before deferring tools it needs on most turns, and leave those out of `deferTools`.
 
 ## Agents

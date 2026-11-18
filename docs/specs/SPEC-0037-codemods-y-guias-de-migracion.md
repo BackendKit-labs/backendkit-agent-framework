@@ -1,7 +1,7 @@
 # SPEC-0037: codemods y guías de migración
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. **F0 hecha (2026-11-18)**: herramienta elegida (`ts-morph`) e inventario de las rupturas reales, ver §8. F1 a F4 sin hacer.
+**Estado:** Borrador. **F0 hecha (2026-11-18)**: inventario de las rupturas reales, ver §8. **F1 hecha (2026-11-18)**: el paquete, `--list`, `--dry-run` y cuatro transformaciones (`scope-rename`, `coding-split`, `terminal-app-split`, `zod4-record`), ver §9; la herramienta final es el compilador de TypeScript, no `ts-morph`. **Probado con un proyecto real (`aiops-agent`), ver §10.** F2, el resto de la parte de zod 4 de F3 y F4 sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel y Mastra publican un paquete `codemod` y guías de migración por versión; nosotros hemos publicado rupturas con solo una nota en el CHANGELOG.
 **Depende de:** nada. Aditivo, en un paquete nuevo.
 **Tipo de cambio:** aditivo.
@@ -90,3 +90,45 @@ npx @backendkit-labs/codemod --list                    # transformaciones dispon
 **Un caso que ninguna herramienta resuelve sola** y que D3 ya prevé: `import * as core from '@backendkit-labs/agent-core'` seguido de `core.Orchestrator`. No es un import con nombres: la transformación lo detecta por el uso del namespace y deja `// TODO(codemod)`, no lo reescribe.
 
 **Sin comprobar:** el rendimiento en un proyecto grande, y que la orden se pueda lanzar con `npx` sin traer a quien la use los 14 MB de `ts-morph` dos veces (se resolverá en F1 con el paquete publicado).
+
+## 9. F1: `@backendkit-labs/codemod` (2026-11-18)
+
+`packages/codemod`, con la orden `codemod <transformación> [ruta] [--dry-run]` y `codemod --list`. Tres transformaciones, cada una **datos** (qué símbolos pasan de qué módulo a cuál) sobre un mismo motor:
+
+| Transformación | Qué hace |
+|---|---|
+| `scope-rename` | `@bk/agent-core`, `@bk/agent-coding`, `@bk/mcp-server` a `@backendkit-labs/*`. |
+| `coding-split` (SPEC-0015) | 9 nombres de `agent-core` a `agent-coding/pipeline`; el subpath `agent-core/orchestration` pasa a ser el pipeline; en `agent-core/reflection`, los hooks de auditoría van al pipeline y el resto a la raíz. `ProjectStoreData` y `SessionUpdates` (existían en `agent-core` y ya no existen en ningún sitio) se **marcan**, no se mueven. |
+| `terminal-app-split` (SPEC-0016) | Los 66 nombres de descubrimiento de agentes, skills, comandos, checkpoints, workspaces y trust, a `agent-coding/cli`. |
+
+**Las listas no salen del changelog:** son los nombres que `packages/core/src/index.ts` exportaba antes de cada ruptura y ya no exporta después (calculados con el compilador sobre los commits de #179 y #182), y cada uno se comprobó contra lo que exporta hoy el paquete de destino (66 de 66 para `cli`; 9 de 11 para `pipeline`, y los 2 que faltan son los marcados).
+
+**D2 cambia: el compilador de TypeScript, no `ts-morph`.** §8 eligió `ts-morph` por cómo respeta el código ajeno. Al añadirlo como dependencia de producción, el `audit-gate` del CI se pone rojo: arrastra `picomatch` (por `@ts-morph/common`, `tinyglobby` y `fdir`), que tiene un ReDoS de severidad alta **sin versión corregida** (el aviso cubre hasta la 4.0.7, la última). Solo se explotaría con un patrón de glob controlado por un atacante, que aquí no existe, pero abrir una excepción en el gate de seguridad por una comodidad no compensa. El motor usa directamente la API del compilador (`typescript`, sin `picomatch`) y edita **el texto por posiciones**: lo que no es un `import` o un `export ... from` que entienda queda byte por byte igual, con su espaciado, comentarios, comillas y saltos de línea (CRLF incluido). Resultado más fino que con `ts-morph`, que reformateaba. Los mismos pares `antes/después` pasaron con ambos motores.
+
+**Cumple los criterios de §6:** cada transformación es idempotente (se prueba corriéndola dos veces), tiene su par `antes/después`, y lo que no entiende lo marca con `// TODO(codemod): ...` en vez de reescribirlo: un nombre que ya no existe, `import * as core` seguido de `core.Nombre` de algo que se movió, y un `export { Nombre } from` de algo que se movió.
+
+**Desviación de §4:** no se negará a correr fuera de un rango de versiones. Con las transformaciones idempotentes, correrla en un proyecto que ya migró no cambia nada, y detectar la versión instalada añade un modo de fallo (monorepos, `workspace:`, rangos) sin proteger de nada. `--list` dice la versión que pide cada una.
+
+**Pruebas:** 38 (100 % de líneas): los tres pares `antes/después`, idempotencia, `--dry-run`, 13 casos de un solo archivo con la salida exacta (nombre en medio o al final, todos los nombres, `import` por defecto más nombrados, alias y `type`, sin salto de línea final, sin punto y coma, dos declaraciones hacia un mismo import nuevo, unirse a un import existente, import de efectos, `export *`), listas en varias líneas con comentarios, CRLF y comillas, JavaScript, carpetas ignoradas (`node_modules`, `dist`, `*.d.ts`), un archivo suelto como ruta y los errores de la línea de comandos.
+
+**Sin comprobar:** un proyecto grande de verdad (es lo siguiente: `aiops-agent`); la distribución con `npx` del paquete publicado; `require()` y `import()` dinámico (no se tocan, y el README lo dice). El paquete no está publicado.
+
+## 10. Prueba con un proyecto real: `aiops-agent` (2026-11-18)
+
+Un agente de producción de 2 459 líneas en `src/` y 10 suites de pruebas (78 casos), escrito contra `agent-core ^0.27.0`, `agent-coding ^0.23.0` y `agent-enterprise ^0.4.3`, es decir, **de antes de las dos rupturas de §8**. Se trabajó sobre una **copia** (el original no se tocó: `git status` limpio) subiendo sus dependencias a las publicadas hoy (`agent-core 0.45.0`, `agent-coding 0.32.3`, `agent-enterprise 0.11.2`, `mcp-server 0.19.7`, `agent-providers 0.3.12`).
+
+| Paso | Resultado |
+|---|---|
+| Subir las dependencias, sin tocar el código | `tsc`: **1 error**, `Expected 2-3 arguments, but got 1` en `z.record(z.unknown())`. |
+| `coding-split`, `terminal-app-split`, `scope-rename` en `--dry-run` | **0 archivos**: el proyecto no importa ninguno de los nombres que se movieron (usa `defineTool`, `z`, tipos y `OllamaProvider`). Correcto, no un fallo: no hay nada que mover. |
+| `zod4-record` (nueva, ver abajo) | **1 archivo, 1 línea**: `z.record(z.unknown())` pasa a `z.record(z.string(), z.unknown())`. `tsc`: **0 errores**. |
+| Pruebas del proyecto (`jest`) | **77 de 78.** Las 2 que fallaban de más eran un artefacto mío (la copia no traía el directorio `vault/`). |
+| El caso que queda | `guard.test`: `ToolArgumentError ... Too big: expected number to be <=4`. **No es mecánico:** desde 0.34 `defineTool` **lanza** `ToolArgumentError` en vez de devolver el texto (está en el CHANGELOG como "Cambia el comportamiento de quien llame a `execute` de una tool de `defineTool` directamente"), y `runTool` del proyecto llama a `tool.execute` fuera de un engine. Un `try/catch` que devuelve `needs_human`, escrito a mano, lo resuelve: **78 de 78**, `tsc` en 0. |
+
+**Lo que se aprendió**
+
+1. **Saltar 18 versiones (0.27 a 0.45) costó 2 cambios de código:** uno mecánico (ahora lo hace la orden) y uno de comportamiento (hay que saberlo; va a la guía de F4, que lo dice en la primera línea de la sección de `defineTool`). El compilador lo cazó todo salvo el segundo, que solo se vio al ejecutar las pruebas: **una guía de migración sin ejecutar pruebas no basta.**
+2. **El inventario de §8 tenía un hueco:** la ruptura de zod 4 sí tiene una parte mecánica clara (`z.record` de un argumento), y §8 la había anotado como "casi nada seguro". Se añadió la transformación **`zod4-record`**: solo actúa en un archivo que importa `z` de `zod` o de `agent-core`, solo sobre ese nombre y con un único argumento; lo que no es mecánico (`invalid_type_error`, `required_error`, cuyos mensajes además cambian) se **marca** con `// TODO(codemod)` y no se reescribe. 15 pruebas nuevas, par `antes/después` incluido; el motor de imports no se tocó.
+3. **El proyecto no usa los nombres de las rupturas grandes:** `coding-split` y `terminal-app-split` solo se han probado con fixtures. Falta un proyecto que use `Orchestrator`, `QAService` o `discoverAgents` de verdad. Candidatos dentro de este mismo repositorio: `packages/coding` y los ejemplos de `examples/`.
+
+**Sin comprobar:** `agent-enterprise` y `mcp-server` en uso real más allá de que compilan (las pruebas de `mcp` y de conocimiento pasan); una subida de versión que atraviese una ruptura que el proyecto sí use.

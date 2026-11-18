@@ -95,6 +95,9 @@ jobs:
       - name: Build create-bk-agent
         run: npm run build -w packages/create-bk-agent
 
+      - name: Build codemod
+        run: npm run build -w packages/codemod
+
       # ── Typecheck ─────────────────────────────────────────────────────────────
       - name: Typecheck all packages
         run: npm run typecheck --workspaces --if-present

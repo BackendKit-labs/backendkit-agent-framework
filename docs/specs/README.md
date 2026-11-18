@@ -27,9 +27,25 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0021](SPEC-0021-evaluaciones-de-agentes.md) | Evaluaciones de agentes sobre `RunResult` (casos, graders, repeticiones, comparación) | Borrador |
 | [SPEC-0022](SPEC-0022-ciclo-de-vida-de-la-leccion.md) | Ciclo de vida de la lección (sustituye a SPEC-0019 F3) | Implementado F1-F5 (sin publicar) |
 | [SPEC-0023](SPEC-0023-flujos-declarativos.md) | Motor de flujos: definición, journal, control y vista para Hermes y futuros orquestadores (diseño de SPEC-0017 F1; absorbe 0020) | Borrador |
+| [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md) | Journal de corridas en un archivo por corrida, con cadena de integridad | Aceptada (F1 y F2 implementadas) |
+| [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md) | Mejoras tras comparar con otros frameworks (índice y orden de ejecución) | Borrador |
+| [SPEC-0026](SPEC-0026-control-de-flujo-en-flows.md) | Control de flujo en flows: reintentos por paso, foreach, repeat, sleep y waitFor | Borrador |
+| [SPEC-0027](SPEC-0027-reiniciar-un-flow-desde-un-paso.md) | Bifurcar o reiniciar una corrida desde un paso | Borrador |
+| [SPEC-0028](SPEC-0028-journals-en-sqlite-y-postgres.md) | RunJournal en SQLite y Postgres, con batería común de pruebas | Borrador |
+| [SPEC-0029](SPEC-0029-adaptador-de-providers-del-ai-sdk.md) | Adaptador de modelos del AI SDK de Vercel a LLMProvider | Borrador |
+| [SPEC-0030](SPEC-0030-busqueda-de-tools.md) | Búsqueda de tools con carga diferida | Borrador |
+| [SPEC-0031](SPEC-0031-consola-de-desarrollo-local.md) | Consola de desarrollo local (chat, llamadas, aprobaciones, flows, lecciones) | Borrador |
+| [SPEC-0032](SPEC-0032-memoria-de-trabajo.md) | Memoria de trabajo (evaluar antes de construir) | Borrador |
+| [SPEC-0033](SPEC-0033-rag-generico.md) | RAG genérico: contratos, embeddings, reranking y almacenes (amplía SPEC-0017 F5) | Borrador |
+| [SPEC-0034](SPEC-0034-agente-durable.md) | Bucle del agente reanudable (con criterio de entrada) | Borrador |
+| [SPEC-0035](SPEC-0035-code-mode.md) | Code mode: el modelo escribe código que llama tools en un sandbox (decisión previa abierta) | Borrador |
+| [SPEC-0036](SPEC-0036-handoff.md) | Traspaso de control entre agentes (con criterio de entrada) | Borrador |
+| [SPEC-0037](SPEC-0037-codemods-y-guias-de-migracion.md) | Codemods y guías de migración | Borrador |
 
 Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** queda absorbido por 0023 (el journal, el `claim` y la reanudación ya existen en el orquestador y en Hermes).
 
 Orden de ejecución vigente: SPEC-0013 §4 (prerrequisitos) → 0014 → 0015 y 0016 (mismo minor) → 0017 por fases → 0018. Ver [SPEC-0013](SPEC-0013-framework-como-libreria-hoja-de-ruta.md) para la tabla de trazabilidad. Los borradores anteriores (0002, 0004 a 0007) se reevalúan contra ADR-0008 antes de retomarlos. SPEC-0004 es dependencia de la opción B de aprobación durable (SPEC-0014 §6).
+
+Las SPEC-0026 a 0037 nacen del análisis comparativo del 2026-11-17: su índice, orden por olas y modo de retomarlas está en [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). SPEC-0021 (evals) forma parte de esa lista.
 
 Estados: Borrador, En revisión, Aprobado, Implementado.

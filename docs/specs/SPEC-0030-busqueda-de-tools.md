@@ -1,7 +1,7 @@
 # SPEC-0030: búsqueda de tools con carga diferida
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta; sin implementar.
+**Estado:** Borrador. **F0 a F4 hechas (2026-11-18)**, ver §8. F5 (buscador enchufable y documentación) sin hacer.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). El AI SDK de Vercel ofrece `toolSearch()` con `deferLoading`: el modelo encuentra las tools que necesita sin que todas sus definiciones ocupen el contexto desde el principio.
 **Depende de:** nada. Aditivo en `agent-core`.
 **Tipo de cambio:** aditivo. Sin `deferLoading` en ninguna tool, el engine se comporta igual que hoy.
@@ -67,3 +67,23 @@ const engine = createBaseEngine({
 - Un modelo débil puede no buscar. Se documenta cuándo conviene diferir (muchas tools, descripciones largas) y cuándo no (pocas tools).
 - Añadir tools a mitad de una conversación puede invalidar la caché de prompts del proveedor; D4 lo limita a "solo crece".
 - Fuera de alcance: carga diferida de **esquemas** (enviar solo el nombre y pedir el esquema después) y el modo de código de SPEC-0035.
+
+## 8. F0-F4: lo que se verificó y se hizo (2026-11-18)
+
+**F0, lo que el código dice**
+
+- `getToolsForAgent` (`AgentEngine.ts`) lo usan el bucle principal y el de sub-agentes: ambos pasan por la misma función, y `ask_agent` entra por ahí también. Un solo punto de cambio.
+- **`allowedTools` no admite comodines** (`ToolRegistry.getForAgent` busca por nombre exacto, y la puerta de la llamada hace `includes`). El ejemplo de §4 (`allowedTools: ['crm_*', ...]`) era incorrecto: los comodines viven solo en `deferTools`, y `allowedTools` lleva los nombres.
+- El criterio de éxito (§6) se mide así: los 18 tools reales de `mcp-connectors` ocupan, **solo con nombre, descripción y nombres de argumentos**, unos 640 tokens (≈ 35 por tool); con el esquema JSON completo son varias veces más. Para 30 tools diferidas la primera llamada lleva `tool_search` (~100 tokens) en lugar de las 30 definiciones: **la lista de tools baja en más de un 80 %**; se fija ese objetivo.
+
+**Lo implementado** (`engine/toolSearch.ts` y el cableado en `AgentEngine`)
+
+- `ToolDefinition.defer` y `defineTool({ defer: true })`; `AgentProfile.deferTools` con nombre exacto o `prefijo*` (D1).
+- `tool_search({ query })` se ofrece solo a un agente con alguna tool diferida; no necesita estar en su `allowedTools`. Puntúa por palabras: una palabra del nombre pesa 4 (2 si es parte), una de la descripción 1; hasta 5 resultados (D2, D3).
+- La lista que ve el modelo es: las no diferidas, `ask_agent`, `tool_search` y, **al final y en el orden en que se encontraron**, las descubiertas (D4). El estado se borra al empezar cada `run` y es por agente.
+- **Gobierno (D5):** la búsqueda solo mira tools de `allowedTools`, y no ofrece las que el sandbox rechaza o que una política deniega (evaluada con argumentos vacíos; una denegación que dependa de los argumentos se aplica al llamar). Llamar a una tool diferida que no se encontró falla con "usa tool_search" y no se ejecuta; una aprobación ya guardada (`runApproved`) no lo exige. Encontrar no autoriza: aprobación, política y guardrails se aplican igual (hay una prueba con una tool destructiva rechazada por el aprobador).
+- **Auditoría (D6):** `tool_search` pasa por la misma ruta que cualquier tool, así que lo registran el audit y el transporte (`tool_result`), con la consulta como argumentos. No se añadió un tipo de evento nuevo: lo que habría llevado (consulta y nombres) ya está en el evento de la llamada y en su resultado.
+
+**Pruebas:** 20 (14 del engine, con 30 tools diferidas y un proveedor que registra la lista de cada llamada, y 6 unitarias del buscador; 1025 verdes en core). Dos pruebas de TTL de `FileRunJournal` (`journal-conformance` y `when-claim-cost`) fallan a veces cuando se corre toda la suite en paralelo en Windows, y pasan solas: no tienen relación con este cambio.
+
+**Sin comprobar:** un modelo real que decida buscar (los modelos débiles pueden no hacerlo, §7); el efecto en la caché de prompts de un proveedor real; el buscador enchufable y la documentación (F5).

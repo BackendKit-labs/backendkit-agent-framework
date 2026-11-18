@@ -37,6 +37,8 @@ export interface TypedToolOptions<TInput extends z.ZodTypeAny> extends ToolMetad
     /** See `ToolDefinition.errorHints`. */
     errorHints?: Record<string, string>;
     /** Type-safe execute handler — args are already validated and typed. */
+    /** See `ToolDefinition.defer`. */
+    defer?: boolean;
     execute(args: z.infer<TInput>, ctx: ExecutionContext): Promise<string>;
 }
 
@@ -136,6 +138,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
         ...(opts.idempotent !== undefined ? { idempotent: opts.idempotent } : {}),
         ...(opts.openWorld !== undefined ? { openWorld: opts.openWorld } : {}),
         ...(opts.meta !== undefined ? { meta: opts.meta } : {}),
+        ...(opts.defer ? { defer: true } : {}),
         execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
             const result = opts.input.safeParse(rawArgs);
             if (!result.success) {

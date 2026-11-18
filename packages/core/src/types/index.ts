@@ -7,6 +7,11 @@ export interface AgentProfile {
     description: string;
     systemPrompt: string;
     allowedTools: string[];
+    /**
+     * Tools of `allowedTools` that stay out of the model's list until `tool_search` finds them, by name or with a trailing `*`
+     * (`crm_*`), for tools you do not define yourself (an MCP server's). Adds `tool_search` to this agent. See `ToolDefinition.defer`.
+     */
+    deferTools?: string[];
     /** Agent IDs this agent can delegate to. Use ['*'] to allow delegation to all registered agents. */
     delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;
@@ -97,6 +102,12 @@ export interface ToolDefinition {
      * reads it. Exposed to MCP clients as `_meta`, and read back from MCP servers only with `trustAnnotations`.
      */
     meta?: Record<string, unknown>;
+    /**
+     * Keep this tool out of the model's tool list until it finds it with `tool_search` (SPEC-0030). For agents with many tools:
+     * the model pays for the definitions it uses, not for all of them. It does not change what the agent may call: the usual
+     * gates (allowedTools, sandbox, policy, approval) still apply. Default false.
+     */
+    defer?: boolean;
     execute(args: unknown, ctx: ExecutionContext): Promise<string>;
 }
 

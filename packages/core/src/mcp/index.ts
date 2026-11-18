@@ -1,4 +1,4 @@
-export { MCPClientManager } from './MCPClientManager';
+export { MCPClientManager, MCP_TOOL_ERROR } from './MCPClientManager';
 export type { MCPServerConfig } from './types';
 
 // ── MCP tool server: expose ToolDefinitions directly, no model in between ──────

@@ -75,6 +75,20 @@ const out = await client.callTool({ name: 'get_weather', arguments: { city: 'Lon
 // Always this call, with these arguments. The schema validates them before `execute` runs.
 ```
 
+The framework has its own client too: `MCPClientManager` turns each tool of a server into a `ToolDefinition`, which you call like the in-process one. The name carries the server as a prefix (`mcp__<server>__<tool>`):
+
+```ts
+import { MCPClientManager, createToolContext, MCP_TOOL_ERROR } from '@backendkit-labs/agent-core';
+
+const mcp = new MCPClientManager([{ name: 'weather', transport: 'stdio', command: 'npx', args: ['tsx', 'weather-server.ts'] }]);
+await mcp.initialize();
+
+const tool = mcp.getTools().find(t => t.name === 'mcp__weather__get_weather')!;
+const out = await tool.execute({ city: 'London' }, createToolContext());   // "Weather in London: sunny, 22 C"
+// If the server answers isError: true (bad arguments, denied, it threw), this throws a ToolError with code MCP_TOOL_ERROR.
+await mcp.disconnect();
+```
+
 `get_weather` is `readOnly`, so the server needs no gate. A `destructive` tool would not start without an `authorize` function or a `policy`, and that is where the gates apply to a direct call: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
 
 The rest of this page is the first case: the model-driven loop.

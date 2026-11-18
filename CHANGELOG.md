@@ -1,6 +1,13 @@
 # Changelog
 
-## Sin publicar
+## v0.48.1 (2026-11-18)
+
+Patch aditivo: el arnés de evaluación (SPEC-0021) y la opción que le da los argumentos de las llamadas. `^0.47.0` cubre 0.47.1 y `agent-testkit` no tiene dependientes con un rango que se rompa, así que no hay barrido de rangos y solo suben estos dos paquetes. Los graders que leen argumentos necesitan `agent-core` 0.47.1 o más (con una versión anterior `recordArgs` no existe y esos graders fallan diciéndolo).
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.47.1 | `recordArgs` |
+| `agent-testkit` | 0.1.18 | `evalSuite`, `compare`, graders, `writeReport` y `readReport` |
 
 - **`agent-core`, `recordArgs`:** `createBaseEngine({ recordArgs: true })` pone los argumentos de cada llamada a una tool en `RunResult.toolCalls[].args` (SPEC-0021 F0). Van solo al resultado: el evento `tool_result` no los lleva, así que ningún transporte los recibe. Apagado por defecto: pueden llevar datos sensibles y la auditoría solo guarda su hash. Aditivo.
 - **`agent-testkit`, arnés de evaluación (SPEC-0021 F1 a F4):** `evalSuite`, `compare`, `formatReport`, `formatComparison`, `writeReport` / `readReport` (un informe guardado en un archivo `0o600`, para comparar entre ejecuciones) y graders (`toolCalled`, `toolNotCalled`, `noToolErrors`, `errorCode`, `textMatches`, `withinBudget`, `maxToolCalls`, `grader`). Casos como datos, repeticiones con semilla, informe JSON repetible (`schema: 1`) y comparación de dos configuraciones; con un proveedor guionizado o una grabación corre en CI sin modelo ni coste. La suite se detiene si una corrida supera el presupuesto del engine y lo dice en el informe. Sin probar con un modelo real ni con el banco `trading-bot` (F5). Ver la guía [Test an agent](https://backendkit-agent-framework.vercel.app/guides/test-an-agent/).

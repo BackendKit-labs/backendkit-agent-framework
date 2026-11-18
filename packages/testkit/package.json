@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-testkit",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Test doubles for @backendkit-labs/agent-core agents: scripted providers, a mock OpenAI-compatible LLM server with injectable failures, a mock transport and assertions about the real world",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

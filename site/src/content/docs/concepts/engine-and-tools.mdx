@@ -38,7 +38,22 @@ Ask the same thing another way and the model may call it twice, or not at all. T
 
 ### Example: deterministic
 
-The same `weather` tool, served with no engine and no model. A program calls it with exact arguments.
+The same `weather` tool, with no engine and no model. There are two ways to call it, and the first needs nothing but the framework.
+
+**1. From your own code, in the same process.** `createToolContext` builds the context a tool needs outside an engine (tests, scripts, cron jobs):
+
+```ts
+import { createToolContext } from '@backendkit-labs/agent-core';
+import { weather } from './tool';
+
+const out = await weather.execute({ city: 'London' }, createToolContext());
+// "Weather in London: sunny, 22 C". Always this call, with these arguments.
+// A wrong argument ({ city: 42 }) throws ToolArgumentError before `execute` runs.
+```
+
+This is a plain function call: the schema is checked, and **nothing else**. There is no policy, no approval and no audit, because those belong to the engine and to the tool server. Use it for tools you trust the caller of, such as a read-only lookup.
+
+**2. From another process or service, over MCP.** Serve the tool, and any MCP client can call it:
 
 ```ts
 // weather-server.ts
@@ -49,7 +64,7 @@ await runToolServer({ name: 'weather', tools: [weather] }, { bin: 'weather-mcp' 
 ```
 
 ```ts
-// any MCP client: a script, a job, another service
+// any MCP client: a script, a job, another service. It is the MCP SDK's client: the framework serves tools, it does not ship a client for calling them.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -60,7 +75,7 @@ const out = await client.callTool({ name: 'get_weather', arguments: { city: 'Lon
 // Always this call, with these arguments. The schema validates them before `execute` runs.
 ```
 
-`get_weather` is `readOnly`, so the server needs no gate. A `destructive` tool would not start without an `authorize` function or a `policy`: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
+`get_weather` is `readOnly`, so the server needs no gate. A `destructive` tool would not start without an `authorize` function or a `policy`, and that is where the gates apply to a direct call: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
 
 The rest of this page is the first case: the model-driven loop.
 

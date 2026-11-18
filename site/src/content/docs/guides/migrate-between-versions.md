@@ -19,6 +19,28 @@ The codemod only moves `import` and `export ... from` statements (and the `z.rec
 3. Run `tsc`, then **run your tests**. The compiler catches renamed imports; it does not catch [a change of behavior](#validation-throws-since-agent-core-034).
 :::
 
+## A failing MCP tool now throws (agent-core 0.48)
+
+`MCPClientManager` used to ignore `isError` in the answer of an MCP server. When a server said a call had failed (bad arguments, denied, an error), the tool returned the error text **as a normal result**: the audit log and the learning counted it as a success, and a script could not tell. Now the tool's `execute` throws a `ToolError` with the code `MCP_TOOL_ERROR` and the text of the server.
+
+```ts
+import { MCP_TOOL_ERROR, ToolError } from '@backendkit-labs/agent-core';
+
+// before: a failure came back as a string, like a success
+const out = await tool.execute(args, ctx);
+
+// now: catch it where you call execute directly
+try {
+  const out = await tool.execute(args, ctx);
+} catch (e) {
+  if (e instanceof ToolError && e.code === MCP_TOOL_ERROR) { /* the server said it failed */ }
+  else throw e;
+}
+```
+
+- **Inside an engine** the model still reads the server's text. What changes is the record: the call is a **failed** call with its code in the audit log, and the learning can learn from it. Tools from MCP servers that fail now show up as failures there, where before they looked fine.
+- **Codemod:** none. TypeScript does not flag it; a test that makes the server fail does.
+
 ## `FileRunJournal` is removed (agent-core 0.47)
 
 The first file journal, one file per event, is gone. `NdjsonRunJournal` replaces it: one file per run, tamper-evident, faster to read and write, and it takes over a dead owner's claim at once.

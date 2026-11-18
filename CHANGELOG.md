@@ -1,6 +1,15 @@
 # Changelog
 
-## Sin publicar
+## v0.49.0 (2026-11-18)
+
+Un fallo de una tool de un servidor MCP deja de volver como éxito (cambio de comportamiento de `agent-core`). En 0.x, `^0.47` no cubre 0.48, así que se barrieron los rangos de `agent-core` (`^0.48.0`) y los peers anchos pasan a `<0.49.0`; `agent-flow-sql` también, porque su peer acababa en `<0.48.0`. `codemod`, `agent-protocol`, `mcp-connectors` y `agent-web-ui` no cambian.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.0 | **cambia el comportamiento:** una tool MCP con `isError` lanza `MCP_TOOL_ERROR` |
+| `agent-coding` 0.32.7, `agent-enterprise` 0.11.5, `mcp-server` 0.19.10, `agent-web` 0.6.15, `agent-providers` 0.3.15, `agent-sandbox` 0.1.18, `agent-testkit` 0.1.20, `agent-otel` 0.1.21, `agent-flow-queue` 0.1.5, `agent-flow-sql` 0.1.2, `document-extract` 0.1.11, `aval-tools` 0.1.25, `create-bk-agent` 0.24.5 | patch | solo el rango de `agent-core` (y los templates) |
+
+Guía: [Migrate between versions](https://backendkit-agent-framework.vercel.app/guides/migrate-between-versions/).
 
 - **`agent-core`, un fallo de una tool MCP ya no vuelve como éxito (con cambio de comportamiento):** `MCPClientManager` no miraba `isError` en la respuesta de un servidor MCP. Cuando el servidor decía que la llamada había fallado (argumentos inválidos, denegada, error), el `execute` de la tool devolvía el texto del error **como un resultado normal**: la auditoría y el aprendizaje la contaban como éxito, y un script no podía distinguirla. Ahora, con `isError: true`, el `execute` lanza un `ToolError` con código `MCP_TOOL_ERROR` (constante exportada) y el texto del servidor. Dentro de un engine, la llamada pasa a ser un fallo con su código y el modelo sigue leyendo el texto del servidor. **Cambia el comportamiento** de quien tenga tools de servidores MCP que fallan: ahora cuentan como fallos en la auditoría y el aprendizaje, y un `execute` llamado directamente lanza. Descubierto al escribir el ejemplo determinista de la web: un script puede llamar a una tool remota con `MCPClientManager.getTools()` y `createToolContext`.
 

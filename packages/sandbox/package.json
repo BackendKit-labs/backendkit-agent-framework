@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-sandbox",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Confinement and permissions for what agents run: sandbox modes, presets, a single policy point, swappable backends (host, docker) and environment hygiene, for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
     "test": "jest"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.32.0 <0.48.0"
+    "@backendkit-labs/agent-core": ">=0.32.0 <0.49.0"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

@@ -4,6 +4,11 @@
   "description": "Generic multi-agent engine — model-agnostic, transport-agnostic",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "testing": ["dist/testing/index.d.ts"]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,6 +25,10 @@
     "./flow": {
       "types": "./dist/flow/index.d.ts",
       "default": "./dist/flow/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     },
     "./triggers": {
       "types": "./dist/triggers/index.d.ts",

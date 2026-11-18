@@ -43,6 +43,18 @@ Orchestration routes a task to the right one, or you select an agent yourself. Y
 
 `read_file`, `write_file`, `edit_file` (a targeted patch), `list_directory`, `run_command` and `search_files`, plus tools for the agent's own notes: `save_context`, `save_learning`, `save_audit`, `get_latest_audit`, `list_audits`, `save_user_preference` and `update_session`.
 
+## Your own tools
+
+`createCodingEngine({ extraTools: [myTool] })` adds tools of yours after the coding tools. A tool with the name of an existing one does **not** replace it. To replace or wrap a built-in (to add a path check, say), use the registry of the engine:
+
+```ts
+const engine = createCodingEngine({ /* ... */ });
+engine.getTools().unregister('write_file');
+engine.getTools().register(guardedWriteFile);   // the next run uses it
+```
+
+This changes what a tool does, not who may call it: that is still the policy and the approval.
+
 ## Keep it safe
 
 An agent that edits files and runs commands is the case governance exists for:

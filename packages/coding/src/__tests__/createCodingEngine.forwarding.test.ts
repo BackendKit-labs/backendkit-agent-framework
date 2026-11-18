@@ -31,6 +31,16 @@ describe('createCodingEngine option forwarding', () => {
         expect(call.abortOnBudget).toBe(true);
     });
 
+    it('extraTools are added after the coding tools, which stay; without them the tools are the coding tools', () => {
+        const extra = { name: 'deploy_preview', description: 'x', parameters: { type: 'object' }, readOnly: true, execute: async () => 'ok' };
+        createCodingEngine({ providers: { ollama: {} } as never, defaultProvider: 'ollama', disablePersistence: true });
+        const base = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0].tools as Array<{ name: string }>;
+        createCodingEngine({ providers: { ollama: {} } as never, defaultProvider: 'ollama', disablePersistence: true, extraTools: [extra as never] });
+        const withExtra = (core.createBaseEngine as jest.Mock).mock.calls.at(-1)![0].tools as Array<{ name: string }>;
+        expect(withExtra.map(t => t.name)).toEqual([...base.map(t => t.name), 'deploy_preview']);
+        expect(base.map(t => t.name)).not.toContain('deploy_preview');
+    });
+
     it('forwards the Anthropic cache and thinking options to the provider (ADR-0004)', () => {
         createCodingEngine({
             providers: { anthropic: { apiKey: 'k', maxTokens: 4000, cache: 'auto', cacheTtl: '1h', thinking: { budgetTokens: 2000 } } } as never,

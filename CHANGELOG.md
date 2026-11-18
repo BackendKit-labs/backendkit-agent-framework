@@ -2,6 +2,7 @@
 
 ## Sin publicar
 
+- **`agent-core`, `engine.getTools()`; `agent-coding`, `extraTools`:** `getTools()` devuelve el registro de tools del motor, para inspeccionar, envolver o sustituir una definición sin bifurcar el framework (`unregister(name)` y `register(definición)`; la siguiente corrida usa la nueva). `createCodingEngine({ extraTools })` añade tools propias a las del agente de código, detrás de ellas; una con el nombre de una existente **no** la sustituye (para eso, `getTools()`). Venían del PR #19, reaplicado sobre `master`, con pruebas. Para decidir qué puede ejecutarse, la política y la aprobación siguen siendo el camino: `getTools()` cambia la definición, no el gobierno.
 - **`agent-core`, un id por corrida (SPEC-0039 F1):** `engine.run(input, { runId? })` da a cada corrida un `runId` (el que pases, por ejemplo el de un flujo, o un UUID). Está en `RunResult.runId`, en cada `AuditEvent.runId` (opcional; entra en la cadena de hashes) y como etiqueta `run_id` en los spans, y el evento `ready` lo lleva. De un evento de auditoría se llega a su corrida y a su traza, y al revés. Un delegado comparte el id del turno. Aditivo: todo es opcional. **`agent-testkit`:** `evalSuite` pasa a cada corrida un `runId` determinista (`suite/caso/repetición`), para que el mismo informe siga saliendo igual y se puedan encontrar los eventos de auditoría de una corrida de la suite.
 
 ## v0.48.1 (2026-11-18)

@@ -1,0 +1,79 @@
+---
+title: Choose a journal
+description: Where a flow keeps its runs - memory, files, Redis or SQL - and the questions that pick one.
+---
+import JournalChoice from '../../../components/JournalChoice.astro';
+
+**Goal:** pick where a flow keeps its runs. The journal is the only thing that changes; the flow and `runFlow` stay the same.
+
+A journal records every step **before and after** it runs, and holds one owner per run (the *claim*). That is what lets a restarted process, or another one, resume a run without repeating the steps already done. Every journal passes the same test battery (`@backendkit-labs/agent-core/testing`), so changing one is a one-line change.
+
+<JournalChoice />
+
+## Side by side
+
+| Journal | Package | Keeps runs | Several processes | Several machines | Take-over of a dead owner |
+|---|---|---|---|---|---|
+| `MemoryRunJournal` | core | until the process ends | no | no | n/a |
+| `NdjsonRunJournal` | core | on disk, a file per run | yes, same host | no | at once (pid check) |
+| `FileRunJournal` | core | on disk, a file per event | yes, same host | no | by TTL |
+| `RedisRunJournal` | `agent-flow-queue` | in Redis | yes | yes | by TTL |
+| `SqliteRunJournal` | `agent-flow-sql` | in one SQLite file | yes, same host | no | by TTL |
+| `PostgresRunJournal` | `agent-flow-sql` | in your Postgres | yes | yes | by TTL |
+
+`FileRunJournal` was the first file journal; `NdjsonRunJournal` is faster, checks integrity and replaces it for new work.
+
+## When to use which
+
+- **Memory:** tests and scripts where a lost run costs nothing.
+- **Ndjson:** the default for one host. No service, no driver. Each line is chained to the one before, so a changed or removed line is detected; the claim of a process that died is freed immediately, with no TTL to wait for.
+- **SQLite:** also one host and no service, but the runs live in a database you can query and back up like any other. Needs Node 22.13 or newer.
+- **Postgres:** the runs sit next to your own data, in a database you already operate, and any machine can resume them. Needs no new infrastructure if you already have Postgres.
+- **Redis:** you already run BullMQ workers for the steps ([flows across processes](../flows-across-processes/)); the journal can live in the same Redis.
+
+## Using the SQL one
+
+```bash
+npm install @backendkit-labs/agent-flow-sql @backendkit-labs/agent-core
+```
+
+```ts
+import { DatabaseSync } from 'node:sqlite';
+import { runFlow, loadFlow } from '@backendkit-labs/agent-core';
+import { SqliteRunJournal } from '@backendkit-labs/agent-flow-sql';
+
+const journal = new SqliteRunJournal(new DatabaseSync('./flows.db'));
+await journal.migrate();   // creates the tables if missing; safe on every start
+
+await runFlow(await loadFlow('./flows/invoices.yaml'), { journal, runId: 'invoices-2026-11', executor });
+```
+
+For Postgres, give it a `pg` pool:
+
+```ts
+import { Pool } from 'pg';
+import { PostgresRunJournal } from '@backendkit-labs/agent-flow-sql';
+
+const journal = new PostgresRunJournal(new Pool({ connectionString }), { schema: 'flows' });
+await journal.migrate();
+```
+
+The package has no driver dependency: you pass the handle. `journal.ddl()` returns the statements if you apply migrations with your own tool.
+
+## Things to know before you rely on it
+
+- **One writer per run.** If another journal object wrote to a run after yours, your next write fails with `JournalConflict` and the flow stops: the run is no longer yours. A write that was acknowledged is never lost.
+- **The claim expires by the clock of the process that takes it.** Keep the TTL well above the clock difference between your processes. A running flow renews its claim every third of the TTL.
+- **Retention is yours.** SQL, Redis and file journals keep every run until you delete it.
+- **The payload is not stored,** only a cut and masked preview. Pass it again when you resume.
+- **Tested with** Postgres 15 to 18, behind pgbouncer 1.22 in transaction mode, and over SSL with `verify-full`. Postgres 14 and older, and serverless drivers such as Neon's, are untested.
+
+## Writing your own
+
+The contract is `RunJournal` (`begin`, `step`, `update`, `claim`, `get`, `list`). Run the shared battery against it to know it behaves like the others:
+
+```ts
+import { journalConformance } from '@backendkit-labs/agent-core/testing';
+
+journalConformance('MyJournal', { make: async () => new MyJournal(), exclusiveWriter: true });
+```

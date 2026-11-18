@@ -38,7 +38,7 @@ await runFlow(await loadFlow('./flows/invoices.yaml'), { journal, runId: 'invoic
 
 ## Notes
 
-- **`node:sqlite` is still marked as under development in Node.** The package only needs the small `prepare` / `exec` interface, so a `better-sqlite3` handle works the same way.
+- **`node:sqlite` is still marked as under development in Node.** The package only needs the small `prepare` / `exec` interface, so a `better-sqlite3` handle works the same way: the journal passes its tests over both, with `better-sqlite3` 12.11 and 13.2.
 - **Transactions of one process are serialized.** A synchronous SQLite driver blocks the thread while it waits for another connection's lock, and a transaction suspended at an `await` would never release it; so every transaction of the process goes through one queue. Other processes wait in SQLite's own lock (`busyTimeoutMs`, default 5000) and are not affected.
 - **WAL is on by default** (`wal: false` to turn it off), so readers do not wait for the writer.
 - **Retention is yours.** The journal keeps every run; delete finished ones with your own job (`DELETE` from the three tables by `run_id`).

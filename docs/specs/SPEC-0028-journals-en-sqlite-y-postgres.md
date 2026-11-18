@@ -1,7 +1,7 @@
 # SPEC-0028: `RunJournal` en SQLite y Postgres
 
 **Fecha:** 2026-11-17
-**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. F2 y F3 sin implementar.
+**Estado:** Borrador. Decisiones D1-D6 con propuesta. **F0 hecha (2026-11-17)**: batería común en core (`agent-core/testing`), ver §8. **F1 hecha (2026-11-17)**: `SqliteRunJournal`, ver §9. **F2 hecha (2026-11-18)**: `PostgresRunJournal`, ver §10. F3 sin implementar.
 **Origen:** [SPEC-0025](SPEC-0025-mejoras-tras-comparar-con-otros-frameworks.md). LangGraph.js publica checkpointers para Postgres, SQLite, Mongo y Redis; nosotros tenemos journals en memoria, archivo, ndjson y Redis.
 **Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (contrato `RunJournal`), [SPEC-0024](SPEC-0024-journal-de-corridas-ndjson.md).
 **Tipo de cambio:** aditivo, en un paquete nuevo. Core no cambia.
@@ -51,7 +51,7 @@ await runFlow(def, { journal, runId, executor });
 
 - **F0. Verificar y extraer la batería común. HECHA, ver §8.** Comprobar la lista de pruebas de `journal.test.ts` y `ndjson-journal.test.ts`; crear `journalConformance(factory)` en `agent-testkit` o en core y hacer que los tres journals existentes la pasen. Esto no cambia comportamiento y es la base de todo lo demás.
 - **F1. `SqliteRunJournal`. HECHA, ver §9.** Con un adaptador estructural que sirve a `node:sqlite` y a `better-sqlite3`. Prueba: pasa la batería; dos instancias sobre el mismo archivo se disputan un `claim` y solo una gana.
-- **F2. `PostgresRunJournal`.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
+- **F2. `PostgresRunJournal`. HECHA, ver §10.** Prueba (con `TEST_POSTGRES_URL`): pasa la batería; el vallado por `seq` rechaza al dueño caducado; `list` filtra por estado, flow y tenant.
 - **F3. Guía** en la web ("elegir un journal": memoria, archivo, ndjson, Redis, SQL, con el criterio de cada uno).
 
 ## 6. Criterios de aceptación
@@ -108,3 +108,21 @@ await runFlow(def, { journal, runId, executor });
 5. Las pruebas importan `@backendkit-labs/agent-core/testing`, que aún no está en un `agent-core` publicado: dentro del monorepo funciona; la batería saldrá con el próximo release.
 
 **Lo que F2 reutiliza sin cambios:** `SqlRunJournal`, el DDL y la batería. Solo hacen falta un `SqlClient` para `pg` (conversión `?` → `$n`, transacción con una conexión dedicada) y sus pruebas, que corren con `TEST_POSTGRES_URL`.
+
+## 10. Resultado de F2 (2026-11-18)
+
+**Qué se hizo.** `PostgresRunJournal` y `pgClient(pool)` en `agent-flow-sql`, sobre el `SqlRunJournal` de F1 **sin cambiar su lógica**: solo hacen falta el cliente y su DDL (`CREATE SCHEMA` cuando hay esquema).
+
+- **`pgClient`** recibe un `pg.Pool` (o cualquier cosa con `query` y `connect`; el paquete no depende de `pg`, que es devDependency para las pruebas) y convierte los marcadores `?` en `$1, $2…` sin tocar un `?` dentro de un literal. Cada transacción toma **su propia conexión** del pool, hace `BEGIN`, `COMMIT` o `ROLLBACK`, y la libera; una conexión que no puede hacer `ROLLBACK` se destruye en lugar de devolverse. **No hay cola por proceso**: `pg` es asíncrono y no tiene el problema de F1.
+- **Opción `schema`** en `SqlRunJournal` (los nombres de tabla pasan a `esquema.prefijo_runs`; los de índice no se califican, porque un índice vive en el esquema de su tabla). El upsert del claim usa un alias (`INSERT … AS c`), que aceptan Postgres y SQLite.
+
+**Verificación.** 61 pruebas pasan sin base de datos y **33 más contra un Postgres 16.14 real** (contenedor temporal, ya borrado), con `TEST_POSTGRES_URL`: la batería de contrato completa (cada objeto con su propio pool, como procesos distintos), treinta pools que se disputan un claim (gana uno), sesenta escrituras desde seis objetos a la vez sobre una corrida (cada una se confirma o se rechaza como `JournalConflict`, y toda confirmada está guardada; la valla sí rechazó algunas), reanudación de un flow por otro pool, `FlowClaimError` y el orden y los filtros de `list`. Se repitió seis veces y no dejó esquemas. Sin la variable esas 33 se omiten; el cliente se prueba con un pool simulado y el paquete da 100 % de líneas sin base de datos.
+
+**Decisiones y hallazgos.**
+1. **El reloj del claim sigue siendo el del proceso** (la duda de §9, punto 2). Usar `now()` de la base exigiría una expresión distinta por dialecto, y el claim se renueva cada tercio del TTL, así que un desfase razonable no lo rompe. Queda documentado en la clase y en el README: el TTL debe ser muy superior al desfase entre procesos.
+2. **`BIGINT` vuelve como cadena en `pg`.** Solo se lee `MAX(seq)`, y se convierte con `Number`. Ninguna otra columna numérica se lee.
+3. **La valla funciona bajo `READ COMMITTED`.** Dos escritores que leen el mismo `MAX(seq)` insertan el mismo `seq`: el segundo espera a que el primero confirme, `ON CONFLICT DO NOTHING` no inserta y `rowCount` da 0, que es `JournalConflict`. No hizo falta `SERIALIZABLE` ni bloqueos.
+4. **El CI no ejecuta las pruebas contra Postgres** (no tiene servicio, como las de Redis real). Un servicio de Postgres en el job costaría segundos y las haría correr siempre; queda como decisión.
+5. **Sin comprobar:** otras versiones de Postgres (se probó la 16; hay imágenes de la 15 en local), un `pgbouncer` en modo transacción, conexiones con SSL y otros drivers (`postgres.js`, `@neondatabase/serverless`). Un driver distinto necesita solo un `SqlClient` propio.
+
+**F3 pendiente:** la guía "elegir un journal" en la web.

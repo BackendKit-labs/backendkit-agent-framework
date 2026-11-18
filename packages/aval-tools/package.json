@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/aval-tools",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Payment tools for @backendkit-labs/agent-core agents to spend through an AVAL instance",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.47.0"
+    "@backendkit-labs/agent-core": "^0.48.0"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

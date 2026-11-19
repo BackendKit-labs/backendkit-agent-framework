@@ -155,6 +155,8 @@ a.cols-link:hover h3, .cols > a:hover h3 { color: var(--accent-ink); }
 .home-copy .lede { margin: 0 0 1.4rem; }
 .home-actions { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.3rem; }
 .home-actions a { text-decoration: none !important; }
+.home-author { margin: 1.2rem 0 0; font-size: .88rem; color: var(--ink-3); }
+.home-author a { color: var(--ink-2); }
 .home-note { font-size: .82rem; color: var(--ink-3); margin: .7rem .2rem 0; max-width: none; }
 .home-cols { margin-top: 0; }
 @media (max-width: 56rem) { .home-hero { grid-template-columns: 1fr; gap: 1.8rem; } }

@@ -43,6 +43,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0037](SPEC-0037-codemods-y-guias-de-migracion.md) | Codemods y guías de migración | En pausa (el paquete se retirará; la guía sigue) |
 | [SPEC-0038](SPEC-0038-evaluar-lo-aprendido.md) | Evaluar lo que el agente aprendió (efecto observado y contrafactual de una regla; lo decide una persona) | Borrador (con criterio de entrada) |
 | [SPEC-0039](SPEC-0039-observabilidad-de-operaciones.md) | Observabilidad de operaciones: correlación, coste atribuido, paquete de incidente y replay en seco | En curso: F0 y F1 hechas y publicadas (core 0.47.2); F2 a F5 con criterio de entrada |
+| [SPEC-0041](SPEC-0041-autoridad-del-aprobador.md) | Autoridad del aprobador: que la política exija un rol y el motor lo compruebe con un directorio de la aplicación; cuatro ojos opcional | Borrador |
 
 Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** queda absorbido por 0023 (el journal, el `claim` y la reanudación ya existen en el orquestador y en Hermes).
 

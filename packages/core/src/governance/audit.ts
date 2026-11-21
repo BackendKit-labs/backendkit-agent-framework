@@ -4,6 +4,7 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, wr
 import { dirname } from 'node:path';
 import { canonicalJson } from '../shared/utils/canonical-json';
 import type { AuditEvent, AuditSink } from './types';
+import { appendCheckpoint, signCheckpoint, type AuditCheckpoint, type CheckpointSigner } from './audit-checkpoint';
 
 /** Keeps events in memory, in write order. For tests and for in-process inspection. */
 export class MemoryAuditSink implements AuditSink {
@@ -108,6 +109,15 @@ export function verifyAuditSegment(entries: readonly ChainedAuditEntry[], after:
     return { ok: true, count: entries.length, last: { seq, hash: prev } };
 }
 
+/** Signed checkpoints of a chained log (SPEC-0042 F1). */
+export interface HashChainCheckpointOptions {
+    signer: CheckpointSigner;
+    /** Where the signed checkpoints are appended. */
+    path: string;
+    /** Sign automatically every this many entries. Default: only when you call `checkpoint()`. */
+    every?: number;
+}
+
 /**
  * Append-only audit log where every entry carries the hash of the previous one, so editing, deleting or reordering
  * past entries is detectable with {@link verifyAuditChain}.
@@ -117,12 +127,20 @@ export function verifyAuditSegment(entries: readonly ChainedAuditEntry[], after:
  * - One writer per file: two processes appending to the same file would fork the chain.
  * - Writing is synchronous and fsync'd, and errors are thrown: a record that cannot be written is not lost silently.
  * - Opening a file whose chain is already broken throws: a tampered log is not extended.
+ * - With `checkpoints`, the sink also signs the `head` (Ed25519) every `every` entries and on demand ({@link checkpoint}),
+ *   and appends each signature to its own file. A third party with only the public key can then check the log
+ *   (`verifyAuditBundle`, SPEC-0042). The log's own format does not change.
  */
 export class HashChainAuditSink implements AuditSink {
     private seq: number;
     private prevHash: string;
 
-    constructor(private readonly filePath: string, private readonly options: { secret?: string | Uint8Array } = {}) {
+    constructor(
+        private readonly filePath: string,
+        private readonly options: { secret?: string | Uint8Array; checkpoints?: HashChainCheckpointOptions } = {},
+    ) {
+        const every = options.checkpoints?.every;
+        if (every !== undefined && (!Number.isInteger(every) || every < 1)) throw new Error('checkpoints.every must be a positive whole number');
         const check = verifyAuditChain(filePath, options);
         if (!check.ok) {
             throw new Error(`Audit log ${filePath} is not intact at entry ${check.brokenAt}: ${check.reason}. Refusing to append to it.`);
@@ -149,6 +167,20 @@ export class HashChainAuditSink implements AuditSink {
         try { writeSync(fd, `${JSON.stringify(entry)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
         this.seq = seq;
         this.prevHash = hash;
+        const cp = this.options.checkpoints;
+        if (cp?.every !== undefined && seq % cp.every === 0) this.checkpoint();
+    }
+
+    /**
+     * Signs the current head and appends the checkpoint to its file. Returns it, or `undefined` when the sink was built
+     * without `checkpoints` or the log is empty (there is nothing to sign). Errors are thrown, like the writes.
+     */
+    checkpoint(at?: string): AuditCheckpoint | undefined {
+        const cp = this.options.checkpoints;
+        if (!cp || this.seq === 0) return undefined;
+        const signed = signCheckpoint(cp.signer, this.seq, this.prevHash, at);
+        appendCheckpoint(cp.path, signed);
+        return signed;
     }
 }
 

@@ -1,7 +1,7 @@
 # SPEC-0042: evidencia verificable por terceros (puntos de control firmados, anclaje y caducidad de aprobaciones)
 
 **Fecha:** 2026-11-21
-**Estado:** Borrador. Sin fases hechas.
+**Estado:** Borrador. **F0 (auditoría) y F1 hechas (2026-11-21)**, ver §4. F2 a F4 sin hacer; la prueba de caducidad de la F0 se hace con la F3.
 **Origen:** un análisis externo pegado por el autor (2026-11-21) sobre qué puede aprender BackendKit de Steward: proxy de credenciales, autorización ligada al payload y de un solo uso, y evidencia de auditoría verificable sin confiar en el operador. Esta spec compara esas tres ideas con el código y propone lo que corresponde al SDK. Lo que dice el análisis sobre normas (ISO 42001, AI Act) **no se verificó** y no debe usarse como afirmación en la web.
 **Depende de:** `HashChainAuditSink` y `verifyAuditChain` (`governance/audit.ts`), `ApprovalStore` y `runApproved`, SPEC-0041 (autoridad del aprobador).
 **Tipo de cambio:** aditivo. Sin paquete nuevo salvo decisión del autor (§6).
@@ -49,8 +49,8 @@ Cómo la emite Hermes (revisado el 2026-11-21 en `apps/hermes-server/src`), porq
 
 | Fase | Qué | Criterio de hecho |
 |---|---|---|
-| **F0** | Pruebas que fijan lo de hoy: una aprobación guardada se ejecuta pasado cualquier tiempo; con HMAC el verificador necesita el secreto. | Pasan sobre el código actual. |
-| **F1** | Puntos de control firmados con Ed25519 (D1, D2) y `verifyBundle` sin conexión (D3). | Un paquete verifica solo con la clave pública. Editar, quitar o reordenar una línea, o cambiar un punto de control, lo rompe. Una clave rotada sigue verificando lo anterior. |
+| **F0** | **Hecha.** Pruebas que fijan lo de hoy: una aprobación guardada se ejecuta pasado cualquier tiempo; con HMAC el verificador necesita el secreto. | Pasan sobre el código actual. Hecha solo para la auditoría, en `audit-bundle.test.ts` (2 pruebas): un log con MAC reescrito entero por alguien sin el secreto pasa la cadena si no tienes el secreto, y cortar la cola de un log lo deja válido. La prueba de que una aprobación guardada no caduca se hará con la F3, que es la que la cambia. |
+| **F1** | **Hecha.** Puntos de control firmados con Ed25519 (D1, D2) y `verifyBundle` sin conexión (D3). | Un paquete verifica solo con la clave pública. Editar, quitar o reordenar una línea, o cambiar un punto de control, lo rompe. Una clave rotada sigue verificando lo anterior. Hecha: `ed25519Signer`, `HashChainAuditSink` con `checkpoints` (cada N entradas y `checkpoint()` a demanda, en un archivo aparte, sin cambiar el formato del log), `exportAuditBundle` y `verifyAuditBundle` (19 pruebas). El verificador usa las claves **que le pasa quien verifica** (`trustedKeys`); sin ellas usa las del paquete y lo dice (`keySource: 'bundle'`). El resultado informa de `unsignedTail`, de que no hay ancla (`anchored: false`) y de las advertencias. Límites probados: cortar la cola después del último punto de control no se detecta; quien tiene la clave privada puede reescribir y volver a firmar. Módulos: `audit-checkpoint.ts` (hoja, sin importar el log) y `audit-bundle.ts`, para no crear un ciclo. |
 | **F2** | Interfaz `TimestampAnchor` y el ancla simple que publica el `head` (D4, D4b). RFC 3161 queda fuera hasta que haya demanda. | Un paquete con ancla verifica que el `head` coincide con lo publicado. Sin ancla, `verifyBundle` lo dice. |
 | **F3** | `expiresAt` en aprobaciones (D5). | Una aprobación caducada no se ejecuta ni por el aprobador inmediato ni por `runApproved`. Sin `expiresAt`, nada cambia. |
 | **F4** | Interfaz del *credential broker* (D7) y documentación. | Un ejemplo con un broker de prueba. La implementación real queda fuera del SDK. |

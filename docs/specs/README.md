@@ -45,7 +45,7 @@ Especificaciones de cambios que afectan a varios paquetes. Cada spec enlaza los 
 | [SPEC-0039](SPEC-0039-observabilidad-de-operaciones.md) | Observabilidad de operaciones: correlación, coste atribuido, paquete de incidente y replay en seco | En curso: F0 y F1 hechas y publicadas (core 0.47.2); F2 a F5 con criterio de entrada |
 | [SPEC-0040](SPEC-0040-disenador-de-agentes-en-la-web.md) | Diseñador de agentes en la web: de una tarea al diseño y a los pasos para construirlo (clave del visitante, plantillas deterministas) | Borrador |
 | [SPEC-0041](SPEC-0041-autoridad-del-aprobador.md) | Autoridad del aprobador: que la política exija un rol y el motor lo compruebe con un directorio de la aplicación; cuatro ojos opcional | Implementada: F0 a F3 hechas (F0 y F1 publicadas en core 0.48.1; F2 en `master`, sin publicar) |
-| [SPEC-0042](SPEC-0042-evidencia-verificable-por-terceros.md) | Evidencia verificable por terceros: puntos de control firmados (Ed25519), anclaje opcional, caducidad de aprobaciones e interfaz de credential broker | Borrador |
+| [SPEC-0042](SPEC-0042-evidencia-verificable-por-terceros.md) | Evidencia verificable por terceros: puntos de control firmados (Ed25519), anclaje opcional, caducidad de aprobaciones e interfaz de credential broker | Borrador: F0 (auditoría) y F1 hechas, F2 a F4 pendientes |
 
 Orden propuesto para 0020-0023 (2026-11-16, tras contrastarlos con el código): **0022** (cambia lo que hacen F1/F2 de SPEC-0019), **0023** (es lo que Steward vende: departamentos como flujos declarativos), **0021**, y **0020** queda absorbido por 0023 (el journal, el `claim` y la reanudación ya existen en el orquestador y en Hermes).
 

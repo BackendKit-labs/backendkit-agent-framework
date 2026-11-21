@@ -116,6 +116,38 @@ Each tool call, accepted or refused, produces **one audit event**, with the argu
 createBaseEngine({ /* ... */ audit: new HashChainAuditSink('./audit.log') });
 ```
 
+### Evidence a third party can check
+
+The chain alone only protects you from someone who kept an earlier `head`: a person who can rewrite the whole file can recompute every hash, and a MAC needs the verifier to hold the secret. To let someone **else** check the log, sign checkpoints with an Ed25519 key:
+
+```ts
+import { HashChainAuditSink, ed25519Signer, exportAuditBundle, verifyAuditBundle } from '@backendkit-labs/agent-core';
+
+const audit = new HashChainAuditSink('./audit.log', {
+  checkpoints: { signer: ed25519Signer(privateKeyPem, 'k1'), path: './checkpoints.ndjson', every: 100 },
+});
+audit.checkpoint();                       // also on demand: before an export, at the end of the day
+
+exportAuditBundle({ log: './audit.log', checkpoints: './checkpoints.ndjson', publicKeys: { k1: publicKeyPem }, outDir: './bundle' });
+```
+
+The auditor, with **only the public key you gave them separately**, checks it offline:
+
+```ts
+const result = verifyAuditBundle('./bundle', { trustedKeys: { k1: publicKeyPem } });
+// { ok: true, entries, checkpoints, signedUpTo, unsignedTail, keySource: 'verifier', anchored: false, warnings }
+```
+
+It checks the chain, each signature, that every checkpoint names a real entry with that hash, and that they go forward. Changing, dropping or reordering anything the checkpoints cover is detected, including a log rewritten whole with every hash recomputed. Keys can rotate: keep the old public keys to verify old checkpoints.
+
+What it does **not** prove, and the result says so:
+
+- **Entries after the last checkpoint** are not covered by any signature (`unsignedTail`). Cutting them off is not detected.
+- **Whoever holds the private key can rewrite the log and sign it again.** What stops that is an anchor outside their reach, such as a sealed timestamp or a `head` published somewhere they do not control. That is not built yet (`anchored: false`).
+- **The keys in the bundle are not to be trusted.** Without `trustedKeys` the check uses the bundle's own `keys.json` and says `keySource: 'bundle'`: it shows the log is consistent with the key it carries, not who owns it.
+
+So a bundle today is **tamper-evident**, not legal proof. It is the evidence an auditor can evaluate, nothing more.
+
 ## Why outside the model
 
 A model can be talked into things. A policy cannot. If the rule is "payments over 10k need a human", it lives in `decide`, not in the prompt, and it holds whatever the model says or is told.

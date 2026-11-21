@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.49.2 (2026-11-21)
+
+Cambio aditivo de `agent-core`: cuatro ojos opcionales en las aprobaciones. Por defecto no cambia nada, y `^0.48.0` cubre 0.48.2, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.2 | `forbidSelfApproval` (SPEC-0041 F2) |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.2`.
+
+- **`agent-core`, quien pidió no aprueba lo que pidió (SPEC-0041 F2):** nueva opción `forbidSelfApproval` en `createBaseEngine`, apagada por defecto. Con ella, el usuario por quien actúa el agente (`identity.userId`) no puede aprobar su propia solicitud, sea cual sea el tipo de aprobador, ni tampoco una persona de la cadena de delegación. En una aprobación guardada, quién pidió es lo que registró la solicitud (`requestedBy` en `ToolCall.approved`, que pone `runApproved`), no la identidad de quien la ejecuta después: un worker reiniciado y sin identidad propia también la rechaza. Sin `identity.userId` no hay con quién comparar y la regla no hace nada. Se suma a `approverRoles` (0.48.1): quien pidió y tiene el rol sigue sin poder aprobar. `approvalProblem` acepta `forbidSelfApproval` en su segundo argumento (opcional).
+- **Documentación:** la página de gobernanza decía que nadie aprueba su propia solicitud, pero eso solo valía para agentes y servicios: una persona que pidió la acción podía aprobarla. Está corregido. La guía "Govern a payment tool" tiene un paso 6 con roles, directorio y cuatro ojos.
+
 ## v0.49.1 (2026-11-21)
 
 Cambio aditivo de `agent-core`: un `ask` puede exigir un rol y el motor lo comprueba. Sin `approverRoles` nada cambia, y `^0.48.0` cubre 0.48.1, así que no hay barrido de rangos.

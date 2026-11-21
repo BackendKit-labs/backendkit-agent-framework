@@ -1,7 +1,8 @@
 /**
- * What the engine checks about WHO approves, today (SPEC-0041 F0). These tests fix the behavior as it is, including two gaps:
- * the engine does not check that an approver is authorized for the request (a role, a tenant), and a person can approve what
- * they themselves asked for. F1 and F2 of the spec change the two; when they do, the tests marked GAP change on purpose.
+ * What the engine checks about WHO approves when the policy does NOT ask for a role (SPEC-0041 F0). These tests fix the
+ * behavior as it is, including the gaps that remain by design or until a later phase: the free-text `approver` is a hint and
+ * nothing enforces it (F1 added `approverRoles`, which is checked: see AgentEngine.approver-roles.test.ts), and a person can
+ * approve what they themselves asked for (F2 adds `forbidSelfApproval`; the tests marked GAP change on purpose then).
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

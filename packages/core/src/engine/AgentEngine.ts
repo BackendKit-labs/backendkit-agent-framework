@@ -11,12 +11,14 @@ import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
 import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition, type ToolSearchOptions } from './toolSearch';
 import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
-import { approvalProblem, approverFromCallback, type CallbackApprover } from '../governance/approval';
+import { approvalProblem, approverAuthority, approverFromCallback, type CallbackApprover } from '../governance/approval';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
 import type {
     ApprovalRequest,
     ApprovalStore,
     Approver,
+    ApproverAuthority,
+    ApproverDirectory,
     ApproverRef,
     AuditDecision,
     AuditEvent,
@@ -33,7 +35,7 @@ import { hashArgs } from '../shared/utils/canonical-json';
 
 /** What the policy path decided about one call, before it runs (SPEC-0014 F2). */
 type GovernedVerdict =
-    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef } }
+    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority } }
     | { run: false; decision: 'deny' | 'ask' | 'sandbox_denied'; reason: string; message: string };
 import type {
     AgentProfile,
@@ -160,6 +162,8 @@ export interface AgentEngineOptions extends EngineOptions {
      * Without it, `onToolApproval` is adapted as the approver.
      */
     approver?: Approver;
+    /** Who an approver is and what roles it holds. Needed when an `ask` carries `approverRoles` (SPEC-0041). */
+    approverDirectory?: ApproverDirectory;
     /**
      * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
      * the call did not run (resubmission, SPEC-0014 §6).
@@ -1663,7 +1667,7 @@ export class AgentEngine {
         let decision: AuditDecision = 'allow';
         let reason: string | undefined;
         let ran = false;
-        let approval: { id: string; by: ApproverRef } | undefined;
+        let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority } | undefined;
         const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
@@ -1850,7 +1854,13 @@ export class AgentEngine {
                 const reason = `invalid approval: ${problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
             }
-            return { run: true, approval: { id: approved.approvalId, by: approved.by } };
+            // Who may approve is checked now, against the policy of now and the directory of now (SPEC-0041).
+            const authority = await approverAuthority(approved.by, { principal, ...(ask.approverRoles ? { approverRoles: ask.approverRoles } : {}) }, this.opts.approverDirectory);
+            if ('problem' in authority) {
+                const reason = `invalid approval: ${authority.problem}`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
+            }
+            return { run: true, approval: { id: approved.approvalId, by: approved.by, ...(authority.authority ? { authority: authority.authority } : {}) } };
         }
         return this.serialize(() => this.resolveAsk(principal, call, ask, sandboxAsk, sandboxDecisions));
     }
@@ -1864,6 +1874,7 @@ export class AgentEngine {
             id: randomUUID(), principal, subject: { kind: 'tool_call', call }, reason: d.reason,
             ...(d.approver ? { approver: d.approver } : {}),
             ...(d.accepts ? { accepts: d.accepts } : {}),
+            ...(d.approverRoles ? { approverRoles: d.approverRoles } : {}),
             createdAt: new Date().toISOString(),
         };
 
@@ -1890,7 +1901,12 @@ export class AgentEngine {
                 const reason = `invalid approval: ${problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
             }
-            return { run: true, approval: { id: request.id, by: answer.by } };
+            const authority = await approverAuthority(answer.by, request, this.opts.approverDirectory);
+            if ('problem' in authority) {
+                const reason = `invalid approval: ${authority.problem}`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
+            }
+            return { run: true, approval: { id: request.id, by: answer.by, ...(authority.authority ? { authority: authority.authority } : {}) } };
         }
 
         if (this.opts.approvals) {
@@ -2026,7 +2042,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
-        approval?: { id: string; by: ApproverRef }; meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;

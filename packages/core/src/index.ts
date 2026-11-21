@@ -89,7 +89,7 @@ export type { MCPServerConfig } from './mcp/types';
 export type {
     Principal, Identity,
     ToolCall, PolicyDecision, ToolPolicy,
-    ApproverKind, ApproverRef, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
+    ApproverKind, ApproverRef, ApproverProfile, ApproverDirectory, ApproverAuthority, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
     ApprovalStatus, StoredApproval, ApprovalStore,
     AuditDecision, AuditOutcome, AuditSandboxDecision, AuditEvent, AuditSink,
 } from './governance/types';
@@ -99,7 +99,7 @@ export {
 } from './governance/audit';
 export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from './governance/audit';
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
-export { approverFromCallback, approvalProblem } from './governance/approval';
+export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';
 export type { CallbackApprover } from './governance/approval';
 export { FileApprovalStore, MemoryApprovalStore } from './governance/approval-store';
 export { agentApprover, consoleApprover, describeApproval } from './governance/approvers';

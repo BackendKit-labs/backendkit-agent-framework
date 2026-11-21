@@ -1,7 +1,37 @@
 import type { ToolApprovalDecision } from '../types';
 import type {
-    ApprovalOutcome, ApprovalRequest, Approver, ApproverKind, ApproverRef, Principal,
+    ApprovalOutcome, ApprovalRequest, Approver, ApproverAuthority, ApproverDirectory, ApproverKind, ApproverRef, Principal,
 } from './types';
+
+/**
+ * Does the approver hold what the `ask` requires (SPEC-0041)? Nothing is required when the `ask` has no `approverRoles`.
+ * Otherwise the roles come from the application's `directory`, never from what the caller says in `by`, and it fails
+ * closed: no directory, an id it does not know, a directory that throws, another tenant, or none of the roles is a
+ * problem. When it passes, `authority` says what was recognized, for the audit event.
+ */
+export async function approverAuthority(
+    by: ApproverRef,
+    request: { principal: Principal; approverRoles?: string[] },
+    directory?: ApproverDirectory,
+): Promise<{ problem: string } | { authority?: ApproverAuthority }> {
+    const required = request.approverRoles;
+    if (!required || required.length === 0) return {};
+    if (!directory) return { problem: `this action needs approval by someone with the role ${required.join(' or ')} and no approver directory is configured` };
+    let profile;
+    try {
+        profile = await directory.describe(by);
+    } catch (err) {
+        return { problem: `the approver directory failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    if (!profile) return { problem: `approver "${by.id}" is not known to the approver directory` };
+    const tenant = request.principal.tenantId;
+    if (tenant !== undefined && profile.tenantId !== undefined && profile.tenantId !== tenant) {
+        return { problem: `approver "${by.id}" belongs to another tenant than the request` };
+    }
+    const matched = required.find(r => profile.roles.includes(r));
+    if (!matched) return { problem: `approver "${by.id}" does not have the role ${required.join(' or ')}` };
+    return { authority: { roles: [...profile.roles], ...(profile.tenantId !== undefined ? { tenantId: profile.tenantId } : {}), matched } };
+}
 
 /**
  * Checks an approver's answer against the rules of SPEC-0014 §6.2 before the engine accepts it. Returns the reason

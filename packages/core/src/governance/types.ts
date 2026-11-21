@@ -68,6 +68,12 @@ export type PolicyDecision =
         approver?: string;
         /** Which kinds of approver are accepted. Default: any. Destructive tools require ['human']. */
         accepts?: ApproverKind[];
+        /**
+         * Roles of whoever may approve: the approver needs at least one. Unlike `approver` (free text, a hint for whoever
+         * routes the request), this is CHECKED by the engine against the `approverDirectory` (SPEC-0041). With no directory
+         * the call is denied: an approval that cannot be checked is not accepted.
+         */
+        approverRoles?: string[];
     };
 
 export interface ToolPolicy {
@@ -88,6 +94,8 @@ export interface ApprovalRequest {
     reason: string;
     approver?: string;
     accepts?: ApproverKind[];
+    /** Roles of whoever may approve, from the `ask` (at least one is needed). Checked against the `approverDirectory`. */
+    approverRoles?: string[];
     /** ISO time. */
     createdAt: string;
 }
@@ -98,6 +106,29 @@ export interface ApprovalOutcome {
     reason?: string;
     /** ISO time. */
     at: string;
+}
+
+/** What the application knows about an approver: the one source of an approver's roles (SPEC-0041). */
+export interface ApproverProfile {
+    roles: string[];
+    /** The tenant the approver belongs to. When both it and the request's tenant are set, they must be the same. */
+    tenantId?: string;
+}
+
+/**
+ * Tells the engine who an approver is. It is the application's: the framework does not authenticate anyone, and it
+ * does not take roles from what the caller says in `by`. Return `undefined` for an id you do not know.
+ */
+export interface ApproverDirectory {
+    describe(by: ApproverRef): Promise<ApproverProfile | undefined> | ApproverProfile | undefined;
+}
+
+/** What the engine recognized about an approver when it accepted the approval; it goes to the audit event. */
+export interface ApproverAuthority {
+    roles: string[];
+    tenantId?: string;
+    /** The role of the `ask` that this approver satisfied. */
+    matched: string;
 }
 
 export interface Approver {
@@ -169,7 +200,7 @@ export interface AuditEvent {
     errorCode?: string;
     durationMs: number;
     /** Who approved the call, when it needed approval. */
-    approval?: { id: string; by: ApproverRef };
+    approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority };
     sandbox?: AuditSandboxDecision[];
     /** The tool's declared `meta`. */
     meta?: Record<string, unknown>;

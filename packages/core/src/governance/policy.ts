@@ -56,11 +56,23 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
             if (a.accepts) { accepts = constrained ? intersectAccepts(accepts, a.accepts) : a.accepts; constrained = true; }
         }
         const approver = asks.find(a => a.approver)?.approver;
+        // Roles: whoever approves must hold what EVERY ask asks for, so the strictest holds (the intersection). If no role
+        // is left, nobody can approve and the call is denied (fail-closed).
+        let roles: string[] | undefined;
+        for (const a of asks) {
+            const asked = a.approverRoles;
+            if (asked && asked.length > 0) roles = roles ? roles.filter(r => asked.includes(r)) : [...asked];
+        }
+        const reason = asks.map(a => a.reason).join('; ');
+        if (roles && roles.length === 0) {
+            return { effect: 'deny', reason: `${reason}; the policies ask for approver roles that no one can hold at once` };
+        }
         return {
             effect: 'ask',
-            reason: asks.map(a => a.reason).join('; '),
+            reason,
             ...(approver ? { approver } : {}),
             ...(constrained ? { accepts } : {}),
+            ...(roles ? { approverRoles: roles } : {}),
         };
     }
 

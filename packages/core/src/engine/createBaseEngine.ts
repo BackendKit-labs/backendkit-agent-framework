@@ -26,7 +26,7 @@ import { instructionSourceHooks, listAgentSources, listSkillSources } from '../s
 import type { AgentSource, SkillSource, InstructionSource } from '../sources';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
-import type { ApprovalStore, Approver, AuditSink, Identity, ToolPolicy } from '../governance/types';
+import type { ApprovalStore, Approver, ApproverDirectory, AuditSink, Identity, ToolPolicy } from '../governance/types';
 import { defaultToolPolicy } from '../governance/policy';
 import type { Learning } from '../learning/types';
 import { LEARNED_RULES_SERVICE } from '../tools/services';
@@ -319,6 +319,13 @@ export interface BaseEngineOptions {
     /** Answers an `ask` now (a person, a supervising agent, a service). Its answers are validated and audited. */
     approver?: Approver;
 
+    /**
+     * Who an approver is and what roles it holds, from your own user system. Required for an `ask` with `approverRoles`:
+     * the engine takes roles from here and never from what the caller says, and without it such an approval is refused.
+     * The framework does not authenticate: `by.id` must already be verified by your application (SPEC-0041).
+     */
+    approverDirectory?: ApproverDirectory;
+
     /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
     approvals?: ApprovalStore;
 
@@ -507,6 +514,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             }
             : opts.policy ? { policy: opts.policy } : {}),
         ...(opts.approver ? { approver: opts.approver } : {}),
+        ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
         ...(opts.recordArgs ? { recordArgs: true } : {}),

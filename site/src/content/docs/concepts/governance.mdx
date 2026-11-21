@@ -45,6 +45,38 @@ An **approver** answers right away: a person at a terminal (`consoleApprover()`)
 - nobody approves their own request, nor one from their delegation chain;
 - an agent only approves what it could do itself.
 
+### Who may approve: roles
+
+The kind is not enough: "payments over 10k" should be approved by someone in finance, not by any person. Put the role in the `ask`:
+
+```ts
+{ effect: 'ask', reason: 'payment above 10k', accepts: ['human'], approverRoles: ['finance'] }
+```
+
+The approver needs **at least one** of the roles. The engine does not take them from what the caller says: it asks **your** user system, through an `approverDirectory`.
+
+```ts
+createBaseEngine({
+  /* ... */
+  approverDirectory: {
+    async describe(by) {                                   // by = { kind: 'human', id: 'ana' }
+      const user = await users.find(by.id);
+      return user && { roles: user.roles, tenantId: user.tenantId };   // undefined if you do not know the id
+    },
+  },
+});
+```
+
+It fails closed. The approval is refused, and the call does not run, when there is no directory, when it does not know the id, when it throws, when the approver belongs to another tenant than the request, or when none of the roles matches. The audit event of an accepted call records which role covered it (`approval.authority`). This applies to the approver that answers right away and to a stored approval when `runApproved` runs it, with the policy and the directory of that moment.
+
+If several policies ask for roles, the approver needs what all of them ask for (the intersection). If nobody can hold them at once, the call is denied.
+
+`approver: 'finance'` (text) still exists, but it is only a hint for whoever routes the request. The engine checks `approverRoles`.
+
+**The framework does not authenticate anyone.** `by.id` must already be verified by your application (a session, a token, single sign-on) before you call `resolve` or return the approver's answer. Never take it from a request body. The directory says what a verified person may do; it cannot tell whether the id is who it claims to be.
+
+Still open (SPEC-0041, next phases): a person can approve a request they asked for themselves, unless your directory forbids it.
+
 ## When nobody can answer now: durable approvals
 
 Give the engine an **approval store**. The `ask` is saved as pending, the model is told the call did not run, and whoever decides later (a UI, a CLI, another process) resolves it, and the call runs once:

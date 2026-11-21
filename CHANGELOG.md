@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.49.4 (2026-11-21)
+
+Cambio aditivo de `agent-core`: anclas del `head` de la auditoría fuera del alcance del operador. Un tipo publicado hace poco se ensancha (`anchored`, de `false` a `boolean`). `^0.48.0` cubre 0.48.4, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.4 | anclas de la auditoría y verificación con anclas propias (SPEC-0042 F2) |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.4`.
+
+- **`agent-core`, anclas de la auditoría (SPEC-0042 F2):** una firma sola no impide que quien tiene la clave privada reescriba el log, los puntos de control y las claves. Un ancla guarda `(seq, head)` fuera de su alcance, y desde ahí cambiar cualquier entrada hasta ese punto se detecta aunque todo lo demás esté reescrito. Nuevos: la interfaz `TimestampAnchor` (`anchor` y `verify`), `anchorAuditLog({ log, anchors, anchor })` (idempotente; rechaza un log vacío o roto y un ancla que responda por otro punto), `fileAnchor(ruta)` (añade `{ seq, head, at }` a un archivo testigo) y `verifyAuditBundleAnchored(dir, { trustedKeys, anchors })`, que comprueba cada registro con el ancla **que pasa quien verifica** (por ejemplo su copia del archivo testigo) y nunca con la ruta que dice el registro. `exportAuditBundle` acepta `anchors` y copia `anchors.ndjson`. Un registro que no verifica hace fallar el paquete; los de un tipo que no se pasó se listan sin verificar. También se detecta cortar la cola que ningún punto de control firmó, si un ancla la cubre. **Lo que cuenta es dónde vive el ancla:** un archivo que el operador puede editar no ancla nada. RFC 3161, un commit en otro repositorio o un servicio propio serían otras implementaciones de la misma interfaz y no están construidas. Nuevos exports: `anchorAuditLog`, `fileAnchor`, `readAnchors`, `verifyAuditBundleAnchored` y los tipos `AnchorRecord`, `AnchorVerification`, `TimestampAnchor`.
+- **Ensanche de un tipo:** `BundleVerification` (publicado en 0.48.3) tenía `anchored: false`; ahora es `anchored: boolean` y tiene `anchoredUpTo` y `anchorRecords`. `verifyAuditBundle` sigue devolviendo `anchored: false` (la comprobación sin conexión no verifica anclas); solo `verifyAuditBundleAnchored` puede devolver `true`. Quien solo lee el campo no se rompe.
+
 ## v0.49.3 (2026-11-21)
 
 Cambio aditivo de `agent-core`: evidencia de auditoría que un tercero puede comprobar sin el secreto del operador. El formato del log no cambia, y `^0.48.0` cubre 0.48.3, así que no hay barrido de rangos.

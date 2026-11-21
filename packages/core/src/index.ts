@@ -101,7 +101,9 @@ export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from '
 export type { HashChainCheckpointOptions } from './governance/audit';
 export { ed25519Signer, signCheckpoint, appendCheckpoint, readCheckpoints, checkpointMessage } from './governance/audit-checkpoint';
 export type { AuditCheckpoint, CheckpointSigner } from './governance/audit-checkpoint';
-export { exportAuditBundle, verifyAuditBundle, BUNDLE_FORMAT } from './governance/audit-bundle';
+export { exportAuditBundle, verifyAuditBundle, verifyAuditBundleAnchored, BUNDLE_FORMAT } from './governance/audit-bundle';
+export { anchorAuditLog, fileAnchor, readAnchors } from './governance/audit-anchor';
+export type { AnchorRecord, AnchorVerification, TimestampAnchor } from './governance/audit-anchor';
 export type { BundleManifest, BundleVerification } from './governance/audit-bundle';
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';

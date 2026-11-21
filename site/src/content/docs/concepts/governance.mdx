@@ -142,11 +142,37 @@ It checks the chain, each signature, that every checkpoint names a real entry wi
 
 What it does **not** prove, and the result says so:
 
-- **Entries after the last checkpoint** are not covered by any signature (`unsignedTail`). Cutting them off is not detected.
-- **Whoever holds the private key can rewrite the log and sign it again.** What stops that is an anchor outside their reach, such as a sealed timestamp or a `head` published somewhere they do not control. That is not built yet (`anchored: false`).
+- **Entries after the last checkpoint** are not covered by any signature (`unsignedTail`). Cutting them off is not detected, unless an anchor covers them (below).
+- **Whoever holds the private key can rewrite the log and sign it again.** What stops that is an anchor outside their reach (below). Without one, `anchored` is `false`.
 - **The keys in the bundle are not to be trusted.** Without `trustedKeys` the check uses the bundle's own `keys.json` and says `keySource: 'bundle'`: it shows the log is consistent with the key it carries, not who owns it.
 
-So a bundle today is **tamper-evident**, not legal proof. It is the evidence an auditor can evaluate, nothing more.
+#### Anchor the head outside the operator's reach
+
+An anchor records `(seq, head)` somewhere the operator cannot rewrite. From then on, changing any entry up to that point is detected even by whoever holds the signing key and rewrote the log, the checkpoints and the keys.
+
+```ts
+import { anchorAuditLog, fileAnchor } from '@backendkit-labs/agent-core';
+
+// Call it when it matters: end of day, before an export. The witness file lives on a host or a volume the operator cannot write.
+await anchorAuditLog({ log: './audit.log', anchors: './anchors.ndjson', anchor: fileAnchor('/mnt/witness/heads.ndjson') });
+exportAuditBundle({ /* ... */ anchors: './anchors.ndjson', outDir: './bundle' });
+```
+
+The auditor checks it with **their own** copy of the witness, never with the path a record claims:
+
+```ts
+const result = await verifyAuditBundleAnchored('./bundle', {
+  trustedKeys: { k1: publicKeyPem },
+  anchors: [fileAnchor('/my/copy/of/heads.ndjson')],
+});
+// { ok: true, anchored: true, anchoredUpTo: 4200, ... }   or   { ok: false, reason: 'anchor 2 (file) does not verify: ...' }
+```
+
+An anchor that does not verify fails the bundle. Records of a kind the auditor did not pass are listed as not verified, and the log is not called anchored. `anchoredUpTo` is how far the anchor covers; entries after it are reported.
+
+What counts is **where the anchor lives**, not this code. A file the operator can edit anchors nothing: it is a record. `fileAnchor` is the simple one. `TimestampAnchor` is an interface (`anchor` and `verify`), so a sealed timestamp (RFC 3161), a commit in a repository the operator does not control, or a service of your own is another implementation of the same thing. None of those is built yet.
+
+So a bundle is **tamper-evident**; with a verified anchor outside the operator's reach it also resists whoever holds the key, up to `anchoredUpTo`. It is the evidence an auditor can evaluate. It is not a legal guarantee, and no standard is claimed to be met.
 
 ## Why outside the model
 

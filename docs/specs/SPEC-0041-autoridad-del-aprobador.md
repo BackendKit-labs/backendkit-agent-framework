@@ -1,7 +1,7 @@
 # SPEC-0041: autoridad del aprobador (quién puede aprobar esto, no solo qué tipo de aprobador)
 
 **Fecha:** 2026-11-20
-**Estado:** Borrador. **F0, F1 y F2 hechas (2026-11-21)**, ver §5. F3 sin hacer.
+**Estado:** Implementada (F0 a F3, 2026-11-21), ver §5. F1 publicada en core 0.48.1; F2 en `master`, pendiente de publicar.
 **Origen:** pregunta del autor (2026-11-20): "¿cómo contempla el framework recibir la aprobación desde el id del usuario autorizado?". La respuesta honesta es que registra quién aprobó, pero no comprueba que esa persona esté autorizada. Para un framework de agentes de empresa es un hueco central.
 **Depende de:** SPEC-0014 §6.2 (reglas de aprobación), `governance/approval.ts`, `ApprovalStore`, `AgentEngine.runApproved`.
 **Tipo de cambio:** aditivo (campos y opciones opcionales). Sin paquete nuevo. Un cambio de comportamiento posible, la F2, va tras una opción.
@@ -59,7 +59,7 @@ Autenticar. Que `by.id` sea quien dice ser lo garantiza la aplicación (sesión,
 | **F0** | **Hecha.** Pruebas que fijan los huecos de hoy: una persona aprueba lo que ella misma pidió; un `ask` con `approver: 'finance'` se aprueba por cualquier humano. | `AgentEngine.approver-authority.test.ts`: 7 pruebas sobre el código actual, tres marcadas GAP que cambian a propósito en F1 y F2. |
 | **F1** | **Hecha.** `approverRoles` en el `ask` y `approverDirectory` en el motor (D1 a D4, D6), con fallo cerrado. | Un aprobador sin el rol no ejecuta la llamada, ni por el aprobador inmediato ni por `runApproved`. Sin directorio, se deniega. | Hecho en `AgentEngine.approver-roles.test.ts` (19 pruebas); los roles de varias políticas se combinan por intersección y, si no queda ninguno, se deniega. |
 | **F2** | **Hecha.** `forbidSelfApproval` (D5). | Con la opción, `principal.userId` no aprueba su propia solicitud. Sin ella, nada cambia. Hecho en `AgentEngine.self-approval.test.ts` (13 pruebas). Quién pidió es lo que guardó la solicitud (`requestedBy`), no la identidad de quien la ejecuta después: un worker sin identidad propia también la rechaza. También rechaza a una persona de la cadena de delegación. |
-| **F3** | Documentación: la autenticación es de la aplicación; ejemplo con roles. Actualizar la guía del pago. | La web y la guía lo dicen y el ejemplo corre. |
+| **F3** | **Hecha.** Documentación: la autenticación es de la aplicación; ejemplo con roles. Actualizar la guía del pago. | La web y la guía lo dicen y el ejemplo corre. La guía "Govern a payment tool" tiene el paso 6 (roles, directorio y cuatro ojos) y su salida se comprobó ejecutándolo tal como está escrito. La página de gobernanza lo explica y dice que el framework no autentica. |
 
 ## 6. Decisiones abiertas
 

@@ -41,12 +41,14 @@ export async function approverAuthority(
  * 2. Nobody approves their own request: not the agent that asked, nor any agent in its delegation chain.
  * 3. An agent approves only what it could do itself (`canAgentAct`, evaluated by the engine with that agent as
  *    principal over the same call).
+ * 5. With `forbidSelfApproval` (SPEC-0041 F2): the person on whose behalf the agent acts (`principal.userId`) does not
+ *    approve it either, whatever the kind of approver. Four eyes: whoever asks and whoever approves are two people.
  *
  * Rule 4 (every approval audited with its approver in full) is the engine's job when it writes the event.
  */
 export async function approvalProblem(
     outcome: ApprovalOutcome,
-    request: { principal: Principal; accepts?: ApproverKind[] },
+    request: { principal: Principal; accepts?: ApproverKind[]; forbidSelfApproval?: boolean },
     canAgentAct: (approver: ApproverRef) => Promise<boolean>,
 ): Promise<string | undefined> {
     const by = outcome.by;
@@ -59,6 +61,13 @@ export async function approvalProblem(
     const { principal } = request;
     if (by.kind !== 'human' && (by.id === principal.agentId || principal.chain.includes(by.id))) {
         return `"${by.id}" cannot approve a request of its own delegation chain`;
+    }
+    if (request.forbidSelfApproval) {
+        // Only when the request says who asked: with no `userId` there is nobody to compare with.
+        const asker = principal.userId;
+        if ((asker !== undefined && by.id === asker) || (by.kind === 'human' && principal.chain.includes(by.id))) {
+            return `"${by.id}" asked for this action and cannot approve it: someone else has to`;
+        }
     }
     if (by.kind === 'agent' && !(await canAgentAct(by))) {
         return `agent "${by.id}" cannot approve an action it is not allowed to perform itself`;

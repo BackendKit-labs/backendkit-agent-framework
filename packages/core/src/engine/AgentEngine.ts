@@ -164,6 +164,8 @@ export interface AgentEngineOptions extends EngineOptions {
     approver?: Approver;
     /** Who an approver is and what roles it holds. Needed when an `ask` carries `approverRoles` (SPEC-0041). */
     approverDirectory?: ApproverDirectory;
+    /** The person an agent acts for does not approve what it asked for (SPEC-0041 F2). */
+    forbidSelfApproval?: boolean;
     /**
      * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
      * the call did not run (resubmission, SPEC-0014 §6).
@@ -785,7 +787,7 @@ export class AgentEngine {
         return this.executeToolCall(
             { name: subject.call.tool.name, args: JSON.stringify(subject.call.args) },
             profile, 0, undefined, undefined, item.principal.chain,
-            { by: item.outcome.by, approvalId },
+            { by: item.outcome.by, approvalId, ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}) },
         );
     }
 
@@ -1847,7 +1849,12 @@ export class AgentEngine {
             // A stored approval satisfies the ask, but only if its approver is one this ask accepts (§6.2).
             const problem = await approvalProblem(
                 { decision: 'approve', by: approved.by, at: new Date().toISOString() },
-                { principal, ...(ask.accepts ? { accepts: ask.accepts } : {}) },
+                // Who asked is what the stored request recorded, not the identity of whoever runs it now (SPEC-0041 F2).
+                {
+                    principal: approved.requestedBy !== undefined ? { ...principal, userId: approved.requestedBy } : principal,
+                    ...(ask.accepts ? { accepts: ask.accepts } : {}),
+                    ...(this.opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
+                },
                 (by) => this.agentCanPerform(by, call),
             );
             if (problem) {
@@ -1896,7 +1903,9 @@ export class AgentEngine {
                     message: `Tool call "${name}" was rejected by the approver.`,
                 };
             }
-            const problem = await approvalProblem(answer, request, (by) => this.agentCanPerform(by, call));
+            const problem = await approvalProblem(
+                answer, { ...request, ...(this.opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}) }, (by) => this.agentCanPerform(by, call),
+            );
             if (problem) {
                 const reason = `invalid approval: ${problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };

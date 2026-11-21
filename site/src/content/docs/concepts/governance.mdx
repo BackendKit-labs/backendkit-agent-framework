@@ -42,7 +42,7 @@ Without a policy of your own, but with someone to ask, the default applies: read
 An **approver** answers right away: a person at a terminal (`consoleApprover()`), another agent (`agentApprover(...)`), a UI, a service. Approvals are **checked before they count**:
 
 - its kind must be one the `ask` accepts (an agent cannot satisfy `accepts: ['human']`);
-- nobody approves their own request, nor one from their delegation chain;
+- no agent or service approves a request of its own delegation chain (a person who asked can, unless you turn on [four eyes](#four-eyes-the-person-who-asked-does-not-approve));
 - an agent only approves what it could do itself.
 
 ### Who may approve: roles
@@ -75,7 +75,21 @@ If several policies ask for roles, the approver needs what all of them ask for (
 
 **The framework does not authenticate anyone.** `by.id` must already be verified by your application (a session, a token, single sign-on) before you call `resolve` or return the approver's answer. Never take it from a request body. The directory says what a verified person may do; it cannot tell whether the id is who it claims to be.
 
-Still open (SPEC-0041, next phases): a person can approve a request they asked for themselves, unless your directory forbids it.
+### Four eyes: the person who asked does not approve
+
+A role is not enough when the person who asked for the payment is in finance too. Turn on `forbidSelfApproval`:
+
+```ts
+createBaseEngine({
+  /* ... */
+  identity: { userId: 'carlos', tenantId: 'acme' },   // who the agent acts for
+  forbidSelfApproval: true,
+});
+```
+
+The user the agent acts for (`identity.userId`) cannot approve what it asked for, whatever the kind of approver, and neither can a person in the delegation chain. Another person with the role can. For a stored approval, who asked is what the stored request recorded, so a worker that runs it later with no identity of its own still refuses it.
+
+It is **off by default**, because it changes what is allowed today. It needs `identity.userId`: with none, there is nobody to compare with and the rule does nothing.
 
 ## When nobody can answer now: durable approvals
 

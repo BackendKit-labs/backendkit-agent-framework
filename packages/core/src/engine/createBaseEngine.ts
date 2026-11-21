@@ -326,6 +326,13 @@ export interface BaseEngineOptions {
      */
     approverDirectory?: ApproverDirectory;
 
+    /**
+     * Four eyes: whoever an agent acts for (`identity.userId`) cannot approve what it asked for, whatever the kind of
+     * approver. Off by default, because it changes what is allowed today. It needs `identity.userId` to know who asked:
+     * with none there is nobody to compare with and the rule does nothing (SPEC-0041 F2).
+     */
+    forbidSelfApproval?: boolean;
+
     /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
     approvals?: ApprovalStore;
 
@@ -515,6 +522,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             : opts.policy ? { policy: opts.policy } : {}),
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
+        ...(opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
         ...(opts.recordArgs ? { recordArgs: true } : {}),

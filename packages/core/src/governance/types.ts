@@ -47,7 +47,7 @@ export interface ToolCall {
      * Someone already approved exactly this call (resubmission, SPEC-0014 §6). Only whoever holds the approval
      * sets it when executing it; the engine never derives it from what the model sent.
      */
-    approved?: { by: ApproverRef; approvalId: string };
+    approved?: { by: ApproverRef; approvalId: string; /** Who asked, as the stored request recorded it (`principal.userId`). */ requestedBy?: string };
 }
 
 export type PolicyDecision =

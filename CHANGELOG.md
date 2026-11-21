@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.1 (2026-11-21)
+
+Cambio aditivo de `agent-core`: un `ask` puede exigir un rol y el motor lo comprueba. Sin `approverRoles` nada cambia, y `^0.48.0` cubre 0.48.1, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.1 | `approverRoles` y `approverDirectory` (SPEC-0041 F1) |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.1`.
+
+- **`agent-core`, quién puede aprobar se comprueba (SPEC-0041 F1):** hasta ahora el `ask` de una política solo restringía el **tipo** de aprobador (`accepts`); el texto libre `approver` es una pista que el motor no lee. Ahora un `ask` puede llevar `approverRoles: ['finance']`: el aprobador necesita al menos uno de esos roles. El motor los pregunta a un `approverDirectory` de la aplicación (`describe(by)` devuelve `{ roles, tenantId? }`) y **nunca** usa lo que diga quien llama. Falla cerrado: sin directorio, con un id desconocido, con un directorio que lanza, con un aprobador de otro tenant o sin ningún rol coincidente, la aprobación se rechaza y la llamada no se ejecuta. Vale para el aprobador inmediato y para `runApproved` (con la política y el directorio de ese momento). El evento de auditoría guarda `approval.authority` (roles reconocidos y el rol que valió). Varias políticas se combinan por intersección; si no queda ningún rol, se deniega. **El framework no autentica:** `by.id` debe llegar ya verificado por la aplicación. Nuevos exports: `ApproverDirectory`, `ApproverProfile`, `ApproverAuthority`, `approverAuthority`.
+
 ## v0.49.0 (2026-11-18)
 
 Un fallo de una tool de un servidor MCP deja de volver como éxito (cambio de comportamiento de `agent-core`). En 0.x, `^0.47` no cubre 0.48, así que se barrieron los rangos de `agent-core` (`^0.48.0`) y los peers anchos pasan a `<0.49.0`; `agent-flow-sql` también, porque su peer acababa en `<0.48.0`. `codemod`, `agent-protocol`, `mcp-connectors` y `agent-web-ui` no cambian.

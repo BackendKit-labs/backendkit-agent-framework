@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.3 (2026-11-21)
+
+Cambio aditivo de `agent-core`: evidencia de auditoría que un tercero puede comprobar sin el secreto del operador. El formato del log no cambia, y `^0.48.0` cubre 0.48.3, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.3 | puntos de control firmados y paquete de auditoría (SPEC-0042 F0/F1) |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.3`.
+
+- **`agent-core`, auditoría verificable por terceros (SPEC-0042 F0/F1):** `HashChainAuditSink` acepta `checkpoints: { signer, path, every? }` y firma el `head` con Ed25519 cada `every` entradas y con `checkpoint()` a demanda, en un archivo aparte (el formato del log no cambia). `ed25519Signer(clave, kid)` crea el firmante. `exportAuditBundle` escribe una carpeta con el log, los puntos de control, las claves públicas y un manifiesto, y `verifyAuditBundle(dir, { trustedKeys })` la comprueba **sin conexión y sin el secreto del operador**: la cadena, cada firma, que cada punto de control nombre una entrada real con ese hash y que vayan en orden. Las claves que cuentan son las que pasa quien verifica; sin ellas usa las del paquete y el resultado dice `keySource: 'bundle'`, porque un falsificador incluiría la suya. Rotación de claves por `kid`. **Límites declarados:** las entradas posteriores al último punto de control no están cubiertas (`unsignedTail`) y cortarlas no se detecta, y quien tiene la clave privada puede reescribir el log y volver a firmarlo, porque falta un ancla fuera de su alcance (`anchored: false`, SPEC-0042 F2). Hoy un paquete es *tamper-evident*, no una prueba legal. Nuevos exports: `ed25519Signer`, `signCheckpoint`, `appendCheckpoint`, `readCheckpoints`, `checkpointMessage`, `exportAuditBundle`, `verifyAuditBundle`, `BUNDLE_FORMAT` y los tipos `AuditCheckpoint`, `CheckpointSigner`, `HashChainCheckpointOptions`, `BundleManifest`, `BundleVerification`.
+
 ## v0.49.2 (2026-11-21)
 
 Cambio aditivo de `agent-core`: cuatro ojos opcionales en las aprobaciones. Por defecto no cambia nada, y `^0.48.0` cubre 0.48.2, así que no hay barrido de rangos.

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.7 (2026-11-22)
+
+Cambio interno de `agent-core`, sin cambio de comportamiento: la parte de gobierno del motor se mueve a su propio archivo. `^0.48.0` cubre 0.48.7, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.7 | `GovernanceGate` sale de `AgentEngine` |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.7`.
+
+- **`agent-core`, la compuerta de gobierno tiene su propio archivo:** lo que decide si una llamada a una herramienta se permite (políticas, aprobador en vivo o almacén, rol y cuatro ojos, caducidad, credenciales por llamada) vivía mezclado en `AgentEngine`, de unas 2200 líneas. Ahora está en `engine/GovernanceGate.ts` y el motor la llama. El código es el mismo y el orden de las comprobaciones no cambia; no hay API pública nueva (`GovernanceGate` no se exporta) ni opciones nuevas. Se añaden 12 pruebas que ejercitan la compuerta sola, sin motor ni proveedor.
+
 ## v0.49.6 (2026-11-22)
 
 Arreglos de la auditoría del framework (#276). Casi todo es aditivo y por defecto no cambia nada, así que `^0.48.0` cubre `agent-core` 0.48.6 y no hay barrido de rangos.

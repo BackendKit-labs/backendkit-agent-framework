@@ -84,6 +84,22 @@ The checks use a scripted model, so they test what the framework guarantees. The
 
 **Read it for:** `createEnterpriseSetup`, department profiles with scoped search, indexing a vault, and how to test an agent's boundaries offline.
 
+## aval-scheduler
+
+*Tests need nothing; running it for real needs a model key and an AVAL instance.*
+
+An **autonomous agent that spends money safely**. Every day at nine (or when someone calls `POST /run-now`, or presses a button in its admin panel) it reconciles what is pending, pays what is due and reports what is stuck. It reads the schedule from its own **MCP server** and pays only through [AVAL](../../packages/aval-tools/): AVAL checks the budget and the policy *before* money leaves, a payment held for a person is never approved by the agent, and a retry cannot pay twice.
+
+```bash
+cd examples/aval-scheduler
+npm install
+npm test             # builds, then runs the unit tests and the end-to-end test: no network, no money
+```
+
+The end-to-end test builds the real agent with a **scripted model**, a **simulated AVAL** and the **real MCP server** as a child process. It runs the agent twice: the first run pays once with the idempotency key the source hands out; the second reconciles with `check_payment` and does **not** pay again.
+
+**Read it for:** an [autonomous agent](../../agents/autonomous/) with several triggers, an [MCP](../../concepts/mcp/) data source, [payment tools](../../packages/aval-tools/), and how to [test an agent](../../guides/test-an-agent/) that must never double-spend.
+
 ## Next
 
 Once these make sense, move to the deep dives: [research-desk](../research-desk/) adds memory and learning, [release-captain](../release-captain/) adds a model that supervises flows, and [audit-desk](../audit-desk/) runs flows across processes on a real Redis.

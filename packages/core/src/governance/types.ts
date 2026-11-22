@@ -47,7 +47,7 @@ export interface ToolCall {
      * Someone already approved exactly this call (resubmission, SPEC-0014 §6). Only whoever holds the approval
      * sets it when executing it; the engine never derives it from what the model sent.
      */
-    approved?: { by: ApproverRef; approvalId: string; /** Who asked, as the stored request recorded it (`principal.userId`). */ requestedBy?: string };
+    approved?: { by: ApproverRef; approvalId: string; /** Who asked, as the stored request recorded it (`principal.userId`). */ requestedBy?: string; /** When the stored request expires (ISO). */ expiresAt?: string };
 }
 
 export type PolicyDecision =
@@ -74,6 +74,11 @@ export type PolicyDecision =
          * the call is denied: an approval that cannot be checked is not accepted.
          */
         approverRoles?: string[];
+        /**
+         * How long the request lives, in seconds from when it is made. After that an approval is not run (SPEC-0042 F3).
+         * Several policies: the shortest wins. Without it, the engine's `approvalTtlSeconds`, and without that, it does not expire.
+         */
+        ttlSeconds?: number;
     };
 
 export interface ToolPolicy {
@@ -98,6 +103,8 @@ export interface ApprovalRequest {
     approverRoles?: string[];
     /** ISO time. */
     createdAt: string;
+    /** ISO time after which an approval of this request is not run, whether it is still pending or already approved. Absent: it does not expire. */
+    expiresAt?: string;
 }
 
 export interface ApprovalOutcome {

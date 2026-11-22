@@ -171,6 +171,8 @@ export interface AgentEngineOptions extends EngineOptions {
     forbidSelfApproval?: boolean;
     /** Leases the credentials a tool declares, for one authorized call (SPEC-0042 F4). */
     credentialBroker?: CredentialBroker;
+    /** Seconds a stored request lives before an approval of it is not run. Default: it does not expire (SPEC-0042 F3). */
+    approvalTtlSeconds?: number;
     /**
      * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
      * the call did not run (resubmission, SPEC-0014 §6).
@@ -317,6 +319,9 @@ export class AgentEngine {
     private readonly discovered = new Map<string, string[]>();
 
     constructor(private readonly opts: AgentEngineOptions) {
+        if (opts.approvalTtlSeconds !== undefined && !(Number.isFinite(opts.approvalTtlSeconds) && opts.approvalTtlSeconds > 0)) {
+            throw new Error('approvalTtlSeconds must be a positive number of seconds');
+        }
         this.transport = {
             emit: (event) => { this.recorder?.push(event); opts.transport.emit(event); },
             onInput: (cb) => opts.transport.onInput(cb),
@@ -792,7 +797,7 @@ export class AgentEngine {
         return this.executeToolCall(
             { name: subject.call.tool.name, args: JSON.stringify(subject.call.args) },
             profile, 0, undefined, undefined, item.principal.chain,
-            { by: item.outcome.by, approvalId, ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}) },
+            { by: item.outcome.by, approvalId, ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}), ...(item.expiresAt !== undefined ? { expiresAt: item.expiresAt } : {}) },
         );
     }
 
@@ -1867,6 +1872,11 @@ export class AgentEngine {
         }
         const ask = d as Extract<PolicyDecision, { effect: 'ask' }>;
         if (approved) {
+            // A stored approval is run only while its request is alive (SPEC-0042 F3). An expiry that cannot be read is an expired one.
+            if (approved.expiresAt !== undefined && !(Date.now() <= Date.parse(approved.expiresAt))) {
+                const reason = `invalid approval: the request expired at ${approved.expiresAt}; ask again`;
+                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
+            }
             // A stored approval satisfies the ask, but only if its approver is one this ask accepts (§6.2).
             const problem = await approvalProblem(
                 { decision: 'approve', by: approved.by, at: new Date().toISOString() },
@@ -1941,6 +1951,15 @@ export class AgentEngine {
         return held.audit;
     }
 
+    /** `expiresAt` of a new request: the shorter of what the `ask` says and the engine's `approvalTtlSeconds`; none when neither is set. */
+    private expiryOf(d: Extract<PolicyDecision, { effect: 'ask' }>): { expiresAt?: string } {
+        const set = [d.ttlSeconds, this.opts.approvalTtlSeconds].filter(v => v !== undefined);
+        if (set.length === 0) return {};
+        // A ttl that is not a positive number (0, negative, NaN) expires at once: a mistake must not turn into "never expires".
+        const seconds = set.map(v => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0));
+        return { expiresAt: new Date(Date.now() + Math.min(...seconds) * 1000).toISOString() };
+    }
+
     private async resolveAsk(
         principal: Principal, call: ToolCall, d: Extract<PolicyDecision, { effect: 'ask' }>,
         sandboxAsk: boolean, sandboxDecisions: AuditSandboxDecision[],
@@ -1952,6 +1971,7 @@ export class AgentEngine {
             ...(d.accepts ? { accepts: d.accepts } : {}),
             ...(d.approverRoles ? { approverRoles: d.approverRoles } : {}),
             createdAt: new Date().toISOString(),
+            ...this.expiryOf(d),
         };
 
         if (this.approver) {

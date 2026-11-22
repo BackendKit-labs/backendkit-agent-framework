@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-sandbox",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Confinement and permissions for what agents run: sandbox modes, presets, a single policy point, swappable backends (host, docker) and environment hygiene, for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

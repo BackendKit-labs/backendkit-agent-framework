@@ -53,9 +53,14 @@ export interface WebhookTriggerDef extends TriggerDefinition {
     method?: 'GET' | 'POST' | 'PUT';
     /**
      * Optional HMAC secret.  When set, validates the incoming request against
-     * X-Hub-Signature-256 (GitHub-compatible) before firing the trigger.
+     * X-Hub-Signature-256 (GitHub-compatible) before firing the trigger. Required unless `allowUnsigned` is set.
      */
     secret?: string;
+    /**
+     * Accept requests without a signature. Without a `secret` anyone who reaches the route makes the agent run a prompt: set this only
+     * for a route that untrusted callers cannot reach.
+     */
+    allowUnsigned?: boolean;
 }
 
 /**
@@ -136,8 +141,21 @@ export class TriggerBus {
     }
 
     addWebhook(def: WebhookTriggerDef): this {
+        // Without a secret anyone who reaches the route makes the agent run a prompt: that has to be said, not forgotten.
+        if (!def.secret && !def.allowUnsigned) {
+            throw new Error(`Webhook "${def.name}" has no secret. Set \`secret\` to verify X-Hub-Signature-256, or \`allowUnsigned: true\` to accept unsigned requests.`);
+        }
         this.webhookDefs.push(def);
         return this;
+    }
+
+    /**
+     * Whether a request is for one of the webhook routes. Those are authenticated by their HMAC signature, not by the server's
+     * `auth` hook (a sender like GitHub has no JWT), and they come from wherever the sender is, not from loopback.
+     */
+    isWebhookRoute(method: string, url: string): boolean {
+        const path = url.split('?')[0];
+        return this.webhookDefs.some(d => d.path === path && (d.method ?? 'POST').toUpperCase() === method.toUpperCase());
     }
 
     addQueue(def: QueueTriggerDef): this {

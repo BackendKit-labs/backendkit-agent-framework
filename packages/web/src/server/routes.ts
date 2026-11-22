@@ -12,6 +12,7 @@ export function registerRoutes(
     metrics?: MetricsCollector,
     metricsPath?: string,
     adminRole = 'admin',
+    limits: { maxPendingInputs: number; exposeErrors: boolean } = { maxPendingInputs: 4, exposeErrors: false },
 ): void {
 
     // ── Health ────────────────────────────────────────────────────────────────
@@ -77,6 +78,12 @@ export function registerRoutes(
 
                 if (msg.type === 'input' && typeof msg.content === 'string') {
                     sessions.get(session.id);
+                    // Turns of a session run one after another, and every one costs: a client cannot queue them without bound.
+                    if (session.activeRuns >= limits.maxPendingInputs) {
+                        socket.send(JSON.stringify({ type: 'error', message: `Too many messages waiting (${limits.maxPendingInputs}): wait for an answer` }));
+                        return;
+                    }
+                    session.activeRuns++;
                     metrics?.messageReceived();
                     // Broadcast user input to monitor observers before running
                     monitorBus?.broadcastRunInput(session.id, msg.content);
@@ -86,9 +93,12 @@ export function registerRoutes(
                         .then(() => finish?.('success'))
                         .catch((err: unknown) => {
                             finish?.('error');
-                            const message = err instanceof Error ? err.message : 'Engine error';
+                            // What went wrong inside (a provider's answer, a path) stays on the server unless it was asked for.
+                            const message = limits.exposeErrors && err instanceof Error ? err.message : 'The agent could not answer. Try again.';
                             socket.send(JSON.stringify({ type: 'error', message }));
-                        });
+                            if (!limits.exposeErrors) console.error('[agent-web] run failed:', err);
+                        })
+                        .finally(() => { session.activeRuns = Math.max(0, session.activeRuns - 1); });
                 }
 
                 if (msg.type === 'abort') {

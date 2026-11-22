@@ -9,6 +9,9 @@ import type { MetricsCollectorOptions } from '../metrics/MetricsCollector';
 import type { SessionMetaStore } from '../store/SessionMetaStore';
 import type { TriggerBus } from '../trigger/TriggerBus';
 import { registerRoutes } from './routes';
+import { isLoopbackRequest } from '@backendkit-labs/agent-core';
+
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 
 export type AuthHook = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
@@ -40,6 +43,12 @@ export interface AgentServerOptions extends Omit<SessionManagerOptions, 'metrics
      * Default: 'admin'.
      */
     adminRole?: string;
+    /** Turns a session may have queued or running; a message past that gets an error. Default: 4. */
+    maxPendingInputs?: number;
+    /** Largest WebSocket message, in bytes. Default: 1 MiB. */
+    maxMessageBytes?: number;
+    /** Send the message of an engine error to the client. Default false: the client gets a generic one and the detail goes to the server's log. */
+    exposeErrors?: boolean;
     /** Fastify logger. Default: false (silent). Pass true for pretty logs in dev. */
     logger?: boolean | object;
     /** Allowed CORS origins. Default: '*', or none when `strict` is set. */
@@ -157,9 +166,36 @@ export class AgentServer {
             }
         }
 
+        // A server with no `auth` on loopback is still reachable from a web page in the user's browser: the handshake of a WebSocket is
+        // not subject to CORS, and a rebinding DNS name points at 127.0.0.1. Without a token, a request has to come from loopback
+        // (its Host and its Origin) or from an origin the operator listed in `cors`. Webhook routes are exempt: they carry an HMAC.
+        const listed = Array.isArray(opts.cors) ? opts.cors : (typeof opts.cors === 'string' && opts.cors !== '*' ? [opts.cors] : []);
+        const loopbackBind = LOOPBACK_HOSTS.includes(this.host);
+        // preHandler, like the auth hook: a refusal sent from onRequest leaves the socket of a WebSocket upgrade open and close() waits for it.
+        this.app.addHook('preHandler', async (req, reply) => {
+            if (this.triggerBus?.isWebhookRoute(req.method, req.url)) return;
+            const origin = req.headers.origin;
+            if (origin !== undefined && listed.includes(origin)) return;
+            if (opts.auth) {
+                // A token is required, and a foreign page has none. An explicit list of origins is still enforced on a WebSocket upgrade.
+                const upgrade = String(req.headers.upgrade ?? '').toLowerCase() === 'websocket';
+                if (upgrade && origin !== undefined && Array.isArray(opts.cors) && !opts.cors.includes('*')) {
+                    return reply.code(403).send({ error: 'Forbidden origin' });
+                }
+                return;
+            }
+            if (loopbackBind && !isLoopbackRequest(req.headers.host, origin)) {
+                return reply.code(403).send({ error: 'Forbidden host or origin' });
+            }
+        });
+
         if (opts.auth) {
             const authHook = opts.auth;
-            this.app.addHook('preHandler', authHook);
+            const triggerBus = this.triggerBus;
+            this.app.addHook('preHandler', async (req, reply) => {
+                if (triggerBus?.isWebhookRoute(req.method, req.url)) return;      // signed with an HMAC, not with a JWT
+                return authHook(req, reply);
+            });
         }
 
         // Register websocket plugin + all routes inside a register() so Fastify
@@ -173,9 +209,15 @@ export class AgentServer {
             // A browser that offers the subprotocols `bearer, <jwt>` needs the server to select one of them,
             // or it drops the connection. Select `bearer`, never the token.
             await instance.register(fastifyWebSocket, {
-                options: { handleProtocols: (protocols: Set<string>) => (protocols.has('bearer') ? 'bearer' : false) },
+                options: {
+                    handleProtocols: (protocols: Set<string>) => (protocols.has('bearer') ? 'bearer' : false),
+                    maxPayload: opts.maxMessageBytes ?? 1_048_576,
+                },
             });
-            registerRoutes(instance, sessions, monitor, collector, metricsPath, opts.adminRole);
+            registerRoutes(instance, sessions, monitor, collector, metricsPath, opts.adminRole, {
+                maxPendingInputs: opts.maxPendingInputs ?? 4,
+                exposeErrors: opts.exposeErrors ?? false,
+            });
             triggers?.registerRoutes(instance);
         });
     }

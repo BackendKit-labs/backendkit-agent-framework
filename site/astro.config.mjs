@@ -56,6 +56,9 @@ export default defineConfig({
           items: [
             { slug: 'concepts/engine-and-tools' },
             { slug: 'concepts/providers' },
+            { slug: 'concepts/structured-output' },
+            { slug: 'concepts/background-jobs' },
+            { slug: 'concepts/run-control' },
             { slug: 'concepts/governance' },
             { slug: 'concepts/multi-agent' },
             { slug: 'concepts/flows' },

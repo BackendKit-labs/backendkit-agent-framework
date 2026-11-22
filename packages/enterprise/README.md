@@ -14,6 +14,8 @@ Business agents on top of `agent-core`: RAG over an Obsidian vault with per-depa
 - [ObsidianRAGProvider](#obsidianragprovider)
 - [VaultWriter](#vaultwriter)
 - [Embedders](#embedders)
+- [Events and reconciliation](#events-and-reconciliation)
+- [The n8n trigger tool](#the-n8n-trigger-tool)
 - [Full production example with AgentServer](#full-production-example-with-agentserver)
 
 ---
@@ -337,6 +339,71 @@ class OpenAIEmbedder implements Embedder {
   }
 }
 ```
+
+---
+
+## Events and reconciliation
+
+When one agent must tell another system that something happened ("invoice approved"), `EventPublisher` sends a **typed event** through a queue (BullMQ, or anything shaped like `QueueLike`) and leaves a note about it in the vault, in one call. `ReconciliationSweeper` then finds the events that nobody acted on.
+
+```ts
+import { z } from '@backendkit-labs/agent-core';
+import { EventPublisher, ReconciliationSweeper, type EventSchema } from '@backendkit-labs/agent-enterprise';
+import { Queue } from 'bullmq';
+
+// A named, versioned event. The schema validates every payload before it is sent.
+const InvoiceApproved: EventSchema<{ invoiceId: string; total: number }> = {
+  type: 'invoice.approved',
+  version: 1,
+  schema: z.object({ invoiceId: z.string(), total: z.number() }),
+};
+
+const publisher = new EventPublisher({
+  queue: new Queue('eventos.invoice.approved', { connection }),
+  vaultPath: '/srv/vault',
+  source: 'finance-agent',                 // who publishes: goes in the envelope and the note
+});
+
+const event = await publisher.publish(InvoiceApproved, { invoiceId: 'F-1', total: 100 });
+// event: { id, type, occurredAt, source, version, payload }
+await publisher.publish(InvoiceApproved, payload, { attempts: 5, jobId: 'F-1-approved' });
+```
+
+`publish` does four things:
+
+1. Validates the payload with the schema. A wrong payload throws a `ZodError` and **nothing is sent**.
+2. Wraps it in an envelope with a UUID, the time, the source and the schema version.
+3. Adds the job to the queue: 3 attempts with exponential backoff (`attempts`, `backoffDelay`), and the finished jobs are kept (`removeOnComplete: false`) so they can be reconciled. The job id is the envelope id; pass `jobId` to make a publish **idempotent** (the same id is not queued twice).
+4. Writes a note to `eventos/` in the vault: auditable, and searchable by the RAG like any other note. Its table has the `ID` of the event.
+
+Order matters: the job is queued **before** the note is written. If the process dies between the two, the event is queued but has no note; if the queue is down, `publish` throws and nothing is written.
+
+### Finding events nobody handled
+
+A consumer that handles an event writes an audit note under `auditoria/` that mentions the event id. The sweeper compares the two folders:
+
+```ts
+const sweeper = new ReconciliationSweeper({ vaultPath: '/srv/vault' });   // eventsFolder / auditFolder to rename them
+const report = await sweeper.sweep();
+// { checked: 2, matched: 1, orphaned: [{ eventId, type, occurredAt, source, notePath }], sweptAt }
+
+for (const event of report.orphaned) await republishOrAlert(event);
+```
+
+An event is **orphaned** when its id appears nowhere in the `auditoria/` tree. Run `sweep()` on a schedule (hourly, daily) and decide what an orphan means for you: republish it, or alert someone. It detects a gap; it does not repair it, and it uses the vault as the source of truth instead of an outbox transaction. An event that was handled but whose consumer did not write an audit note also shows as orphaned, so make writing the audit note part of the consumer.
+
+## The n8n trigger tool
+
+`createN8nTriggerTool({ webhookUrl })` gives an agent a tool, `n8n_trigger`, that starts an [n8n](https://n8n.io) workflow by POSTing `{ event, correlationId, ...payload }` to a webhook. The model passes the `event` name and a `payload`; a `correlation_id` is generated when it does not give one, and the tool returns it so the run can be traced in n8n. A non-2xx answer is an error the model sees.
+
+```ts
+import { createN8nTriggerTool } from '@backendkit-labs/agent-enterprise';
+
+const n8n = createN8nTriggerTool({ webhookUrl: process.env.N8N_WEBHOOK_URL });   // or just set N8N_WEBHOOK_URL
+// add n8n to the tools of the engine and 'n8n_trigger' to the allowedTools of the agent
+```
+
+It throws at construction if there is no URL. The tool starts something outside the framework: put it behind a governance policy or an approval (see the Governance page of the documentation) if the workflow has effects (sends mail, moves money).
 
 ---
 

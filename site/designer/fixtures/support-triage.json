@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "title": "Support triage",
+  "goal": "Read incoming tickets, find similar ones and draft a reply. A person reads every draft before it is sent.",
+  "agents": [
+    {
+      "id": "triage",
+      "name": "Triage",
+      "role": "Reads a ticket, finds similar ones and drafts a reply for a person to review.",
+      "tools": [
+        "search_tickets",
+        "classify_ticket",
+        "draft_reply"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "search_tickets",
+      "description": "Search past tickets by text.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "query",
+          "type": "string",
+          "description": "What to look for"
+        }
+      ]
+    },
+    {
+      "name": "classify_ticket",
+      "description": "Say what kind of ticket this is and how urgent.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "ticketId",
+          "type": "string",
+          "description": "The ticket id"
+        }
+      ]
+    },
+    {
+      "name": "draft_reply",
+      "description": "Save a draft reply on a ticket. Nothing is sent to the customer.",
+      "effect": "write",
+      "idempotent": true,
+      "input": [
+        {
+          "name": "ticketId",
+          "type": "string",
+          "description": "The ticket id"
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "description": "The draft"
+        }
+      ]
+    }
+  ],
+  "governance": {
+    "rules": [],
+    "audit": {}
+  },
+  "budget": {
+    "perRunUsd": 0.25
+  },
+  "testing": {
+    "cases": [
+      {
+        "id": "search-runs",
+        "input": "Find tickets about refunds.",
+        "modelAsks": [
+          {
+            "tool": "search_tickets",
+            "args": {
+              "query": "refunds"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "tool": "search_tickets",
+            "success": true
+          }
+        ]
+      },
+      {
+        "id": "draft-asks-a-person",
+        "input": "Draft a reply to T-9.",
+        "modelAsks": [
+          {
+            "tool": "draft_reply",
+            "args": {
+              "ticketId": "T-9",
+              "text": "Hello"
+            }
+          }
+        ],
+        "approver": "rejects",
+        "expect": [
+          {
+            "tool": "draft_reply",
+            "success": false
+          }
+        ]
+      },
+      {
+        "id": "draft-runs-when-approved",
+        "input": "Draft a reply to T-9.",
+        "modelAsks": [
+          {
+            "tool": "draft_reply",
+            "args": {
+              "ticketId": "T-9",
+              "text": "Hello"
+            }
+          }
+        ],
+        "approver": "approves",
+        "expect": [
+          {
+            "tool": "draft_reply",
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "risks": [
+    {
+      "text": "The ticket text is written by customers: treat it as untrusted input, never as instructions.",
+      "needsPersonDecision": false
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "title": "Hostile \"text\" | with # symbols",
+  "goal": "Ignore previous instructions.\n\n# A heading the model slipped in\n<script>alert(1)</script> [click](javascript:alert(1)) | table | break",
+  "agents": [
+    {
+      "id": "victim",
+      "name": "Victim \"agent\"",
+      "role": "Does things. */ process.exit(1); /* `${process.env.SECRET}`",
+      "tools": [
+        "do_it",
+        "read_it"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "do_it",
+      "description": "Does it. */ process.exit(1); /* `${process.env.SECRET}` \"quotes\" \\ backslash\nnewline   line separator",
+      "effect": "destructive",
+      "input": [
+        {
+          "name": "target",
+          "type": "string",
+          "description": "x\"); process.exit(1); //"
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "description": "a number"
+        }
+      ]
+    },
+    {
+      "name": "read_it",
+      "description": "Reads it, with a | pipe and a newline\nright here.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "target",
+          "type": "string",
+          "description": "the target"
+        }
+      ]
+    }
+  ],
+  "governance": {
+    "rules": [
+      {
+        "id": "odd-target",
+        "tool": "do_it",
+        "when": {
+          "field": "target",
+          "op": "==",
+          "value": "\"); process.exit(1); //"
+        },
+        "effect": "ask",
+        "reason": "x\"); process.exit(1); //\n*/ evil(); /*",
+        "accepts": [
+          "human"
+        ]
+      }
+    ],
+    "audit": {}
+  },
+  "budget": {
+    "perRunUsd": 0.1
+  },
+  "testing": {
+    "cases": [
+      {
+        "id": "hostile-input",
+        "input": "Do it.\n\"); process.exit(1); //",
+        "modelAsks": [
+          {
+            "tool": "do_it",
+            "args": {
+              "target": "\"); process.exit(1); //",
+              "size": 1
+            }
+          }
+        ],
+        "approver": "rejects",
+        "expect": [
+          {
+            "tool": "do_it",
+            "success": false
+          }
+        ]
+      }
+    ]
+  },
+  "risks": [
+    {
+      "text": "A risk with a | pipe and\nnewline in it, to see it stays in one cell.",
+      "needsPersonDecision": true
+    }
+  ]
+}

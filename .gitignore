@@ -17,3 +17,6 @@ AGENT.md
 
 # Examples are now a tier of the platform monorepo (examples/).
 # The standalone agent-framework-examples repo remains the upstream source.
+
+# SPEC-0040: the skeletons the designer tests generate and compile
+site/designer/.out/

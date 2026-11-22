@@ -2,7 +2,9 @@
 
 **Mandates for agents:** a power of representation the agent acts under. It says, signed by someone with authority, who the agent works for, what it may do, on what and up to how much. With a valid mandate the agent acts **alone inside its limits**, without asking a person each time; outside them it asks, and without a mandate it does nothing.
 
-This package is the **default verifier**. The contract (`Mandate`, `MandateVerifier`, `mandatePolicy`) lives in `@backendkit-labs/agent-core`; here is a verifier that reads a signed credential in a neutral profile, so agents can work under mandates **now**. The credential of a specific provider (an eIDAS 2 wallet, DALION) is an **adapter** to the same `Mandate`: nothing in your agent changes when it arrives.
+**This package is a reference implementation, not a standard of its own and not tied to any identity provider.**  knows nothing of any credential format or issuer: it only knows a `Mandate` and a `MandateVerifier`. You can use this verifier, write yours, or put an adapter of a provider in its place; the agent, the policy and the audit do not change. It is the **default verifier**. The contract (`Mandate`, `MandateVerifier`, `mandatePolicy`) lives in `@backendkit-labs/agent-core`; here is a verifier that reads a signed credential in a neutral profile, so agents can work under mandates **now**. The credential of a specific provider (an eIDAS 2 wallet, DALION) is an **adapter** to the same `Mandate`: nothing in your agent changes when it arrives.
+
+The profile below (a JWT shaped like an SD-JWT VC, type `urn:backendkit:mandate:1`) is **our choice**, so the claims of another provider's credential do not match it as they are: that is what an adapter is for. The type is configurable (`vct`).
 
 ```bash
 npm install @backendkit-labs/agent-mandates @backendkit-labs/agent-core
@@ -78,7 +80,7 @@ And in the policy (`mandatePolicy`, from `agent-core`): the mandate is for **thi
 
 ## The credential profile
 
-A JWT in the shape of an SD-JWT VC:
+The profile this reference verifier reads, a JWT in the shape of an SD-JWT VC:
 
 ```json
 { "iss": "did:example:acme", "sub": "carlos", "jti": "m-1", "nbf": 1790000000, "exp": 1790003600,

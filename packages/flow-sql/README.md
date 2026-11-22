@@ -64,6 +64,98 @@ await journal.migrate();   // with a schema, create it first: CREATE SCHEMA IF N
 
 `migrate()` is explicit: the journal never creates tables by itself. `journal.ddl()` returns the statements if you apply migrations with your own tool, and `tablePrefix` (default `flow_`) keeps several journals in one database apart.
 
+## A complete example: a flow that survives a crash
+
+One file. A four-step nightly close runs in a first "process" that dies in the third step, and a second "process" with a **new connection to the same database file** finishes it, without repeating the two steps that were already done. It needs Node 22.13+ and nothing else (no server, no key). Save it as `close.ts` and run it with `npx tsx close.ts`.
+
+```bash
+npm install @backendkit-labs/agent-core @backendkit-labs/agent-flow-sql
+npm install -D typescript tsx
+```
+
+```ts
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseFlow, runFlow } from '@backendkit-labs/agent-core';
+import { SqliteRunJournal } from '@backendkit-labs/agent-flow-sql';
+
+const flow = parseFlow(`
+flow: nightly-close
+trigger: { type: manual }
+steps:
+  - id: export-sales
+    agent: sales
+    prompt: "Export the sales of {{payload.day}}"
+  - id: export-costs
+    agent: finance
+    prompt: "Export the costs of {{payload.day}}"
+  - id: reconcile
+    agent: finance
+    prompt: "Reconcile sales and costs"
+    after: [export-sales, export-costs]
+  - id: send
+    agent: comms
+    prompt: "Send the summary"
+    after: [reconcile]
+`);
+
+const file = join(mkdtempSync(join(tmpdir(), 'flows-')), 'flows.db');
+const executed: string[] = [];
+let breakReconcile = true;                       // the first process "crashes" in the third step
+
+const executor = {
+  run: async (step: { id: string; agent: string }) => {
+    if (step.id === 'reconcile' && breakReconcile) throw new Error('the process was killed');
+    executed.push(step.id);
+    return { content: `${step.agent} did ${step.id}` };
+  },
+};
+const options = { executor, payload: { day: '2026-11-21' }, runId: 'close-2026-11-21' };
+
+// Process 1: opens the database, runs the flow, and the third step fails.
+const journal1 = new SqliteRunJournal(new DatabaseSync(file));
+await journal1.migrate();                        // creates the tables if they do not exist; safe on every start
+const first = await runFlow(flow, { ...options, journal: journal1 });
+console.log('process 1:', first.status, executed);
+
+// Process 2: a new connection to the SAME file (a restart, a deploy, another machine with the same database).
+breakReconcile = false;
+const journal2 = new SqliteRunJournal(new DatabaseSync(file));
+await journal2.migrate();
+const second = await runFlow(flow, { ...options, journal: journal2 });
+console.log('process 2:', second.status, executed);
+
+// What the database knows about the run.
+const run = await journal2.get('close-2026-11-21');
+console.log(run?.status, Object.entries(run?.steps ?? {}).map(([id, s]) => `${id}:${s.status}`).join(" "));
+console.log((await journal2.list({ status: ['done'] })).map(r => r.runId));
+```
+
+It prints:
+
+```text
+process 1: failed [ 'export-sales', 'export-costs' ]
+process 2: completed [ 'export-sales', 'export-costs', 'reconcile', 'send' ]
+done export-sales:done export-costs:done reconcile:done send:done
+[ 'close-2026-11-21' ]
+```
+
+What happened, step by step:
+
+1. **Two steps ran in parallel** (`export-sales`, `export-costs` have no `after`). Each finished, and the journal recorded it in the database.
+2. **`reconcile` failed**, the way a killed process would. The run is `failed` and `send` never started. The two finished steps are safe in the file.
+3. **A second journal opened the same file.** `runFlow` with the **same `runId`** read the run from the database and saw two steps `done`: it ran **only `reconcile` and `send`**. `executed` lists each export once.
+4. **The database knows the run.** `journal.get(runId)` returns its status and every step; `journal.list({ status: ['done'] })` lists runs oldest first (also filterable by `flow` and `tenantId`).
+
+The pieces to copy into your own program:
+
+- **`runId` is yours to choose, and it is what makes a run resumable.** Use something that names the work (`close-2026-11-21`), not a random id: the same day's close run twice is then one run, not two.
+- **`migrate()` on every start** is safe: it creates the tables if they do not exist and does nothing otherwise.
+- **Pass the payload again on resume.** The journal stores only a cut and masked preview of it, so `payload` goes in `options` both times.
+- **For Postgres** the only lines that change are the two that build the journal: `new PostgresRunJournal(new Pool({ connectionString }))`. The flow, the executor and the `runFlow` calls stay the same.
+
 ## What it guarantees
 
 - **A run is a log of events**, the same as the file, ndjson and Redis journals: `get` folds it, so what a run is does not depend on where it is kept.

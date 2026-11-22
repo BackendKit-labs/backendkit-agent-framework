@@ -28,6 +28,103 @@ import { otelApiSpanExporter } from '@backendkit-labs/agent-otel';   // needs @o
 observability: { tracing: { exporter: otelApiSpanExporter() } }
 ```
 
+## A complete example: see a run as a trace
+
+One file. It starts a **tiny OTLP collector** inside the program, runs an agent with one tool, sends its trace through `otlpHttpSpanExporter` and draws what the collector received. No Jaeger, no key, no network: to use a real backend, point `endpoint` at it and drop the collector. Save it as `trace.ts` and run it with `npx tsx trace.ts`.
+
+```bash
+npm install @backendkit-labs/agent-core @backendkit-labs/agent-otel
+npm install -D @backendkit-labs/agent-testkit typescript tsx
+```
+
+```ts
+import { createServer } from 'node:http';
+import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
+import { otlpHttpSpanExporter } from '@backendkit-labs/agent-otel';
+import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
+
+// 1. A tiny OTLP collector: receives what the exporter sends and keeps the spans. In production this is Jaeger, Tempo, Langfuse...
+const received: any[] = [];
+const collector = createServer((req, res) => {
+  let body = '';
+  req.on('data', chunk => (body += chunk));
+  req.on('end', () => {
+    for (const rs of JSON.parse(body).resourceSpans) for (const ss of rs.scopeSpans) received.push(...ss.spans);
+    res.setHeader('content-type', 'application/json').end('{}');
+  });
+});
+await new Promise<void>(resolve => collector.listen(0, '127.0.0.1', resolve));
+const port = (collector.address() as { port: number }).port;
+
+// 2. The exporter: ships spans to the collector.
+const exporter = otlpHttpSpanExporter({
+  endpoint: `http://127.0.0.1:${port}`,
+  serviceName: 'support-agent',
+  resourceAttributes: { 'deployment.environment': 'demo' },
+  onError: err => console.error('export failed:', err),     // a failed send never reaches the agent
+});
+
+// 3. An agent with one tool and a cost tracker, traced.
+const orderStatus = defineTool({
+  name: 'order_status', description: 'Status of an order', readOnly: true,
+  input: z.object({ orderId: z.string() }),
+  execute: async ({ orderId }) => `Order ${orderId}: shipped`,
+});
+const engine = createBaseEngine({
+  providers: { mock: scriptedProvider([
+    { tool_calls: [{ id: 'c1', name: 'order_status', args: { orderId: 'A-1001' } }], metrics: { inputTokens: 300, outputTokens: 20 } },
+    { content: 'Your order has shipped.', metrics: { inputTokens: 340, outputTokens: 12 } },
+  ]) },
+  defaultProvider: 'mock',
+  agents: [{ id: 'support', name: 'Support', icon: '🎧', description: 'Answers about orders', systemPrompt: 'You help customers.', allowedTools: ['order_status'] }],
+  defaultAgent: 'support', tools: [orderStatus],
+  transport: mockTransport().transport, workingDir: process.cwd(), iterationMode: 'auto',
+  observability: {
+    tracing: { exporter },
+    costTracker: { inputPricePerMToken: 0.3, outputPricePerMToken: 1.2 },
+  },
+});
+
+await engine.run('Where is order A-1001?');
+await exporter.shutdown();                                   // flushes the batch that is still waiting
+
+// 4. What arrived: one trace, drawn as a tree.
+const byId = new Map(received.map(s => [s.spanId, s]));
+const attr = (s: any, key: string) => {
+  const a = s.attributes?.find((x: any) => x.key === key)?.value;
+  return a?.stringValue ?? a?.intValue ?? a?.doubleValue ?? a?.boolValue;
+};
+const depth = (s: any): number => (s.parentSpanId && byId.has(s.parentSpanId) ? 1 + depth(byId.get(s.parentSpanId)) : 0);
+console.log(`traces: ${new Set(received.map(s => s.traceId)).size}, spans: ${received.length}`);
+for (const s of [...received].sort((a, b) => Number(BigInt(a.startTimeUnixNano) - BigInt(b.startTimeUnixNano)))) {
+  const extra = [
+    attr(s, 'gen_ai.usage.input_tokens') !== undefined && `in=${attr(s, 'gen_ai.usage.input_tokens')}`,
+    attr(s, 'gen_ai.usage.output_tokens') !== undefined && `out=${attr(s, 'gen_ai.usage.output_tokens')}`,
+    attr(s, 'bk.cost_usd') !== undefined && `cost=$${Number(attr(s, 'bk.cost_usd')).toFixed(6)}`,
+  ].filter(Boolean).join(' ');
+  console.log(`${'  '.repeat(depth(s))}${s.name} ${extra}`);
+}
+collector.close();
+```
+
+It prints:
+
+```text
+traces: 1, spans: 5
+agent.run
+  invoke_agent Support
+    chat unknown in=300 out=20 cost=$0.000114
+    execute_tool order_status
+    chat unknown in=340 out=12 cost=$0.000116
+```
+
+How to read it:
+
+- **One run, one trace, five spans**, nested as the run happened: the run, the agent, the model call that asked for the tool, the tool, and the model call that answered. The two `chat` spans carry the tokens and the cost (`bk.cost_usd`), so you can see which step spent what. `unknown` is the model name: the scripted provider has none; with a real provider it reads `chat deepseek-chat`.
+- **Nothing the user said is in it.** The spans hold names, times, token counts and ids. The prompt, the answer and the tool arguments never leave the process.
+- **The exporter batches.** It sends when `batchSize` spans are waiting or after `flushIntervalMs`. `await exporter.shutdown()` flushes the last batch: without it, a short program can end before its spans are sent.
+- **Exporting never breaks the agent.** If the collector is down, `onError` gets the error, that batch is dropped, and the run goes on.
+
 ## What you get
 
 One trace per `engine.run()`:

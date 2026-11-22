@@ -15,6 +15,8 @@ export interface RemotePackageListing {
     description: string;
     /** URL to download the agent.yaml for this package. */
     downloadUrl: string;
+    /** Hex SHA-256 of the agent.yaml. When present the download is checked against it and refused if it differs. */
+    sha256?: string;
 }
 
 export interface RemoteRegistryIndex {
@@ -49,6 +51,11 @@ export interface AgentDiscoveryConfig {
     remote?: string;
     /** Package names to install/cache from the remote registry. */
     install?: string[];
+    /**
+     * Refuse a package whose listing in the registry index has no `sha256`. Default false: without a hash the file is accepted
+     * with a warning, because nothing proves it is the one the registry meant to publish.
+     */
+    requireIntegrity?: boolean;
     /**
      * Override the local cache directory for downloaded packages.
      * Defaults to ~/.{appName}/agents/registry/.

@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.49.16 (2026-11-22)
+
+Segunda tanda de la cuarta pasada de auditoría. Ninguna cambia una API: llegan como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-flow-queue` | 0.1.6 | dos claves de idempotencia distintas ya no comparten job |
+| `agent-otel` | 0.1.22 | números no finitos y mensajes de error largos |
+| `mcp-connectors` | 0.2.6 | timeout también al leer el cuerpo; cuerpos de error y de petición acotados |
+| `create-bk-agent` | 0.24.6 | `add ...` valida nombres y URL antes de escribirlos en el código generado |
+| `agent-web-ui` | 0.1.4 | el cierre tardío de un socket reemplazado ya no deja al hook sin conexión |
+
+Se publican cinco. Tags: `agent-flow-queue@0.1.6`, `agent-otel@0.1.22`, `mcp-connectors@0.2.6`, `create-bk-agent@0.24.6`, `agent-web-ui@0.1.4`.
+
+- **`agent-flow-queue`, colisión de job:** el id del job se sacaba de la clave de idempotencia cambiando `:` por `_`, así que `a_b:c` y `a:b_c` daban el mismo id y un paso podía recibir el resultado de otro. Ahora el escape es reversible (`:` → `%3A`, `%` → `%25`). Los jobs en vuelo al actualizar usan el id antiguo y terminan como hasta ahora.
+- **`agent-otel`:** un número `NaN` o `Infinity` en un atributo se enviaba como `null` y el colector rechazaba el lote entero; ahora va como texto. El mensaje de error de un span se corta a 500 caracteres.
+- **`mcp-connectors`:** el timeout dejaba de contar al llegar las cabeceras (un servidor que se quedaba parado a mitad del cuerpo colgaba la llamada); ahora cubre la lectura. El cuerpo de una respuesta de error se corta a 500 caracteres en el mensaje que lee el modelo, y el servidor HTTP rechaza peticiones de más de 4 MiB.
+- **`create-bk-agent`:** `add specialist`, `add tools` y `add mcp-client` escribían el nombre y la URL tal cual en un nombre de archivo y en el código generado: `../x` salía del directorio y una comilla rompía el literal. Ahora se exige un nombre en kebab-case y una URL http(s), y los literales se escapan.
+- **`agent-web-ui`:** al reconectar, el `onclose` del socket anterior llegaba tarde y ponía el estado en desconectado y la referencia en `null`, dejando huérfano al socket nuevo (`sendMessage` ya no enviaba). Ahora solo el socket actual toca el estado, y `disconnect()` lo fija por sí mismo.
+
+Revisados sin hallazgos: `flow-sql`, `pipeline` y `orchestration` de `agent-coding`.
+
 ## v0.49.15 (2026-11-22)
 
 Primera tanda de la cuarta pasada de auditoría (`document-extract`, `aval-tools`, `AgentLoader`). Ninguna cambia una API: llegan como parche.

@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-flow-queue",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "BullMQ StepExecutor for @backendkit-labs/agent-core flows: run each step on a worker in another process",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

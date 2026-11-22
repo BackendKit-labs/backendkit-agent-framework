@@ -228,3 +228,22 @@ describe('startHttp', () => {
         expect(await request(port, { Authorization: 'Bearer s3cret' })).toBe(400);
     });
 });
+
+describe('fetchJson — slow and large answers', () => {
+    it('times out when the server sends headers and then stalls the body', async () => {
+        const up = await upstream((_req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.write('{"a":'); });
+        try {
+            const t0 = Date.now();
+            await expect(fetchJson('Svc', up.url, {}, { timeoutMs: 300, maxAttempts: 1 })).rejects.toThrow();
+            expect(Date.now() - t0).toBeLessThan(3000);
+        } finally { await up.close(); }
+    });
+
+    it('cuts a long error body before it reaches the message', async () => {
+        const up = await upstream((_req, res) => { res.writeHead(400); res.end('e'.repeat(10_000)); });
+        try {
+            const err = await fetchJson('Svc', up.url, {}).catch(e => e as Error);
+            expect((err as Error).message.length).toBeLessThan(800);
+        } finally { await up.close(); }
+    });
+});

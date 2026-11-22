@@ -41,6 +41,8 @@ const SCOPE = { name: '@backendkit-labs/agent-otel', version: '0.1.0' };
 function attrValue(v: string | number | boolean): Record<string, unknown> {
     if (typeof v === 'string') return { stringValue: v };
     if (typeof v === 'boolean') return { boolValue: v };
+    // NaN and Infinity have no JSON form (they would be sent as null, which the collector rejects with the whole batch).
+    if (!Number.isFinite(v)) return { stringValue: String(v) };
     return Number.isInteger(v) ? { intValue: String(v) } : { doubleValue: v };
 }
 

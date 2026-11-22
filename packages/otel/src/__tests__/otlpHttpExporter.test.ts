@@ -227,3 +227,18 @@ describe('otlpHttpSpanExporter — backpressure', () => {
         expect(calls).toHaveLength(2);
     });
 });
+
+describe('toOtlpSpan — values that cannot go through JSON', () => {
+    it('sends a non-finite number as text, not as null', () => {
+        const o = toOtlpSpan(span({ name: 'custom', tags: { ratio: Infinity, bad: NaN } })) as Record<string, any>;
+        const byKey = Object.fromEntries(o.attributes.map((a: any) => [a.key, a.value]));
+        expect(byKey['bk.ratio']).toEqual({ stringValue: 'Infinity' });
+        expect(byKey['bk.bad']).toEqual({ stringValue: 'NaN' });
+        expect(JSON.stringify(o)).not.toContain('null');
+    });
+
+    it('keeps only the start of a very long error message', () => {
+        const o = toOtlpSpan(span({ name: 'run', status: 'error', tags: { error: 'x'.repeat(5000) } })) as Record<string, any>;
+        expect(o.status.message.length).toBeLessThan(600);
+    });
+});

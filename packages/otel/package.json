@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-otel",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "OpenTelemetry export for @backendkit-labs/agent-core traces: OTLP/HTTP exporter (no SDK needed) and an adapter for the OpenTelemetry API, with GenAI semantic conventions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

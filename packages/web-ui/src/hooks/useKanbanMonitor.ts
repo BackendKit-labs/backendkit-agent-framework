@@ -220,9 +220,13 @@ export function useKanbanMonitor({
     const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => setStatus('connected');
+    // A socket replaced by a newer connect() still fires its own events later: they must not touch the current connection.
+    const current = () => wsRef.current === ws;
+
+    ws.onopen = () => { if (current()) setStatus('connected'); };
 
     ws.onmessage = (e: MessageEvent) => {
+      if (!current()) return;
       try {
         const frame = JSON.parse(e.data as string) as Record<string, unknown>;
         handleFrame(frame);
@@ -232,16 +236,18 @@ export function useKanbanMonitor({
     };
 
     ws.onclose = () => {
+      if (!current()) return;
       setStatus('disconnected');
       wsRef.current = null;
     };
 
-    ws.onerror = () => setStatus('disconnected');
+    ws.onerror = () => { if (current()) setStatus('disconnected'); };
   }, [url, token, handleFrame]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
     wsRef.current = null;
+    setStatus('disconnected'); // the closed socket's own onclose is ignored: it is no longer current
   }, []);
 
   const clearDone = useCallback(() => {

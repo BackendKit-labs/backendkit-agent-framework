@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import type { BkProjectInfo } from '../detector';
 import { addMcpServerEntry } from '../patcher';
+import { assertHttpUrl, assertValidName } from '../names';
 
 export function addMcpClient(info: BkProjectInfo, args: string[]): void {
     const url = args[0];
@@ -14,6 +15,8 @@ export function addMcpClient(info: BkProjectInfo, args: string[]): void {
         if (args[i] === '--name' && args[i + 1]) { name = args[++i]; break; }
     }
 
+    assertHttpUrl(url);
+    assertValidName('server name', name);
     if (!fs.existsSync(info.engineFile)) {
         console.error('\n✗  src/engine.ts not found.\n');
         process.exit(1);

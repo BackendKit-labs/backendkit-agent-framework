@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { quote } from './names';
 
 // ── Import block ──────────────────────────────────────────────────────────────
 
@@ -197,12 +198,12 @@ function addMcpManagerImport(file: string): void {
  * Appends if a list exists. Returns true on success.
  */
 export function addMcpServerEntry(file: string, name: string, url: string): boolean {
-    return addMcpEntry(file, `{ name: '${name}', url: '${url}' }`, `url: '${url}'`);
+    return addMcpEntry(file, `{ name: ${quote(name)}, url: ${quote(url)} }`, `url: ${quote(url)}`);
 }
 
 /**
  * Adds a stdio MCP server `{ name, command: 'npx', args: ['-y', pkg] }`. Returns true on success.
  */
 export function addMcpStdioEntry(file: string, name: string, npmPackage: string): boolean {
-    return addMcpEntry(file, `{ name: '${name}', command: 'npx', args: ['-y', '${npmPackage}'] }`, `'${npmPackage}'`);
+    return addMcpEntry(file, `{ name: ${quote(name)}, command: 'npx', args: ['-y', ${quote(npmPackage)}] }`, quote(npmPackage));
 }

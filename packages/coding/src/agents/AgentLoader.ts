@@ -3,6 +3,7 @@ import { join, basename } from 'path';
 import { getFrameworkDir } from '@backendkit-labs/agent-core';
 import { isProjectTrusted } from '../cli/trust/workspace-trust';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
+import { assertSafeFileName } from '../cli/skills/safe-name';
 
 // ── Agent file format ─────────────────────────────────────────────────────────
 // Each agent is defined by a pair of files:
@@ -90,6 +91,12 @@ function readAgentDir(dir: string, source: AgentProfile['source']): AgentProfile
         try {
             const raw = readFileSync(join(dir, file), 'utf-8');
             const def = JSON.parse(raw) as AgentFileDefinition;
+            // The file is data from disk: a profile needs these to be usable, and a wrong shape must not reach the registry.
+            if (typeof def !== 'object' || def === null || typeof def.id !== 'string' || def.id === ''
+                || !Array.isArray(def.allowedTools) || !def.allowedTools.every(t => typeof t === 'string')) {
+                console.warn(`[AgentLoader] "${file}" is not a valid agent definition (needs a string "id" and an "allowedTools" array of strings) — skipped`);
+                continue;
+            }
 
             // .md overrides systemPrompt (and optionally profile fields) from json
             const mdPath = join(dir, `${basename(file, '.json')}.md`);
@@ -190,6 +197,7 @@ export class AgentLoader {
         const appName = opts.appName ?? 'bk-agent';
         const cwd     = opts.cwd ?? process.cwd();
         const scope   = opts.scope ?? 'project';
+        assertSafeFileName('agent id', agentId); // it becomes a file name: it must not leave the agents directory
         const dir     = scope === 'global'
             ? join(getFrameworkDir(appName), 'agents')
             : join(cwd, `.${appName}`, 'agents');

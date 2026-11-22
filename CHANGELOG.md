@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.49.15 (2026-11-22)
+
+Primera tanda de la cuarta pasada de auditoría (`document-extract`, `aval-tools`, `AgentLoader`). Ninguna cambia una API: llegan como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `document-extract` | 0.1.13 | `read_document` no sigue enlaces fuera del directorio; imágenes y páginas gigantes se rechazan antes de reservar memoria |
+| `aval-tools` | 0.1.27 | los fallos de red y los 5xx ahora se reintentan y se leen bien; el cuerpo de la respuesta también tiene timeout |
+| `agent-coding` | 0.32.11 | `AgentLoader` valida los agentes del disco y `scaffold` rechaza ids con ruta |
+
+Se publican tres. Tags: `document-extract@0.1.13`, `aval-tools@0.1.27`, `agent-coding@0.32.11`.
+
+- **`aval-tools`, nunca reintentaba:** el cliente lanzaba objetos sueltos y `retry` los envolvía, así que `retryIf` no reconocía ninguno: un 5xx o un fallo de red se intentaba una sola vez, y el agente recibía el mensaje `[object Object]`. Ahora lanza `Error` reales marcados como transitorios: se reintentan (3 intentos por defecto) y el mensaje se lee. Además, el timeout dejaba de contar al llegar las cabeceras: un servidor que enviaba cabeceras y se quedaba parado colgaba la herramienta; ahora el timer cubre la lectura del cuerpo. Una credencial vacía cuenta como ausente, y una respuesta inesperada se corta a 300 caracteres antes de llegar al modelo.
+- **`document-extract`, enlaces:** la comprobación por defecto de `read_document` era léxica: un enlace dentro del directorio de trabajo que apuntaba fuera pasaba. Ahora se resuelve el destino real. Con OCR, una imagen de un PDF o una página que se dibujaría a un tamaño mayor que `maxPixels` se rechaza antes de construir el PNG o el canvas.
+- **`agent-coding`, `AgentLoader`:** un `.json` de agente con forma mala (sin `allowedTools`, `null`, sin `id`) llegaba al registro; ahora se avisa y se omite. `scaffold('../../x')` escribía fuera del directorio de agentes; ahora se rechaza.
+
+Límite conocido, sin cambio: `document-extract` juzga los tamaños que el ZIP declara; un ZIP que miente en su cabecera se descomprime en las librerías (`mammoth`, `read-excel-file`), que no ofrecen un tope real.
+
 ## v0.49.14 (2026-11-22)
 
 Los hallazgos menores de la tercera pasada de auditoría. Ninguno cambia una API: llegan como parche.

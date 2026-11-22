@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, realpathSync, statSync } from 'fs';
 import { isAbsolute, relative, resolve } from 'path';
 import { defineTool, z } from '@backendkit-labs/agent-core';
 import { extractDocument } from './extract';
@@ -25,7 +25,10 @@ function within(root: string, path: string): boolean {
 function defaultResolve(requested: string, ctx: { workingDir?: string; additionalRoots?: string[] }): string {
     const cwd = ctx.workingDir ?? process.cwd();
     const abs = resolve(cwd, requested);
-    if ([cwd, ...(ctx.additionalRoots ?? [])].some(root => within(root, abs))) return abs;
+    // Judge where the path really lands: a link inside the working directory may point outside it.
+    const real = (p: string): string => { try { return realpathSync.native(p); } catch { return p; } };
+    const target = real(abs);
+    if ([cwd, ...(ctx.additionalRoots ?? [])].some(root => within(real(root), target))) return abs;
     throw new Error(`Access denied: "${requested}" is outside the working directory.`);
 }
 

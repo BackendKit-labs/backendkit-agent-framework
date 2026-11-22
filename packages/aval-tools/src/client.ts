@@ -34,6 +34,11 @@ export interface AvalResponse<T> {
  * can act on, not transport failures. Only network errors and 5xx retry; only
  * those, and a response body that isn't JSON, throw.
  */
+/** An error worth retrying (network failure, timeout, 5xx). Real Errors: a thrown plain object loses its message in `retry`. */
+function transient(message: string): Error {
+    return Object.assign(new Error(message), { transient: true });
+}
+
 export async function avalRequest<T>(
     config: AvalToolsConfig,
     token: string,
@@ -59,31 +64,34 @@ export async function avalRequest<T>(
                 ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
             });
         } catch (err) {
+            clearTimeout(timer);
             const aborted = err instanceof Error && err.name === 'AbortError';
-            // eslint-disable-next-line @typescript-eslint/no-throw-literal
-            throw {
-                type: 'network',
-                message: aborted
-                    ? `AVAL ${method} ${path} → timed out after ${timeoutMs}ms`
-                    : `AVAL ${method} ${path} → network error: ${(err as Error).message}`,
-            };
+            throw transient(aborted
+                ? `AVAL ${method} ${path} → timed out after ${timeoutMs}ms`
+                : `AVAL ${method} ${path} → network error: ${(err as Error).message}`);
+        }
+
+        // The timer keeps running while the body is read: a server that sends headers and then stalls must not hang the tool.
+        try {
+            if (res.status >= 500) {
+                throw transient(`AVAL ${method} ${path} → ${res.status}`);
+            }
+
+            const json = (await res.json().catch(() => undefined)) as T | undefined;
+            if (json === undefined && controller.signal.aborted) {
+                throw transient(`AVAL ${method} ${path} → timed out after ${timeoutMs}ms reading the response`);
+            }
+            return { status: res.status, ok: res.ok, body: (json ?? {}) as T };
         } finally {
             clearTimeout(timer);
         }
-
-        if (res.status >= 500) {
-            // eslint-disable-next-line @typescript-eslint/no-throw-literal
-            throw { type: 'http', status: res.status, message: `AVAL ${method} ${path} → ${res.status}` };
-        }
-
-        const json = (await res.json().catch(() => ({}))) as T;
-        return { status: res.status, ok: res.ok, body: json };
     };
 
     const result = await retry(attempt, {
         maxAttempts: config.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
         backoff: { type: 'exponential', baseDelay: 500, maxDelay: 4_000, jitter: 'full' },
-        retryIf: (e: { type: string }) => e.type === 'network' || e.type === 'http',
+        // `retry` hands retryIf its own wrapper of what was thrown: the original error is in `cause`.
+        retryIf: (e: { cause?: unknown }) => (e.cause as { transient?: boolean } | undefined)?.transient === true,
     });
 
     if (!result.ok) throw new Error(result.error.message);
@@ -92,5 +100,11 @@ export async function avalRequest<T>(
 
 /** Reads this agent's AVAL credential from its own secrets, never a shared env var. */
 export function avalKey(config: AvalToolsConfig, secrets: Record<string, string> | undefined): string | null {
-    return secrets?.[config.secretName ?? 'AVAL_KEY'] ?? null;
+    return secrets?.[config.secretName ?? 'AVAL_KEY'] || null; // an empty value is no credential
+}
+
+/** What to tell the model when AVAL answers with something this tool does not understand: bounded, never the whole body. */
+export function describeUnexpected(status: number, body: { error?: string }): string {
+    const what = body.error ?? JSON.stringify(body) ?? '';
+    return `respuesta inesperada de AVAL (${status}): ${what.length > 300 ? `${what.slice(0, 300)}…` : what}`;
 }

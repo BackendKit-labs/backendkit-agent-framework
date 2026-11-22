@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { defineTool, z } from '@backendkit-labs/agent-core';
-import { avalKey, avalRequest, type AvalToolsConfig } from './client';
+import { avalKey, avalRequest, describeUnexpected, type AvalToolsConfig } from './client';
 
 const USD_PER_UNIT = 1_000_000;
 
@@ -118,10 +118,10 @@ export function createPayTool(config: AvalToolsConfig) {
                     `Reintenta en ${body.retryAfterSeconds ?? '?'} s. ${body.error ?? ''}`.trim();
             }
             if (status === 401 || status === 403) {
-                return `Error de credencial: ${body.error}`;
+                return `Error de credencial: ${body.error ?? `HTTP ${status}`}`;
             }
             if (!body.decision) {
-                return `Error: respuesta inesperada de AVAL (${status}): ${body.error ?? JSON.stringify(body)}`;
+                return `Error: ${describeUnexpected(status, body)}`;
             }
 
             const warning = body.credential?.warning ? `\nAviso de credencial: ${body.credential.warning}` : '';

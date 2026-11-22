@@ -12,7 +12,7 @@
  * checks the anchors against the places the VERIFIER trusts.
  */
 import { verify as edVerify, type KeyObject } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GENESIS_HASH, verifyAuditChain, type ChainedAuditEntry } from './audit';
 import { asPublicKey, checkpointMessage, readCheckpoints, type AuditCheckpoint, type KeyInput } from './audit-checkpoint';
@@ -40,10 +40,15 @@ export interface BundleManifest {
 export function exportAuditBundle(options: {
     log: string; checkpoints: string; publicKeys: Record<string, KeyInput>; outDir: string; anchors?: string; now?: () => Date;
 }): BundleManifest {
-    const chain = verifyAuditChain(options.log);
-    if (!chain.ok) throw new Error(`the log is not intact at entry ${chain.brokenAt}: ${chain.reason}. A broken log is not exported.`);
     mkdirSync(options.outDir, { recursive: true });
+    // One read: the copy is what gets verified and described, so a writer appending meanwhile cannot make the manifest disagree with it.
     const log = existsSync(options.log) ? readFileSync(options.log, 'utf8') : '';
+    writeFileSync(join(options.outDir, 'audit.ndjson'), log);
+    const chain = verifyAuditChain(join(options.outDir, 'audit.ndjson'));
+    if (!chain.ok) {
+        rmSync(join(options.outDir, 'audit.ndjson'), { force: true });
+        throw new Error(`the log is not intact at entry ${chain.brokenAt}: ${chain.reason}. A broken log is not exported.`);
+    }
     const checkpoints = existsSync(options.checkpoints) ? readFileSync(options.checkpoints, 'utf8') : '';
     const anchors = options.anchors && existsSync(options.anchors) ? readFileSync(options.anchors, 'utf8') : '';
     const keys: Record<string, string> = {};
@@ -53,7 +58,6 @@ export function exportAuditBundle(options: {
         checkpoints: checkpoints.split('\n').filter(l => l.length > 0).length,
         ...(anchors ? { anchors: anchors.split('\n').filter(l => l.length > 0).length } : {}),
     };
-    writeFileSync(join(options.outDir, 'audit.ndjson'), log);
     writeFileSync(join(options.outDir, 'checkpoints.ndjson'), checkpoints);
     if (anchors) writeFileSync(join(options.outDir, 'anchors.ndjson'), anchors);
     writeFileSync(join(options.outDir, 'keys.json'), `${JSON.stringify(keys, null, 2)}\n`);
@@ -109,6 +113,12 @@ export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<s
     const chain = verifyAuditChain(file('audit.ndjson'));
     if (!chain.ok) return { ok: false, reason: `the log is not intact at entry ${chain.brokenAt}: ${chain.reason}`, at: chain.brokenAt };
 
+    // The manifest is the operator's description of the log, not evidence: a mismatch is told, and the checkpoints and anchors
+    // below still give the precise answer about what was cut.
+    const manifestMismatch = manifest.entries !== chain.entries || manifest.head !== chain.head
+        ? `manifest.json says ${String(manifest.entries)} entries ending in ${String(manifest.head).slice(0, 12)}, but the log has ${chain.entries} ending in ${chain.head.slice(0, 12)}`
+        : undefined;
+
     let checkpoints: AuditCheckpoint[];
     try { checkpoints = readCheckpoints(file('checkpoints.ndjson')); } catch { return { ok: false, reason: 'checkpoints.ndjson has a line that is not valid JSON' }; }
 
@@ -148,6 +158,7 @@ export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<s
     if (typeof records === 'string') return { ok: false, reason: records };
 
     const warnings: string[] = [];
+    if (manifestMismatch) warnings.push(manifestMismatch);
     if (checkpoints.length === 0) warnings.push('the bundle has no checkpoints: only the hash chain was checked');
     if (keySource === 'bundle' && checkpoints.length > 0) warnings.push('checked against the keys inside the bundle: pass the public keys you trust (trustedKeys) to know who signed');
     if (chain.entries > lastSeq) warnings.push(`${chain.entries - lastSeq} entries after the last checkpoint are not covered by any signature`);

@@ -12,10 +12,19 @@ export interface AuditRecord {
 }
 
 export class AuditLogger {
+    private warned = false;
+
     constructor(private readonly auditLog: string | undefined) {
         if (auditLog) {
-            try { mkdirSync(dirname(auditLog), { recursive: true }); } catch {}
+            try { mkdirSync(dirname(auditLog), { recursive: true }); } catch (err) { this.report(err); }
         }
+    }
+
+    /** Said once: a log that cannot be written must not fail silently, and must not flood either. */
+    private report(err: unknown): void {
+        if (this.warned) return;
+        this.warned = true;
+        console.warn(`[AuditLogger] cannot write ${this.auditLog}: ${err instanceof Error ? err.message : String(err)}. Audit records are being lost.`);
     }
 
     async log(record: AuditRecord): Promise<void> {
@@ -29,6 +38,6 @@ export class AuditLogger {
             success:     record.success,
             durationMs:  record.durationMs,
         });
-        await appendFile(this.auditLog, line + '\n').catch(() => undefined);
+        await appendFile(this.auditLog, line + '\n').catch((err: unknown) => this.report(err));
     }
 }

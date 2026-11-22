@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { link, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ApprovalOutcome, ApprovalRequest, ApprovalStatus, ApprovalStore, StoredApproval } from './types';
 
@@ -66,7 +66,8 @@ export class FileApprovalStore implements ApprovalStore {
         const out: StoredApproval[] = [];
         for (const name of names) {
             if (!name.endsWith('.request.json')) continue;
-            const item = await this.get(name.slice(0, -'.request.json'.length));
+            let item: StoredApproval | undefined;
+            try { item = await this.get(name.slice(0, -'.request.json'.length)); } catch { continue; }     // one corrupt file does not hide the rest
             if (!item) continue;
             if (filter.status && item.status !== filter.status) continue;
             if (filter.agentId && item.principal.agentId !== filter.agentId) continue;
@@ -86,13 +87,30 @@ export class FileApprovalStore implements ApprovalStore {
     }
 
     private async readJson<T>(path: string): Promise<T | undefined> {
-        try { return JSON.parse(await readFile(path, 'utf8')) as T; } catch { return undefined; }
+        let text: string;
+        try { text = await readFile(path, 'utf8'); } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+            throw err;
+        }
+        try { return JSON.parse(text) as T; } catch { throw new Error(`approval file ${path} is corrupt (not valid JSON)`); }
+    }
+
+    /** A crash between the write and the link leaves a temporary file: remove the ones nobody can still be using (over an hour old). */
+    private async sweepTemp(): Promise<void> {
+        try {
+            for (const name of await readdir(this.dir)) {
+                if (!name.startsWith('.') || !name.endsWith('.tmp')) continue;
+                const path = join(this.dir, name);
+                const info = await stat(path).catch(() => undefined);
+                if (info && Date.now() - info.mtimeMs > 3_600_000) await unlink(path).catch(() => undefined);
+            }
+        } catch { /* a sweep that fails costs nothing: the files stay */ }
     }
 
     /** Write to a unique temporary file, then hard-link it under the final name (fails if it exists). */
     private async publish(id: string, suffix: string, content: string, existsMessage: string): Promise<void> {
         this.checkId(id);
-        this.ready ??= mkdir(this.dir, { recursive: true });
+        this.ready ??= mkdir(this.dir, { recursive: true }).then(() => this.sweepTemp());
         await this.ready;
         const target = this.file(id, suffix);
         const tmp = join(this.dir, `.${id}.${suffix}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);

@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
 import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition, type ToolSearchOptions } from './toolSearch';
 import { agentCouldPerform, combineDecisions, declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
-import { approvalProblem, approverAuthority, approverFromCallback, type CallbackApprover } from '../governance/approval';
+import { approvalProblem, approverAuthority, approverFromCallback, previewArgs, type CallbackApprover } from '../governance/approval';
 import { DEFAULT_MAX_HOOK_CONTINUES, runHooks, type ContinueTurn, type EngineHooks, type RunContext } from '../governance/hooks';
 import type {
     ApprovalRequest,
@@ -174,6 +174,11 @@ export interface AgentEngineOptions extends EngineOptions {
     /** Seconds a stored request lives before an approval of it is not run. Default: it does not expire (SPEC-0042 F3). */
     approvalTtlSeconds?: number;
     /**
+     * Milliseconds a live approver (`approver`) has to answer. Past that the call is denied. Without it an approver that never
+     * answers holds every other approval of the engine behind it. Default: no limit.
+     */
+    approverTimeoutMs?: number;
+    /**
      * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
      * the call did not run (resubmission, SPEC-0014 §6).
      */
@@ -321,6 +326,9 @@ export class AgentEngine {
     constructor(private readonly opts: AgentEngineOptions) {
         if (opts.approvalTtlSeconds !== undefined && !(Number.isFinite(opts.approvalTtlSeconds) && opts.approvalTtlSeconds > 0)) {
             throw new Error('approvalTtlSeconds must be a positive number of seconds');
+        }
+        if (opts.approverTimeoutMs !== undefined && !(Number.isFinite(opts.approverTimeoutMs) && opts.approverTimeoutMs > 0)) {
+            throw new Error('approverTimeoutMs must be a positive number of milliseconds');
         }
         this.transport = {
             emit: (event) => { this.recorder?.push(event); opts.transport.emit(event); },
@@ -1853,6 +1861,14 @@ export class AgentEngine {
         tool: ToolDefinition, rawArgs: string, principal: Principal, sandboxDecisions: AuditSandboxDecision[],
         approved?: ToolCall['approved'],
     ): Promise<GovernedVerdict> {
+        // Arguments that are valid JSON but not an object would reach the policies as `{}`: refuse them instead.
+        try {
+            const parsed = JSON.parse(rawArgs) as unknown;
+            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                const reason = 'the arguments are not a JSON object';
+                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" denied: ${reason}` };
+            }
+        } catch { /* not JSON at all: the tool reports it when it runs */ }
         // `approved` is never taken from what the model sent: only `runApproved`, which holds a stored approval, sets it.
         const call: ToolCall = { tool, args: this.parseArgs(rawArgs), ...(approved ? { approved } : {}) };
         const sandboxAsk = this.opts.sandbox?.approvalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool.name) === 'ask';
@@ -1977,14 +1993,23 @@ export class AgentEngine {
         if (this.approver) {
             this.transport.emit({
                 type: 'tool_approval_request', tool_name: name, agent_id: principal.agentId,
-                args_preview: JSON.stringify(call.args).slice(0, 200),
+                args_preview: previewArgs(JSON.stringify(call.args)).text,
             });
             let answer;
+            let waitTimer: ReturnType<typeof setTimeout> | undefined;
             try {
-                answer = await this.approver.request(request);
+                const waitMs = this.opts.approverTimeoutMs;
+                answer = waitMs === undefined
+                    ? await this.approver.request(request)
+                    : await Promise.race([
+                        this.approver.request(request),
+                        new Promise<never>((_, reject) => { waitTimer = setTimeout(() => reject(new Error(`it did not answer in ${waitMs}ms`)), waitMs); }),
+                    ]);
             } catch (err) {
                 const reason = `the approver failed: ${err instanceof Error ? err.message : String(err)}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
+            } finally {
+                clearTimeout(waitTimer);
             }
             if (answer.decision !== 'approve') {
                 return {
@@ -2092,7 +2117,7 @@ export class AgentEngine {
                 new Promise<void>((resolve) => { graceTimer = setTimeout(resolve, graceMs); }),
             ]);
             return first === 'timeout'
-                ? { result: `Error: TOOL_TIMEOUT: tool "${call.name}" exceeded ${timeoutMs}ms`, success: false, outcome: 'timeout' }
+                ? { result: `Error: TOOL_TIMEOUT: tool "${call.name}" exceeded ${timeoutMs}ms${toolDef.readOnly ? '' : '. It may still be running and its effect may still happen: check before trying it again.'}`, success: false, outcome: 'timeout' }
                 : { result: `Error: aborted: tool "${call.name}" was cancelled`, success: false, outcome: 'aborted' };
         } finally {
             clearTimeout(timer);

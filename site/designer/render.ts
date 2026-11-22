@@ -407,3 +407,19 @@ export function renderSkeleton(spec: DesignSpec, options: { stubs?: 'throw' | 'e
 
     return files;
 }
+
+/** A code fence longer than any run of backticks in the code, so what the model wrote inside it cannot close it. */
+const fenceFor = (content: string): string => {
+    const longest = Math.max(0, ...(content.match(/`+/g) ?? []).map(run => run.length));
+    return '`'.repeat(Math.max(3, longest + 1));
+};
+
+/** The document of {@link renderMarkdown} with the skeleton as an appendix: one file to download that has everything. */
+export function renderFullDocument(spec: DesignSpec, warnings: Issue[] = []): string {
+    const out: string[] = [renderMarkdown(spec, warnings).trimEnd(), '', '## Skeleton', '', 'A starting point, not finished code: each tool is a stub that throws until you implement it.', ''];
+    for (const f of renderSkeleton(spec)) {
+        const fence = fenceFor(f.content);
+        out.push(`### \`${f.path}\``, '', `${fence}ts`, f.content.trimEnd(), fence, '');
+    }
+    return `${out.join('\n')}\n`;
+}

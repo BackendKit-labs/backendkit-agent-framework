@@ -1,7 +1,7 @@
 # SPEC-0040: diseñador de agentes en la web (de una tarea al diseño y a los pasos para construirlo)
 
 **Fecha:** 2026-11-19
-**Estado:** Borrador. **F0 hecha (2026-11-21)**, ver §3-bis. F1 a F3 sin hacer.
+**Estado:** Borrador. **F0 hecha** y **F1 implementada (2026-11-21), con su criterio de hecho sin cumplir:** falta la prueba en vivo (§3-ter). F2 y F3 sin hacer.
 **Origen:** idea del autor (2026-11-19): que un visitante de la web escriba una tarea cualquiera ("diseña un agente que haga esto") y reciba el **diseño** del agente y **cómo construirlo con el framework**, con opción de descargarlo. No entrega el agente creado.
 **Depende de:** la web (`site/`, Astro + Starlight en Vercel, estática), los esquemas con zod del framework y las guías ya escritas (`site/src/content/docs`).
 **Tipo de cambio:** una herramienta de la web. Sin cambios en `agent-core`. Si el esquema de la especificación se quiere reutilizar fuera de la web, se estudia en la F3 (§6).
@@ -75,6 +75,23 @@ Si el modelo devuelve algo inválido, se le devuelve el error una vez; si falla 
 | Mistral | 200 | `*` |
 
 **Qué no prueba:** solo la verificación previa. No se hizo la petición real porque requiere una clave, así que falta confirmar que la **respuesta** (y la de streaming) también lleva la cabecera, y qué dice cada proveedor de usar la clave desde un navegador. Hasta la F1, un proveedor es "probable", no "verificado". Anthropic exige además una cabecera con "dangerous" en el nombre: la página tiene que decirle al visitante por qué.
+## 3-ter. Resultado de la F1 (2026-11-21)
+
+**Qué hay:** la página `/start/agent-designer/` (en "Start here") y, en `site/designer/`: `prompt.ts` (qué se le dice al modelo), `generate.ts` (de una tarea a un diseño validado, con una llamada y como mucho una corrección), `providers.ts` (la petición a DeepSeek con la clave del visitante), `markdown.ts` (de Markdown a HTML seguro) y `live.test.ts` (la prueba con un modelo real, opcional). `site/` pasa a depender de `zod`. Se añadió `renderFullDocument`: el documento con el esqueleto como apéndice, para que **una sola descarga** lo tenga todo.
+
+**Cómo se ve la página:** una tarea (hasta 2000 caracteres), la clave, y un botón que no se activa sin las dos. Dice con claridad adónde va la clave (solo a `api.deepseek.com`, y solo en la cabecera `Authorization`), que no se guarda y que el texto de la tarea también va a DeepSeek. Sin clave, la página explica qué se obtiene, cómo se confía en ello y muestra **un diseño de ejemplo** hecho a mano, así que sirve sin gastar nada. El resultado trae los avisos "léelos primero", dos descargas (`.md` con el esqueleto y `.json` con la especificación) y el documento. Un fallo del proveedor se muestra tal cual, en palabras para el visitante y sin la clave.
+
+**Qué se prueba (52 pruebas nuevas, 121 en total, sin modelo ni red):**
+
+- **`generate`:** una respuesta buena (con o sin ```` ```json ````, con texto alrededor); una refutada se **corrige una sola vez** y la corrección lleva la respuesta anterior y cada problema con su código y su lugar; refutada dos veces se informa y **no se pregunta una tercera**; un fallo del proveedor se informa tal cual y **no se reintenta** (ni en la primera llamada ni en la corrección); el uso de tokens se suma; una tarea demasiado corta o larga no llega al modelo.
+- **La tarea es un dato:** va entre etiquetas `<task>` en el mensaje del usuario, nunca en el del sistema, y no puede cerrar su propia etiqueta. El prompt le dice que si la tarea trae instrucciones para él no las siga. Una mutación que quita la protección hace fallar la prueba.
+- **El prompt no se desvía del esquema:** el esquema del prompt se genera del mismo zod que valida la respuesta, y la guía a mano nombra cada capacidad del esquema y **no nombra nada que el esquema no tenga**. (Se desvía de D4: la guía es a mano y no se genera de las páginas en la compilación; esta prueba es lo que la mantiene honrada.)
+- **`providers`:** la petición va a un solo host, con la clave **solo** en `Authorization` (recortada; nunca en la URL ni en el cuerpo; una mutación que la pone en la URL hace fallar la prueba), pide un objeto JSON sin "thinking", y no envía credenciales ni `Referer`. Los errores 401, 402, 403, 429, 5xx y 400 se cuentan en claro y **sin la clave**, sin reintentos; una red caída, un tiempo agotado, una respuesta cortada por el límite de tokens, vacía o que no es JSON, tampoco se aceptan como diseño.
+- **HTML seguro:** solo las etiquetas y atributos que escribe el propio archivo; todo texto se escapa antes de añadir marcado; un enlace se conserva **solo si apunta a estas docs** (cualquier otro queda como texto); el diseño hostil no deja pasar un `<script>`, un `javascript:`, un encabezado ni una celda rota. Una mutación que permite cualquier enlace hace fallar la prueba.
+
+**La interfaz, comprobada en un navegador** (compilada y servida en local, con la respuesta del proveedor **simulada**: no salió ninguna petición): el botón solo se activa con tarea y clave; una petición a `https://api.deepseek.com/chat/completions` con la clave en la cabecera y no en la URL; el diseño se muestra con sus secciones, los avisos y el apéndice con los cinco archivos; las dos descargas dan `agent-design.md` (con el esqueleto) y `agent-design.json`; un 401 se muestra en claro y deja volver a intentarlo.
+
+**Lo que falta, y por qué no es "hecha":** el criterio de la F1 pide que, **con un proveedor real, 5 tareas distintas den un diseño válido**. No se pudo: la prueba en vivo (`DESIGNER_LIVE=1 node --test site/designer/live.test.ts`, 5 tareas y una que intenta tomar el control del modelo) llegó a DeepSeek, que aceptó la clave pero respondió **402, sin saldo**. Eso confirma dos cosas (la petición llega y la clave se acepta, y el 402 se cuenta en claro) pero **no dice nada de si el modelo devuelve diseños válidos**. Tampoco se ha comprobado la petición real **desde un navegador** (CORS de la respuesta): la de Node no pasa por CORS. Hasta recargar el saldo y ejecutar esa prueba, **no se sabe** qué proporción de diseños pasa a la primera, cuántos necesitan la corrección ni cuánto cuesta cada uno. El prompt puede necesitar ajustes cuando se vea.
 ## 4. Riesgos y cómo se tratan
 
 - **Diseño que no compila:** el esqueleto de código sale de plantillas. En CI se compila cada plantilla contra los paquetes publicados, de modo que un cambio de API rompe la compilación y no al visitante.
@@ -88,7 +105,7 @@ Si el modelo devuelve algo inválido, se le devuelve el error una vez; si falla 
 | Fase | Qué | Criterio de hecho |
 |---|---|---|
 | **F0** | **Hecha.** Esquema de la especificación, validaciones y plantillas (documento y esqueleto), probados con especificaciones escritas a mano, **sin modelo**. Averiguar qué proveedores aceptan llamadas directas desde el navegador (CORS). | Las plantillas compilan en CI contra los paquetes publicados. Hay una lista verificada de proveedores utilizables desde el navegador. Ver §3-bis: las plantillas compilan en CI y sus pruebas pasan con el motor real; la lista de CORS es de la verificación previa, no de la petición real. |
-| **F1** | Página en la web: descripción de la tarea, clave del usuario, un proveedor, validación con un reintento, vista del diseño y descarga (Markdown y JSON). | Con un proveedor real, 5 tareas distintas dan un diseño válido. Sin clave, la página lo explica. |
+| **F1** | **Implementada, sin cumplir el criterio.** Página en la web: descripción de la tarea, clave del usuario, un proveedor, validación con un reintento, vista del diseño y descarga (Markdown y JSON). | Con un proveedor real, 5 tareas distintas dan un diseño válido. Sin clave, la página lo explica. Ver §3-ter: falta la prueba con un modelo real (DeepSeek respondió 402, sin saldo). |
 | **F2** | Calidad: casos con propiedades esperadas (una tarea con pagos produce una tool `destructive` y una aprobación; una consulta pura no pide aprobación) y medición con el proveedor real. Más proveedores. | Los casos pasan de forma repetible, y el informe dice con qué modelos se midió. |
 | **F3** | Decisión: versión alojada con clave del proyecto y límites, y si la especificación se publica como parte de `agent-core` o de un paquete. | Lo decide el autor con datos de uso de la F1 y F2. No se crea ningún paquete sin consulta. |
 

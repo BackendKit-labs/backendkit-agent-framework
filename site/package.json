@@ -13,6 +13,7 @@
     "@astrojs/starlight": "^0.43.1",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
-    "astro": "^7.4.12"
+    "astro": "^7.4.12",
+    "zod": "^4.6.7"
   }
 }

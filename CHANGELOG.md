@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.12 (2026-11-22)
+
+Mismo arreglo que `aval-tools` en la 0.49.11, ahora para `document-extract`. No cambia ninguna API: llega como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `document-extract` | 0.1.12 | `agent-core` pasa a `peerDependencies` |
+
+Se publica uno. Tag: `document-extract@0.1.12`.
+
+- **`document-extract`, dos copias de `agent-core`:** declaraba `agent-core` como dependencia, así que una app con otra versión de `agent-core` recibía una segunda copia anidada, con tipos incompatibles (`ToolDefinition`) y dos copias del framework en ejecución. Ahora es `peerDependency` (`>=0.48.0 <0.49.0`). Si tu app usa un `agent-core` anterior a 0.48, súbelo.
+
 ## v0.49.11 (2026-11-22)
 
 Dos arreglos que salieron de llevar un agente real (`aval-scheduler`, ahora en `examples/`) a las versiones actuales. Ninguno cambia una API: llegan como parche.

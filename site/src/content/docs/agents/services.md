@@ -56,10 +56,34 @@ If you do not want a model between the caller and the tool, `createToolServer` e
 
 `AgentServer` publishes an agent's capabilities, `AgentClient` calls them with retries and a circuit breaker, and a control surface lets a supervisor **pause, drain, budget, audit and steer** an agent and its [flows](../../guides/let-a-model-supervise-flows/).
 
+A complete one, with a token. Without `authToken` the server listens only on loopback; with it, it can listen elsewhere, and every request must carry it:
+
+```ts
+import { AgentMCPServer } from '@backendkit-labs/mcp-server';
+import { z } from 'zod';
+
+const server = new AgentMCPServer({
+  name: 'git-analyst',
+  version: '1.0.0',
+  host: '0.0.0.0',
+  port: 3010,
+  authToken: process.env.MCP_TOKEN!,        // clients send  Authorization: Bearer <token>
+  engineFactory,                             // builds the engine that answers each call
+  tools: [{
+    name: 'git_summarize',
+    description: 'Summarize recent git commits',
+    schema: { max_commits: z.number().optional() },
+    buildPrompt: ({ max_commits }) => `Run: git log --oneline -${max_commits ?? 20}\nThen summarize by Features, Bug Fixes, Chores.`,
+  }],
+});
+await server.start();
+```
+
 ## Before you expose one
 
 - A direct tool skips the engine's gates: give the server an `authorize` function, and require it for destructive tools (the server refuses to start without one).
 - Bind to loopback unless you have a token. The HTTP servers refuse to listen elsewhere without authentication.
+- The HTTP servers read at most 1 MiB of request body (more is answered `413`), answer a malformed body `400` and never send an internal error message to the client: the detail goes to the server's log. The `Bearer` scheme is matched without regard to case, as the standard says; the token itself is compared exactly, in constant time.
 - Put a [budget](../../concepts/observability-and-cost/) on it: the examples read `AGENT_BUDGET_USD` to cap the spend of one call.
 
 Reference: [`agent-web`](../../packages/web/), [`agent-web-ui`](../../packages/web-ui/), [`mcp-server`](../../packages/mcp-server/), [`agent-protocol`](../../packages/agent-protocol/).

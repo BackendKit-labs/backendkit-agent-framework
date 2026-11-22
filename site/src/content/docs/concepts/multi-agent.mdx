@@ -21,6 +21,48 @@ const orchestrator: AgentProfile = {
 };
 ```
 
+A complete team, runnable offline. The specialist owns the tool; the orchestrator owns none and only decides who answers. One scripted model plays both agents, in the order they speak:
+
+```ts
+import { createBaseEngine, defineTool, z, type AgentProfile } from '@backendkit-labs/agent-core';
+import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
+
+const invoiceTotal = defineTool({
+  name: 'invoice_total', description: 'Total of an invoice', readOnly: true,
+  input: z.object({ invoiceId: z.string() }),
+  execute: async ({ invoiceId }) => `Invoice ${invoiceId}: 1,250.00 EUR`,
+});
+
+const billing: AgentProfile = {
+  id: 'billing', name: 'Billing', icon: '🧾', description: 'Answers questions about invoices',
+  systemPrompt: 'You answer questions about invoices. Use invoice_total.',
+  allowedTools: ['invoice_total'],
+};
+const orchestrator: AgentProfile = {
+  id: 'orchestrator', name: 'Orchestrator', icon: '🧭', description: 'Routes each request to a specialist',
+  systemPrompt: 'Route each request to the right specialist with ask_agent, then give the answer to the customer.',
+  allowedTools: [],
+  delegatesTo: ['billing'],
+};
+
+const engine = createBaseEngine({
+  providers: { mock: scriptedProvider([
+    { tool_calls: [{ id: 'a1', name: 'ask_agent', args: { agent_id: 'billing', question: 'What is the total of invoice INV-7?' } }] },
+    { tool_calls: [{ id: 'b1', name: 'invoice_total', args: { invoiceId: 'INV-7' } }] },
+    { content: 'The total is 1,250.00 EUR.' },                 // billing answers the orchestrator
+    { content: 'Invoice INV-7 comes to 1,250.00 EUR.' },        // the orchestrator answers the customer
+  ]) },
+  defaultProvider: 'mock', agents: [orchestrator, billing], defaultAgent: 'orchestrator',
+  tools: [invoiceTotal], transport: mockTransport().transport, workingDir: process.cwd(), iterationMode: 'auto',
+});
+
+const result = await engine.run('How much is invoice INV-7?');
+console.log(result.text);                                        // Invoice INV-7 comes to 1,250.00 EUR.
+console.log(result.toolCalls.map(c => `${c.name}:${c.success}`)); // [ 'invoice_total:true', 'ask_agent:true' ]
+```
+
+`result.toolCalls` includes the calls of the delegate: that is how a test proves the specialist, and not the orchestrator, did the work.
+
 - Delegation has a **depth limit** and a recorded **delegation chain**, so a loop of agents asking each other stops, and the policy knows who asked whom.
 - A delegation is a call like any other: a [policy](../governance/) can allow, ask or deny it.
 - Calls to `ask_agent` in the same turn can run in parallel.

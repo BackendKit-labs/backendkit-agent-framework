@@ -89,14 +89,15 @@ async function ocrPdfPages(pdf: PdfProxy, ocr: OcrOptions, signal?: AbortSignal)
     let confidenceSum = 0;
     const pages = Math.min(pdf.numPages, maxPages);
     const minSide = ocr.minImageSide ?? MIN_SCAN_SIDE;
+    const maxPixels = ocr.maxPixels ?? DEFAULT_OCR.maxPixels;
     let renderMissing = false;
     for (let p = 1; p <= pages; p++) {
-        const found = (await extractImages(pdf, p)).filter(i => i.width >= minSide && i.height >= minSide).slice(0, MAX_IMAGES_PER_PAGE);
+        const found = (await extractImages(pdf, p)).filter(i => i.width >= minSide && i.height >= minSide && i.width * i.height <= maxPixels).slice(0, MAX_IMAGES_PER_PAGE); // size judged BEFORE a PNG is built from it
         // A real scan is a picture per page; some PDFs (e.g. "Print to PDF" of bitmap text) draw the page as hundreds of tiny
         // pieces or as vectors. Those can only be read by drawing the page, which needs the optional @napi-rs/canvas.
         const pictures = found.map(i => encodePng(i.width, i.height, i.channels, i.data));
         if (!pictures.length) {
-            const drawn = await renderPage(pdf, p, ocr.renderScale ?? 2);
+            const drawn = await renderPage(pdf, p, ocr.renderScale ?? 2, maxPixels);
             if (drawn) pictures.push(drawn); else renderMissing = true;
         }
         const parts: string[] = [];
@@ -116,13 +117,16 @@ async function ocrPdfPages(pdf: PdfProxy, ocr: OcrOptions, signal?: AbortSignal)
 }
 
 /** The page drawn as a PNG, or undefined when the optional canvas package is not installed. */
-async function renderPage(pdf: PdfProxy, page: number, scale: number): Promise<Buffer | undefined> {
+async function renderPage(pdf: PdfProxy, page: number, scale: number, maxPixels: number): Promise<Buffer | undefined> {
     const { renderPageAsImage } = await import('unpdf');
     try {
         await import('@napi-rs/canvas');
     } catch {
         return undefined;
     }
+    // A page can declare a huge size: drawing it would allocate a canvas of that size. Refuse before drawing.
+    const viewport = (await pdf.getPage(page)).getViewport({ scale });
+    if (viewport.width * viewport.height > maxPixels) throw new DocumentExtractError('TOO_LARGE', `page ${page} would be drawn at ${Math.round(viewport.width)}x${Math.round(viewport.height)} pixels, limit ${maxPixels}`);
     return Buffer.from(await renderPageAsImage(pdf, page, { canvasImport: () => import('@napi-rs/canvas'), scale }));
 }
 

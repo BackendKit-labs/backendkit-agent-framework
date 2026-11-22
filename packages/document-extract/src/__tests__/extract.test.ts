@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from 'fflate';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, symlinkSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { extractDocument, DocumentExtractError, createReadDocumentTool, type DocumentErrorCode } from '../index';
@@ -181,6 +181,15 @@ describe('read_document tool', () => {
         writeFileSync(join(dir, 'scan.pdf'), pdf(['']));
         expect(await run(createReadDocumentTool(), 'scan.pdf')).toMatch(/^Error: NO_TEXT_LAYER\. /);
         expect(await run(createReadDocumentTool(), 'missing.pdf')).toMatch(/^Error: /);
+    });
+
+    it('does not follow a link inside the working directory to a file outside it', async () => {
+        const outside = mkdtempSync(join(tmpdir(), 'docx-out-'));
+        try {
+            writeFileSync(join(outside, 'secret.txt'), 'top secret');
+            try { symlinkSync(outside, join(dir, 'escape'), 'junction'); } catch { return; } // OS without link privileges
+            expect(await run(createReadDocumentTool(), 'escape/secret.txt')).toMatch(/Access denied/);
+        } finally { rmSync(outside, { recursive: true, force: true }); }
     });
 
     it('does not leave the working directory', async () => {

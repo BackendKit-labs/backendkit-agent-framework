@@ -1,5 +1,5 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
-import { avalKey, avalRequest, type AvalToolsConfig } from './client';
+import { avalKey, avalRequest, describeUnexpected, type AvalToolsConfig } from './client';
 
 const USD_PER_UNIT = 1_000_000;
 const usdFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
@@ -56,8 +56,8 @@ export function createHistoryTool(config: AvalToolsConfig) {
                 `/api/v1/history?limit=${limit ?? 20}`,
             );
 
-            if (status === 401 || status === 403) return `Error de credencial: ${body.error}`;
-            if (!body.entries) return `Error: respuesta inesperada de AVAL (${status}): ${body.error ?? JSON.stringify(body)}`;
+            if (status === 401 || status === 403) return `Error de credencial: ${body.error ?? `HTTP ${status}`}`;
+            if (!body.entries) return `Error: ${describeUnexpected(status, body)}`;
             if (body.entries.length === 0) return 'Sin historial todavía — este agente no tiene ninguna entrada en AVAL.';
 
             const lines = body.entries.map((e) => {

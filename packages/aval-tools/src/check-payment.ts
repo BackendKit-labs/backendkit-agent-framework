@@ -1,5 +1,5 @@
 import { defineTool, z } from '@backendkit-labs/agent-core';
-import { avalKey, avalRequest, type AvalToolsConfig } from './client';
+import { avalKey, avalRequest, describeUnexpected, type AvalToolsConfig } from './client';
 
 const USD_PER_UNIT = 1_000_000;
 const usdFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
@@ -57,12 +57,12 @@ export function createCheckPaymentTool(config: AvalToolsConfig) {
 
             if (status === 404) return `No existe ninguna autorización con id "${authorizationId}".`;
             if (status === 403) return `Esa autorización no pertenece a este agente.`;
-            if (status === 401) return `Error de credencial: ${body.error}`;
-            if (!body.state) return `Error: respuesta inesperada de AVAL (${status}): ${body.error ?? JSON.stringify(body)}`;
+            if (status === 401) return `Error de credencial: ${body.error ?? `HTTP ${status}`}`;
+            if (!body.state) return `Error: ${describeUnexpected(status, body)}`;
 
             const reasons = body.reasons?.length ? `\nMotivo: ${body.reasons.join(' ')}` : '';
             return (
-                `${authorizationId} → ${STATE_LABEL[body.state]}.\n` +
+                `${authorizationId} → ${STATE_LABEL[body.state] ?? `estado desconocido (${String(body.state).slice(0, 40)})`}.\n` +
                 `${formatUsd(body.amount)} · ${body.vendor}${body.rail ? ` · vía ${body.rail}` : ''} · ${body.purpose}` +
                 reasons
             );

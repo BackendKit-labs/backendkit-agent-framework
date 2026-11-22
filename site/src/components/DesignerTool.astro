@@ -1,0 +1,128 @@
+---
+// The agent designer (SPEC-0040 F1). Everything runs in the visitor's browser: the key goes from here to the provider and nowhere else,
+// and nothing is stored. The logic is in site/designer/ and is tested there; this file is the page around it.
+import { DEEPSEEK } from '../../designer/providers.ts';
+import { MAX_TASK_CHARS } from '../../designer/prompt.ts';
+---
+<div class="designer" data-max={MAX_TASK_CHARS} data-host={DEEPSEEK.host} data-provider={DEEPSEEK.name}>
+  <noscript><p class="designer-note">This tool needs JavaScript: it runs in your browser, with your key, and nothing goes through this site.</p></noscript>
+
+  <form class="designer-form" novalidate>
+    <label for="designer-task">What should the agent do?</label>
+    <textarea id="designer-task" rows="5" maxlength={MAX_TASK_CHARS} placeholder="For example: answer customers about their orders and refund them. Small refunds are routine; large ones need someone in finance, and not the person who asked."></textarea>
+    <p class="designer-count"><span id="designer-count">0</span> / {MAX_TASK_CHARS}</p>
+
+    <label for="designer-key">Your {DEEPSEEK.name} key</label>
+    <input id="designer-key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="sk-..." />
+    <p class="designer-privacy" id="designer-privacy">
+      The key goes from this page to <strong>{DEEPSEEK.host}</strong> and nowhere else. This page does not store it: close the tab and it is gone.
+      The text you write above goes to {DEEPSEEK.name} too, so do not paste secrets or customer data. {DEEPSEEK.name}'s terms apply.
+      You do not have a key? <a href={DEEPSEEK.keyUrl} target="_blank" rel="noopener noreferrer">Get one at {DEEPSEEK.name}</a>.
+    </p>
+
+    <button type="submit" id="designer-go" disabled>Design the agent</button>
+    <p id="designer-status" class="designer-status" role="status" aria-live="polite"></p>
+  </form>
+
+  <div id="designer-problem" class="designer-problem" role="alert" hidden></div>
+
+  <section id="designer-result" class="designer-result" hidden aria-labelledby="designer-result-title" tabindex="-1">
+    <h2 id="designer-result-title">Your design</h2>
+    <div id="designer-warnings" class="designer-warnings" hidden></div>
+    <p class="designer-actions">
+      <button type="button" id="designer-dl-md">Download the design (.md)</button>
+      <button type="button" id="designer-dl-json" class="secondary">Download the specification (.json)</button>
+    </p>
+    <p id="designer-meta" class="designer-meta"></p>
+    <article id="designer-doc" class="designer-doc"></article>
+  </section>
+</div>
+
+<script>
+  import { generateDesign } from '../../designer/generate.ts';
+  import { DEEPSEEK, openAiCompatible } from '../../designer/providers.ts';
+  import { markdownToHtml } from '../../designer/markdown.ts';
+
+  const root = document.querySelector<HTMLElement>('.designer');
+  if (root) {
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const task = $<HTMLTextAreaElement>('designer-task');
+    const key = $<HTMLInputElement>('designer-key');
+    const go = $<HTMLButtonElement>('designer-go');
+    const status = $('designer-status');
+    const problem = $('designer-problem');
+    const result = $('designer-result');
+    const doc = $('designer-doc');
+    const warnings = $('designer-warnings');
+    const meta = $('designer-meta');
+    const count = $('designer-count');
+    let busy = false;
+    let last: { markdown: string; spec: unknown } | undefined;
+
+    const sync = () => {
+      count.textContent = String(task.value.length);
+      go.disabled = busy || task.value.trim().length < 10 || key.value.trim().length === 0;
+    };
+    task.addEventListener('input', sync);
+    key.addEventListener('input', sync);
+    sync();
+
+    const download = (name: string, text: string, type: string) => {
+      const url = URL.createObjectURL(new Blob([text], { type }));
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    $('designer-dl-md').addEventListener('click', () => last && download('agent-design.md', last.markdown, 'text/markdown'));
+    $('designer-dl-json').addEventListener('click', () => last && download('agent-design.json', `${JSON.stringify(last.spec, null, 2)}\n`, 'application/json'));
+
+    const showProblem = (reason: string, problems?: string[]) => {
+      problem.replaceChildren();
+      const p = document.createElement('p');
+      p.textContent = reason;                      // textContent: what a provider or a model said is never HTML
+      problem.appendChild(p);
+      if (problems && problems.length > 0) {
+        const ul = document.createElement('ul');
+        for (const text of problems.slice(0, 8)) { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); }
+        problem.appendChild(ul);
+      }
+      problem.hidden = false;
+    };
+
+    document.querySelector('.designer-form')!.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (busy || go.disabled) return;
+      busy = true; sync();
+      problem.hidden = true; result.hidden = true; last = undefined;
+      status.textContent = `Asking ${DEEPSEEK.name}. This usually takes 20 to 60 seconds.`;
+      try {
+        const r = await generateDesign(task.value, openAiCompatible(DEEPSEEK, key.value));
+        if (!r.ok) {
+          showProblem(r.reason, r.problems);
+          status.textContent = '';
+          return;
+        }
+        last = { markdown: r.markdown, spec: r.spec };
+        doc.innerHTML = markdownToHtml(r.markdown);       // safe by construction: see site/designer/markdown.ts
+        warnings.replaceChildren();
+        if (r.warnings.length > 0) {
+          const h = document.createElement('p'); h.textContent = 'Read these first:'; warnings.appendChild(h);
+          const ul = document.createElement('ul');
+          for (const w of r.warnings) { const li = document.createElement('li'); li.textContent = w.message; ul.appendChild(li); }
+          warnings.appendChild(ul);
+        }
+        warnings.hidden = r.warnings.length === 0;
+        meta.textContent = `${r.attempts === 1 ? 'One answer' : 'One answer and one correction'} · ${r.usage.inputTokens + r.usage.outputTokens} tokens. A proposal for a person to review: it does not build the agent.`;
+        status.textContent = 'Done.';
+        result.hidden = false;
+        result.focus();
+      } catch (err) {
+        showProblem(err instanceof Error ? err.message : String(err));
+        status.textContent = '';
+      } finally {
+        busy = false; sync();
+      }
+    });
+  }
+</script>

@@ -1,0 +1,50 @@
+---
+title: Design an agent
+description: Describe a task and get the design of an agent and how to build it with the framework. It runs in your browser, with your own key.
+---
+import DesignerTool from '../../../components/DesignerTool.astro';
+import { markdownToHtml } from '../../../../designer/markdown.ts';
+import { renderMarkdown } from '../../../../designer/render.ts';
+import { validateDesign } from '../../../../designer/validate.ts';
+import refunds from '../../../../designer/fixtures/refunds.json';
+
+export const example = (() => {
+  const v = validateDesign(refunds);
+  return v.ok ? markdownToHtml(renderMarkdown(v.spec, v.warnings)) : '';
+})();
+
+Describe what you want an agent to do. You get a **design** to review (which agents, which tools and what each one is allowed to do, who has to approve what, how it is tested) and **a skeleton of code** to start building it with the framework.
+
+It does not build the agent, and it does not decide for you. The design is a proposal: a person has to read it, and the document lists what only a person can decide.
+
+<DesignerTool />
+
+## What you get
+
+- **The design**, as a document: agents, tools with what each one does (`read`, `write` or `destructive`), the rules in code outside the model, who may approve and for how long, whether the person who asked also approves, which credentials a tool needs, what the audit leaves, the cost budget and how it is tested.
+- **Decisions for a person**: every irreversible tool, every rule, and every risk that is not the model's to settle.
+- **A skeleton**: tools, agents, policy and engine written against the real API of the framework, with tests that assert what the design says. Each tool is a stub that fails until you write it.
+- **The specification** as JSON, to keep or to feed to something else.
+
+## How it works, and what to trust
+
+A model proposes a design in a fixed vocabulary of the framework, as data. Before you see anything, the proposal is checked: it has to fit the schema, and its pieces have to fit each other (a rule about a tool that exists, roles only with a directory of approvers, an expiry only with stored approvals). If it does not pass, the model gets the exact problems once, and if it still does not pass you are told, and nothing invented is shown.
+
+The document and the code do not come from the model. They come from templates that write the real API of the framework, so the model cannot invent a function that does not exist. Whatever the model wrote appears only as text or as a string.
+
+**What it cannot tell you:** whether the design is good for your case. Read the decisions and the warnings, and test it ([Test an agent](/guides/test-an-agent/)). The framework runs the rules; it does not choose them.
+
+## What the design looks like
+
+This is a design for a refund desk, written by hand, the way the tool writes them. It shows the shape: who may approve a large refund, four eyes, an expiry, a credential per call and a signed audit. Your result also includes the skeleton.
+
+<details class="designer-example">
+  <summary>See an example design</summary>
+  <article class="designer-doc" set:html={example} />
+</details>
+
+## Privacy
+
+- Your key and your text are sent from your browser to DeepSeek, over HTTPS, and to nothing else. This site never receives them.
+- The page does not store your key or your text. Close the tab and they are gone.
+- If you do not want to use your key on a web page, build the design by hand from [your first agent](/start/first-agent/) and [governing a payment tool](/guides/govern-a-payment-tool/).

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+coverage/
+*.tsbuildinfo
+
+# El JSON del origen de pagos programados (mock): datos locales, no código.
+.aval-scheduler/

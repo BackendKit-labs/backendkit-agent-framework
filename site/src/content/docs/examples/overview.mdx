@@ -5,7 +5,7 @@ description: Seven working agents chosen for what they teach, in the order to re
 
 import { Aside } from '@astrojs/starlight/components';
 
-Seven examples, chosen because each teaches one thing the others do not. All of them run on the current framework (**agent-core 0.45**), and each one has a script that checks it.
+Eight examples, chosen because each teaches one thing the others do not. All of them run on the current framework (**agent-core 0.48**), and each one has a script that checks it.
 
 ## Read them in this order
 
@@ -17,11 +17,12 @@ Each step adds one idea to the previous one.
 | 2 | [`git-agent`](../starters/#git-agent) | A real agent in a terminal: your own tools, a team with delegation, a read-only switch, a typed result, a budget | A model key |
 | 3 | [`git-analyst`](../starters/#git-analyst) | An agent **served over MCP** that other programs call | A model key |
 | 4 | [`vault-pilot`](../starters/#vault-pilot) | **Knowledge agents**: department agents answering from a shared vault, each limited to its own folders | A model key |
-| 5 | [`research-desk`](../research-desk/) | Several agents as a flow: parallel analysts, a decision, an approved action, **memory and learning** | A model key |
-| 6 | [`release-captain`](../release-captain/) | A **model that supervises flows**: several at once, and it cannot approve its own report | A model key |
-| 7 | [`audit-desk`](../audit-desk/) | Flows **across processes** against a real Redis, surviving a hard kill | Docker (for the Redis part) |
+| 5 | [`aval-scheduler`](../aval-scheduler/) | An **autonomous agent that spends money**: cron, webhook and an MCP data source, paying only through AVAL, and a test that proves it pays once | Node (a model key to run it for real) |
+| 6 | [`research-desk`](../research-desk/) | Several agents as a flow: parallel analysts, a decision, an approved action, **memory and learning** | A model key |
+| 7 | [`release-captain`](../release-captain/) | A **model that supervises flows**: several at once, and it cannot approve its own report | A model key |
+| 8 | [`audit-desk`](../audit-desk/) | Flows **across processes** against a real Redis, surviving a hard kill | Docker (for the Redis part) |
 
-Steps 1 to 4 are [starter examples](../starters/): small, in the monorepo. Steps 5 to 7 are the deep dives: larger programs, in the `agent-framework-examples` repository.
+Steps 1 to 5 are [starter examples](../starters/): small, in the monorepo. Steps 6 to 8 are the deep dives: larger programs, in the `agent-framework-examples` repository.
 
 ## What to read for what
 
@@ -30,6 +31,7 @@ Steps 1 to 4 are [starter examples](../starters/): small, in the monorepo. Steps
 | Tools and the engine | `git-agent` |
 | Serving an agent to others | `git-analyst` |
 | Agents over your own documents | `vault-pilot` |
+| An autonomous agent that pays, tested end to end | `aval-scheduler` |
 | Durable flows | `flows`, then `audit-desk` |
 | Governance and approvals | [Govern a payment tool](../../guides/govern-a-payment-tool/), then `release-captain` |
 | Memory and learning | `research-desk` |

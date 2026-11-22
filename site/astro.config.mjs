@@ -91,6 +91,7 @@ export default defineConfig({
                 { slug: 'examples/research-desk' },
                 { slug: 'examples/release-captain' },
                 { slug: 'examples/audit-desk' },
+                { slug: 'examples/aval-scheduler' },
               ],
             },
           ],

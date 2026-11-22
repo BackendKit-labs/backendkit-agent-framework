@@ -1,0 +1,76 @@
+import { createAutonomousAgent } from '@backendkit-labs/agent-core';
+import type { AutonomousAgent, AutonomousAgentOptions } from '@backendkit-labs/agent-core';
+import { createAvalTools } from '@backendkit-labs/aval-tools';
+import { buildProfile } from './profile';
+
+export interface SchedulerAgentOptions {
+    /** Modelos disponibles y cuál usar. En producción un `DeepSeekProvider`; en las pruebas, uno guionizado. */
+    providers: AutonomousAgentOptions['providers'];
+    defaultProvider: string;
+    /** Dónde vive AVAL y la clave de ESTE agente (nunca la de consola). */
+    avalUrl: string;
+    avalKey: string;
+    /** Qué dispara una corrida: cron, webhook, evento. Sin triggers, solo se corre a mano con `agent.engine.run`. */
+    triggers?: AutonomousAgentOptions['triggers'];
+    transport?: AutonomousAgentOptions['transport'];
+    /**
+     * Dónde está el JSON del origen de pagos. Ausente: el servidor MCP usa su valor por defecto
+     * (`~/.aval-scheduler/schedule.json`). Un valor "" no es lo mismo que ausente, así que solo se
+     * pasa a ese proceso si de verdad hay algo que pasar.
+     */
+    paymentsSourcePath?: string;
+    /**
+     * Script del servidor MCP del origen de pagos. Por defecto el compilado de este proyecto; las pruebas lo
+     * apuntan a `dist/` porque un hijo de Node no ejecuta TypeScript.
+     */
+    paymentsServerEntry?: string;
+    /** Puerto del webhook, si hay un trigger `webhook`. */
+    webhookPort?: number;
+}
+
+/**
+ * El agente de pagos programados, sin la parte de proceso (variables de entorno, señales, panel).
+ * Está separado de `index.ts` para poder construirlo igual en producción y en las pruebas: lo único que
+ * cambia entre una y otra es el modelo, la URL de AVAL y los triggers.
+ */
+export function buildSchedulerAgent(opts: SchedulerAgentOptions): AutonomousAgent {
+    // pay, check_payment y list_own_history, del paquete de npm.
+    const avalTools = createAvalTools({ baseUrl: opts.avalUrl });
+
+    return createAutonomousAgent({
+        providers: opts.providers,
+        defaultProvider: opts.defaultProvider,
+        agents: [buildProfile(opts.avalKey)],
+        tools: [...avalTools],
+        ...(opts.transport ? { transport: opts.transport } : {}),
+        goal: 'Ejecutar pagos programados a través de AVAL, reconciliando lo pendiente antes de procesar lo nuevo.',
+
+        // El proceso vive días o semanas; sin esto el historial de mensajes
+        // crece sin límite en el mismo AgentEngine entre corridas del cron.
+        // 40 es el valor que el propio framework recomienda para agentes
+        // autónomos de larga duración.
+        maxContextMessages: 40,
+
+        mcpServers: [
+            {
+                name: 'payments-source',
+                command: 'node',
+                args: [opts.paymentsServerEntry ?? require.resolve('./mcp-payments-source/server')],
+                ...(opts.paymentsSourcePath ? { env: { PAYMENTS_SOURCE_PATH: opts.paymentsSourcePath } } : {}),
+            },
+        ],
+
+        triggers: opts.triggers ?? [],
+        ...(opts.webhookPort ? { webhookPort: opts.webhookPort } : {}),
+    });
+}
+
+/**
+ * Apaga el agente por completo: los triggers (cron, webhook, eventos) y también el servidor MCP del
+ * calendario, que es un proceso hijo. `agent.stop()` solo para los triggers; sin esto el hijo queda vivo
+ * mientras el proceso padre siga corriendo (en las pruebas, o si el agente se embebe en otro programa).
+ */
+export async function stopSchedulerAgent(agent: AutonomousAgent): Promise<void> {
+    await agent.stop();
+    await agent.engine.getMCPManager()?.disconnect();
+}

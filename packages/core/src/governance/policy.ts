@@ -63,6 +63,8 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
             const asked = a.approverRoles;
             if (asked && asked.length > 0) roles = roles ? roles.filter(r => asked.includes(r)) : [...asked];
         }
+        const ttls = asks.map(a => a.ttlSeconds).filter((n): n is number => typeof n === 'number');
+        const ttlSeconds = ttls.length > 0 ? Math.min(...ttls) : undefined;
         const reason = asks.map(a => a.reason).join('; ');
         if (roles && roles.length === 0) {
             return { effect: 'deny', reason: `${reason}; the policies ask for approver roles that no one can hold at once` };
@@ -73,6 +75,7 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
             ...(approver ? { approver } : {}),
             ...(constrained ? { accepts } : {}),
             ...(roles ? { approverRoles: roles } : {}),
+            ...(ttlSeconds !== undefined ? { ttlSeconds } : {}),
         };
     }
 

@@ -15,6 +15,9 @@ export interface FetchJsonOptions {
     idempotent?: boolean;
 }
 
+/** What an error response may put in the message the model reads: the start of the body, not all of it. */
+const MAX_ERROR_BODY_CHARS = 500;
+
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 /**
@@ -42,6 +45,7 @@ export async function fetchJson<T>(
         try {
             res = await fetch(url, { ...init, signal: controller.signal });
         } catch (err) {
+            clearTimeout(timer);
             // Duck-typed: the DOMException from an aborted fetch can come from another realm.
             const aborted = (err as { name?: string } | null)?.name === 'AbortError';
             // eslint-disable-next-line @typescript-eslint/no-throw-literal
@@ -51,12 +55,12 @@ export async function fetchJson<T>(
                     ? `${serviceName} ${method} ${url.split('?')[0]} → timed out after ${timeoutMs}ms`
                     : `${serviceName} ${method} ${url.split('?')[0]} → network error: ${(err as Error).message}`,
             };
-        } finally {
-            clearTimeout(timer);
         }
+        // The timer keeps running while the body is read: a server that sends headers and then stalls must not hang the call.
+        try {
         if (res.status === 204) return undefined as T;
         if (!res.ok) {
-            const text = await res.text().catch(() => '');
+            const text = (await res.text().catch(() => '')).slice(0, MAX_ERROR_BODY_CHARS);
             // eslint-disable-next-line @typescript-eslint/no-throw-literal
             throw {
                 type: 'http',
@@ -64,7 +68,10 @@ export async function fetchJson<T>(
                 message: `${serviceName} ${method} ${url.split('?')[0]} → ${res.status}: ${text}`,
             };
         }
-        return res.json() as Promise<T>;
+        return await (res.json() as Promise<T>);
+        } finally {
+            clearTimeout(timer);
+        }
     };
 
     const result = await retry(attempt, {

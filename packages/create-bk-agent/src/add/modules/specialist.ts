@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { BkProjectInfo } from '../detector';
 import { addImportLine, insertAfterPattern } from '../patcher';
+import { assertValidName } from '../names';
 
 function toConstName(name: string): string {
     return name.replace(/-/g, '_').toUpperCase() + '_PROFILE';
@@ -40,6 +41,7 @@ export function addSpecialist(info: BkProjectInfo, args: string[]): void {
         process.exit(1);
     }
 
+    assertValidName('specialist name', name);
     const agentFile = path.join(info.cwd, 'src', 'agents', `${name}.ts`);
     if (fs.existsSync(agentFile)) {
         console.error(`\n✗  src/agents/${name}.ts already exists.\n`);

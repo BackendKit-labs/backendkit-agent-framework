@@ -21,6 +21,8 @@ export function toSpanId(id: string): string {
     return createHash('sha256').update(`span:${id}`).digest('hex').slice(0, 16);
 }
 
+const MAX_ERROR_CHARS = 500;
+
 /** `cost_usd` and similar keys keep their meaning under a vendor prefix. */
 const VENDOR = 'bk.';
 
@@ -60,7 +62,9 @@ export function mapSpan(span: Span): MappedSpan {
 
     switch (span.name) {
         case 'run': {
-            const message = str(t.error);
+            // An error text can be long (and carry whatever the failing code put in it): the span keeps the start.
+            const raw = str(t.error);
+            const message = raw && raw.length > MAX_ERROR_CHARS ? `${raw.slice(0, MAX_ERROR_CHARS)}…` : raw;
             return {
                 name: 'agent.run', kind: 'internal', isError, ...(message ? { errorMessage: message } : {}),
                 attributes: { 'bk.trace_id': span.traceId, ...rest(t, ['error'], EXPORTABLE.run) },

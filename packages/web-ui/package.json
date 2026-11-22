@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-web-ui",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "React chat + kanban monitor UI for @backendkit-labs/agent-web — streaming, tool badges, real-time agent activity board",
   "type": "module",
   "main": "./dist/index.js",

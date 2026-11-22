@@ -16,6 +16,9 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): { httpMode
     return { httpMode, port };
 }
 
+/** A JSON-RPC request is small; a client that sends more than this is not one. */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
@@ -64,7 +67,12 @@ export async function startHttp(
 
     async function parseBody(req: IncomingMessage): Promise<unknown> {
         const chunks: Buffer[] = [];
-        for await (const chunk of req) chunks.push(chunk as Buffer);
+        let size = 0;
+        for await (const chunk of req) {
+            size += (chunk as Buffer).length;
+            if (size > MAX_BODY_BYTES) throw new Error(`request body is larger than ${MAX_BODY_BYTES} bytes`);
+            chunks.push(chunk as Buffer);
+        }
         const raw = Buffer.concat(chunks).toString('utf-8');
         if (!raw) return undefined;
         return JSON.parse(raw);

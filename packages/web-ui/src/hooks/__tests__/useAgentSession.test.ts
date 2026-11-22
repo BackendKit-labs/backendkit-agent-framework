@@ -60,6 +60,28 @@ describe('useAgentSession — connection', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it('the late close of a replaced socket does not disturb the new connection', () => {
+    const { result } = renderHook(() => useAgentSession({ url: 'ws://test' }));
+    act(() => result.current.connect());
+    const first = FakeWebSocket.last;
+    // A real WebSocket reports its close later, not inside close(): by then the new socket is the current one.
+    const lateClose = first.onclose;
+    first.close = () => { first.readyState = FakeWebSocket.CLOSED; };
+    act(() => result.current.connect());
+    const second = FakeWebSocket.last;
+    act(() => second.open());
+    act(() => lateClose?.());
+    expect(result.current.status).toBe('connected');
+    act(() => result.current.sendMessage('hi'));
+    expect(second.sent.length).toBeGreaterThan(0); // the new socket is still the one messages go to
+  });
+
+  it('disconnect() leaves the hook disconnected', () => {
+    const { result } = connected();
+    act(() => result.current.disconnect());
+    expect(result.current.status).toBe('disconnected');
+  });
+
   it('a socket error adds a system message and marks the hook disconnected', () => {
     const { result } = renderHook(() => useAgentSession({ url: 'ws://test' }));
     act(() => result.current.connect());

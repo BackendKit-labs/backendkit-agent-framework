@@ -41,7 +41,7 @@ describe('QueueStepExecutor', () => {
         const ex = new QueueStepExecutor({ redis: 'redis://x' });
         await expect(ex.run(step, input())).resolves.toEqual({ content: 'done' });
         expect(adds[0].name).toBe('flow.writer');
-        expect(adds[0].opts.jobId).toBe('r_s1_1');
+        expect(adds[0].opts.jobId).toBe('r%3As1%3A1');
         expect(adds[0].opts.attempts).toBe(1);
         expect(adds[0].data).toMatchObject({ prompt: 'hi', context: 'c', idempotencyKey: 'r:s1:1' });
         await ex.close();
@@ -113,5 +113,14 @@ describe('createStepWorker', () => {
         expect(out).toEqual({ content: 'ok', costUsd: 1 });
         expect(run).toHaveBeenCalledWith(step, expect.objectContaining({ prompt: 'hi', idempotencyKey: 'k' }));
         await w.close();
+    });
+});
+
+describe('jobIdFor', () => {
+    it('never gives two different idempotency keys the same job id', () => {
+        const { jobIdFor } = require('../index');
+        expect(jobIdFor('a_b:c:1')).not.toBe(jobIdFor('a:b_c:1'));
+        expect(jobIdFor('a%3Ab')).not.toBe(jobIdFor('a:b'));
+        expect(jobIdFor('r:s1:1')).not.toContain(':');
     });
 });

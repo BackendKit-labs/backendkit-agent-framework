@@ -235,9 +235,14 @@ export function useAgentSession({
     const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => setStatus('connected');
+    // A socket that was replaced by a newer connect() still fires its own close/error/message later: those must not
+    // touch the state or the ref of the connection that is current now.
+    const current = () => wsRef.current === ws;
+
+    ws.onopen = () => { if (current()) setStatus('connected'); };
 
     ws.onmessage = (e: MessageEvent) => {
+      if (!current()) return;
       try {
         const evt = JSON.parse(e.data as string) as AgentEventType;
         handleEvent(evt);
@@ -247,6 +252,7 @@ export function useAgentSession({
     };
 
     ws.onclose = () => {
+      if (!current()) return;
       setStatus('disconnected');
       setIsRunning(false);
       closeStreaming();
@@ -255,6 +261,7 @@ export function useAgentSession({
     };
 
     ws.onerror = () => {
+      if (!current()) return;
       setMessages(prev => [...prev, { id: uid(), role: 'system', content: 'WebSocket connection error.' }]);
       setStatus('disconnected');
     };
@@ -263,7 +270,12 @@ export function useAgentSession({
   const disconnect = useCallback(() => {
     wsRef.current?.close();
     wsRef.current = null;
-  }, []);
+    // The closed socket's own onclose is ignored (it is no longer current), so the state is set here.
+    setStatus('disconnected');
+    setIsRunning(false);
+    closeStreaming();
+    pendingToolsRef.current = [];
+  }, [closeStreaming]);
 
   const sendMessage = useCallback((content: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;

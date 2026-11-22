@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { BkProjectInfo } from '../detector';
 import { addImportLine, insertAfterPattern } from '../patcher';
+import { assertValidName } from '../names';
 
 function toCamelCase(name: string): string {
     return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -47,6 +48,7 @@ export function addTools(info: BkProjectInfo, args: string[]): void {
         process.exit(1);
     }
 
+    assertValidName('tools domain', domain);
     const toolsFile = path.join(info.cwd, 'src', 'tools', `${domain}-tools.ts`);
     if (fs.existsSync(toolsFile)) {
         console.error(`\n✗  src/tools/${domain}-tools.ts already exists.\n`);

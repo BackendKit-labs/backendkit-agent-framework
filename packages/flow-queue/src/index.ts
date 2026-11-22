@@ -49,6 +49,15 @@ function connect(redis: RedisConnection): { connection: IORedis; owned: boolean 
         : { connection: redis, owned: false };
 }
 
+/**
+ * The BullMQ job id for a step's idempotency key. BullMQ forbids `:` in an id, so it is escaped; the escape is reversible, which
+ * keeps two different keys from ever sharing an id (turning `:` into `_` made `a_b:c` and `a:b_c` the same job, and a step
+ * would have received the result of another one).
+ */
+export function jobIdFor(idempotencyKey: string): string {
+    return idempotencyKey.replace(/%/g, '%25').replace(/:/g, '%3A');
+}
+
 export function queueName(prefix: string, agentId: string): string {
     return `${prefix}.${agentId}`;
 }
@@ -106,7 +115,7 @@ export class QueueStepExecutor implements StepExecutor {
             context: input.context,
             idempotencyKey: input.idempotencyKey,
         }, {
-            jobId: input.idempotencyKey.replace(/:/g, '_'),
+            jobId: jobIdFor(input.idempotencyKey),
             attempts: this.attempts,
             removeOnComplete: 100,
             removeOnFail: 50,

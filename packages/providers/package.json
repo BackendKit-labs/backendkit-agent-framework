@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-providers",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "description": "LLM providers for @backendkit-labs/agent-core: OpenAI-compatible (DeepSeek, Ollama), Anthropic — one retry/streaming implementation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

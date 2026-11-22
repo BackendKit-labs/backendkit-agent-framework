@@ -877,7 +877,9 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             }
             const known = KNOWN_PLUGINS[id.toLowerCase()];
             const npmPkg = known?.npm ?? id;
-            const name   = known ? id.toLowerCase() : (npmPkg.split('/').pop() ?? npmPkg);
+            // The version a user may append (`pkg@1.2.3`) is for `npm install`; on disk the package lives under its bare name.
+            const bareName = /^(@?[^@]+)/.exec(npmPkg)?.[1] ?? npmPkg;
+            const name   = known ? id.toLowerCase() : (bareName.split('/').pop() ?? bareName);
 
             // npmPkg is spawned through a shell below — accept only valid npm package names.
             if (!/^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:@[\w.^~-]+)?$/i.test(npmPkg)) {
@@ -900,7 +902,8 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
 
             emit(`Instalando ${npmPkg}... (puede tardar un momento)`);
             const installErr = await new Promise<string | null>((resolve) => {
-                const proc = spawn('npm', ['install', npmPkg, '--no-fund', '--no-audit'], {
+                // A package the user typed by hand is not one of ours: its install scripts do not run (a known plugin may need them).
+                const proc = spawn('npm', ['install', npmPkg, '--no-fund', '--no-audit', ...(known ? [] : ['--ignore-scripts'])], {
                     cwd: pluginDir,
                     shell: true,
                     stdio: 'inherit',
@@ -915,7 +918,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
 
             // Read main entry from the package's package.json
             const pkgJsonResult = await run(() =>
-                fs.readFile(path.join(pluginDir, 'node_modules', npmPkg, 'package.json'), 'utf-8')
+                fs.readFile(path.join(pluginDir, 'node_modules', bareName, 'package.json'), 'utf-8')
             );
             if (!isOk(pkgJsonResult)) {
                 emit(`✗ No se encontró package.json para ${npmPkg}`);
@@ -923,7 +926,7 @@ export function registerBuiltinCommands(registry: SlashCommandRegistry): void {
             }
             const pkgJson = JSON.parse(pkgJsonResult.value) as { main?: string };
             const entryRelative = pkgJson.main ?? 'dist/index.js';
-            const entryAbsolute = path.join(pluginDir, 'node_modules', npmPkg, entryRelative);
+            const entryAbsolute = path.join(pluginDir, 'node_modules', bareName, entryRelative);
 
             // Build LLM env from the app's configured provider so the plugin
             // uses the same LLM stack without the user having to set it manually.

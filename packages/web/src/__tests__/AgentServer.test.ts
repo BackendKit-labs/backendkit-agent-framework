@@ -332,7 +332,7 @@ describe('AgentServer', () => {
                 ws.send(JSON.stringify({ type: 'input', content: 'fail' }));
                 const frame = await errFrame;
                 expect(frame.type).toBe('error');
-                expect(frame.message).toBe('engine crashed');
+                expect(frame.message).toBe('The agent could not answer. Try again.');      // the detail stays on the server (exposeErrors)
             } finally {
                 await closeWs(ws);
             }

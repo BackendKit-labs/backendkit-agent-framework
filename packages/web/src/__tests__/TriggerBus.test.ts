@@ -89,7 +89,7 @@ describe('TriggerBus', () => {
 
         it('addWebhook() returns this', () => {
             const bus = new TriggerBus(engineFactory);
-            expect(bus.addWebhook({ name: 'w', path: '/wh', buildPrompt: () => 'x' })).toBe(bus);
+            expect(bus.addWebhook({ name: 'w', path: '/wh', allowUnsigned: true, buildPrompt: () => 'x' })).toBe(bus);
         });
 
         it('addQueue() returns this', () => {
@@ -200,7 +200,7 @@ describe('TriggerBus', () => {
         it('registers a POST route by default', () => {
             const { app } = makeFastify();
             const bus = new TriggerBus(engineFactory);
-            bus.addWebhook({ name: 'gh', path: '/triggers/github', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 'gh', path: '/triggers/github', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
             expect(app.post).toHaveBeenCalledWith('/triggers/github', expect.any(Function));
         });
@@ -208,7 +208,7 @@ describe('TriggerBus', () => {
         it('registers a GET route when method is GET', () => {
             const { app } = makeFastify();
             const bus = new TriggerBus(engineFactory);
-            bus.addWebhook({ name: 'p', path: '/poll', method: 'GET', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 'p', path: '/poll', method: 'GET', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
             expect(app.get).toHaveBeenCalledWith('/poll', expect.any(Function));
         });
@@ -216,7 +216,7 @@ describe('TriggerBus', () => {
         it('registers a PUT route when method is PUT', () => {
             const { app } = makeFastify();
             const bus = new TriggerBus(engineFactory);
-            bus.addWebhook({ name: 'u', path: '/update', method: 'PUT', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 'u', path: '/update', method: 'PUT', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
             expect(app.put).toHaveBeenCalledWith('/update', expect.any(Function));
         });
@@ -224,7 +224,7 @@ describe('TriggerBus', () => {
         it('responds 202 immediately on a valid webhook hit', async () => {
             const { app, routes } = makeFastify();
             const bus = new TriggerBus(engineFactory);
-            bus.addWebhook({ name: 'test', path: '/wh', buildPrompt: () => 'hi' });
+            bus.addWebhook({ name: 'test', path: '/wh', allowUnsigned: true, buildPrompt: () => 'hi' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
 
             const req   = makeReq({ body: { x: 1 } });
@@ -293,6 +293,7 @@ describe('TriggerBus', () => {
             bus.addWebhook({
                 name: 'fire-test',
                 path: '/wh',
+                allowUnsigned: true,
                 buildPrompt: (payload) => `prompt:${JSON.stringify(payload)}`,
                 onComplete,
                 onError,
@@ -359,7 +360,7 @@ describe('TriggerBus', () => {
             const monitorBus = makeMonitorBus();
             const { app, routes } = makeFastify();
             const bus = new TriggerBus(engineFactory, monitorBus);
-            bus.addWebhook({ name: 'm', path: '/wh', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 'm', path: '/wh', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
             await routes['POST /wh'](makeReq({}), makeReply());
             await flushAsync();
@@ -388,7 +389,7 @@ describe('TriggerBus', () => {
 
             const { app, routes } = makeFastify();
             const bus = new TriggerBus(engineFactory, monitorBus);
-            bus.addWebhook({ name: 'ev', path: '/wh', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 'ev', path: '/wh', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
 
             engine.run = jest.fn().mockImplementation(async () => {
@@ -410,7 +411,7 @@ describe('TriggerBus', () => {
             engine.run = jest.fn().mockRejectedValue(new Error('crash'));
             const { app, routes } = makeFastify();
             const bus = new TriggerBus(engineFactory);
-            bus.addWebhook({ name: 't', path: '/wh', buildPrompt: () => 'x' });
+            bus.addWebhook({ name: 't', path: '/wh', allowUnsigned: true, buildPrompt: () => 'x' });
             bus.registerRoutes(app as unknown as Parameters<TriggerBus['registerRoutes']>[0]);
             await routes['POST /wh'](makeReq({}), makeReply());
             await flushAsync();

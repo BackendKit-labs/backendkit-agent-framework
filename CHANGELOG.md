@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.49.9 (2026-11-22)
+
+Segunda pasada de la auditoría del framework: el servidor web, el RAG de empresa y el cliente MCP. Casi todo son arreglos de seguridad que **cambian un comportamiento por defecto** (se dice en cada punto), por eso llegan como parche: quien tiene `^0.6.0` o `^0.11.0` debe recibirlos. `^0.48.0` cubre `agent-core` 0.48.9, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.9 | `ctx.idempotencyKey`, nombres de tools y de servidores MCP, descripciones acotadas |
+| `agent-web` | 0.6.16 | guarda de `Origin` y `Host`, límites por sesión, webhooks firmados, opciones de `JwtAuth` |
+| `agent-enterprise` | 0.11.6 | búsqueda global sin RR. HH. ni Finanzas, escritura por departamento, procedencia, registro encadenado del gate |
+
+Se publican los tres. Tags: `agent-core@0.48.9`, `agent-web@0.6.16`, `agent-enterprise@0.11.6`.
+
+- **`agent-web`, un sitio web podía manejar el agente y leer las sesiones:** sin `auth`, el servidor en loopback aceptaba cualquier `Origin`. El handshake de un WebSocket no está sujeto a CORS: una página abierta en el navegador podía conectarse a `ws://127.0.0.1:3000/chat`, mandar `input` y suscribirse a `/monitor` para leer todas las sesiones (se reprodujo). Ahora una petición sin `auth` tiene que venir de loopback (su `Host` y su `Origin`) o de un origen que `cors` liste; si no, `403`. Con `auth`, el token es lo que deja pasar, y una lista explícita en `cors` se exige también en el upgrade. Las rutas de webhook quedan fuera: las autentica su firma.
+- **`agent-web`, webhooks:** `addWebhook` **lanza** si no hay `secret` ni `allowUnsigned: true` (antes cualquiera que alcanzara la ruta hacía correr un prompt). Y el hook `auth` (JWT) ya no se aplica a las rutas de webhook: un emisor como GitHub no manda un JWT.
+- **`agent-web`, límites por sesión:** `maxPendingInputs` (4 por defecto: turnos en cola o en curso; el siguiente recibe un error) y `maxMessageBytes` (1 MiB, el WebSocket cierra con un mensaje mayor). Una sesión con un turno en curso ya no se expulsa por inactiva.
+- **`agent-web`, errores:** el cliente recibe "The agent could not answer. Try again." y el detalle va al log del servidor. `exposeErrors: true` devuelve el mensaje como antes.
+- **`agent-web`, `JwtAuth`:** `requireExpiry` y `requireSubject` (opt-in) rechazan un token que no caduca o sin usuario; una clave simétrica solo verifica HMAC y una pública solo los asimétricos; el esquema `Bearer` no distingue mayúsculas.
+- **`agent-enterprise`, el agente `general` ya no lee RR. HH. ni Finanzas por defecto:** buscaba en todo el vault con el proveedor por defecto (posiblemente remoto), así que lo recuperado de esas carpetas salía de la red aunque los agentes de RR. HH. y Finanzas usaran un proveedor local. Ahora `globalExcludeFolders` vale `['rrhh', 'finanzas']`; con `[]` se recupera el comportamiento anterior.
+- **`agent-enterprise`, escritura por departamento:** `write_knowledge` escribe en la carpeta del departamento del agente que llama (los prompts ya lo decían, el código dejaba todo en `agentes/`) y la nota dice quién la escribió. Una nota que escribió un agente aparece en la búsqueda como "escrita por un agente, no verificada". Una nota ya no se sobrescribe (el mismo título el mismo día recibe un número), un título solo de símbolos tiene nombre propio, hay un límite de 200 000 caracteres y un `.lock` huérfano deja de bloquear.
+- **`agent-enterprise`, `ComplianceGate`:** `audit` (y `gateAudit` en `FlowRunner`) escribe cada evento del gate en un `AuditSink`; con un `HashChainAuditSink`, el registro es una cadena verificable, no solo una nota editable en el vault. Un sink que falla detiene la evaluación. Un índice RAG sin `indexPath` ya no se comparte entre proveedores con carpetas distintas.
+- **`agent-core`, `ctx.idempotencyKey`** (ver #283): la misma llamada lógica lleva la misma clave, para que una tool que escribe no aplique dos veces lo que el modelo repite tras un timeout.
+- **`agent-core`, cliente MCP:** una tool cuyo nombre no es válido para los proveedores (espacios, más de 64 caracteres en total) se deja fuera y se avisa, en vez de romper las llamadas de todas; dos servidores cuyo nombre da el mismo prefijo se rechazan al construir; la descripción de una tool se acota a 2000 caracteres; un `restartAgent` simultáneo se serializa; y el fallback a SSE ya no se dispara por cualquier número de tres cifras en el mensaje.
+
 ## v0.49.8 (2026-11-22)
 
 Apoderamiento de agentes (SPEC-0043, F1 y F2): un agente puede actuar solo, dentro de los límites de un poder firmado por quien tiene autoridad. Es aditivo y por defecto no cambia nada: `^0.48.0` cubre `agent-core` 0.48.8, así que no hay barrido de rangos.

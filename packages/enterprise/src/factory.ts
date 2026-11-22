@@ -25,6 +25,12 @@ import { createN8nTriggerTool } from './integrations';
 export interface EnterpriseSetupOptions {
     /** Absolute path to the shared Obsidian vault. */
     vaultPath: string;
+    /**
+     * Top-level folders of the vault that the general agent (the global search) never sees. Default: the folders of HR and Finance, whose
+     * agents use a local provider: what the general agent retrieves goes to the default provider, which may be remote. Pass [] to let
+     * it search the whole vault, as before.
+     */
+    globalExcludeFolders?: string[];
     /** Directory where RAG index files are stored. Default: ~/.bk-agent/rag/enterprise/ */
     indexDir?: string;
     /** Embedder to use. Default: SimpleEmbedder (no Ollama required). */
@@ -73,6 +79,16 @@ export interface EnterpriseSetup {
 
 // ── Department RAG config ─────────────────────────────────────────────────────
 
+/** Where each department's agent writes what it learns: its own folder. Any other agent writes to `agentes/`. */
+const WRITE_FOLDERS: Record<string, string> = {
+    hr: VAULT_FOLDERS.HR,
+    finance: VAULT_FOLDERS.FINANCE,
+    sales: VAULT_FOLDERS.SALES,
+    support: VAULT_FOLDERS.SUPPORT,
+    ops: VAULT_FOLDERS.OPS,
+    general: VAULT_FOLDERS.GENERAL,
+};
+
 const DEPT_CONFIGS: Array<{ toolName: string; folders: string[] }> = [
     { toolName: ENTERPRISE_TOOLS.SEARCH_SUPPORT,  folders: [VAULT_FOLDERS.SUPPORT,  VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
     { toolName: ENTERPRISE_TOOLS.SEARCH_HR,       folders: [VAULT_FOLDERS.HR,       VAULT_FOLDERS.GENERAL, VAULT_FOLDERS.POLICIES] },
@@ -106,9 +122,12 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
 
     // ── Shared RAG instances (one per department + one global) ───────────────
 
+    // The general agent answers with the default provider, which may be remote: what it can search is what that provider may see.
+    // The folders of HR and Finance (whose agents default to a local provider) are left out unless the operator says otherwise.
     const globalRAG = new ObsidianRAGProvider({
         vaultPath:  opts.vaultPath,
         indexPath:  path.join(indexDir, 'global.json'),
+        excludeFolders: opts.globalExcludeFolders ?? [VAULT_FOLDERS.HR, VAULT_FOLDERS.FINANCE],
         embedder,
         topK: 5,
         minScore: 0.1,
@@ -130,7 +149,13 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
 
     // ── Shared VaultWriter ───────────────────────────────────────────────────
 
-    const writer = new VaultWriter({ vaultPath: opts.vaultPath });
+    // One writer per department, each in its own folder: what HR writes stays where HR's search finds it, and not in a folder every
+    // agent searches. The note says which agent wrote it (the author), and the search tells the reader.
+    const writers = new Map<string, VaultWriter>(
+        Object.entries(WRITE_FOLDERS).map(([agentId, folder]) => [agentId, new VaultWriter({ vaultPath: opts.vaultPath, agentFolder: folder })]),
+    );
+    const fallbackWriter = new VaultWriter({ vaultPath: opts.vaultPath, agentFolder: VAULT_FOLDERS.AGENTS });
+    const writerFor = (agentId: string): VaultWriter => writers.get(agentId) ?? fallbackWriter;
 
     // ── Index all ────────────────────────────────────────────────────────────
 
@@ -160,7 +185,7 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
         }
 
         // Write to vault
-        tools.push(writer.createTool('general'));
+        tools.push(fallbackWriter.createToolFor(ctx => ctx.agentId ?? 'general', writerFor));
 
         // n8n integration (opt-in — only when a webhook URL is configured)
         const n8nUrl = opts.n8nWebhookUrl ?? process.env.N8N_WEBHOOK_URL;

@@ -23,6 +23,8 @@ await server.start();
 // GET /health    { status, sessions, monitors }
 ```
 
+**A server with no `auth` answers only to its own machine.** On loopback, a request has to have a loopback `Host` and `Origin` (or an origin you list in `cors`), or it gets `403`. Without that guard any web page the user has open could connect to `ws://127.0.0.1:3000/chat` (a WebSocket handshake is not subject to CORS) and drive the agent, or watch every session through `/monitor`. With `auth`, the token is what lets a client in, and an explicit list in `cors` is also enforced on the WebSocket upgrade.
+
 An `EngineFactory` builds an engine per session, so each user gets their own memory and context. Included: JWT authentication (including a strict mode and a custom hook), Prometheus metrics, rate limiting, session stores (in memory or Redis), and a `TriggerBus` for [cron, webhooks and queues](../autonomous/).
 
 `@backendkit-labs/agent-web-ui` adds the front end: ready-made React apps (`ChatApp`, and `KanbanApp` as a live monitor), the hooks they are built on (`useAgentSession`, `useKanbanMonitor`) and components to compose your own.
@@ -55,6 +57,16 @@ If you do not want a model between the caller and the tool, `createToolServer` e
 ## To other agents: `agent-protocol`
 
 `AgentServer` publishes an agent's capabilities, `AgentClient` calls them with retries and a circuit breaker, and a control surface lets a supervisor **pause, drain, budget, audit and steer** an agent and its [flows](../../guides/let-a-model-supervise-flows/).
+
+Limits of the browser server, all with a default you can change:
+
+| Option | Default | What it does |
+|---|---|---|
+| `maxPendingInputs` | 4 | Turns of a session that may be queued or running; the next message gets an error. Every turn costs, so a client cannot queue them without bound. |
+| `maxMessageBytes` | 1 MiB | Largest WebSocket message; a bigger one closes the connection. |
+| `exposeErrors` | false | With `false` the client gets "The agent could not answer. Try again." and the detail (a provider's answer, a path) goes to the server's log. |
+
+A session with a turn in progress is never evicted as idle. With `JwtAuth`, `requireExpiry: true` and `requireSubject: true` refuse a token that never expires or has no user, and a secret verifies only the HMAC algorithms (a public key only the asymmetric ones).
 
 A complete one, with a token. Without `authToken` the server listens only on loopback; with it, it can listen elsewhere, and every request must carry it:
 

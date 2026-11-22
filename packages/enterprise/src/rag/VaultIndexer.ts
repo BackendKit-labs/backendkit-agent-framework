@@ -24,6 +24,8 @@ export interface RawChunk {
     text: string;
     tags: string[];
     description: string;
+    /** `agent/<id>` when the note says an agent wrote it. */
+    author?: string;
 }
 
 function parseFrontmatter(content: string): { meta: Frontmatter; body: string } {
@@ -134,6 +136,8 @@ export interface IndexerOptions {
     excludeTags?: string[];
     /** Archivos a excluir por nombre (ej. 'MEMORY.md'). */
     excludeFiles?: string[];
+    /** Carpetas de primer nivel del vault que no se indexan nunca (aunque esten dentro de `folders` o el vault entero). */
+    excludeFolders?: string[];
 }
 
 export class VaultIndexer {
@@ -145,6 +149,7 @@ export class VaultIndexer {
             folders:      opts.folders      ?? [],
             excludeTags:  opts.excludeTags  ?? ['skill'],
             excludeFiles: opts.excludeFiles ?? [],
+            excludeFolders: opts.excludeFolders ?? [],
         };
     }
 
@@ -180,6 +185,7 @@ export class VaultIndexer {
 
         const title = meta.title ?? path.basename(filePath, '.md');
         const description = meta.description ?? '';
+        const author = typeof meta.author === 'string' && meta.author.startsWith('agent/') ? meta.author : undefined;
         const topicHints = Array.isArray(meta.semantic_topics)
             ? `\n\nTopics: ${(meta.semantic_topics as string[]).join(', ')}`
             : '';
@@ -198,6 +204,7 @@ export class VaultIndexer {
             text: `${title}${sec.section ? ` — ${sec.section}` : ''}\n\n${sec.text}`,
             tags,
             description,
+            ...(author ? { author } : {}),
         }));
     }
 
@@ -209,7 +216,11 @@ export class VaultIndexer {
         const allFiles: Array<{ filePath: string; mtime: number }> = [];
         for (const dir of scanDirs) {
             const mdFiles = (await collectMdFiles(dir))
-                .filter(filePath => !this.opts.excludeFiles.some(ex => path.basename(filePath) === ex));
+                .filter(filePath => !this.opts.excludeFiles.some(ex => path.basename(filePath) === ex))
+                .filter(filePath => {
+                    const top = path.relative(this.opts.vaultPath, filePath).split(/[\\/]/)[0];
+                    return !this.opts.excludeFolders.includes(top!);
+                });
             // Bounded parallel stat (it was one await per file); the result keeps the directory order.
             for (let i = 0; i < mdFiles.length; i += STAT_CONCURRENCY) {
                 const stats = await Promise.all(mdFiles.slice(i, i + STAT_CONCURRENCY).map(async filePath => {
@@ -238,6 +249,7 @@ export class VaultIndexer {
                 description: raw.description,
                 mtime: raw.mtime,
                 area: extractArea(raw.tags),
+                ...(raw.author ? { author: raw.author } : {}),
                 stack: extractStack(raw.tags),
             },
         };

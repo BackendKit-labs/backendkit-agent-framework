@@ -34,6 +34,9 @@ interface ConnectedServer {
 /** The code of the error a tool of an MCP server raises when the server answers `isError: true`. */
 export const MCP_TOOL_ERROR = 'MCP_TOOL_ERROR';
 
+/** Longest description of a tool taken from a server. */
+const MAX_DESCRIPTION_CHARS = 2000;
+
 export class MCPClientManager {
     private servers: ConnectedServer[] = [];
     private serverStates = new Map<string, ServerState>();
@@ -43,7 +46,13 @@ export class MCPClientManager {
     private disconnectHandler: ((serverName: string) => void) | null = null;
 
     constructor(private readonly configs: MCPServerConfig[]) {
+        // Two servers whose names become the same prefix would share tool names (`a b` and `a_b` are both `mcp__a_b__`), and one state.
+        const seen = new Map<string, string>();
         for (const cfg of configs) {
+            const prefix = cfg.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const other = seen.get(prefix);
+            if (other !== undefined) throw new Error(`MCP servers "${other}" and "${cfg.name}" would share the tool prefix "mcp__${prefix}__": give them different names`);
+            seen.set(prefix, cfg.name);
             this.serverStates.set(cfg.name, 'pending');
         }
     }
@@ -90,6 +99,15 @@ export class MCPClientManager {
      * Returns the list of agent names now connected.
      */
     async restartAgent(name?: string): Promise<string[]> {
+        // One restart at a time: two at once would connect the same server twice and leave a client nobody closes.
+        const run = this.restartQueue.then(() => this.restartAgentNow(name));
+        this.restartQueue = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    private restartQueue: Promise<void> = Promise.resolve();
+
+    private async restartAgentNow(name?: string): Promise<string[]> {
         if (name) {
             const cfg = this.configs.find(c => c.name === name);
             if (!cfg) throw new Error(`Agent "${name}" is not configured`);
@@ -310,14 +328,26 @@ export class MCPClientManager {
         client: Client,
     ): Promise<ToolDefinition[]> {
         const listResult = await client.listTools();
-        return listResult.tools.map(t => this.wrapTool(config, client, t));
+        const out: ToolDefinition[] = [];
+        for (const t of listResult.tools) {
+            // The tool name is the server's, not ours. Providers accept function names of 1 to 64 letters, digits, "_" and "-": one
+            // tool with another name would make the whole request fail, for every tool, so that tool is left out and said.
+            const full = `mcp__${config.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__${t.name}`;
+            if (!/^[a-zA-Z0-9_-]+$/.test(t.name) || full.length > 64) {
+                console.warn(`[MCPClientManager] "${config.name}": the tool "${t.name}" is left out: its name has characters other than letters, digits, "_" and "-", or "${full}" is longer than 64`);
+                continue;
+            }
+            out.push(this.wrapTool(config, client, t));
+        }
+        return out;
     }
 
     private isHTTP4xx(err: unknown): boolean {
         if (!err || typeof err !== 'object') return false;
         const code = (err as { code?: unknown }).code;
         if (typeof code === 'number' && code >= 400 && code < 500) return true;
-        return /4\d{2}/.test((err as Error).message ?? '');
+        // A status in words ("HTTP 404", "status code 405"), not any digits ("port 4000", "1400ms").
+        return /\b(?:HTTP|status(?:\s+code)?)\b\D{0,12}\b4\d{2}\b/i.test((err as Error).message ?? '');
     }
 
     private wrapTool(
@@ -351,8 +381,9 @@ export class MCPClientManager {
 
         return {
             name: namespacedName,
+            // What a server says about its tool goes into the prompt of the model on every call: it is capped.
             description: mcpTool.description
-                ? `[MCP:${config.name}] ${mcpTool.description}`
+                ? `[MCP:${config.name}] ${mcpTool.description.length > MAX_DESCRIPTION_CHARS ? `${mcpTool.description.slice(0, MAX_DESCRIPTION_CHARS)}...` : mcpTool.description}`
                 : `[MCP:${config.name}] ${mcpTool.name}`,
             ...(mcpTool.title ? { title: mcpTool.title } : {}),
             parameters: (mcpTool.inputSchema as Record<string, unknown>) ?? {

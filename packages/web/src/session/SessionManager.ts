@@ -14,6 +14,8 @@ export interface Session {
     lastActivityAt: Date;
     /** Set when JWT auth is active. */
     userId?: string;
+    /** Turns of this session that are queued or running. A session with one is never swept as idle. */
+    activeRuns: number;
 }
 
 export type EngineFactory = (sessionId: string, transport: WebSocketTransport) => AgentEngine;
@@ -94,6 +96,7 @@ export class SessionManager {
             createdAt: now,
             lastActivityAt: now,
             userId,
+            activeRuns: 0,
         };
 
         this.sessions.set(id, session);
@@ -164,7 +167,7 @@ export class SessionManager {
     private sweepIdle(): void {
         const cutoff = Date.now() - this.maxIdleMs;
         for (const [id, session] of this.sessions) {
-            if (session.lastActivityAt.getTime() < cutoff) {
+            if (session.activeRuns === 0 && session.lastActivityAt.getTime() < cutoff) {
                 this.destroy(id);
             }
         }

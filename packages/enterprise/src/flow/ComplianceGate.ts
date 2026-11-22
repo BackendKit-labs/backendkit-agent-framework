@@ -9,6 +9,8 @@
  */
 
 import * as path from 'path';
+import { hashArgs } from '@backendkit-labs/agent-core';
+import type { AuditEvent, AuditSink } from '@backendkit-labs/agent-core';
 import { VaultWriter } from '../rag/VaultWriter';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -66,6 +68,12 @@ export interface ComplianceGateOptions {
     /** Criterion descriptions from the YAML gate.criteria array. */
     criteria: string[];
     evidenceMode: 'required' | 'optional';
+    /**
+     * Where every event of the gate is also written, one audit event each. Give it a `HashChainAuditSink` and the record of the gate is
+     * a chain a third party can verify; the note in the vault (`persist`) is a readable copy that anyone with access to the vault can
+     * edit. A sink that throws makes the evaluation fail: a decision that cannot be recorded is not taken.
+     */
+    audit?: AuditSink;
 }
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
@@ -94,9 +102,12 @@ export class ComplianceGateError extends Error {
 export class ComplianceGate {
     private readonly _record: GateRecord;
     private readonly evidenceMode: 'required' | 'optional';
+    private readonly audit?: AuditSink;
+    private readonly auditWrites: Array<Promise<void>> = [];
 
     constructor(opts: ComplianceGateOptions) {
         this.evidenceMode = opts.evidenceMode;
+        this.audit = opts.audit;
         this._record = {
             stepId: opts.stepId,
             flowId: opts.flowId,
@@ -213,6 +224,7 @@ export class ComplianceGate {
      * Returns the absolute file path written.
      */
     async persist(vaultPath: string): Promise<string> {
+        await Promise.all(this.auditWrites);          // an audit write that failed asynchronously fails the persist, not silently
         const record = this.getRecord();
 
         const rows = record.criteria.map(c =>
@@ -276,6 +288,25 @@ export class ComplianceGate {
     }
 
     private appendLog(entry: Omit<GateLogEntry, 'at'>): void {
-        this._record.log.push({ at: new Date().toISOString(), ...entry });
+        const full: GateLogEntry = { at: new Date().toISOString(), ...entry };
+        this._record.log.push(full);
+        if (!this.audit) return;
+        const r = this._record;
+        const event: AuditEvent = {
+            at: full.at,
+            principal: { agentId: full.evaluatorId ?? r.executor, sessionId: r.runId, chain: [r.executor] },
+            tool: `compliance_gate.${full.event}`,
+            argsHash: hashArgs({ flowId: r.flowId, runId: r.runId, stepId: r.stepId, criterionId: full.criterionId ?? null, detail: full.detail ?? null }),
+            decision: full.event === 'criterion_evaluated' ? 'allow' : 'deny',
+            ...(full.detail ? { reason: full.detail } : {}),
+            durationMs: 0,
+            meta: { flowId: r.flowId, stepId: r.stepId, executor: r.executor, ...(full.criterionId ? { criterionId: full.criterionId } : {}) },
+        };
+        const written = this.audit.write(event);          // a sink that throws (the hash chain does) throws here, before the decision is taken
+        if (written && typeof (written as Promise<void>).then === 'function') {
+            const p = (written as Promise<void>).then(() => undefined);
+            p.catch(() => undefined);                       // reported by persist(); not an unhandled rejection meanwhile
+            this.auditWrites.push(p);
+        }
     }
 }

@@ -16,7 +16,14 @@ export interface JwtAuthOptions {
      * WebSocket, as the subprotocol `bearer, <jwt>` (`new WebSocket(url, ['bearer', jwt])`).
      */
     allowQueryToken?: boolean;
+    /** Refuse a token with no `exp`: such a token never expires. Default false (as before); turn it on for anything that is not a test. */
+    requireExpiry?: boolean;
+    /** Refuse a token with no `sub`: its user cannot be told apart. Default false (as before). */
+    requireSubject?: boolean;
 }
+
+const HMAC: jwt.Algorithm[] = ['HS256', 'HS384', 'HS512'];
+const ASYMMETRIC: jwt.Algorithm[] = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'];
 
 export interface AuthUser {
     sub: string;
@@ -71,7 +78,8 @@ export class JwtAuth {
     verify(token: string): AuthUser {
         const key = (this.opts.secret ?? this.opts.publicKey)!;
         const payload = jwt.verify(token, key, {
-            algorithms: this.opts.algorithms,
+            // Never "whatever the token says": a secret verifies HMAC, a public key verifies the asymmetric ones.
+            algorithms: this.opts.algorithms ?? (this.opts.secret ? HMAC : ASYMMETRIC),
             // Cast required: jwt.VerifyOptions.audience is a variadic tuple type
             audience: this.opts.audience as jwt.VerifyOptions['audience'],
             issuer: this.opts.issuer,
@@ -79,13 +87,15 @@ export class JwtAuth {
         if (typeof payload !== 'object' || !payload) {
             throw new Error('Unexpected JWT payload type');
         }
+        if (this.opts.requireExpiry && payload.exp === undefined) throw new Error('The token has no expiry (exp)');
+        if (this.opts.requireSubject && (typeof payload.sub !== 'string' || !payload.sub)) throw new Error('The token has no subject (sub)');
         return payload as AuthUser;
     }
 }
 
 function extractToken(req: FastifyRequest, allowQueryToken: boolean): string | null {
     const auth = req.headers.authorization;
-    if (auth?.startsWith('Bearer ')) return auth.slice(7);
+    if (auth && /^bearer /i.test(auth)) return auth.slice(7);
     // Browser WebSocket can't set headers: the token rides as the second subprotocol, `bearer, <jwt>`.
     const protocols = String(req.headers['sec-websocket-protocol'] ?? '').split(',').map(p => p.trim());
     if (protocols[0] === 'bearer' && protocols[1]) return protocols[1];

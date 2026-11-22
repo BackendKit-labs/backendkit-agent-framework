@@ -15,6 +15,8 @@ export interface VectorChunk {
         mtime: number;
         area?: string;
         stack?: string;
+        /** The `author` of the note when an agent wrote it (`agent/<id>`). Absent for notes written by people. */
+        author?: string;
     };
 }
 

@@ -243,3 +243,35 @@ describe('a bundle checked with the keys the verifier trusts', () => {
         expect(readCheckpoints(join(dir, 'x.ndjson'))).toEqual([a]);
     });
 });
+
+describe('HashChainAuditSink fsync option', () => {
+    it('with fsync off the log is written and still verifies', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'chain-nosync-'));
+        try {
+            const file = join(dir, 'a.ndjson');
+            const sink = new HashChainAuditSink(file, { fsync: false });
+            sink.write({ type: 'tool_call' } as never);
+            sink.write({ type: 'tool_call' } as never);
+            expect(verifyAuditChain(file)).toMatchObject({ ok: true, entries: 2 });
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+});
+
+describe('bundle manifest', () => {
+    it('a manifest that does not describe the log is warned about, and export copies exactly what it describes', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'bundle-manifest-'));
+        try {
+            const log = join(dir, 'a.ndjson');
+            const sink = new HashChainAuditSink(log);
+            for (let i = 0; i < 3; i++) sink.write({ type: 'tool_call' } as never);
+            const out = join(dir, 'out');
+            const m = exportAuditBundle({ log, checkpoints: join(dir, 'none.ndjson'), publicKeys: {}, outDir: out });
+            expect(m.entries).toBe(3);
+            expect(verifyAuditBundle(out)).toMatchObject({ ok: true, entries: 3 });
+            writeFileSync(join(out, 'manifest.json'), JSON.stringify({ ...m, entries: 9 }));
+            const r = verifyAuditBundle(out);
+            expect(r).toMatchObject({ ok: true });
+            expect((r as { warnings: string[] }).warnings.some(w => /manifest\.json says 9 entries/.test(w))).toBe(true);
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+});

@@ -121,6 +121,16 @@ createBaseEngine({ /* ... */ approvals, approvalTtlSeconds: 24 * 3600 });      /
 
 The request carries `expiresAt`. Once it has passed, `runApproved` refuses the approval whether it was still pending or already approved. The refusal is audited (`deny`, with the time it expired) and the request is spent: a new one has to be made. A `ttlSeconds` that is not a positive number expires at once, and an `expiresAt` that cannot be read counts as expired, so a mistake does not turn into "never expires". An approver that answers right away (`approver`) is not affected: there is no window to wait out.
 
+### An approver that does not answer
+
+Asks are put to the approver one at a time, so one that never answers holds every other ask of the engine behind it. Give it a time limit; past it the call is denied (and audited) and the engine moves on:
+
+```ts
+createBaseEngine({ /* ... */ approver, approverTimeoutMs: 5 * 60_000 });
+```
+
+Without `approverTimeoutMs` there is no limit. A person on a terminal or a chat may need hours; use [stored approvals](#approvals-that-expire) for that and keep this for approvers that should answer quickly.
+
 ## Audit
 
 Each tool call, accepted or refused, produces **one audit event**, with the arguments as a SHA-256 only (no sensitive values in the log). `HashChainAuditSink` writes them chained, so removing or editing a line is detectable.

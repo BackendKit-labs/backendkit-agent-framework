@@ -137,7 +137,7 @@ export class HashChainAuditSink implements AuditSink {
 
     constructor(
         private readonly filePath: string,
-        private readonly options: { secret?: string | Uint8Array; checkpoints?: HashChainCheckpointOptions } = {},
+        private readonly options: { secret?: string | Uint8Array; checkpoints?: HashChainCheckpointOptions; /** Flush each entry to disk before write returns (default true). Off only where throughput matters more than surviving a machine crash: the last entries may be lost, the chain stays valid up to what reached the disk. */ fsync?: boolean } = {},
     ) {
         const every = options.checkpoints?.every;
         if (every !== undefined && (!Number.isInteger(every) || every < 1)) throw new Error('checkpoints.every must be a positive whole number');
@@ -164,7 +164,7 @@ export class HashChainAuditSink implements AuditSink {
             ...(this.options.secret ? { mac: macOf(this.options.secret, hash) } : {}),
         };
         const fd = openSync(this.filePath, 'a');
-        try { writeSync(fd, `${JSON.stringify(entry)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+        try { writeSync(fd, `${JSON.stringify(entry)}\n`); if (this.options.fsync !== false) fsyncSync(fd); } finally { closeSync(fd); }
         this.seq = seq;
         this.prevHash = hash;
         const cp = this.options.checkpoints;

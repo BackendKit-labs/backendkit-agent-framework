@@ -50,7 +50,7 @@ describe('AnthropicProvider', () => {
 
     it('joins all system messages, groups consecutive tool results and forwards model/signal/tools', async () => {
         const { client, stream } = anthropicClient([[textBlock('ok')]]);
-        const signal = new AbortController().signal;
+        const callerAbort = new AbortController(); const signal = callerAbort.signal;
         const tool = { name: 't', description: 'd', parameters: { type: 'object', properties: {} }, execute: async () => '' };
         await new AnthropicProvider({ apiKey: 'k', client, ...fast }).chat([
             { role: 'system', content: 'one' },
@@ -65,7 +65,7 @@ describe('AnthropicProvider', () => {
         ], [tool], { ...recorder().callbacks, model: 'claude-x', signal });
         const [params, opts] = stream.mock.calls[0] as [Record<string, unknown> & { messages: Array<{ role: string; content: unknown }> }, { signal?: AbortSignal }];
         expect(params).toMatchObject({ model: 'claude-x', system: 'one\n\ntwo', max_tokens: 8192, temperature: 0 });
-        expect(opts.signal).toBe(signal);
+        expect(opts.signal).toBeInstanceOf(AbortSignal); void callerAbort;   // a guarded signal (follows the caller's; see streamGuards.test.ts)
         expect((params.tools as unknown[])).toHaveLength(1);
         expect(params.messages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
         expect(params.messages[1].content).toEqual([

@@ -346,6 +346,9 @@ export interface BaseEngineOptions {
      */
     approvalTtlSeconds?: number;
 
+    /** Milliseconds a live `approver` has to answer; past that the call is denied. Default: no limit. */
+    approverTimeoutMs?: number;
+
     /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
     approvals?: ApprovalStore;
 
@@ -538,6 +541,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
         ...(opts.credentialBroker ? { credentialBroker: opts.credentialBroker } : {}),
         ...(opts.approvalTtlSeconds !== undefined ? { approvalTtlSeconds: opts.approvalTtlSeconds } : {}),
+        ...(opts.approverTimeoutMs !== undefined ? { approverTimeoutMs: opts.approverTimeoutMs } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
         ...(opts.recordArgs ? { recordArgs: true } : {}),

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import type { LLMMessage, LLMStreamCallbacks, ToolDefinition, ChatOptions, StructuredOutputSupport } from '@backendkit-labs/agent-core';
-import { BaseStreamingProvider, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
+import { BaseStreamingProvider, StreamIdleError, TRUNCATED_NOTE, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
 
 /** The slice of the OpenAI SDK the provider uses — inject a double in tests. */
 export interface OpenAIClientLike {
@@ -14,6 +14,7 @@ export interface OpenAIClientLike {
 export interface OpenAIChunk {
     usage?: { prompt_tokens: number; completion_tokens: number } | null;
     choices: Array<{
+        finish_reason?: string | null;
         delta?: {
             content?: string | null;
             tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>;
@@ -108,6 +109,8 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
         const model = callbacks.model ?? this.model;
         const temperature = typeof this.temperature === 'function' ? this.temperature(model) : this.temperature;
 
+        const guard = this.idleGuard(callbacks.signal);
+        try {
         const stream = await this.client.chat.completions.create({
             model,
             // `raw` is another provider's payload (e.g. Anthropic thinking blocks): never send it.
@@ -121,12 +124,15 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
             stream_options: { include_usage: true },
             // Not a standard OpenAI field: extension for OpenAI-compatible reasoning models.
             ...(this.thinkingFor(options) ? { thinking: { type: this.thinkingFor(options) } } : {}),
-        }, { signal: callbacks.signal });
+        }, { signal: guard.signal });
 
         let content = '';
+        let finishReason: string | null | undefined;
         const buffers = new Map<number, ToolCallBuffer>();
 
-        for await (const chunk of stream) {
+        for await (const chunk of guard.watch(stream)) {
+            const fr = chunk.choices[0]?.finish_reason;
+            if (fr) finishReason = fr;
             // With include_usage the usage arrives in the final chunk.
             if (chunk.usage) callbacks.onMetrics?.(chunk.usage.prompt_tokens, chunk.usage.completion_tokens);
 
@@ -147,7 +153,20 @@ export class OpenAICompatibleProvider extends BaseStreamingProvider {
             }
         }
 
+        // An answer cut by the output limit is not a complete one: its tool calls have incomplete arguments, its text just stops.
+        if (finishReason === 'length') {
+            if (buffers.size > 0) throw new Error('the response hit the output limit (max_tokens) in the middle of a tool call: its arguments are incomplete');
+            content += TRUNCATED_NOTE;
+            callbacks.onChunk?.(TRUNCATED_NOTE);
+        }
+
         this.finish(callbacks, content, buffers);
+        } catch (err) {
+            if (guard.idled()) throw new StreamIdleError(this.streamIdleTimeoutMs);
+            throw err;
+        } finally {
+            guard.stop();
+        }
     }
 
     /** Explicit `thinking` wins; otherwise off for forced tool choices when the preset asks for it. */

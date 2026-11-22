@@ -154,3 +154,26 @@ jobs:
 
       - name: Manual retry loops
         run: node scripts/check-resilience.mjs
+
+  # The documentation site. The agent designer is tested above; this builds the whole site, so a broken page, import or
+  # content collection fails in the pull request and not when someone deploys.
+  site:
+    name: Site build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        run: npm ci --ignore-scripts
+        working-directory: site
+
+      - name: Build the site
+        run: npm run build
+        working-directory: site

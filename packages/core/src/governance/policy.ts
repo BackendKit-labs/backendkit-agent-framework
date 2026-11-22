@@ -66,6 +66,9 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
         const ttls = asks.map(a => a.ttlSeconds).filter((n): n is number => typeof n === 'number');
         const ttlSeconds = ttls.length > 0 ? Math.min(...ttls) : undefined;
         const reason = asks.map(a => a.reason).join('; ');
+        if (accepts && accepts.length === 0) {
+            return { effect: 'deny', reason: `${reason}; the policies accept no kind of approver in common` };
+        }
         if (roles && roles.length === 0) {
             return { effect: 'deny', reason: `${reason}; the policies ask for approver roles that no one can hold at once` };
         }

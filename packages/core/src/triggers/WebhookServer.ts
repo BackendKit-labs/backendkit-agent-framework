@@ -20,8 +20,12 @@ export class WebhookServer {
     private server: http.Server | null = null;
     private readonly maxBodyBytes: number;
 
-    constructor(private readonly port: number, opts?: { maxBodyBytes?: number }) {
+    private readonly host: string | undefined;
+
+    /** `host`: the address to listen on. Default: every interface (what a public webhook needs); pass '127.0.0.1' behind a proxy. */
+    constructor(private readonly port: number, opts?: { maxBodyBytes?: number; host?: string }) {
         this.maxBodyBytes = opts?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+        this.host = opts?.host;
     }
 
     /**
@@ -51,16 +55,19 @@ export class WebhookServer {
                     }
                 });
             });
-            this.server.listen(this.port, () => resolve());
             this.server.once('error', reject);
+            if (this.host) this.server.listen(this.port, this.host, () => resolve());
+            else this.server.listen(this.port, () => resolve());
         });
     }
 
     stop(): Promise<void> {
         return new Promise((resolve, reject) => {
             if (!this.server) { resolve(); return; }
-            this.server.close(err => err ? reject(err) : resolve());
+            const server = this.server;
             this.server = null;
+            server.close(err => err ? reject(err) : resolve());
+            server.closeAllConnections?.();     // keep-alive sockets would hold close() open
         });
     }
 
@@ -73,7 +80,7 @@ export class WebhookServer {
             return;
         }
 
-        const route = this.routes.find(r => r.path === req.url);
+        const route = this.routes.find(r => r.path === (req.url ?? '').split('?')[0]);
         if (!route) {
             res.writeHead(404);
             res.end('Not Found');
@@ -99,7 +106,12 @@ export class WebhookServer {
         res.writeHead(202);
         res.end('Accepted');
 
-        route.handler(body, headers);
+        // A handler that throws, or an async one that rejects, must not take the process down.
+        try {
+            Promise.resolve(route.handler(body, headers) as unknown).catch(err => console.error('[WebhookServer] handler failed:', err));
+        } catch (err) {
+            console.error('[WebhookServer] handler failed:', err);
+        }
     }
 
     private readBody(req: http.IncomingMessage): Promise<string> {

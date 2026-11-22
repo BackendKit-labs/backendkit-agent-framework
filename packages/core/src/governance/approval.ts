@@ -75,6 +75,13 @@ export async function approvalProblem(
     return undefined;
 }
 
+/** What a person is shown of the arguments: long enough for a real call, and it says so when it cuts (a cut hides what follows). */
+export const APPROVAL_PREVIEW_CHARS = 4000;
+export function previewArgs(json: string, max: number = APPROVAL_PREVIEW_CHARS): { text: string; truncated: boolean } {
+    if (json.length <= max) return { text: json, truncated: false };
+    return { text: `${json.slice(0, max)} ... [${json.length - max} more characters NOT shown]`, truncated: true };
+}
+
 /** The legacy callback (`onToolApproval`) seen as an `Approver`; see {@link approverFromCallback}. */
 export interface CallbackApprover extends Approver {
     /** Stop asking for the rest of the session (what 'approve_all' does). Destructive calls still ask. */
@@ -107,7 +114,7 @@ export function approverFromCallback(
             const humanOnly = !!call?.tool.destructive || (req.accepts?.length === 1 && req.accepts[0] === 'human');
             if (approveAll && !humanOnly) return { decision: 'approve', by: ref, reason: 'approve all (session)', at: at() };
             const name = call ? call.tool.name : subject.kind;
-            const preview = (call ? JSON.stringify(call.args) : JSON.stringify(subject)).slice(0, 200);
+            const preview = previewArgs(call ? JSON.stringify(call.args) : JSON.stringify(subject)).text;
             opts.onAsk?.(req, preview);
             const decision = await onToolApproval(name, req.principal.agentId, preview);
             if (decision === 'approve_all') approveAll = true;

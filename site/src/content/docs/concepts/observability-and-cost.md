@@ -62,7 +62,7 @@ A delegate belongs to the run of the agent that asked: one id for the whole turn
 
 ## Cancellation and time limits
 
-A tool call can have a time limit (`toolTimeoutMs`, or per tool). On expiry the call's `ctx.signal` is aborted and the model is told the call timed out; a late result is discarded. A tool that ignores the signal keeps running, so for a tool that is **not read-only** the model is also told that it may still be running and its effect may still happen: it should check before it tries again, and your tool should be safe to repeat (an idempotency key helps). Pass the signal to anything cancellable so stopping a turn stops the work.
+A tool call can have a time limit (`toolTimeoutMs`, or per tool). On expiry the call's `ctx.signal` is aborted and the model is told the call timed out; a late result is discarded. A tool that ignores the signal keeps running, so for a tool that is **not read-only** the model is also told that it may still be running and its effect may still happen: it should check before it tries again, and your tool should be safe to repeat: pass `ctx.idempotencyKey` to the system it writes to ([a write that is safe to repeat](../engine-and-tools/#a-write-that-is-safe-to-repeat)). Pass the signal to anything cancellable so stopping a turn stops the work.
 
 ## Seeing it live
 

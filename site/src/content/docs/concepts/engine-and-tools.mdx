@@ -132,6 +132,31 @@ const readFile = defineTool({
 - `ctx` carries the abort signal, the agent id, the session and who is acting. Pass `ctx.signal` to anything cancellable (`fetch`, a child process) so a stopped turn stops the work.
 - A thrown error reaches the model as a message, not as a crash. Throw a `ToolError` to give it a code and a hint.
 
+### A write that is safe to repeat
+
+A model can ask for the same call twice (after a timeout, after an error it misread). A tool that writes should not apply it twice. The engine gives each call a stable key in `ctx.idempotencyKey`: the same run, agent, tool and arguments always get the same key, and a call resumed from a stored approval carries the approval's id. Pass it to the system you write to:
+
+```ts
+const pay = defineTool({
+  name: 'pay_invoice',
+  description: 'Pay an invoice',
+  destructive: true,
+  input: z.object({ invoiceId: z.string(), amount: z.number() }),
+  execute: async ({ invoiceId, amount }, ctx) => {
+    // the payment API applies a request with a key it has already seen once, and returns the first result again
+    const res = await fetch('https://treasury.example.com/payments', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': ctx.idempotencyKey!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoiceId, amount }),
+      signal: ctx.signal,
+    });
+    return await res.text();
+  },
+});
+```
+
+Different arguments or another run give another key, so two real purchases of the same item in two runs stay two purchases. The key does not stop a repeat by itself: it is the system you write to that has to honour it.
+
 ### Declared facts
 
 | Flag | Says | The engine does |

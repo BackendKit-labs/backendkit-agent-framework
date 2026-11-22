@@ -1785,6 +1785,7 @@ export class AgentEngine {
                         try {
                             ({ result, success, outcome, errorCode } = await this.runToolDef(
                                 effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run', held?.values,
+                                approval?.id ?? hashArgs({ run: this.currentRunId ?? null, agent: profile.id, tool: call.name, args: this.parseArgs(effective.args) }),
                             ));
                         } finally {
                             if (held) credentials = await this.gate.releaseCredentials(held);
@@ -1870,6 +1871,7 @@ export class AgentEngine {
         principal?: Principal,
         dryRun = false,
         credentials?: Record<string, string>,
+        idempotencyKey?: string,
     ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted'; errorCode?: string }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
@@ -1879,6 +1881,7 @@ export class AgentEngine {
             ...(dryRun ? { dryRun: true } : {}),
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(credentials ? { credentials } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
             ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId, sandboxDecisions) } : {}),
             signal: controller.signal,

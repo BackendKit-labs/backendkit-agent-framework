@@ -180,3 +180,18 @@ jobs:
       - name: Build the site
         run: npm run build
         working-directory: site
+
+  # A package version that is not on npm yet has to be written down in the CHANGELOG: a bump pull request that forgets its section fails here.
+  release-notes:
+    name: Release notes (version in CHANGELOG)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Every unpublished version is in the CHANGELOG
+        run: node scripts/check-release-notes.mjs

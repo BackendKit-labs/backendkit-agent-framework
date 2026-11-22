@@ -71,7 +71,12 @@ export function createAutonomousAgent(opts: AutonomousAgentOptions): AutonomousA
     return {
         engine,
         start: () => manager.start(),
-        stop: () => manager.stop(),
+        stop: async () => {
+            await manager.stop();
+            // `mcpServers` are child processes this agent started: stopping the triggers must not leave them running.
+            // A later run connects them again, so stop-then-start keeps working.
+            await engine.getMCPManager()?.disconnect();
+        },
         emit: (topic, data, source) => manager.emit(topic, data, source),
     };
 }

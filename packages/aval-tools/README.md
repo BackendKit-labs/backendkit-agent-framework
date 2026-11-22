@@ -36,7 +36,7 @@ Ninguna herramienta guarda dinero ni credenciales del proveedor: eso lo tiene AV
 ## Instalación
 
 ```bash
-npm install @backendkit-labs/aval-tools
+npm install @backendkit-labs/aval-tools @backendkit-labs/agent-core   # agent-core es peerDependency: lo pone tu app
 ```
 
 ## Uso

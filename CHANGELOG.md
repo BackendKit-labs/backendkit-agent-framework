@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.49.11 (2026-11-22)
+
+Dos arreglos que salieron de llevar un agente real (`aval-scheduler`, ahora en `examples/`) a las versiones actuales. Ninguno cambia una API: llegan como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.10 | `AutonomousAgent.stop()` también cierra los servidores MCP que arrancó |
+| `aval-tools` | 0.1.26 | `agent-core` pasa a `peerDependencies`; `@backendkit-labs/retry` pasa a dependencia propia |
+
+Se publican los dos. Tags: `agent-core@0.48.10`, `aval-tools@0.1.26`.
+
+- **`agent-core`, `stop()` dejaba vivos los procesos MCP:** `createAutonomousAgent(...).stop()` paraba el cron, el webhook y los eventos, pero no los servidores de `mcpServers`, que son procesos hijos. Quedaban corriendo mientras el proceso padre siguiera vivo (un test que no terminaba, un agente embebido en otro programa). Ahora `stop()` los desconecta; un `start()` o una corrida posterior los vuelve a conectar.
+- **`aval-tools`, dos copias de `agent-core`:** declaraba `agent-core` como dependencia, así que una app con otra versión de `agent-core` recibía una segunda copia anidada. Los tipos de las dos copias (`ToolDefinition`, `ExecutionContext`) no son compatibles, y `tools: [...createAvalTools()]` no compilaba; en ejecución había dos copias del framework. Ahora es `peerDependency` (`>=0.48.0 <0.49.0`): la app pone una sola. Si tu app usa un `agent-core` anterior a 0.48, súbelo. `@backendkit-labs/retry` se usaba sin declararse (llegaba por `agent-core`) y ahora es dependencia propia.
+
 ## v0.49.10 (2026-11-22)
 
 Tercera pasada de la auditoría: el sandbox y el agente de código. Cambia un comportamiento por defecto (el entorno de los comandos), por eso llega como parche: quien tiene `^0.32.0` debe recibirlo. `agent-coding` sube el rango de `agent-sandbox` a `^0.1.19`.

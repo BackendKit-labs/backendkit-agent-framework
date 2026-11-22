@@ -40,8 +40,9 @@
   registrar, reconciliar en la corrida siguiente, arrancar y apagar el cron). No cubre el modelo real (cuesta
   dinero cada corrida), los triggers de webhook o evento, ni el servidor admin (probado a mano). El simulador
   de AVAL imita lo mínimo del API: no reproduce retenciones ni denegaciones por política.
-- **`agent.stop()` no cierra el servidor MCP hijo.** Solo para los triggers. Para apagar de verdad usa
-  `stopSchedulerAgent(agent)` (`src/agent.ts`), que además desconecta el MCP.
+- **`agent.stop()` no cierra el servidor MCP hijo en `agent-core` anterior a 0.48.10.** Solo paraba los
+  triggers. `stopSchedulerAgent(agent)` (`src/agent.ts`) apaga las dos cosas y sirve en cualquier 0.48; desde
+  0.48.10 `agent.stop()` ya lo cierra.
 
 ---
 ← [04 · Variables de entorno](./04-variables-de-entorno.md)

@@ -5,7 +5,9 @@
  */
 
 // `PAT` only as a whole word (GH_PAT, GITHUB_PAT): a bare /PAT/ would also drop PATH and PATHEXT.
-const DEFAULT_DENY = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|(?:^|_)(?:PAT|COOKIES?|PRIVATE|DSN)(?:_|$)/i;
+// `SSH_AUTH_SOCK` is not a secret but the address of the ssh-agent: a process that has it can authenticate with your keys wherever they are
+// accepted, without ever seeing them. Pass it on purpose (`env.allow` / BK_RUN_COMMAND_ENV_ALLOW) if a command must `git push` over ssh.
+const DEFAULT_DENY = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|(?:^|_)(?:PAT|COOKIES?|PRIVATE|DSN)(?:_|$)|^SSH_AUTH_SOCK$/i;
 
 // A connection string carries its secret in the VALUE, whatever the variable is called (DATABASE_URL, MONGODB_URI, REDIS_URL...):
 // `scheme://user:password@host`.

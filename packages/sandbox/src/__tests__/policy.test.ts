@@ -184,3 +184,11 @@ describe('scrubEnv: secrets that are not called a secret', () => {
         expect(scrubEnv({ DATABASE_URL: 'postgres://app:pw@db/app' }, { allow: ['DATABASE_URL'] }).DATABASE_URL).toBe('postgres://app:pw@db/app');
     });
 });
+
+describe('scrubEnv: the address of the ssh-agent', () => {
+    it('SSH_AUTH_SOCK is not handed down (a process that has it can use your keys), unless the operator allows it', () => {
+        const env = { SSH_AUTH_SOCK: '/tmp/ssh-XXXX/agent.1', GIT_AUTHOR_NAME: 'Ana', GIT_AUTHOR_EMAIL: 'ana@example.com', PATH: '/bin' };
+        expect(Object.keys(scrubEnv(env)).sort()).toEqual(['GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_NAME', 'PATH']);
+        expect(scrubEnv(env, { allow: ['SSH_AUTH_SOCK'] }).SSH_AUTH_SOCK).toBe('/tmp/ssh-XXXX/agent.1');
+    });
+});

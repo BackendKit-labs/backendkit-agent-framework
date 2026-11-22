@@ -1,5 +1,5 @@
 import { resolve, dirname, join, sep, relative } from 'path';
-import { realpathSync } from 'fs';
+import { readFileSync, realpathSync } from 'fs';
 
 /**
  * Resolves `filePath` relative to `workingDir` and verifies the result
@@ -110,6 +110,16 @@ const PROTECTED_SEGMENTS = [
  *   repo; checkFrameworkProtection cannot tell which project they intend to
  *   work on, so it defers to path-sandbox alone and the startup warning).
  */
+/** Is the directory the repository of THIS framework? Its packages/core/package.json names @backendkit-labs/agent-core. */
+function isFrameworkRepo(root: string): boolean {
+    try {
+        const pkg = JSON.parse(readFileSync(join(root, 'packages', 'core', 'package.json'), 'utf-8')) as { name?: unknown };
+        return pkg.name === '@backendkit-labs/agent-core';
+    } catch {
+        return false;
+    }
+}
+
 export function checkFrameworkProtection(abs: string, workingDir: string | undefined): string | undefined {
     if (!workingDir) return undefined;
 
@@ -128,6 +138,11 @@ export function checkFrameworkProtection(abs: string, workingDir: string | undef
         absNorm.includes(seg.replace(/\\/g, '/').toLowerCase())
     );
     if (!triggered) return undefined;
+
+    // A path that merely LOOKS like the framework's (any monorepo has a packages/core/src of its own) is the user's code: protect only the
+    // repository of this framework, recognised by the package that is in packages/core of the directory the segment hangs from.
+    const at = absNorm.indexOf(triggered.replace(/\\/g, '/').toLowerCase());
+    if (!isFrameworkRepo(abs.slice(0, at))) return undefined;
 
     // Skip protection when workingDir is a direct ancestor of the protected
     // segment — i.e., the monorepo root. Use /cwd or WORKING_DIR to narrow scope.

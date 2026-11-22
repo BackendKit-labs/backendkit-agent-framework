@@ -20,6 +20,7 @@ import type {
     ApproverAuthority,
     ApproverDirectory,
     AuditCredential,
+    AuditMandate,
     CredentialBroker,
     ApproverRef,
     AuditDecision,
@@ -1702,6 +1703,7 @@ export class AgentEngine {
         let ran = false;
         let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority } | undefined;
         let credentials: AuditCredential[] | undefined;
+        let mandate: AuditMandate | undefined;
         const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
@@ -1766,6 +1768,7 @@ export class AgentEngine {
                 } else {
                     ran = true;
                     approval = verdict.approval;
+                    mandate = verdict.mandate;
                     const toolHooks = this.hooks.some(h => h.beforeTool || h.afterTool);
                     const hookCall: ToolCall | undefined = toolHooks ? { tool: toolDef, args: this.parseArgs(effective.args) } : undefined;
                     const hookCtx = toolHooks ? this.toolHookContext(principal) : undefined;
@@ -1815,6 +1818,7 @@ export class AgentEngine {
             ...(errorCode ? { errorCode } : {}),
             approval,
             ...(credentials ? { credentials } : {}),
+            ...(mandate ? { mandate } : {}),
             sandbox: sandboxDecisions,
             meta: toolDef?.meta,
         });
@@ -1966,7 +1970,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
-        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; mandate?: AuditMandate; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;
@@ -1991,6 +1995,7 @@ export class AgentEngine {
             durationMs: Date.now() - c.startedAt,
             ...(c.approval ? { approval: c.approval } : {}),
             ...(c.credentials ? { credentials: c.credentials } : {}),
+            ...(c.mandate ? { mandate: c.mandate } : {}),
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
             ...(c.meta ? { meta: c.meta } : {}),
         };

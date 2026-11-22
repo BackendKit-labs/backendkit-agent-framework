@@ -59,6 +59,8 @@ export type PolicyDecision =
          * (the tool simulates and writes nothing). Default 'run'.
          */
         mode?: 'run' | 'sandboxed' | 'dry_run';
+        /** The mandate that covered the call (SPEC-0043): it goes to the audit event. */
+        mandate?: AuditMandate;
     }
     | { effect: 'deny'; reason: string }
     | {
@@ -230,6 +232,17 @@ export interface AuditSandboxDecision {
 }
 
 /** One record per tool call, accepted or refused. Arguments travel only as a hash. */
+/** What the audit event keeps of the mandate an agent acted under. */
+export interface AuditMandate {
+    id: string;
+    issuer: string;
+    /** On whose behalf the agent acted. */
+    subject: string;
+    validUntil?: string;
+    /** SHA-256 of the credential the mandate came from: a third party who holds the credential can compare. */
+    evidenceHash?: string;
+}
+
 export interface AuditEvent {
     /** ISO time when the call started. */
     at: string;
@@ -254,6 +267,8 @@ export interface AuditEvent {
     approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority };
     /** The credentials leased for the call (SPEC-0042 F4): which, never their values. */
     credentials?: AuditCredential[];
+    /** The mandate the call was covered by (SPEC-0043): who issued it, for whom, until when, and the hash of the credential; never the credential. */
+    mandate?: AuditMandate;
     sandbox?: AuditSandboxDecision[];
     /** The tool's declared `meta`. */
     meta?: Record<string, unknown>;

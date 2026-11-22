@@ -71,6 +71,9 @@ jobs:
       - name: Build agent-flow-sql
         run: npm run build -w packages/flow-sql
 
+      - name: Build agent-mandates
+        run: npm run build -w packages/mandates
+
       - name: Build agent-otel
         run: npm run build -w packages/otel
 

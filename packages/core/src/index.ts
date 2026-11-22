@@ -89,7 +89,7 @@ export type { MCPServerConfig } from './mcp/types';
 export type {
     Principal, Identity,
     ToolCall, PolicyDecision, ToolPolicy,
-    ApproverKind, ApproverRef, ApproverProfile, ApproverDirectory, ApproverAuthority, CredentialRequest, CredentialLease, CredentialBroker, AuditCredential, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
+    ApproverKind, ApproverRef, ApproverProfile, ApproverDirectory, ApproverAuthority, CredentialRequest, CredentialLease, CredentialBroker, AuditCredential, AuditMandate, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
     ApprovalStatus, StoredApproval, ApprovalStore,
     AuditDecision, AuditOutcome, AuditSandboxDecision, AuditEvent, AuditSink,
 } from './governance/types';
@@ -107,6 +107,8 @@ export type { AnchorRecord, AnchorVerification, TimestampAnchor } from './govern
 export type { BundleManifest, BundleVerification } from './governance/audit-bundle';
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';
+export { mandatePolicy, mandateCovers, auditMandate } from './governance/mandate';
+export type { Mandate, MandateRequest, MandateVerification, MandateVerifier, MandatePolicyOptions } from './governance/mandate';
 export type { CallbackApprover } from './governance/approval';
 export { FileApprovalStore, MemoryApprovalStore } from './governance/approval-store';
 export { agentApprover, consoleApprover, describeApproval } from './governance/approvers';

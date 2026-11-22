@@ -1,4 +1,4 @@
-import type { ApproverKind, PolicyDecision, Principal, ToolCall, ToolPolicy } from './types';
+import type { ApproverKind, AuditMandate, PolicyDecision, Principal, ToolCall, ToolPolicy } from './types';
 
 /**
  * The rule the engine applies when no `policy` is configured but there is someone to ask (an `approver` or an
@@ -84,13 +84,15 @@ export function combineDecisions(decisions: PolicyDecision[]): PolicyDecision {
 
     const rank = { run: 0, sandboxed: 1, dry_run: 2 } as const;
     let mode: 'run' | 'sandboxed' | 'dry_run' = 'run';
+    let mandate: AuditMandate | undefined;
     const reasons: string[] = [];
     for (const d of decisions) {
         if (d.effect !== 'allow') continue;
+        if (d.mandate && !mandate) mandate = d.mandate;
         if (d.mode && rank[d.mode] > rank[mode]) mode = d.mode;
         if (d.reason) reasons.push(d.reason);
     }
-    return { effect: 'allow', ...(reasons.length ? { reason: reasons.join('; ') } : {}), ...(mode !== 'run' ? { mode } : {}) };
+    return { effect: 'allow', ...(reasons.length ? { reason: reasons.join('; ') } : {}), ...(mode !== 'run' ? { mode } : {}), ...(mandate ? { mandate } : {}) };
 }
 
 /**

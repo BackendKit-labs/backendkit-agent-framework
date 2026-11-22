@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.49.8 (2026-11-22)
+
+Apoderamiento de agentes (SPEC-0043, F1 y F2): un agente puede actuar solo, dentro de los límites de un poder firmado por quien tiene autoridad. Es aditivo y por defecto no cambia nada: `^0.48.0` cubre `agent-core` 0.48.8, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.8 | `Mandate`, `MandateVerifier`, `mandatePolicy` y el campo `mandate` de la auditoría |
+| `agent-mandates` | 0.1.0 | **nuevo, sin publicar todavía**: verificador por defecto de credenciales firmadas |
+
+Se publica `agent-core`. `agent-mandates` es un paquete nuevo y **no se publica sin consulta**. Tag: `agent-core@0.48.8`.
+
+- **`agent-core`, apoderamientos:** un `Mandate` dice a nombre de quién actúa el agente, qué puede hacer, sobre qué y hasta qué importe, sin depender del formato de la credencial. Un `MandateVerifier` (el tuyo, un paquete, Steward) lo obtiene y `mandatePolicy` decide con los hechos de la llamada: dentro del poder, permite sin preguntar a nadie; sin un poder válido, deniega; fuera de él, pide aprobación (o deniega). Falla cerrado en todo: sin verificador, uno que lanza, caducado, de otra persona u otro agente, o con un límite que la política no puede medir. El evento de auditoría guarda el mandato (id, emisor, persona que apodera, vigencia y el hash de la credencial; nunca la credencial). Nuevos exports: `mandatePolicy`, `mandateCovers`, `auditMandate` y los tipos `Mandate`, `MandateRequest`, `MandateVerification`, `MandateVerifier`, `MandatePolicyOptions` y `AuditMandate`.
+- **`agent-mandates` 0.1.0 (nuevo):** `jwtMandateVerifier` lee una credencial con la forma de un SD-JWT VC (JWT firmado con `EdDSA` o `ES256`), de un emisor que el operador confía, con su expiración, y un gancho de revocación (si falla, cuenta como revocado). Rechaza `none`, los algoritmos simétricos y una clave de otro tipo; una credencial con divulgación selectiva se rechaza, no se lee a medias. `issueMandate` emite un mandato en ese perfil (pruebas, demos, quien se apodera a sí mismo). El formato de un proveedor concreto (DALION, una cartera eIDAS 2) será un adaptador al mismo `Mandate`.
+
 ## v0.49.7 (2026-11-22)
 
 Cambio interno de `agent-core`, sin cambio de comportamiento: la parte de gobierno del motor se mueve a su propio archivo. `^0.48.0` cubre 0.48.7, así que no hay barrido de rangos.

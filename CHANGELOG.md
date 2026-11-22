@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.49.5 (2026-11-21)
+
+Dos cambios aditivos de `agent-core` que cierran la SPEC-0042: las aprobaciones guardadas caducan y las credenciales se conceden por llamada. Por defecto no cambia nada, y `^0.48.0` cubre 0.48.5, así que no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.5 | caducidad de aprobaciones y credential broker (SPEC-0042 F3 y F4) |
+
+Solo se publica `agent-core`. Tag: `agent-core@0.48.5`.
+
+- **`agent-core`, las aprobaciones guardadas caducan (SPEC-0042 F3):** una aprobación guardada se ejecutaba tan tarde como fuera. Nueva opción `approvalTtlSeconds` en `createBaseEngine` y `ttlSeconds` en el `ask` de una política (gana el más corto, también al combinar políticas). La solicitud guarda `expiresAt` y `runApproved` rechaza una aprobación caducada, esté pendiente o ya aprobada; el rechazo se audita (`deny`, con la hora en que caducó) y la solicitud queda gastada: hace falta una nueva. Falla cerrado: un `ttlSeconds` que no es un número positivo caduca al instante, un `expiresAt` ilegible cuenta como caducado y un `approvalTtlSeconds` inválido lanza al crear el motor. El aprobador inmediato no se ve afectado. **Por defecto nada caduca.**
+- **`agent-core`, credenciales concedidas por llamada (SPEC-0042 F4):** las `secrets` de un agente llegan a todas sus tools en todas las llamadas. Ahora una tool declara `credentials: ['treasury']` y el motor, con un `credentialBroker`, concede cada una para **una** llamada, **después** de la política, las guardas y la aprobación, y la entrega en `ctx.credentials`. El broker (`lease(request)`) sabe qué tool es, para quién, con qué `argsHash` (el mismo del evento de auditoría) y con qué aprobación; devuelve `{ value, id, expiresAt?, release? }`. Se libera siempre al terminar (éxito, error o timeout) y el evento de auditoría guarda `credentials: [{ name, id, expiresAt, released }]`, nunca el valor; un `release` que falla queda como `released: false`. Falla cerrado: sin broker, con un broker que lanza o con una concesión sin valor, sin id, caducada o con un `expiresAt` ilegible, la tool no se ejecuta y se audita; con varias credenciales es todo o nada. Una simulación (`dry_run`) no recibe credenciales ni llama al broker. Las `secrets` del agente no cambian. **Límite:** el valor llega a la tool dentro del proceso, así que esto no evita que una tool con un fallo lo filtre mientras es válido; protege con alcance, vida corta, revocación y auditoría. El SDK define el contrato, no una implementación: un proxy fuera del proceso es de plataforma. Nuevos exports: los tipos `CredentialBroker`, `CredentialLease`, `CredentialRequest` y `AuditCredential`; `defineTool` acepta `credentials`.
+
 ## v0.49.4 (2026-11-21)
 
 Cambio aditivo de `agent-core`: anclas del `head` de la auditoría fuera del alcance del operador. Un tipo publicado hace poco se ensancha (`anchored`, de `false` a `boolean`). `^0.48.0` cubre 0.48.4, así que no hay barrido de rangos.

@@ -20,3 +20,6 @@ AGENT.md
 
 # SPEC-0040: the skeletons the designer tests generate and compile
 site/designer/.out/
+
+# Test coverage output (was tracked by accident)
+coverage/

@@ -2,12 +2,8 @@
 // Cada excepcion lleva motivo y fecha limite: pasada la fecha, vuelve a fallar.
 import { spawnSync } from 'node:child_process';
 
-const EXCEPTIONS = {
-    'adm-zip': {
-        reason: 'onnxruntime-node y @mintlify/cli lo fijan en 0.6.0 exacto; fix en 0.6.1 espera bump upstream',
-        until: '2026-12-31',
-    },
-};
+// Sin excepciones: adm-zip ya no esta en el arbol (auditoria 2026-11). Formato: { paquete: { reason, until: 'YYYY-MM-DD' } }
+const EXCEPTIONS = {};
 
 const res = spawnSync('npm audit --omit=dev --json', { encoding: 'utf8', shell: true });
 let report;

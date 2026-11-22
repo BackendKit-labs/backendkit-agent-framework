@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.49.10 (2026-11-22)
+
+Tercera pasada de la auditoría: el sandbox y el agente de código. Cambia un comportamiento por defecto (el entorno de los comandos), por eso llega como parche: quien tiene `^0.32.0` debe recibirlo. `agent-coding` sube el rango de `agent-sandbox` a `^0.1.19`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-sandbox` | 0.1.19 | el entorno sin credenciales también descarta cookies, valores privados, DSN, `SSH_AUTH_SOCK` y cualquier valor que sea una cadena de conexión con contraseña |
+| `agent-coding` | 0.32.9 | `run_command` en el host arranca con el entorno filtrado, protección del repo del framework solo en ese repo, registro remoto con `sha256` |
+
+Se publican los dos, `agent-sandbox` primero. Tags: `agent-sandbox@0.1.19`, `agent-coding@0.32.9`.
+
+- **`agent-coding`, qué puede leer un comando:** sin `sandbox`, `run_command` pasaba todo el entorno y el modelo lee lo que un comando imprime (`printenv` está permitido). Ahora las variables que parecen credenciales no se pasan. `BK_RUN_COMMAND_ENV_ALLOW=GH_TOKEN,NPM_TOKEN` deja pasar las que elijas; `BK_RUN_COMMAND_ENV=inherit` devuelve el comportamiento anterior. La lista de binarios permitidos no es aislamiento: para eso, el `sandbox`.
+- **`agent-sandbox`:** la política por defecto descarta además cookies, valores privados y DSN, `SSH_AUTH_SOCK` (se deja pasar con `env.allow`) y cualquier variable cuyo **valor** sea `esquema://usuario:contraseña@host`, se llame como se llame.
+- **`agent-coding`, protección del repo del framework:** la comprobación de rutas protegidas solo se aplica cuando el proyecto es el repo del framework; antes bloqueaba carpetas con ese nombre en cualquier proyecto.
+- **`agent-coding`, registro remoto de agentes:** el archivo descargado debe coincidir con el `sha256` del índice (si no, se rechaza y no se escribe nada), máximo 256 KB, un nombre de paquete no sale del directorio de caché, y una copia en caché editada se vuelve a descargar. Sin hashes en el índice funciona con un aviso; `requireIntegrity: true` lo rechaza. Un perfil que pide `run_command`, `write_file` o `edit_file` se avisa al instalarlo.
+
 ## v0.49.9 (2026-11-22)
 
 Segunda pasada de la auditoría del framework: el servidor web, el RAG de empresa y el cliente MCP. Casi todo son arreglos de seguridad que **cambian un comportamiento por defecto** (se dice en cada punto), por eso llegan como parche: quien tiene `^0.6.0` o `^0.11.0` debe recibirlos. `^0.48.0` cubre `agent-core` 0.48.9, así que no hay barrido de rangos.

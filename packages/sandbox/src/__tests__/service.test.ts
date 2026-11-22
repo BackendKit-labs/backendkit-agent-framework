@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SandboxDecision, SandboxMode, SandboxNetwork } from '@backendkit-labs/agent-core';
@@ -301,5 +301,23 @@ describe('SandboxService — audit log failures are not silent', () => {
             await new Promise((r) => setTimeout(r, 50));
             expect(warn).toHaveBeenCalledTimes(1);
         } finally { warn.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
+    });
+});
+
+describe('SandboxService — the working directory is judged by where it really lands', () => {
+    it('refuses a cwd that is a link inside the workspace pointing outside', async () => {
+        const base = mkdtempSync(join(tmpdir(), 'sbx-cwd-'));
+        try {
+            const workspace = join(base, 'ws'); const outside = join(base, 'out');
+            mkdirSync(workspace); mkdirSync(outside);
+            try { symlinkSync(outside, join(workspace, 'escape'), 'junction'); } catch { return; } // OS without link privileges
+            const f = fake('fake');
+            const svc = createSandboxService({ policy: createSandboxPolicy({ preset: 'ask' }), backends: [f.backend] });
+            const out = await svc.run(caller, req({ cwd: join(workspace, 'escape'), workspace }));
+            expect(out.ok).toBe(false);
+            expect(f.calls).toHaveLength(0);
+            const fine = await svc.run(caller, req({ cwd: workspace, workspace }));
+            expect(fine.ok).toBe(true);
+        } finally { rmSync(base, { recursive: true, force: true }); }
     });
 });

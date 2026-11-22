@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.49.14 (2026-11-22)
+
+Los hallazgos menores de la tercera pasada de auditoría. Ninguno cambia una API: llegan como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-sandbox` | 0.1.21 | el `cwd` se juzga por donde aterriza de verdad; la salida multibyte ya no se corrompe |
+| `agent-coding` | 0.32.10 | `read_file` con tope; el proveedor de skills de GitHub valida host y tamaño; NAT64/6to4 en la guarda SSRF |
+
+Se publican dos. Tags: `agent-sandbox@0.1.21`, `agent-coding@0.32.10`.
+
+- **`agent-sandbox`, `cwd` léxico:** un enlace dentro del workspace que apuntaba fuera pasaba la comprobación del directorio de trabajo. Ahora se resuelve el destino real, igual que ya hacía `authorizePath`.
+- **`agent-sandbox`, salida multibyte:** un carácter UTF-8 partido entre dos trozos de salida se convertía en U+FFFD. Ahora hay un decodificador por flujo.
+- **`agent-coding`, `read_file`:** leía el archivo entero; ahora devuelve como mucho 1 MiB y avisa de que cortó.
+- **`agent-coding`, skills de GitHub:** el `download_url` que devuelve la API se descargaba sin validar, sin tope y siguiendo redirecciones. Ahora solo se acepta `https://raw.githubusercontent.com`, con tope de 256 KiB y sin redirecciones.
+- **`agent-coding`, guarda SSRF:** una dirección NAT64 (`64:ff9b::/96`) o 6to4 (`2002::/16`) que envuelve una IPv4 privada pasaba por pública. Ahora se juzga la IPv4 embebida.
+
+No se tocan, por decisión: fijar la imagen Docker por digest y pasar `--user` en Windows (el contenedor corre con el usuario por defecto de la imagen); queda documentado como límite.
+
 ## v0.49.13 (2026-11-22)
 
 Un arreglo de la tercera pasada de auditoría. No cambia ninguna API: llega como parche.

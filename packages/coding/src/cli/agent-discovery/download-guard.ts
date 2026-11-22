@@ -37,6 +37,19 @@ export function isPrivateIp(ip: string): boolean {
         return isPrivateV4([hi >> 8, hi & 255, lo >> 8, lo & 255]);
     }
 
+    // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) embed an IPv4 address: judge that one, not the wrapper.
+    const nat64 = /^64:ff9b::(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(v);
+    if (nat64) {
+        if (nat64[1]) return isPrivateV4(nat64[1].split('.').map(Number));
+        const hi = parseInt(nat64[2], 16), lo = parseInt(nat64[3], 16);
+        return isPrivateV4([hi >> 8, hi & 255, lo >> 8, lo & 255]);
+    }
+    const sixToFour = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/.exec(v);
+    if (sixToFour) {
+        const hi = parseInt(sixToFour[1], 16), lo = parseInt(sixToFour[2], 16);
+        return isPrivateV4([hi >> 8, hi & 255, lo >> 8, lo & 255]);
+    }
+
     if (v === '::' || v === '::1') return true;
     const first = parseInt(v.split(':')[0] || '0', 16);
     if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local

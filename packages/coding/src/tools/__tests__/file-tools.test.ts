@@ -3,7 +3,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { readFileTool }      from '../read-file';
+import { readFileTool, MAX_READ_BYTES } from '../read-file';
 import { writeFileTool }     from '../write-file';
 import { editFileTool }      from '../edit-file';
 import { listDirectoryTool } from '../list-directory';
@@ -28,6 +28,14 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 // ── read_file ──────────────────────────────────────────────────────────────────
 describe('read_file', () => {
+    it('truncates a file bigger than the cap and says so', async () => {
+        writeFileSync(join(dir, 'big.txt'), 'a'.repeat(MAX_READ_BYTES + 500));
+        const out = await readFileTool.execute({ file_path: 'big.txt' }, makeCtx(dir) as never) as string;
+        expect(out.length).toBeLessThan(MAX_READ_BYTES + 200);
+        expect(out).toContain('[truncated: showing the first');
+    });
+
+
     it('reads existing file', async () => {
         writeFileSync(join(dir, 'hello.txt'), 'hello world', 'utf-8');
         const result = await readFileTool.execute({ file_path: 'hello.txt' }, makeCtx(dir));

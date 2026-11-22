@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "title": "Invoice reconciliation",
+  "goal": "Match supplier invoices with purchase orders, flag differences, and pay the ones that match. Large payments wait for the treasury lead, and the person who asked does not approve.",
+  "agents": [
+    {
+      "id": "reconciler",
+      "name": "Reconciler",
+      "role": "Reads an invoice, finds its purchase order and flags differences.",
+      "tools": [
+        "read_invoice",
+        "find_purchase_order",
+        "flag_difference"
+      ],
+      "delegatesTo": [
+        "payer"
+      ]
+    },
+    {
+      "id": "payer",
+      "name": "Payer",
+      "role": "Pays invoices that the reconciler found to match.",
+      "tools": [
+        "pay_invoice",
+        "read_invoice"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "read_invoice",
+      "description": "Read a supplier invoice.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "invoiceId",
+          "type": "string",
+          "description": "Invoice number"
+        }
+      ]
+    },
+    {
+      "name": "find_purchase_order",
+      "description": "Find the purchase order an invoice refers to.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "invoiceId",
+          "type": "string",
+          "description": "Invoice number"
+        }
+      ]
+    },
+    {
+      "name": "flag_difference",
+      "description": "Flag a difference between an invoice and its order for a person.",
+      "effect": "write",
+      "input": [
+        {
+          "name": "invoiceId",
+          "type": "string",
+          "description": "Invoice number"
+        },
+        {
+          "name": "note",
+          "type": "string",
+          "description": "What differs"
+        }
+      ]
+    },
+    {
+      "name": "pay_invoice",
+      "description": "Pay a supplier invoice from the treasury account. It cannot be undone.",
+      "effect": "destructive",
+      "input": [
+        {
+          "name": "invoiceId",
+          "type": "string",
+          "description": "Invoice number"
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "description": "Amount in dollars"
+        }
+      ],
+      "credentials": [
+        "treasury",
+        "ledger"
+      ]
+    }
+  ],
+  "governance": {
+    "rules": [
+      {
+        "id": "pay-small",
+        "tool": "pay_invoice",
+        "when": {
+          "field": "amount",
+          "op": "<=",
+          "value": 10000
+        },
+        "effect": "allow",
+        "reason": "payments up to 10k are routine"
+      },
+      {
+        "id": "pay-large",
+        "tool": "pay_invoice",
+        "when": {
+          "field": "amount",
+          "op": ">",
+          "value": 10000
+        },
+        "effect": "ask",
+        "reason": "payments above 10k need the treasury lead",
+        "accepts": [
+          "human"
+        ],
+        "approverRoles": [
+          "treasury-lead"
+        ]
+      }
+    ],
+    "fourEyes": true,
+    "actsForUser": true,
+    "approverDirectory": true,
+    "credentialBroker": true,
+    "audit": {
+      "signedCheckpoints": true,
+      "anchor": "none"
+    }
+  },
+  "flow": {
+    "durable": true,
+    "steps": [
+      {
+        "id": "read",
+        "kind": "agent",
+        "ref": "reconciler",
+        "description": "Read the invoice and find its order"
+      },
+      {
+        "id": "compare",
+        "kind": "tool",
+        "ref": "flag_difference",
+        "description": "Flag any difference"
+      },
+      {
+        "id": "approve",
+        "kind": "human",
+        "description": "The treasury lead approves a large payment"
+      },
+      {
+        "id": "pay",
+        "kind": "agent",
+        "ref": "payer",
+        "description": "Pay the invoice"
+      }
+    ]
+  },
+  "budget": {
+    "perRunUsd": 1,
+    "perDayUsd": 20
+  },
+  "testing": {
+    "cases": [
+      {
+        "id": "small-payment-runs",
+        "input": "Pay invoice INV-1.",
+        "agent": "payer",
+        "modelAsks": [
+          {
+            "tool": "pay_invoice",
+            "args": {
+              "invoiceId": "INV-1",
+              "amount": 5000
+            }
+          }
+        ],
+        "expect": [
+          {
+            "tool": "pay_invoice",
+            "success": true
+          }
+        ]
+      },
+      {
+        "id": "large-payment-approved",
+        "input": "Pay invoice INV-2.",
+        "agent": "payer",
+        "modelAsks": [
+          {
+            "tool": "pay_invoice",
+            "args": {
+              "invoiceId": "INV-2",
+              "amount": 25000
+            }
+          }
+        ],
+        "approver": "approves",
+        "expect": [
+          {
+            "tool": "pay_invoice",
+            "success": true
+          }
+        ]
+      },
+      {
+        "id": "large-payment-rejected",
+        "input": "Pay invoice INV-2.",
+        "agent": "payer",
+        "modelAsks": [
+          {
+            "tool": "pay_invoice",
+            "args": {
+              "invoiceId": "INV-2",
+              "amount": 25000
+            }
+          }
+        ],
+        "approver": "rejects",
+        "expect": [
+          {
+            "tool": "pay_invoice",
+            "success": false
+          }
+        ]
+      },
+      {
+        "id": "flagging-asks-a-person",
+        "input": "Flag INV-3.",
+        "modelAsks": [
+          {
+            "tool": "flag_difference",
+            "args": {
+              "invoiceId": "INV-3",
+              "note": "quantity differs"
+            }
+          }
+        ],
+        "approver": "approves",
+        "expect": [
+          {
+            "tool": "flag_difference",
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "risks": [
+    {
+      "text": "The treasury credential reaches the tool in its own process while it is valid: give it a short life and revoke it afterwards.",
+      "needsPersonDecision": false
+    },
+    {
+      "text": "The audit is signed but not anchored outside the operator reach: it is tamper-evident, not proof.",
+      "needsPersonDecision": true
+    }
+  ]
+}

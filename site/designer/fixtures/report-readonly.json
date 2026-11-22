@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "title": "Weekly report",
+  "goal": "Answer questions about last week numbers from a read-only database and summarize them.",
+  "agents": [
+    {
+      "id": "analyst",
+      "name": "Analyst",
+      "role": "Runs read-only reports and explains the result in plain language.",
+      "tools": [
+        "run_report"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "run_report",
+      "description": "Run a saved report and return its rows.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "report",
+          "type": "string",
+          "description": "Name of the saved report"
+        }
+      ]
+    }
+  ],
+  "governance": {
+    "rules": [],
+    "audit": {}
+  },
+  "testing": {
+    "cases": [
+      {
+        "id": "report-runs",
+        "input": "Show last week sales.",
+        "modelAsks": [
+          {
+            "tool": "run_report",
+            "args": {
+              "report": "weekly-sales"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "tool": "run_report",
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "risks": [
+    {
+      "text": "The database user must be read-only in the database itself: the tool says it changes nothing, the database has to agree.",
+      "needsPersonDecision": true
+    }
+  ]
+}

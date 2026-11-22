@@ -126,6 +126,11 @@ jobs:
       - name: Test (web-ui)
         run: npm test -w packages/web-ui
 
+      # SPEC-0040: the agent designer of the web. Its skeletons are compiled against the packages built above and their own tests
+      # are run, so a change in the API of the framework breaks here and not in front of a visitor. Node 24 strips the types itself.
+      - name: Test (agent designer)
+        run: node --test "site/designer/*.test.ts"
+
   guardrails:
     name: Guardrails (audit · cycles · resilience)
     runs-on: ubuntu-latest

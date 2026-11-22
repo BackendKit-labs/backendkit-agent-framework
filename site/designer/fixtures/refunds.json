@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "title": "Refunds desk",
+  "goal": "Answer customers about their orders and refund them within a policy: small refunds run on their own, large ones wait for someone in finance who is not the person who asked.",
+  "agents": [
+    {
+      "id": "support",
+      "name": "Support",
+      "role": "Answers customers, looks up orders and keeps them informed.",
+      "tools": [
+        "lookup_order",
+        "notify_customer"
+      ],
+      "delegatesTo": [
+        "refunds-desk"
+      ]
+    },
+    {
+      "id": "refunds-desk",
+      "name": "Refunds desk",
+      "role": "Decides and issues refunds that support asks for.",
+      "tools": [
+        "lookup_order",
+        "refund_order"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Read an order, its items and what was paid.",
+      "effect": "read",
+      "input": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "description": "The order number"
+        }
+      ]
+    },
+    {
+      "name": "notify_customer",
+      "description": "Send the customer a message about their order.",
+      "effect": "write",
+      "input": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "description": "The order number"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "description": "What to tell the customer"
+        }
+      ]
+    },
+    {
+      "name": "refund_order",
+      "description": "Refund part or all of an order to the original payment method. It cannot be undone.",
+      "effect": "destructive",
+      "input": [
+        {
+          "name": "orderId",
+          "type": "string",
+          "description": "The order number"
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "description": "Amount to refund, in dollars"
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "description": "Why it is refunded"
+        }
+      ],
+      "credentials": [
+        "payments"
+      ]
+    }
+  ],
+  "governance": {
+    "rules": [
+      {
+        "id": "small-refunds",
+        "tool": "refund_order",
+        "when": {
+          "field": "amount",
+          "op": "<=",
+          "value": 50
+        },
+        "effect": "allow",
+        "reason": "small refunds are routine"
+      },
+      {
+        "id": "large-refunds",
+        "tool": "refund_order",
+        "when": {
+          "field": "amount",
+          "op": ">",
+          "value": 50
+        },
+        "effect": "ask",
+        "reason": "refunds above 50 need someone in finance",
+        "accepts": [
+          "human"
+        ],
+        "approverRoles": [
+          "finance"
+        ],
+        "ttlSeconds": 3600
+      },
+      {
+        "id": "customer-messages",
+        "tool": "notify_customer",
+        "effect": "allow",
+        "reason": "a message to the customer changes nothing that matters"
+      }
+    ],
+    "fourEyes": true,
+    "actsForUser": true,
+    "approverDirectory": true,
+    "credentialBroker": true,
+    "durableApprovals": true,
+    "audit": {
+      "signedCheckpoints": true,
+      "anchor": "file"
+    }
+  },
+  "budget": {
+    "perRunUsd": 0.5,
+    "perDayUsd": 25
+  },
+  "testing": {
+    "cases": [
+      {
+        "id": "lookup-runs",
+        "input": "Where is order 1001?",
+        "modelAsks": [
+          {
+            "tool": "lookup_order",
+            "args": {
+              "orderId": "1001"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "tool": "lookup_order",
+            "success": true
+          }
+        ]
+      },
+      {
+        "id": "small-refund-runs",
+        "input": "Refund 20 dollars of order 1001.",
+        "agent": "refunds-desk",
+        "modelAsks": [
+          {
+            "tool": "refund_order",
+            "args": {
+              "orderId": "1001",
+              "amount": 20,
+              "reason": "late delivery"
+            }
+          }
+        ],
+        "expect": [
+          {
+            "tool": "refund_order",
+            "success": true
+          }
+        ]
+      },
+      {
+        "id": "large-refund-waits-for-finance",
+        "input": "Refund 400 dollars of order 1001.",
+        "agent": "refunds-desk",
+        "modelAsks": [
+          {
+            "tool": "refund_order",
+            "args": {
+              "orderId": "1001",
+              "amount": 400,
+              "reason": "damaged"
+            }
+          }
+        ],
+        "approver": "nobody",
+        "expect": [
+          {
+            "tool": "refund_order",
+            "success": false
+          }
+        ]
+      },
+      {
+        "id": "finance-approves-a-large-refund",
+        "input": "Refund 400 dollars of order 1001.",
+        "agent": "refunds-desk",
+        "modelAsks": [
+          {
+            "tool": "refund_order",
+            "args": {
+              "orderId": "1001",
+              "amount": 400,
+              "reason": "damaged"
+            }
+          }
+        ],
+        "approver": "approves",
+        "expect": [
+          {
+            "tool": "refund_order",
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "risks": [
+    {
+      "text": "The refund credential, once leased, reaches the tool in its own process: lease it for one call and revoke it afterwards.",
+      "needsPersonDecision": false
+    },
+    {
+      "text": "Who counts as finance is decided by the directory of the application, not by the framework.",
+      "needsPersonDecision": true
+    }
+  ]
+}

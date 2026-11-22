@@ -98,6 +98,6 @@ Say this out loud before relying on it:
 - `read-only` refuses tools **by name**: the ones listed as writing tools. Your own tools that write are not blocked unless you list them.
 - File tools run in the host process, so a backend does not confine them; the service judges the path instead, following symlinks and junctions.
 
-Host processes also start from a scrubbed environment: variables named like `KEY`, `SECRET`, `TOKEN`, `PASSWORD` or `CREDENTIAL` are dropped.
+Host processes also start from a scrubbed environment: variables named like `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `CREDENTIAL`, cookies, private values or DSNs are dropped, and so is any variable whose **value** is a connection string with credentials (`postgres://user:pass@host`), whatever it is called. A policy lets chosen names through with `env.allow`.
 
 Reference: the [`agent-sandbox` page](../../packages/sandbox/).

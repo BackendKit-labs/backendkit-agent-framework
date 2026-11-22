@@ -160,3 +160,27 @@ describe('parsePolicyConfig', () => {
         expect(() => parsePolicyConfig(input)).toThrow(message);
     });
 });
+
+describe('scrubEnv: secrets that are not called a secret', () => {
+    it('drops a connection string with credentials in its value, whatever the variable is named', () => {
+        const out = scrubEnv({
+            DATABASE_URL: 'postgres://app:s3cret@db.internal:5432/app', MONGODB_URI: 'mongodb+srv://u:p@cluster0.example.net/x',
+            REDIS_URL: 'redis://:pw@cache:6379', HTTP_PROXY: 'http://user:pass@proxy:8080', PATH: '/bin',
+        });
+        expect(Object.keys(out)).toEqual(['PATH']);
+    });
+
+    it('keeps a URL without credentials, and what merely contains an @', () => {
+        const out = scrubEnv({ API_BASE: 'https://api.example.com/v1', GIT_AUTHOR_EMAIL: 'ana@example.com', SENTRY_URL: 'https://o1.ingest.example.com', PATH: '/bin' });
+        expect(Object.keys(out).sort()).toEqual(['API_BASE', 'GIT_AUTHOR_EMAIL', 'PATH', 'SENTRY_URL']);
+    });
+
+    it('drops cookies, private values and DSNs by name, as whole words', () => {
+        const out = scrubEnv({ SESSION_COOKIE: 'c', PRIVATE_KEY_PATH: 'p', SENTRY_DSN: 'd', COOKIES: 'x', PRIVATELY: 'y', DSNAME: 'z', PATH: '/bin' });
+        expect(Object.keys(out).sort()).toEqual(['DSNAME', 'PATH', 'PRIVATELY']);
+    });
+
+    it('allow still wins, for a variable the operator chose to pass', () => {
+        expect(scrubEnv({ DATABASE_URL: 'postgres://app:pw@db/app' }, { allow: ['DATABASE_URL'] }).DATABASE_URL).toBe('postgres://app:pw@db/app');
+    });
+});

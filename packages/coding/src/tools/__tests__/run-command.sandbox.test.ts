@@ -146,11 +146,20 @@ describe('run_command with a real sandbox service', () => {
         } finally { delete process.env.BK_TEST_RC_SECRET_TOKEN; }
     }, 20_000);
 
-    it('without a configured sandbox the legacy path still passes the whole environment (nothing changes for existing users)', async () => {
+    it('without a configured sandbox the legacy path scrubs credential-looking variables: the model reads what a command prints', async () => {
+        process.env.BK_TEST_RC_LEGACY_TOKEN = 'must-not-be-visible';
+        try {
+            const out = await runCommandTool.execute({ command: `node -e "console.log(process.env.BK_TEST_RC_LEGACY_TOKEN || 'absent')"`, timeout_ms: 20_000 }, { ...baseCtx, workingDir: dir });
+            expect(out).toBe('absent');
+        } finally { delete process.env.BK_TEST_RC_LEGACY_TOKEN; }
+    }, 30_000);
+
+    it('BK_RUN_COMMAND_ENV=inherit keeps the old behaviour for whoever depends on it: the whole environment', async () => {
         process.env.BK_TEST_RC_LEGACY_TOKEN = 'still-visible';
+        process.env.BK_RUN_COMMAND_ENV = 'inherit';
         try {
             const out = await runCommandTool.execute({ command: `node -e "console.log(process.env.BK_TEST_RC_LEGACY_TOKEN || 'absent')"`, timeout_ms: 20_000 }, { ...baseCtx, workingDir: dir });
             expect(out).toBe('still-visible');
-        } finally { delete process.env.BK_TEST_RC_LEGACY_TOKEN; }
+        } finally { delete process.env.BK_TEST_RC_LEGACY_TOKEN; delete process.env.BK_RUN_COMMAND_ENV; }
     }, 30_000);
 });

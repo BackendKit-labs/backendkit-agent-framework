@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.49.6 (2026-11-22)
+
+Arreglos de la auditoría del framework (#276). Casi todo es aditivo y por defecto no cambia nada, así que `^0.48.0` cubre `agent-core` 0.48.6 y no hay barrido de rangos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.48.6 | aprobación con vista completa, `approverTimeoutMs`, args que no son objeto, webhook, almacén de aprobaciones |
+| `agent-providers` | 0.3.16 | respuestas cortadas por el límite de salida, `streamIdleTimeoutMs` |
+| `mcp-server` | 0.19.11 | cuerpo limitado, sin errores internos al cliente |
+| `agent-coding` | 0.32.8 | `/plugin add pkg@versión`, sin código muerto |
+
+Se publican los cuatro. Tags: `agent-core@0.48.6`, `agent-providers@0.3.16`, `mcp-server@0.19.11`, `agent-coding@0.32.8`.
+
+- **`agent-core`, la aprobación se pide sobre lo que de verdad se ejecuta:** `approverFromCallback` y el evento `tool_approval_request` mostraban los argumentos cortados a 200 caracteres, y lo que quedaba fuera no se veía. Ahora son 4000 y, si aun así se corta, dice cuánto no se muestra. Un `Approver` propio ya recibía la solicitud completa.
+- **`agent-core`, `approverTimeoutMs` (opt-in):** las preguntas al aprobador van de una en una, así que uno que no responde frenaba todas las demás. Pasado el tiempo la llamada se deniega y se audita. Sin la opción no hay límite, como antes.
+- **`agent-core`, argumentos que no son un objeto JSON:** un array, `null` o un número llegaban a las políticas como `{}`. Ahora se deniegan antes.
+- **`agent-core`, políticas sin aprobador en común:** si las políticas aceptan tipos de aprobador distintos y no queda ninguno, la llamada se deniega (antes se preguntaba a una persona y se rechazaba siempre), igual que con los roles.
+- **`agent-core`, un timeout de una tool que escribe** avisa al modelo de que puede seguir corriendo, para que no la repita a ciegas.
+- **`agent-core`, almacén de aprobaciones:** un JSON corrupto da un error claro (antes, "no existe"), `list` lo salta y se borran los `.tmp` de más de una hora.
+- **`agent-core`, `WebhookServer`:** un handler `async` que rechaza ya no tumba el proceso, la ruta acepta query string, `host` es opcional y `stop()` cierra las conexiones abiertas.
+- **`agent-core`, auditoría:** el bundle se lee una vez al exportar, un manifest que no describe el log da un aviso, `AuditLogger` avisa una vez si no puede escribir y `HashChainAuditSink` acepta `fsync: false` (por defecto sigue vaciando a disco en cada entrada).
+- **`agent-providers`, respuestas cortadas:** una respuesta que llega al límite de salida (`max_tokens`) se marcaba como completa. Ahora el texto lleva una nota y un tool call cortado es un error, no una llamada con la mitad de sus argumentos. Nueva opción `streamIdleTimeoutMs` (120 s por defecto, `0` la apaga): un stream que deja de enviar se corta y, si todavía no salió nada, se reintenta. Solo en los proveedores OpenAI-compatibles y Anthropic.
+- **`mcp-server`:** el cuerpo de una petición se limita a 1 MiB (413), los errores internos ya no llegan al cliente y el esquema `Bearer` no distingue mayúsculas.
+- **`agent-coding`:** `/plugin add pkg@1.2.3` buscaba el paquete con la versión en el nombre y siempre fallaba; los paquetes escritos a mano se instalan ahora sin scripts de instalación. Se borran dos archivos sin uso.
+
 ## v0.49.5 (2026-11-21)
 
 Dos cambios aditivos de `agent-core` que cierran la SPEC-0042: las aprobaciones guardadas caducan y las credenciales se conceden por llamada. Por defecto no cambia nada, y `^0.48.0` cubre 0.48.5, así que no hay barrido de rangos.

@@ -120,6 +120,13 @@ export interface ToolDefinition {
 // ─── Execution Context ────────────────────────────────────────────────────────
 
 export interface ExecutionContext {
+    /**
+     * Stable for the same logical call: the same run, agent, tool and arguments give the same key, and a call resumed from a stored
+     * approval carries the approval's id. Pass it to the system the tool writes to (a payment API's idempotency header, a unique
+     * constraint) so that a call the model repeats after a timeout or an error is applied once, not twice. Different arguments, or
+     * another run, give another key: two real purchases of the same item in two runs stay two purchases.
+     */
+    idempotencyKey?: string;
     /** The credentials the tool declared in `credentials`, leased for this call by the engine's `credentialBroker`. Released when the call ends. */
     credentials?: Readonly<Record<string, string>>;
     /**

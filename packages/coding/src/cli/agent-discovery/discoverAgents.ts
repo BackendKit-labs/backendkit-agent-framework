@@ -62,7 +62,7 @@ export async function discoverAgents(config: AgentDiscoveryConfig): Promise<Agen
     if (config.install?.length) {
         const cacheDir = config.cacheDir ?? join(getFrameworkDir(appName), 'agents', 'registry');
         const registryUrl = config.remote ?? 'https://registry.backendkit.dev/agents';
-        const registry = new RemoteAgentRegistry(registryUrl, cacheDir);
+        const registry = new RemoteAgentRegistry(registryUrl, cacheDir, { requireIntegrity: config.requireIntegrity });
 
         const results = await Promise.allSettled(
             config.install.map(name => registry.installPackage(name)),

@@ -59,6 +59,7 @@ export default defineConfig({
             { slug: 'concepts/structured-output' },
             { slug: 'concepts/background-jobs' },
             { slug: 'concepts/run-control' },
+            { slug: 'concepts/sources' },
             { slug: 'concepts/governance' },
             { slug: 'concepts/multi-agent' },
             { slug: 'concepts/flows' },

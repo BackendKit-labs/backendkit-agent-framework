@@ -1,0 +1,76 @@
+# SPEC-0043: apoderamiento de agentes (poder delegado, verificable y con límites)
+
+**Fecha:** 2026-11-22
+**Estado:** Borrador. Sin código. Esperando el formato de la credencial del equipo de Identidad (§6).
+**Origen:** una nota del equipo de Identidad (2026-11-22) sobre DALION, su solución de identidad digital compatible con eIDAS 2: los agentes trabajan con una identidad digital propia y una **credencial de apoderamiento** que dice para quién trabajan (el humano), qué pueden hacer, sobre qué y hasta qué importe, sin ir a pedir permiso al humano cada vez. El autor quiere que los agentes del framework sean compatibles con los estándares de la industria, también cuando no se usa Steward.
+**Depende de:** `Principal` y la política (`governance/policy.ts`, `governance/types.ts`), el directorio de aprobadores y el cuatro ojos (SPEC-0041), el broker de credenciales y la evidencia verificable (SPEC-0042).
+**Tipo de cambio:** aditivo en `core` (una interfaz y un ayudante de política) y **un paquete opcional nuevo**, decidido por el autor (2026-11-22). Nada se publica sin consulta.
+**Objetivo:** que el límite de lo que un agente puede hacer solo venga de un **poder verificable** emitido por quien tiene autoridad, y no de código del agente; y que cualquier tercero pueda comprobar bajo qué poder actuó.
+
+## 1. De dónde se parte
+
+Verificado el 2026-11-22 en `packages/core/src/governance`:
+
+- **Quién actúa y para quién.** `Principal` lleva `agentId`, `chain` (la cadena de delegación entre agentes), `userId` (la persona de parte de quien actúa), `tenantId` y `sessionId`. Hoy `userId` viene de `identity` en las opciones del motor: lo da la aplicación, el framework no lo autentica.
+- **Dónde se decide qué se permite.** `ToolPolicy.decide(principal, call)` ve los argumentos reales de la llamada y devuelve `allow`, `ask` o `deny`. "Hasta 1000 €" ya se escribe ahí, **pero como código del agente**, no como un poder que otro firmó.
+- **Quién puede aprobar.** `approverRoles`, `approverDirectory` y `forbidSelfApproval` (SPEC-0041): la autoridad del **aprobador** se comprueba contra un directorio de la aplicación.
+- **Credenciales por llamada.** `credentialBroker` concede, después de autorizar, una credencial de vida corta para una llamada (SPEC-0042 F4).
+- **Evidencia.** El evento de auditoría guarda el hash de los argumentos, la aprobación y su autoridad; el log encadenado se exporta con puntos de control firmados y anclas (SPEC-0042).
+
+**Lo que falta:** nada de lo anterior representa un **apoderamiento**: un documento firmado por un emisor de confianza que dice "este agente puede, de parte de esta persona, hacer esto, sobre esto, hasta esto, hasta esta fecha". La política lo puede imitar, pero no lo verifica ni lo deja como prueba.
+
+## 2. Decisiones
+
+| # | Pregunta | Propuesta |
+|---|---|---|
+| D1 | ¿Qué es un apoderamiento para el framework? | Un dato neutro, **`Mandate`**, independiente del formato y del proveedor: `id`, `issuer`, `subject` (la persona o entidad que apodera), `agent` (a quién), `actions` (qué tools o clases de tools), `resources` (sobre qué, opcional), `limits` (por ejemplo importe máximo y moneda, opcional), `validFrom`, `validUntil` y `evidence` (la credencial original o su hash). Nada de DALION ni de eIDAS 2 en el tipo. |
+| D2 | ¿Quién lo verifica? | Una interfaz **`MandateVerifier`** en `core`: `verify(request)` devuelve el `Mandate` verificado o un motivo de rechazo. La implementa el operador, un paquete o Steward. El motor nunca ve la credencial en bruto. |
+| D3 | ¿Cómo entra en la decisión? | Un ayudante de política, **`mandatePolicy({ verifier, covers })`**, que consulta al verificador y compara la llamada con el alcance. Cubierta -> `allow` (nadie pregunta a nadie). Sin apoderamiento válido -> `deny`. Fuera de alcance -> lo que el operador elija (`ask` por defecto, `deny` si se prefiere). Se combina con las demás políticas con las reglas de siempre: gana el `deny`, y un `ask` pide aprobación. |
+| D4 | ¿Falla cerrado? | Sí, en todo: sin verificador, verificador que lanza, apoderamiento caducado, sin vigencia legible, emisor no aceptado o revocado. Una duda no es un permiso. |
+| D5 | ¿Qué queda como prueba? | El evento de auditoría guarda el `id` del apoderamiento, su hash, el emisor y el alcance que cubrió la llamada, nunca la credencial completa. Un tercero que tenga la credencial puede comprobar que el hash coincide. |
+| D6 | ¿Se puede delegar a otro agente? | Un agente que delega a otro **no le da más poder del que tiene**: el apoderamiento del hijo es un subconjunto del padre (mismo criterio que `checkNarrower` en el sandbox). |
+| D7 | ¿Revocación? | El SDK no la resuelve: el verificador recibe un gancho `isRevoked(mandate)` que el operador conecta a su fuente. Sin gancho, solo cuenta la caducidad, y la salida de `verify` lo dice. |
+| D8 | ¿Dónde vive la implementación concreta? | En un **paquete opcional**, `agent-mandates` (nombre provisional): un verificador de referencia (credencial firmada contra claves de emisor que el operador configura, con `node:crypto`, el mismo patrón de `trustedKeys` de los bundles de auditoría) y, más adelante, el adaptador del formato real. Steward aporta su propia implementación (confianza, revocación, claves gestionadas) detrás de la misma interfaz. |
+
+## 3. Qué NO hace
+
+- **No autentica a nadie.** El framework sigue sin saber si `userId` es quien dice ser; el apoderamiento dice qué puede hacer el agente de parte de esa persona, no que la persona sea quien afirma. Eso lo prueba el emisor al firmarlo.
+- **No decide en qué emisores confiar.** Esa lista la pone el operador. El verificador de referencia no trae ninguna de serie.
+- **No implementa los protocolos de la cartera europea** (presentación y verificación estandarizadas de credenciales). Son integración, y dependen del formato (§6).
+- **No certifica nada.** Ofrece controles que apoyan normas (trazabilidad, mínimo privilegio, separación de funciones, evidencia verificable); la conformidad es del despliegue y de la organización.
+
+## 4. Fases
+
+| Fase | Contenido | Hecha cuando |
+|---|---|---|
+| **F0** | Esta especificación y su revisión por quien conoce la credencial. | Revisada por el equipo de Identidad. |
+| **F1** | En `core`: los tipos `Mandate` y `MandateVerifier`, `mandatePolicy` y los campos de auditoría. Aditivo, nada cambia por defecto. | Pruebas de cada rechazo (sin verificador, caducado, revocado, fuera de alcance, importe superior) y de que la evidencia queda en el evento. |
+| **F2** | Paquete opcional: verificador de referencia, con claves de emisor del operador y un gancho de revocación. | Verifica una credencial firmada de prueba y rechaza una manipulada, de otro emisor o caducada. |
+| **F3** | Adaptador del formato de DALION. **Bloqueada** hasta tener el formato. | Una credencial real de DALION se verifica de punta a punta. |
+| **F4** | Guía en la web: "qué controles activar para cumplir con un agente sin Steward", cada control mapeado a la pieza del framework. | Publicada, con el mapa de controles revisado por quien conozca las normas. |
+
+## 5. Mapa de controles (borrador, **por revisar**)
+
+Cada fila dice qué pieza del framework apoya qué objetivo de control. Es un punto de partida: la lectura de cada norma la tiene que revisar quien la conozca, y no se afirma compatibilidad con ninguna hasta entonces.
+
+| Objetivo | Pieza | Estado |
+|---|---|---|
+| Trazabilidad de lo que hizo el agente | Auditoría encadenada, un evento por llamada | Hecha |
+| Evidencia verificable por un tercero | Puntos de control firmados, anclas, bundles | Hecha |
+| Separación de funciones | `approverRoles`, `forbidSelfApproval` | Hecha |
+| Mínimo privilegio | Política, `allowedTools`, sandbox, credenciales por llamada | Hecha |
+| Poder delegado con límites y vigencia | Apoderamiento (esta especificación) | Borrador |
+| Revocación | Gancho de revocación del verificador | Borrador |
+| Supervisión humana de lo irreversible | `destructive`, aprobaciones guardadas, caducidad | Hecha |
+| Gestión de claves | Fuera del SDK (KMS, HSM, Steward) | Fuera de alcance |
+
+Normas a mapear, sin afirmar nada todavía: ISO/IEC 42001 (gestión de sistemas de IA), ISO/IEC 27001 (seguridad de la información) y el Reglamento (UE) 2024/1183 (eIDAS 2). Las fechas y los requisitos exactos de eIDAS 2 **no se han verificado** en esta especificación.
+
+## 6. Decisiones abiertas (del autor y del equipo de Identidad)
+
+1. **Formato de la credencial de DALION** y cómo se verifica (firma, cadena de confianza, revocación). Sin esto, F3 no se puede empezar y el verificador de referencia (F2) es una suposición razonable, no una compatibilidad.
+2. **¿El límite es por operación o acumulado?** "Hasta 1000 €" puede significar cada compra o la suma de lo comprado. Lo acumulado exige un estado (lo gastado hasta ahora) que alguien tiene que guardar; propuesta: el verificador recibe lo gastado, y el operador decide dónde se guarda.
+3. **Unidades y monedas.** Cómo se comparan importes de monedas distintas (propuesta: sin conversión; otra moneda = fuera de alcance).
+4. **¿"Fuera de alcance" pide aprobación o se deniega?** Por defecto `ask`, configurable.
+5. **Nombre y consulta del paquete.** `agent-mandates` es provisional. Crearlo y publicarlo se consulta antes, como con cualquier paquete nuevo.
+6. **Cómo se identifica el agente** en la credencial (un id de agente, una clave pública, ambos) y si coincide con `agentId` del perfil.

@@ -333,6 +333,13 @@ export interface BaseEngineOptions {
      */
     forbidSelfApproval?: boolean;
 
+    /**
+     * Seconds a stored approval request lives. After that, an approval of it is not run, whether it was still pending or
+     * already approved: a person who approved on Monday does not authorize a payment on Friday. An `ask` can set its own
+     * `ttlSeconds`; the shorter wins. Off by default (SPEC-0042 F3).
+     */
+    approvalTtlSeconds?: number;
+
     /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
     approvals?: ApprovalStore;
 
@@ -523,6 +530,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
         ...(opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
+        ...(opts.approvalTtlSeconds !== undefined ? { approvalTtlSeconds: opts.approvalTtlSeconds } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
         ...(opts.recordArgs ? { recordArgs: true } : {}),

@@ -108,6 +108,19 @@ await engine.runApproved(req.id);                              // runs once; a s
 
 `FileApprovalStore` allows exactly one decision and one execution per request, even across processes sharing the directory. `runApproved` repeats every check.
 
+### Approvals that expire
+
+By default a stored request never expires: someone who approved on Monday still authorizes the payment on Friday. To limit that, give the request a lifetime:
+
+```ts
+createBaseEngine({ /* ... */ approvals, approvalTtlSeconds: 24 * 3600 });      // for every ask
+
+// or per ask, in the policy; the shorter one wins
+{ effect: 'ask', reason: 'payment above 10k', accepts: ['human'], ttlSeconds: 3600 }
+```
+
+The request carries `expiresAt`. Once it has passed, `runApproved` refuses the approval whether it was still pending or already approved. The refusal is audited (`deny`, with the time it expired) and the request is spent: a new one has to be made. A `ttlSeconds` that is not a positive number expires at once, and an `expiresAt` that cannot be read counts as expired, so a mistake does not turn into "never expires". An approver that answers right away (`approver`) is not affected: there is no window to wait out.
+
 ## Audit
 
 Each tool call, accepted or refused, produces **one audit event**, with the arguments as a SHA-256 only (no sensitive values in the log). `HashChainAuditSink` writes them chained, so removing or editing a line is detectable.

@@ -83,7 +83,7 @@ const triggers = new TriggerBus(engineFactory)
   });
 ```
 
-A webhook answers immediately and the run continues in the background, so use `onComplete` for the result.
+A webhook answers immediately and the run continues in the background, so use `onComplete` for the result. A webhook needs a `secret` (or an explicit `allowUnsigned: true`): `addWebhook` throws without one, so a route that makes the agent run a prompt cannot be exposed by forgetting it. Webhook routes are authenticated by their signature: the server's `auth` hook (a JWT) does not apply to them, and they are accepted from any host, since a sender like GitHub has no token and does not come from loopback.
 
 ## Make unattended runs safe
 

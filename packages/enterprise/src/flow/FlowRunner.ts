@@ -45,6 +45,8 @@ export interface FlowRunOptions {
     payload?: unknown;
     runAgent: FlowAgentRunner;
     transport: Transport;
+    /** An audit sink (a `HashChainAuditSink`) that receives every event of every compliance gate of the run. */
+    gateAudit?: import('@backendkit-labs/agent-core').AuditSink;
     /**
      * Called for steps with `gate.approval: human`. Receives the flow step
      * (including its gate definition) and the outputs of its dependencies.
@@ -143,6 +145,7 @@ export class FlowRunner {
                             executor: agentId,
                             criteria: gate.criteria,
                             evidenceMode: gate.evidence ?? 'optional',
+                            ...(this.opts.gateAudit ? { audit: this.opts.gateAudit } : {}),
                         });
                         await this.opts.onGateRequired(complianceGate, flowStep!, result.content);
 

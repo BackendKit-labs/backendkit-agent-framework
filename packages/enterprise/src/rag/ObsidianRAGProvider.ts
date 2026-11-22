@@ -18,6 +18,8 @@ export interface ObsidianRAGOptions {
     vaultPath: string;
     /** Subcarpetas a indexar. Si está vacío, indexa todo el vault. */
     folders?: string[];
+    /** Carpetas de primer nivel del vault que no se indexan nunca (por ejemplo las de RRHH y Finanzas en un indice global). */
+    excludeFolders?: string[];
     /** Dónde guardar el índice vectorial. Default: ~/.bk-agent/rag/<vault-name>.json */
     indexPath?: string;
     /** Custom embedder. When provided, ollamaHost and embeddingModel are ignored. */
@@ -86,17 +88,21 @@ export class ObsidianRAGProvider {
             this.embedder = new OllamaEmbedder({ host, model });
         }
 
+        // Two providers over the same vault with other folders must not share an index: the later one would answer from the chunks of
+        // the first (and remove the ones it does not scan). The scope is part of the name.
+        const scope = [...(opts.folders ?? []).map(f => `in-${f}`), ...(opts.excludeFolders ?? []).map(f => `not-${f}`)].join('+');
         const defaultIndexPath = path.join(
             os.homedir(),
             '.bk-agent',
             'rag',
-            `${path.basename(opts.vaultPath)}.json`
+            `${path.basename(opts.vaultPath)}${scope ? `~${scope.replace(/[^a-zA-Z0-9_+~-]/g, '_')}` : ''}.json`
         );
         this.store = new VectorStore(opts.indexPath ?? defaultIndexPath, this.embedder.model);
 
         this.indexer = new VaultIndexer({
             vaultPath: opts.vaultPath,
             folders: opts.folders,
+            excludeFolders: opts.excludeFolders,
             excludeTags: opts.excludeTags ?? ['skill'],
         });
 
@@ -200,8 +206,10 @@ export class ObsidianRAGProvider {
                 const { chunk, score } = r;
                 const area = chunk.metadata.area ? ` | área: ${chunk.metadata.area}` : '';
                 const stack = chunk.metadata.stack ? ` | stack: ${chunk.metadata.stack}` : '';
+                // A note an agent wrote is a claim of that agent, not a document of the company: the reader is told.
+                const author = chunk.metadata.author ? ` | escrita por un agente (${chunk.metadata.author}), no verificada` : '';
                 return [
-                    `--- Resultado ${i + 1} (relevancia: ${(score * 100).toFixed(0)}%${area}${stack}) ---`,
+                    `--- Resultado ${i + 1} (relevancia: ${(score * 100).toFixed(0)}%${area}${stack}${author}) ---`,
                     `Fuente: ${chunk.title}${chunk.section ? ` › ${chunk.section}` : ''}`,
                     chunk.text,
                 ].join('\n');

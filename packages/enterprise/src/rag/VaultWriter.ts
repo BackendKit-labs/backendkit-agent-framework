@@ -12,6 +12,9 @@ export interface VaultWriterOptions {
     agentFolder?: string;
 }
 
+/** Largest note an agent may write, in characters. */
+export const MAX_NOTE_CHARS = 200_000;
+
 export interface WriteNoteParams {
     title: string;
     content: string;
@@ -42,6 +45,7 @@ export class VaultWriter {
 
     async writeNote(params: WriteNoteParams): Promise<string> {
         const { title, content, agentId, tags = [], description = '', related_notes = [] } = params;
+        if (content.length > MAX_NOTE_CHARS) throw new Error(`The note is too long (${content.length} characters; the limit is ${MAX_NOTE_CHARS}).`);
 
         const date = new Date().toISOString().slice(0, 10);
         const slug = title
@@ -51,9 +55,9 @@ export class VaultWriter {
             .replace(/[^a-z0-9\s-]/g, '')
             .trim()
             .replace(/\s+/g, '-')
-            .slice(0, 60);
+            .slice(0, 60) || 'nota';
 
-        const filename = `${date}-${slug}.md`;
+        const baseName = `${date}-${slug}`;
         const dir      = path.join(this.vaultPath, this.agentFolder);
         // agentFolder can be built from outside input (a flow id, a run id): the note must stay inside the vault
         const fromVault = path.relative(path.resolve(this.vaultPath), path.resolve(dir));
@@ -62,11 +66,19 @@ export class VaultWriter {
         }
         await fs.mkdir(dir, { recursive: true });
 
-        const filePath = path.join(dir, filename);
-        const body     = buildNote({ title, content, agentId, tags, description, related_notes, date });
+        const body = buildNote({ title, content, agentId, tags, description, related_notes, date });
 
-        await withFileLock(filePath, () => fs.writeFile(filePath, body, 'utf-8'));
-        return filePath;
+        // A note is never overwritten: the same title on the same day gets a number (the file is created with `wx`, which fails if it exists).
+        for (let n = 1; n <= 1000; n++) {
+            const filePath = path.join(dir, n === 1 ? `${baseName}.md` : `${baseName}-${n}.md`);
+            try {
+                await withFileLock(filePath, () => fs.writeFile(filePath, body, { encoding: 'utf-8', flag: 'wx' }));
+                return filePath;
+            } catch (err) {
+                if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+            }
+        }
+        throw new Error(`Could not find a free name for the note "${title}" after 1000 tries`);
     }
 
     /**
@@ -74,7 +86,14 @@ export class VaultWriter {
      * The agentId is baked in so audit trails show which agent wrote each note.
      */
     createTool(agentId: string): ToolDefinition {
-        const self = this;
+        return this.createToolFor(() => agentId, () => this);
+    }
+
+    /**
+     * A write tool for several agents: each call is written as the agent that made it, to the writer `writerFor` returns for that
+     * agent (a folder per department). `agentIdOf` reads who is calling from the call's context.
+     */
+    createToolFor(agentIdOf: (ctx: { agentId?: string }) => string, writerFor: (agentId: string) => VaultWriter): ToolDefinition {
         return defineTool({
             name: 'write_knowledge',
             description:
@@ -99,8 +118,9 @@ export class VaultWriter {
                     'These are embedded as context so semantic search connects this note to its neighbors.',
                 ),
             }),
-            execute: async ({ title, content, tags, description, related_notes }) => {
-                const filePath = await self.writeNote({ title, content, agentId, tags, description, related_notes });
+            execute: async ({ title, content, tags, description, related_notes }, ctx) => {
+                const agentId = agentIdOf(ctx as { agentId?: string });
+                const filePath = await writerFor(agentId).writeNote({ title, content, agentId, tags, description, related_notes });
                 return `Knowledge saved to vault: ${path.basename(filePath)}`;
             },
         });
@@ -142,6 +162,12 @@ function buildNote(p: WriteNoteParams & { date: string }): string {
 async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
     const lockPath = `${filePath}.lock`;
     const maxAttempts = 10;
+
+    // A lock left by a process that died would block this note for good: one older than a minute is nobody's.
+    try {
+        const info = await fs.stat(lockPath);
+        if (Date.now() - info.mtimeMs > 60_000) await fs.unlink(lockPath).catch(() => {});
+    } catch { /* no lock: the usual case */ }
 
     // wx = O_WRONLY | O_CREAT | O_EXCL — fails atomically if lock exists
     const acquired = await retry(() => fs.open(lockPath, 'wx'), {

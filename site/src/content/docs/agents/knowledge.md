@@ -40,6 +40,24 @@ Each has a system prompt, a **scoped search tool** and an optional provider over
 
 HR and Finance default to a **local** provider, so payroll and financial data never leave your network. You can add your own profiles.
 
+### What the general agent can see
+
+The `general` agent uses the default provider, which may be a remote one, and its search (`search_knowledge`) must not become the way around the local provider of HR and Finance. So by default the general search **leaves out the folders of HR and Finance** (`rrhh/` and `finanzas/`): what it retrieves is what its provider may see. To change that, pass the folders yourself:
+
+```ts
+createEnterpriseSetup({
+  vaultPath, providers, defaultProvider: 'openai',
+  globalExcludeFolders: ['rrhh', 'finanzas', 'legal'],   // folders the general agent never searches
+  // globalExcludeFolders: [],                           // the whole vault, as in earlier versions: only if its provider may see all of it
+});
+```
+
+### Where each agent writes
+
+`write_knowledge` writes in the folder of the department of the agent that calls it (HR in `rrhh/`, Finance in `finanzas/`, and so on), and the note says who wrote it (`author: "agent/hr"`). Any other agent writes in `agentes/`. A note is never overwritten: the same title on the same day gets a number, and a note over 200,000 characters is refused.
+
+A note an agent wrote is **a claim of that agent, not a document of the company**: when a search finds it, the result says so (`escrita por un agente (agent/hr), no verificada`), so the agent that reads it does not take it for policy.
+
 ## How the knowledge is found
 
 A RAG pipeline indexes the vault into a vector store and searches it per question. Each department's tool searches only its folder, so isolation is enforced by what the tool can see, not by a request to the model to behave.
@@ -51,6 +69,21 @@ A RAG pipeline indexes the vault into a vector store and searches it per questio
 ## Flows with compliance gates
 
 Business processes across departments (onboarding an employee involves HR and finance, for example) are [flows](../../concepts/flows/) defined in YAML with `gate.approval: human` where a person must decide, and the enterprise agents as the executors of the steps.
+
+A step with criteria goes through a `ComplianceGate`: the evaluator must differ from the executor, and every attempt is recorded. The gate also writes a readable note in the vault (`auditoria/`), but a note is a file anyone with access to the vault can edit. For a record a third party can verify, give the flow run an audit sink, and every event of every gate becomes a link of a signed-chain log:
+
+```ts
+import { HashChainAuditSink } from '@backendkit-labs/agent-core';
+import { FlowRunner } from '@backendkit-labs/agent-enterprise';
+
+const runner = new FlowRunner(flowDefinition, {
+  runAgent, transport, onGateRequired,
+  gateAudit: new HashChainAuditSink('./gates.audit.ndjson'),   // one audit event per gate event, chained
+});
+await runner.run();
+```
+
+A sink that fails stops the evaluation: a decision that cannot be recorded is not taken.
 
 ## A deployment
 

@@ -18,6 +18,7 @@ import type {
     ApproverDirectory,
     ApproverRef,
     AuditCredential,
+    AuditMandate,
     AuditSandboxDecision,
     CredentialBroker,
     CredentialLease,
@@ -32,7 +33,7 @@ import type { Transport } from '../transport/Transport';
 
 /** What the policy path decided about one call, before it runs (SPEC-0014 F2). */
 export type GovernedVerdict =
-    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority } }
+    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; mandate?: AuditMandate }
     | { run: false; decision: 'deny' | 'ask' | 'sandbox_denied'; reason: string; message: string };
 
 /** The only things the gate takes from the engine. */
@@ -109,7 +110,7 @@ export class GovernanceGate {
                 const reason = 'the policy requires a sandbox and none is configured';
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" denied by policy: ${reason}` };
             }
-            return { run: true, ...(d.mode ? { mode: d.mode } : {}), ...(approved ? { approval: { id: approved.approvalId, by: approved.by } } : {}) };
+            return { run: true, ...(d.mode ? { mode: d.mode } : {}), ...(approved ? { approval: { id: approved.approvalId, by: approved.by } } : {}), ...(d.mandate ? { mandate: d.mandate } : {}) };
         }
         const ask = d as Extract<PolicyDecision, { effect: 'ask' }>;
         if (approved) {

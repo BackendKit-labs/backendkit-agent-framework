@@ -1,7 +1,7 @@
 # SPEC-0043: apoderamiento de agentes (poder delegado, verificable y con límites)
 
 **Fecha:** 2026-11-22
-**Estado:** Borrador. Sin código. Esperando el formato de la credencial del equipo de Identidad (§6).
+**Estado:** F1 y F2 implementadas (2026-11-22), ver §7; F3 (adaptador de DALION) bloqueada hasta tener el formato de la credencial (§6). El paquete no está publicado.
 **Origen:** una nota del equipo de Identidad (2026-11-22) sobre DALION, su solución de identidad digital compatible con eIDAS 2: los agentes trabajan con una identidad digital propia y una **credencial de apoderamiento** que dice para quién trabajan (el humano), qué pueden hacer, sobre qué y hasta qué importe, sin ir a pedir permiso al humano cada vez. El autor quiere que los agentes del framework sean compatibles con los estándares de la industria, también cuando no se usa Steward.
 **Depende de:** `Principal` y la política (`governance/policy.ts`, `governance/types.ts`), el directorio de aprobadores y el cuatro ojos (SPEC-0041), el broker de credenciales y la evidencia verificable (SPEC-0042).
 **Tipo de cambio:** aditivo en `core` (una interfaz y un ayudante de política) y **un paquete opcional nuevo**, decidido por el autor (2026-11-22). Nada se publica sin consulta.
@@ -74,3 +74,23 @@ Normas a mapear, sin afirmar nada todavía: ISO/IEC 42001 (gestión de sistemas 
 4. **¿"Fuera de alcance" pide aprobación o se deniega?** Por defecto `ask`, configurable.
 5. **Nombre y consulta del paquete.** `agent-mandates` es provisional. Crearlo y publicarlo se consulta antes, como con cualquier paquete nuevo.
 6. **Cómo se identifica el agente** en la credencial (un id de agente, una clave pública, ambos) y si coincide con `agentId` del perfil.
+
+## 7. Lo que se revisó del estándar y lo que se hizo (2026-11-22)
+
+**Revisión del estándar** (búsqueda en fuentes públicas el 2026-11-22; lo que no se pudo confirmar se dice):
+
+- **Reglamento (UE) 2024/1183 (eIDAS 2):** publicado el 30 de abril de 2024 y en vigor el 20 de mayo de 2024. La nota del equipo de Identidad habla del 24-dic-2024: lo más probable es que se refiera a los actos de ejecución (por ejemplo el Reglamento de Ejecución (UE) 2024/2977, sobre datos de identificación de la persona y atestaciones electrónicas de atributos, de noviembre de 2024), no al reglamento. No se ha confirmado qué acto exacto es.
+- **Formatos de atestación del ecosistema de la cartera europea (EUDI):** el Marco de Referencia y Arquitectura (ARF) define una atestación como un conjunto firmado de atributos en **dos formatos**: mdoc (ISO/IEC 18013-5) y **SD-JWT VC**. ETSI TS 119 472-2 especifica cómo se presentan las atestaciones electrónicas de atributos en SD-JWT VC y en mdoc.
+- **SD-JWT VC** (borrador del IETF `draft-ietf-oauth-sd-jwt-vc`, versión -11 de septiembre de 2025; no se confirmó si ya es RFC): un JWT firmado con `iss`, `vct` (tipo de la credencial) y la cabecera `typ` `dc+sd-jwt` (antes `vc+sd-jwt`; se recomienda aceptar ambos en la transición). La divulgación selectiva es opcional. La revocación va por un proveedor de estado separado.
+- **Poder de representación (mandatos):** **no se encontró** un perfil específico de apoderamiento en el ARF ni en ETSI TS 119 472-2. Es una atestación de atributos más, con un esquema que define quien la emite. Por eso el formato de DALION es una incógnita real.
+- **No cubierto en esta revisión:** OpenID4VCI y OpenID4VP (emisión y presentación), la lista de estado de tokens para revocación, el catálogo de esquemas de atestación y el estado actual del ARF (hay versiones posteriores a las consultadas).
+
+**Decisión que sale de ahí (D8, concretada):** el verificador por defecto lee una credencial **con la forma de un SD-JWT VC** (JWT firmado con `iss`, `sub`, `jti`, `nbf`, `exp`, `vct` y un claim `mandate`), porque es el formato en el que más probablemente llegará un mandato eIDAS 2, y deja el formato real de DALION como adaptador al mismo `Mandate`. No soporta divulgación selectiva ni *key binding* todavía: una credencial que los trae se **rechaza**.
+
+**F1 hecha** (`agent-core` 0.48.8, aditivo): `Mandate`, `MandateVerifier`, `mandatePolicy`, `mandateCovers`, `auditMandate` y el campo `mandate` del evento de auditoría (id, emisor, persona que apodera, vigencia y hash de la credencial; nunca la credencial). Falla cerrado en todo. 17 pruebas, también con el motor: dentro del límite el agente compra sin preguntar y la auditoría nombra el mandato; por encima, sin credencial o con una firmada por otro, no compra.
+
+**F2 hecha** (paquete `@backendkit-labs/agent-mandates` 0.1.0, **sin publicar**): `jwtMandateVerifier`, `issueMandate` (para pruebas, demos y quien se apodera a sí mismo) y las primitivas de JWS (`EdDSA` y `ES256` con `node:crypto`, sin dependencias). Rechaza `none`, los algoritmos simétricos (ataque de confusión de algoritmo) y una clave de otro tipo; exige un emisor que el operador confía, `jti`, `sub` y `exp`; el gancho de revocación, si falla, cuenta como revocado. 23 pruebas, incluido un ejemplo de extremo a extremo y los casos de credenciales falsificadas.
+
+**Decisiones de §6 ya tomadas para el verificador por defecto:** el límite es **por operación** (el acumulado queda abierto), una moneda distinta es **fuera de alcance**, "fuera de alcance" **pide aprobación** por defecto y es configurable, y el agente se identifica por `agent` (el `id` del perfil). El resto sigue abierto hasta tener el formato de DALION.
+
+**Pendiente:** F3 (adaptador de DALION, bloqueada) y F4 (guía de cumplimiento en la web). Publicar el paquete requiere consulta.

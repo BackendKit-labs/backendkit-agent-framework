@@ -11,7 +11,7 @@ const GITHUB = 'https://github.com/BackendKit-labs/backendkit-agent-framework';
 const BASE = '';
 
 // Published packages, in the order a reader meets them.
-const ORDER = ['core', 'providers', 'testkit', 'flow-queue', 'flow-sql', 'enterprise', 'coding', 'sandbox', 'agent-protocol', 'web', 'web-ui', 'mcp-server', 'mcp-connectors', 'otel', 'document-extract', 'aval-tools', 'create-bk-agent'];
+const ORDER = ['core', 'providers', 'testkit', 'flow-queue', 'flow-sql', 'enterprise', 'coding', 'sandbox', 'agent-protocol', 'web', 'web-ui', 'mcp-server', 'mcp-connectors', 'otel', 'document-extract', 'aval-tools', 'mandates', 'create-bk-agent'];
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });

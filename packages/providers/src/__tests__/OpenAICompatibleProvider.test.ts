@@ -35,7 +35,7 @@ describe('OpenAICompatibleProvider streaming', () => {
 
     it('always requests usage and forwards model, signal and tools', async () => {
         const { client, create } = openaiClient([[text('ok')]]);
-        const signal = new AbortController().signal;
+        const callerAbort = new AbortController(); const signal = callerAbort.signal;
         const tool = { name: 't', description: 'd', parameters: { type: 'object' }, execute: async () => '' };
         await make(client).chat([userMsg('hi')], [tool], { ...recorder().callbacks, model: 'override', signal });
         const [params, opts] = create.mock.calls[0] as [Record<string, unknown>, { signal?: AbortSignal }];
@@ -44,7 +44,7 @@ describe('OpenAICompatibleProvider streaming', () => {
             max_tokens: 16384, temperature: 0, tool_choice: 'auto',
         });
         expect((params.tools as unknown[])).toHaveLength(1);
-        expect(opts.signal).toBe(signal);
+        expect(opts.signal).toBeInstanceOf(AbortSignal); void callerAbort;   // a guarded signal (follows the caller's; see streamGuards.test.ts)
     });
 
     it('omits tools when there are none and max_tokens when maxTokens is null', async () => {

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { LLMMessage, LLMStreamCallbacks, ToolDefinition, ChatOptions, StructuredOutputSupport } from '@backendkit-labs/agent-core';
-import { BaseStreamingProvider, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
+import { BaseStreamingProvider, StreamIdleError, TRUNCATED_NOTE, type RetryTuning, type ToolCallBuffer } from './BaseStreamingProvider';
 
 /** The slice of the Anthropic SDK the provider uses — inject a double in tests. */
 export interface AnthropicClientLike {
@@ -250,6 +250,8 @@ export class AnthropicProvider extends BaseStreamingProvider {
             ? ({ type: 'tool', name: RESPOND_TOOL } as Anthropic.ToolChoice)
             : (anthropicTools.length > 0 && options?.toolChoice ? toolChoiceFor(options.toolChoice) : undefined);
 
+        const guard = this.idleGuard(callbacks.signal);
+        try {
         const stream = this.client.messages.stream({
             model: callbacks.model ?? this.model,
             max_tokens: this.maxTokens,
@@ -262,9 +264,10 @@ export class AnthropicProvider extends BaseStreamingProvider {
             ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
             ...(toolChoice ? { tool_choice: toolChoice } : {}),
             ...(format && !viaTool ? { output_config: { format: { type: 'json_schema', schema: format.schema } } } : {}),
-        }, { signal: callbacks.signal });
+        }, { signal: guard.signal });
 
         let content = '';
+        let stopReason: string | null | undefined;
         const buffers = new Map<number, ToolCallBuffer>();
         const blocks = new Map<number, StreamBlock>();
         let inputTokens = 0;
@@ -272,7 +275,7 @@ export class AnthropicProvider extends BaseStreamingProvider {
         let cacheRead: number | undefined;
         let cacheWrite: number | undefined;
 
-        for await (const event of stream) {
+        for await (const event of guard.watch(stream)) {
             if (event.type === 'message_start') {
                 const u = event.message.usage;
                 inputTokens = u.input_tokens;
@@ -280,6 +283,7 @@ export class AnthropicProvider extends BaseStreamingProvider {
                 if (u.cache_creation_input_tokens != null) cacheWrite = u.cache_creation_input_tokens;
             } else if (event.type === 'message_delta') {
                 outputTokens = event.usage.output_tokens;
+                if (event.delta?.stop_reason) stopReason = event.delta.stop_reason;
             } else if (event.type === 'content_block_start') {
                 const b = event.content_block;
                 if (b.type === 'tool_use') {
@@ -331,7 +335,19 @@ export class AnthropicProvider extends BaseStreamingProvider {
             }
         }
 
+        if (stopReason === 'max_tokens') {
+            if (buffers.size > 0) throw new Error('the response hit the output limit (max_tokens) in the middle of a tool call: its arguments are incomplete');
+            content += TRUNCATED_NOTE;
+            callbacks.onChunk?.(TRUNCATED_NOTE);
+        }
+
         const hasThinking = [...blocks.values()].some(b => b.type === 'thinking' || b.type === 'redacted_thinking');
         this.finish(callbacks, content, buffers, hasThinking ? { raw: toRawBlocks(blocks) } : undefined);
+        } catch (err) {
+            if (guard.idled()) throw new StreamIdleError(this.streamIdleTimeoutMs);
+            throw err;
+        } finally {
+            guard.stop();
+        }
     }
 }

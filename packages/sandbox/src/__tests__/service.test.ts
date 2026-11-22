@@ -270,3 +270,36 @@ describe('SandboxService — approvalFor and environment switch', () => {
         expect(f.calls[0].env).toEqual({ PATH: '/bin', DEEPSEEK_API_KEY: 'secret' });
     });
 });
+
+describe('SandboxService — audit log failures are not silent', () => {
+    it('reports a line that could not be written, and the call still goes through', async () => {
+        const f = fake('fake');
+        const dir = mkdtempSync(join(tmpdir(), 'sbx-audit-'));
+        const errors: Array<{ error: unknown; line: string }> = [];
+        try {
+            // The log path is a directory: appendFile fails.
+            const svc = createSandboxService({
+                policy: createSandboxPolicy({ preset: 'full' }), backends: [f.backend], auditLog: dir,
+                onAuditError: (error, line) => errors.push({ error, line }),
+            });
+            const out = await svc.run(caller, req());
+            await new Promise((r) => setTimeout(r, 50));
+            expect(out.ok).toBe(true);
+            expect(errors.length).toBeGreaterThan(0);
+            expect(errors[0].line).toContain('"outcome"');
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('warns once on stderr by default', async () => {
+        const f = fake('fake');
+        const dir = mkdtempSync(join(tmpdir(), 'sbx-audit-'));
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+            const svc = createSandboxService({ policy: createSandboxPolicy({ preset: 'full' }), backends: [f.backend], auditLog: dir });
+            await svc.run(caller, req());
+            await svc.run(caller, req());
+            await new Promise((r) => setTimeout(r, 50));
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally { warn.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
+    });
+});

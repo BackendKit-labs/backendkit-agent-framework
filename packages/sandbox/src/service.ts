@@ -21,6 +21,11 @@ export interface SandboxServiceOptions {
     /** Appends every decision as one JSON line to this file. */
     auditLog?: string;
     /**
+     * Called when a line could not be written to `auditLog` (disk full, no permission, bad path). The call
+     * itself is never affected. Default: one warning on stderr per service, so a dead audit trail is not silent.
+     */
+    onAuditError?: (error: unknown, line: string) => void;
+    /**
      * Hand the command a scrubbed environment (credential-looking variables removed). Default true.
      * Only the legacy `BK_RUN_COMMAND_SANDBOX` path turns it off, to keep its old behaviour.
      */
@@ -38,6 +43,13 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const listeners = new Set<DecisionListener>();
     // One chain, so lines reach the file in the order the decisions were taken.
     let auditChain: Promise<unknown> | undefined;
+    let warned = false;
+    const auditFailed = (error: unknown, line: string) => {
+        if (options.onAuditError) { try { options.onAuditError(error, line); } catch { /* observer */ } return; }
+        if (warned) return;
+        warned = true;
+        console.warn(`[sandbox] audit log "${options.auditLog}" is not being written: ${error instanceof Error ? error.message : String(error)}`);
+    };
 
     const emit = (d: SandboxDecision) => {
         for (const l of listeners) { try { l(d); } catch { /* an observer must not affect the call */ } }
@@ -46,7 +58,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             const line = JSON.stringify({ ts: new Date(d.at).toISOString(), ...d }) + '\n';
             auditChain = (auditChain ?? mkdir(dirname(file), { recursive: true }).catch(() => undefined))
                 .then(() => appendFile(file, line))
-                .catch(() => undefined);
+                .catch((error) => { auditFailed(error, line); });
         }
     };
 

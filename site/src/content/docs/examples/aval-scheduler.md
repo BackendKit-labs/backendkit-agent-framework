@@ -137,7 +137,7 @@ Three things to notice:
 
 - **`createAvalTools({ baseUrl })`** returns the three tools. They hold no key: each call reads `AVAL_KEY` from the calling agent's own `secrets`, so two agents with different keys can share one set of tools and each spends its own budget.
 - **`mcpServers`** starts the schedule as a child process over stdio. The framework connects, lists its tools and namespaces them. Putting the schedule behind MCP means replacing the JSON file with Postgres or your ERP is rewriting one process, not the agent.
-- **`stopSchedulerAgent`** exists because `agent.stop()` stops the triggers but does **not** close the MCP child. Use it (or `engine.getMCPManager()?.disconnect()`) when the program keeps running after the agent stops, such as in tests or when the agent is embedded in a larger program.
+- **`stopSchedulerAgent`** stops the triggers **and** closes the MCP child. Before `agent-core` 0.48.10, `agent.stop()` stopped only the triggers and left the child running, which matters when the program keeps going after the agent stops (in tests, or when the agent is embedded in a larger program). From 0.48.10 `agent.stop()` closes it too; the helper keeps the example correct on any 0.48.
 
 The profile (`src/profile.ts`) is short on purpose. One agent, seven tools, no delegation:
 

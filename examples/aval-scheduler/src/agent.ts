@@ -67,8 +67,9 @@ export function buildSchedulerAgent(opts: SchedulerAgentOptions): AutonomousAgen
 
 /**
  * Apaga el agente por completo: los triggers (cron, webhook, eventos) y también el servidor MCP del
- * calendario, que es un proceso hijo. `agent.stop()` solo para los triggers; sin esto el hijo queda vivo
- * mientras el proceso padre siga corriendo (en las pruebas, o si el agente se embebe en otro programa).
+ * calendario, que es un proceso hijo. En `agent-core` anterior a 0.48.10, `agent.stop()` solo paraba los
+ * triggers y el hijo quedaba vivo mientras el proceso padre siguiera corriendo (en las pruebas, o si el agente
+ * se embebe en otro programa). Desde 0.48.10 `stop()` ya lo cierra; esta función sigue siendo válida en cualquier 0.48.
  */
 export async function stopSchedulerAgent(agent: AutonomousAgent): Promise<void> {
     await agent.stop();

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.13 (2026-11-22)
+
+Un arreglo de la tercera pasada de auditoría. No cambia ninguna API: llega como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-sandbox` | 0.1.20 | el registro de auditoría ya no traga los errores de escritura |
+
+Se publica uno. Tag: `agent-sandbox@0.1.20`.
+
+- **`agent-sandbox`, auditoría muda:** si `auditLog` no se podía escribir (disco lleno, sin permiso, ruta mala), el error se descartaba y el rastro de auditoría dejaba de existir sin que nadie lo supiera. Ahora se avisa: una advertencia por stderr (una sola por servicio) o, si lo prefieres, la opción nueva `onAuditError(error, line)`. La llamada confinada sigue sin verse afectada.
+
 ## v0.49.12 (2026-11-22)
 
 Mismo arreglo que `aval-tools` en la 0.49.11, ahora para `document-extract`. No cambia ninguna API: llega como parche.

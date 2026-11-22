@@ -4,6 +4,15 @@ Herramientas de pago para agentes de `@backendkit-labs/agent-core` que gastan a 
 instancia de [AVAL](../../../../workspace-ideas/internet) — credencial por agente, presupuesto
 previo y bitácora encadenada.
 
+> **AVAL es una aplicación hermana, no parte del framework.** Es el control de gasto para agentes
+> autónomos: lo que un procesador de pagos es para una tienda, AVAL lo es para un agente que gasta
+> dinero. Da a cada agente su propia credencial revocable, comprueba presupuesto y política **antes**
+> de que salga el dinero, pide a una persona que apruebe lo que pasa de un umbral, y escribe cada
+> decisión en un registro encadenado por hash. El agente nunca tiene la credencial del proveedor: la
+> tiene AVAL, que decide primero y paga él mismo. Este paquete es solo el puente: tres herramientas
+> que hablan con una instancia de AVAL por HTTP. Un agente real que lo usa:
+> [aval-scheduler](../../examples/aval-scheduler/).
+
 ## Qué trae
 
 - **`pay`** — la vía amarrada: el agente pide un techo de gasto, AVAL decide y paga. Devuelve

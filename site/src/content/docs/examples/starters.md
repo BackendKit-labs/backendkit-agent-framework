@@ -98,7 +98,7 @@ npm test             # builds, then runs the unit tests and the end-to-end test:
 
 The end-to-end test builds the real agent with a **scripted model**, a **simulated AVAL** and the **real MCP server** as a child process. It runs the agent twice: the first run pays once with the idempotency key the source hands out; the second reconciles with `check_payment` and does **not** pay again.
 
-**Read it for:** an [autonomous agent](../../agents/autonomous/) with several triggers, an [MCP](../../concepts/mcp/) data source, [payment tools](../../packages/aval-tools/), and how to [test an agent](../../guides/test-an-agent/) that must never double-spend.
+**Read it for:** an [autonomous agent](../../agents/autonomous/) with several triggers, an [MCP](../../concepts/mcp/) data source, [payment tools](../../packages/aval-tools/), and how to [test an agent](../../guides/test-an-agent/) that must never double-spend. The full walk-through is [aval-scheduler](../aval-scheduler/).
 
 ## Next
 

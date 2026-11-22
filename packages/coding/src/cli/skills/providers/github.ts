@@ -3,6 +3,20 @@ import { parseMdSkill } from '../parse-md-skill';
 import type { Skill } from '@backendkit-labs/agent-core';
 import type { FetchOptions, SkillSourceProvider } from './types';
 import * as yaml from 'yaml';
+import { readLimited } from '../../read-limited';
+
+/** A skill file is a few KB; this bounds what a repository can make us read. */
+export const MAX_SKILL_FILE_BYTES = 256 * 1024;
+/** Hosts a GitHub contents-API `download_url` legitimately points at. */
+const DOWNLOAD_HOSTS = new Set(['raw.githubusercontent.com']);
+
+function assertGitHubDownloadUrl(raw: string, name: string): void {
+    let u: URL;
+    try { u = new URL(raw); } catch { throw new Error(`Unsafe download URL for ${name}: not a URL`); }
+    if (u.protocol !== 'https:' || !DOWNLOAD_HOSTS.has(u.hostname)) {
+        throw new Error(`Unsafe download URL for ${name}: ${u.protocol}//${u.hostname} is not raw.githubusercontent.com`);
+    }
+}
 
 interface RemoteFile {
     name: string;
@@ -75,15 +89,16 @@ export class GitHubProvider implements SkillSourceProvider {
     private async downloadAndParse(files: RemoteFile[], onlySkill?: string): Promise<Skill[]> {
         const results = await Promise.allSettled(
             files.map(async file => {
+                assertGitHubDownloadUrl(file.download_url, file.name);
                 let res: Response;
                 try {
-                    res = await fetch(file.download_url);
+                    res = await fetch(file.download_url, { redirect: 'error' });
                 } catch (e) {
                     throw new Error(`Network error fetching ${file.name}: ${String(e)}`);
                 }
                 if (!res.ok) throw new Error(`Failed to download ${file.name}: HTTP ${res.status}`);
 
-                const text = await res.text();
+                const text = await readLimited(res, MAX_SKILL_FILE_BYTES, `The skill file ${file.name}`);
                 const skill = /\.md$/i.test(file.name)
                     ? parseMdSkill(text)
                     : parseYamlSkill(text);

@@ -122,7 +122,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             };
 
             const workspace = req.workspace ?? req.cwd;
-            if (r.mode !== 'danger-full-access' && ![workspace, ...r.roots].some(root => isInside(root, req.cwd))) {
+            // Judge where the cwd really lands (a link inside the workspace may point outside), against roots
+            // that are themselves resolved, as authorizePath does.
+            const realCwd = (() => { try { return realPathOf(req.cwd); } catch { return undefined; } })();
+            const inside = (root: string) => { try { return realCwd !== undefined && isInside(realPathOf(root), realCwd); } catch { return false; } };
+            if (r.mode !== 'danger-full-access' && ![workspace, ...r.roots].some(inside)) {
                 return refuse('SANDBOX_DENIED', `working directory "${req.cwd}" is outside the allowed roots`);
             }
 

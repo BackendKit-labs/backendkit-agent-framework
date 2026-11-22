@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import type { SandboxExecResult } from '@backendkit-labs/agent-core';
 
 /** Stdout+stderr kept in `SandboxExecResult.output` (the callback still gets everything). */
@@ -52,16 +53,21 @@ export function runProcess(proc: ChildProcess, o: RunProcessOptions = {}): Promi
             resolve({ ...r, output: chunks.join('') });
         };
 
-        const collect = (data: Buffer) => {
-            const s = data.toString('utf-8');
+        // One decoder per stream: a multibyte character split across two chunks must not turn into U+FFFD.
+        const collector = () => {
+            const decoder = new StringDecoder('utf8');
+            return (data: Buffer) => collect(decoder.write(data));
+        };
+        const collect = (s: string) => {
+            if (s === '') return;
             o.onOutput?.(s);
             const room = max - total;
             if (room <= 0) return;
             chunks.push(s.length > room ? s.slice(0, room) : s);
             total += Math.min(s.length, room);
         };
-        proc.stdout?.on('data', collect);
-        proc.stderr?.on('data', collect);
+        proc.stdout?.on('data', collector());
+        proc.stderr?.on('data', collector());
 
         const onAbort = () => {
             kill(proc);

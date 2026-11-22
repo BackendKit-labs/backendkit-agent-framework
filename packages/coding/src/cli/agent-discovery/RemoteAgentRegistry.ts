@@ -7,6 +7,7 @@ import { assertSafeDownloadUrl } from './download-guard';
 import { assertSafeFileName } from '../skills/safe-name';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
 import type { RemoteRegistryIndex, RemotePackageListing } from './types';
+import { readLimited } from '../read-limited';
 
 const INDEX_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -48,30 +49,6 @@ export function packageDirName(packageName: string): string {
 
 const sha256 = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex');
 
-/** The body of a response as text, refusing to read more than `max` bytes. */
-async function readLimited(resp: Response, max: number, what: string): Promise<string> {
-    const declared = Number(resp.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > max) throw new Error(`${what} is too large (${declared} bytes; the limit is ${max})`);
-    if (!resp.body) {
-        const text = await resp.text();
-        if (Buffer.byteLength(text) > max) throw new Error(`${what} is too large (more than ${max} bytes)`);
-        return text;
-    }
-    const reader = resp.body.getReader();
-    const chunks: Buffer[] = [];
-    let total = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > max) {
-            await reader.cancel().catch(() => undefined);
-            throw new Error(`${what} is too large (more than ${max} bytes)`);
-        }
-        chunks.push(Buffer.from(value));
-    }
-    return Buffer.concat(chunks).toString('utf-8');
-}
 
 /**
  * Fetches and caches agent packages from a remote registry.

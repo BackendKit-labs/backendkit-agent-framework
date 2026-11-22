@@ -103,3 +103,13 @@ describe('runProcess', () => {
         expect(r.output.trim()).toBe('42');
     }, 10_000);
 });
+
+describe('runProcess — multibyte output split across chunks', () => {
+    it('does not corrupt a character cut between two writes', async () => {
+        // "é" is 0xC3 0xA9: write the two bytes with a pause between them.
+        const proc = spawn(process.execPath, ['-e',
+            "process.stdout.write(Buffer.from([0x68,0xC3])); setTimeout(()=>process.stdout.write(Buffer.from([0xA9,0x21])),80)"]);
+        const out = await runProcess(proc, { timeoutMs: 10_000 });
+        expect(out.output).toBe('hé!');
+    });
+});

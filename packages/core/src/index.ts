@@ -89,7 +89,7 @@ export type { MCPServerConfig } from './mcp/types';
 export type {
     Principal, Identity,
     ToolCall, PolicyDecision, ToolPolicy,
-    ApproverKind, ApproverRef, ApproverProfile, ApproverDirectory, ApproverAuthority, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
+    ApproverKind, ApproverRef, ApproverProfile, ApproverDirectory, ApproverAuthority, CredentialRequest, CredentialLease, CredentialBroker, AuditCredential, ApprovalSubject, ApprovalRequest, ApprovalOutcome, Approver,
     ApprovalStatus, StoredApproval, ApprovalStore,
     AuditDecision, AuditOutcome, AuditSandboxDecision, AuditEvent, AuditSink,
 } from './governance/types';

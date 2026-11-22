@@ -82,6 +82,12 @@ export interface ToolDefinition {
      */
     alwaysAsk?: (args: Record<string, unknown>) => boolean;
     /**
+     * Names of the credentials this tool needs, each leased for ONE call, after the call is authorized, from the engine's
+     * `credentialBroker` and handed over in `ctx.credentials`. Without a broker the call is refused. Unlike the agent's
+     * `secrets` (all of them, in every call), only these, only now. Default: none.
+     */
+    credentials?: string[];
+    /**
      * What to do about each error this tool raises, by the `code` of the error (`ECONNRESET`, `ERP_PERIOD_CLOSED`); `*` is
      * the fallback. Written by whoever knows the domain. When the learning module sees the error repeat, the lesson in the
      * agent's prompt says this instead of a generic sentence.
@@ -114,6 +120,8 @@ export interface ToolDefinition {
 // ─── Execution Context ────────────────────────────────────────────────────────
 
 export interface ExecutionContext {
+    /** The credentials the tool declared in `credentials`, leased for this call by the engine's `credentialBroker`. Released when the call ends. */
+    credentials?: Readonly<Record<string, string>>;
     /**
      * Aborted when the engine is aborted (`engine.abort()`, budget exceeded) or when the call's time
      * limit expires. Pass it to `fetch`, child processes and other cancellable work so they stop instead

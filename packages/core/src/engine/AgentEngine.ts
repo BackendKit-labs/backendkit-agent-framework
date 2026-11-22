@@ -19,6 +19,9 @@ import type {
     Approver,
     ApproverAuthority,
     ApproverDirectory,
+    AuditCredential,
+    CredentialBroker,
+    CredentialLease,
     ApproverRef,
     AuditDecision,
     AuditEvent,
@@ -166,6 +169,8 @@ export interface AgentEngineOptions extends EngineOptions {
     approverDirectory?: ApproverDirectory;
     /** The person an agent acts for does not approve what it asked for (SPEC-0041 F2). */
     forbidSelfApproval?: boolean;
+    /** Leases the credentials a tool declares, for one authorized call (SPEC-0042 F4). */
+    credentialBroker?: CredentialBroker;
     /**
      * Durable approvals: when nobody answers right away, an `ask` is stored here as pending and the model is told
      * the call did not run (resubmission, SPEC-0014 §6).
@@ -1670,6 +1675,7 @@ export class AgentEngine {
         let reason: string | undefined;
         let ran = false;
         let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority } | undefined;
+        let credentials: AuditCredential[] | undefined;
         const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
@@ -1738,9 +1744,23 @@ export class AgentEngine {
                     const hookCall: ToolCall | undefined = toolHooks ? { tool: toolDef, args: this.parseArgs(effective.args) } : undefined;
                     const hookCtx = toolHooks ? this.toolHookContext(principal) : undefined;
                     if (hookCall && hookCtx) await runHooks(this.hooks, 'beforeTool', h => h.beforeTool!(hookCtx, hookCall));
-                    ({ result, success, outcome, errorCode } = await this.runToolDef(
-                        effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run',
-                    ));
+                    // The credentials the tool declared are leased now, after the call is authorized and for this call only. A simulation
+                    // (dry run) writes nothing, so it gets none. A broker that refuses, or none configured, means the tool does not run.
+                    const held = toolDef.credentials?.length && verdict.mode !== 'dry_run'
+                        ? await this.leaseCredentials(toolDef, effective.args, principal, approval)
+                        : undefined;
+                    if (held && 'problem' in held) {
+                        ran = false; success = false; decision = 'deny'; reason = held.problem;
+                        result = `Tool call "${call.name}" refused: ${held.problem}`;
+                    } else {
+                        try {
+                            ({ result, success, outcome, errorCode } = await this.runToolDef(
+                                effective, toolDef, profile.id, depth, sandboxDecisions, principal, verdict.mode === 'dry_run', held?.values,
+                            ));
+                        } finally {
+                            if (held) credentials = await this.releaseCredentials(held);
+                        }
+                    }
                     if (this.guardrails?.has('tool_result')) {
                         const checked = await this.guard('tool_result', result, profile.id, call.name);
                         result = checked.blocked
@@ -1768,6 +1788,7 @@ export class AgentEngine {
             outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : undefined,
             ...(errorCode ? { errorCode } : {}),
             approval,
+            ...(credentials ? { credentials } : {}),
             sandbox: sandboxDecisions,
             meta: toolDef?.meta,
         });
@@ -1872,6 +1893,54 @@ export class AgentEngine {
         return this.serialize(() => this.resolveAsk(principal, call, ask, sandboxAsk, sandboxDecisions));
     }
 
+    /**
+     * Leases, one by one, the credentials a tool declared (SPEC-0042 F4). All or nothing: if any fails, those already leased are
+     * released and the call is refused. Fails closed on everything it cannot trust: no broker, a refusal, a lease with no value or no
+     * id, a lease that is already expired or whose expiry cannot be read.
+     */
+    private async leaseCredentials(tool: import('../types').ToolDefinition, rawArgs: string, principal: Principal, approval?: { id: string; by: ApproverRef }): Promise<
+        { problem: string } | { leases: Array<{ name: string; lease: CredentialLease }>; values: Record<string, string>; audit: AuditCredential[] }
+    > {
+        const names = tool.credentials ?? [];
+        const broker = this.opts.credentialBroker;
+        if (!broker) return { problem: `tool "${tool.name}" needs credentials (${names.join(', ')}) and no credential broker is configured` };
+        const argsHash = hashArgs(this.parseArgs(rawArgs));
+        const held = { leases: [] as Array<{ name: string; lease: CredentialLease }>, values: {} as Record<string, string>, audit: [] as AuditCredential[] };
+        for (const name of names) {
+            let lease: CredentialLease | undefined;
+            try {
+                lease = await broker.lease({ name, tool: tool.name, argsHash, principal, ...(approval ? { approval: { id: approval.id, by: approval.by } } : {}) });
+            } catch (err) {
+                await this.releaseCredentials(held);
+                return { problem: `the credential broker refused "${name}": ${err instanceof Error ? err.message : String(err)}` };
+            }
+            const unusable =
+                !lease || typeof lease.value !== 'string' || lease.value.length === 0 ? 'it has no value'
+                : typeof lease.id !== 'string' || lease.id.length === 0 ? 'it has no id'
+                : lease.expiresAt !== undefined && !(Date.parse(lease.expiresAt) > Date.now()) ? 'it is expired or its expiry cannot be read'
+                : undefined;
+            if (unusable) {
+                try { await lease?.release?.(); } catch { /* nothing more can be done with a lease that is not usable */ }
+                await this.releaseCredentials(held);
+                return { problem: `the credential broker returned an unusable lease for "${name}": ${unusable}` };
+            }
+            held.leases.push({ name, lease: lease! });
+            held.values[name] = lease!.value;
+            held.audit.push({ name, id: lease!.id, ...(lease!.expiresAt !== undefined ? { expiresAt: lease!.expiresAt } : {}), released: false });
+        }
+        return held;
+    }
+
+    /** Releases the leases of a call, whatever the outcome. A release that fails is recorded (`released: false`), not hidden and not fatal to the result. */
+    private async releaseCredentials(held: { leases: Array<{ name: string; lease: CredentialLease }>; audit: AuditCredential[] }): Promise<AuditCredential[]> {
+        for (let i = 0; i < held.leases.length; i++) {
+            let released = true;
+            try { await held.leases[i]!.lease.release?.(); } catch { released = false; }
+            held.audit[i] = { ...held.audit[i]!, released };
+        }
+        return held.audit;
+    }
+
     private async resolveAsk(
         principal: Principal, call: ToolCall, d: Extract<PolicyDecision, { effect: 'ask' }>,
         sandboxAsk: boolean, sandboxDecisions: AuditSandboxDecision[],
@@ -1952,6 +2021,7 @@ export class AgentEngine {
         sandboxDecisions?: AuditSandboxDecision[],
         principal?: Principal,
         dryRun = false,
+        credentials?: Record<string, string>,
     ): Promise<{ result: string; success: boolean; outcome?: 'timeout' | 'aborted'; errorCode?: string }> {
         const controller = new AbortController();
         this.toolControllers.add(controller);
@@ -1960,6 +2030,7 @@ export class AgentEngine {
             ...this.buildContext(agentId, depth, principal?.chain),
             ...(dryRun ? { dryRun: true } : {}),
             ...(Object.keys(secrets).length ? { secrets } : {}),
+            ...(credentials ? { credentials } : {}),
             ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
             ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId, sandboxDecisions) } : {}),
             signal: controller.signal,
@@ -2051,7 +2122,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
-        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;
@@ -2075,6 +2146,7 @@ export class AgentEngine {
             ...(c.errorCode ? { errorCode: c.errorCode } : {}),
             durationMs: Date.now() - c.startedAt,
             ...(c.approval ? { approval: c.approval } : {}),
+            ...(c.credentials ? { credentials: c.credentials } : {}),
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
             ...(c.meta ? { meta: c.meta } : {}),
         };

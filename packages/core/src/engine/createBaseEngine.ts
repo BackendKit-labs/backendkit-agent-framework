@@ -26,7 +26,7 @@ import { instructionSourceHooks, listAgentSources, listSkillSources } from '../s
 import type { AgentSource, SkillSource, InstructionSource } from '../sources';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
-import type { ApprovalStore, Approver, ApproverDirectory, AuditSink, Identity, ToolPolicy } from '../governance/types';
+import type { ApprovalStore, Approver, ApproverDirectory, AuditSink, CredentialBroker, Identity, ToolPolicy } from '../governance/types';
 import { defaultToolPolicy } from '../governance/policy';
 import type { Learning } from '../learning/types';
 import { LEARNED_RULES_SERVICE } from '../tools/services';
@@ -333,6 +333,12 @@ export interface BaseEngineOptions {
      */
     forbidSelfApproval?: boolean;
 
+    /**
+     * Leases the credentials a tool declares in `credentials`, for ONE call and only after it is authorized (SPEC-0042 F4).
+     * The framework ships the contract, not an implementation. Without a broker, a tool that declares credentials is refused.
+     */
+    credentialBroker?: CredentialBroker;
+
     /** Stores an `ask` as pending when nobody answers now; the call does not run until approved. */
     approvals?: ApprovalStore;
 
@@ -523,6 +529,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.approver ? { approver: opts.approver } : {}),
         ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
         ...(opts.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
+        ...(opts.credentialBroker ? { credentialBroker: opts.credentialBroker } : {}),
         ...(opts.approvals ? { approvals: opts.approvals } : {}),
         ...(opts.emitSystemPrompt ? { emitSystemPrompt: true } : {}),
         ...(opts.recordArgs ? { recordArgs: true } : {}),

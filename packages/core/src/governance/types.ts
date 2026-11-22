@@ -131,6 +131,50 @@ export interface ApproverAuthority {
     matched: string;
 }
 
+/** What a tool asks the broker for: one credential it declared in `ToolDefinition.credentials`, for ONE call that is already authorized. */
+export interface CredentialRequest {
+    /** The name the tool declared (for example `"treasury"`). */
+    name: string;
+    tool: string;
+    /** SHA-256 of the arguments of this call, the same hash the audit event carries. A broker can bind the credential to exactly this call. */
+    argsHash: string;
+    principal: Principal;
+    /** The approval that authorized the call, when it needed one. */
+    approval?: { id: string; by: ApproverRef };
+}
+
+/** What the broker hands over for one call. */
+export interface CredentialLease {
+    /** What the tool receives in `ctx.credentials[name]`: a token, a signed URL, a handle. Never logged and never audited. */
+    value: string;
+    /** Names the lease in the audit event (the value never goes there). */
+    id: string;
+    /** ISO time after which the lease is no longer valid. A lease that has already expired is refused. */
+    expiresAt?: string;
+    /** Called when the call ends, whatever the outcome (success, error, timeout): revoke or return the credential. */
+    release?(): Promise<void> | void;
+}
+
+/**
+ * Gives a tool the credential for one call, only after the call was authorized (SPEC-0042 F4). The framework defines
+ * the contract and calls it; it does not ship an implementation. What makes a broker strong is what YOU build behind it:
+ * a credential that is scoped to this tool and this call, short-lived, used once, and revoked in `release`, or a handle to
+ * a proxy outside the process that injects the real secret only on the governed route.
+ */
+export interface CredentialBroker {
+    /** Throw to refuse: the tool does not run and the refusal is audited. */
+    lease(request: CredentialRequest): Promise<CredentialLease> | CredentialLease;
+}
+
+/** What the audit event keeps of a lease: who, never the value. */
+export interface AuditCredential {
+    name: string;
+    id: string;
+    expiresAt?: string;
+    /** Whether `release` completed. False means the credential may still be valid: look at it. */
+    released: boolean;
+}
+
 export interface Approver {
     /** Who this approver is; checked against the approval rules before its answer is accepted. */
     readonly ref?: ApproverRef;
@@ -201,6 +245,8 @@ export interface AuditEvent {
     durationMs: number;
     /** Who approved the call, when it needed approval. */
     approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority };
+    /** The credentials leased for the call (SPEC-0042 F4): which, never their values. */
+    credentials?: AuditCredential[];
     sandbox?: AuditSandboxDecision[];
     /** The tool's declared `meta`. */
     meta?: Record<string, unknown>;

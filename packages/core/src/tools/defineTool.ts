@@ -11,6 +11,8 @@ export { z };
 export interface ToolMetadata {
     /** Human-readable name for UIs and MCP clients. */
     title?: string;
+    /** See `ToolDefinition.credentials`. */
+    credentials?: string[];
     /** Mutates nothing. Implies `concurrencySafe`; incompatible with `destructive`. MCP: `readOnlyHint`. */
     readOnly?: boolean;
     /** A write that cannot be undone from the outside. MCP: `destructiveHint`. */
@@ -69,6 +71,12 @@ export function validateToolDefinition(tool: ToolDefinition): void {
     }
     if (tool.timeoutMs !== undefined && !(Number.isFinite(tool.timeoutMs) && tool.timeoutMs > 0)) {
         throw new ToolDefinitionError(tool.name, `timeoutMs must be a positive number (got ${String(tool.timeoutMs)})`);
+    }
+    if (tool.credentials !== undefined) {
+        const names = tool.credentials;
+        if (!Array.isArray(names) || names.some(n => typeof n !== 'string' || n.length === 0) || new Set(names).size !== names.length) {
+            throw new ToolDefinitionError(tool.name, 'credentials must be a list of distinct, non-empty names');
+        }
     }
     if (tool.parameters && tool.parameters.type !== undefined && tool.parameters.type !== 'object') {
         throw new ToolDefinitionError(tool.name, `parameters must describe an object (got type "${String(tool.parameters.type)}")`);
@@ -139,6 +147,7 @@ export function defineTool<TInput extends z.ZodTypeAny>(
         ...(opts.openWorld !== undefined ? { openWorld: opts.openWorld } : {}),
         ...(opts.meta !== undefined ? { meta: opts.meta } : {}),
         ...(opts.defer ? { defer: true } : {}),
+        ...(opts.credentials ? { credentials: opts.credentials } : {}),
         execute: async (rawArgs: unknown, ctx: ExecutionContext) => {
             const result = opts.input.safeParse(rawArgs);
             if (!result.success) {

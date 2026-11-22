@@ -1,5 +1,39 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+/** Largest request body the HTTP servers read (bytes). A request with more is refused with 413 instead of held in memory. */
+export const MAX_BODY_BYTES = 1_048_576;
+
+export class BodyTooLargeError extends Error { constructor(max: number) { super(`request body exceeds ${max} bytes`); } }
+
+/** Reads and parses a JSON body, at most `maxBytes`. Empty body = undefined. Throws {@link BodyTooLargeError} or a SyntaxError. */
+export async function readJsonBody(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<unknown> {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const chunk of req) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+        total += buf.length;
+        if (total > maxBytes) throw new BodyTooLargeError(maxBytes);
+        chunks.push(buf);
+    }
+    const raw = Buffer.concat(chunks).toString('utf-8');
+    return raw ? JSON.parse(raw) : undefined;
+}
+
+/**
+ * The answer to a request that failed inside the server. What the client learns is the class of failure (too large, not JSON,
+ * ours), never the internal message; the detail goes to `log`.
+ */
+export function replyRequestError(res: ServerResponse, err: unknown, log: (line: string) => void): void {
+    const [status, error] = err instanceof BodyTooLargeError ? [413, err.message]
+        : err instanceof SyntaxError ? [400, 'Invalid JSON body']
+        : [500, 'Internal server error'];
+    if (status === 500) log(`request failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (res.headersSent) return;
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error }));
+}
 
 /**
  * The HTTP server binds to 127.0.0.1, but a web page in the user's browser can still reach it (DNS rebinding,

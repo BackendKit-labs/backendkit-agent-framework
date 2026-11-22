@@ -17,7 +17,7 @@ import { CodeIndexer } from './indexer/indexer.js';
 import { FileWatcher } from './indexer/watcher.js';
 import { detectStackFromGraph } from './indexer/stack-detector.js';
 import { registerPlatformResources } from './resources/platform-resources.js';
-import { extraIndexRoots, isLoopbackRequest, resolveInside } from './request-guards.js';
+import { extraIndexRoots, isLoopbackRequest, readJsonBody, replyRequestError, resolveInside } from './request-guards.js';
 import { SessionRegistry } from './session-registry.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
@@ -275,13 +275,7 @@ async function startHttp() {
     // each transport instance tracks its own protocol state independently.
     const sessions = new SessionRegistry<StreamableHTTPServerTransport>();
 
-    async function parseBody(req: IncomingMessage): Promise<unknown> {
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) chunks.push(chunk as Buffer);
-        const raw = Buffer.concat(chunks).toString('utf-8');
-        if (!raw) return undefined;
-        return JSON.parse(raw);
-    }
+    const parseBody = (req: IncomingMessage): Promise<unknown> => readJsonBody(req);
 
     const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         // bound to 127.0.0.1, yet reachable from a web page in the user's browser (DNS rebinding / cross-site POST)
@@ -340,10 +334,7 @@ async function startHttp() {
                 transport.onclose = () => sessions.delete(transport.sessionId!);
             }
         } catch (err) {
-            if (!res.headersSent) {
-                res.writeHead(500);
-                res.end(String(err));
-            }
+            replyRequestError(res, err, line => process.stderr.write(`[bk-mcp] ${line}\n`));
         }
     });
 

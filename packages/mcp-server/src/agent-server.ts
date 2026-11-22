@@ -11,7 +11,7 @@ import {
     type ToolDefinition,
     type ToolServerOptions,
 } from '@backendkit-labs/agent-core';
-import { isLoopbackRequest } from './request-guards.js';
+import { isLoopbackRequest, readJsonBody, replyRequestError } from './request-guards.js';
 import { SessionRegistry } from './session-registry.js';
 
 type ZodRawShape = Record<string, z.ZodTypeAny>;
@@ -52,7 +52,7 @@ export type AgentEngineFactory = (transport: CallbackTransport) => AgentEngine;
 
 /** Constant-time check of an `Authorization: Bearer <token>` header. */
 export function isAuthorized(header: string | undefined, token: string): boolean {
-    if (!header?.startsWith('Bearer ')) return false;
+    if (!header || !/^bearer /i.test(header)) return false;
     const given = Buffer.from(header.slice(7));
     const expected = Buffer.from(token);
     return given.length === expected.length && timingSafeEqual(given, expected);
@@ -183,12 +183,7 @@ export class AgentMCPServer {
         });
         this.sessionRegistry = sessions;
 
-        const parseBody = async (req: IncomingMessage): Promise<unknown> => {
-            const chunks: Buffer[] = [];
-            for await (const chunk of req) chunks.push(chunk as Buffer);
-            const raw = Buffer.concat(chunks).toString('utf-8');
-            return raw ? JSON.parse(raw) : undefined;
-        };
+        const parseBody = (req: IncomingMessage): Promise<unknown> => readJsonBody(req);
 
         const host = this.opts.host ?? '127.0.0.1';
         const port = this.opts.port ?? 3001;
@@ -254,7 +249,7 @@ export class AgentMCPServer {
                     transport.onclose = () => sessions.delete(transport.sessionId!);
                 }
             } catch (err) {
-                if (!res.headersSent) { res.writeHead(500); res.end(String(err)); }
+                replyRequestError(res, err, line => process.stderr.write(`[${this.opts.name}] ${line}\n`));
             }
         });
 

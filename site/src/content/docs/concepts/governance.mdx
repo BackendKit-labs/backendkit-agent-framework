@@ -121,6 +121,10 @@ createBaseEngine({ /* ... */ approvals, approvalTtlSeconds: 24 * 3600 });      /
 
 The request carries `expiresAt`. Once it has passed, `runApproved` refuses the approval whether it was still pending or already approved. The refusal is audited (`deny`, with the time it expired) and the request is spent: a new one has to be made. A `ttlSeconds` that is not a positive number expires at once, and an `expiresAt` that cannot be read counts as expired, so a mistake does not turn into "never expires". An approver that answers right away (`approver`) is not affected: there is no window to wait out.
 
+### What the person sees
+
+An approval is only as good as what it shows. The arguments of the call reach the approver in full (a custom `Approver` receives the whole request). The older `onToolApproval` callback and the `tool_approval_request` event show a preview of up to 4000 characters, and when it is cut they say how much is not shown (`... [1200 more characters NOT shown]`): a long argument cannot push the part that matters out of sight without the person being told. If you build your own approval screen, show the full arguments, or at least the fields the decision depends on.
+
 ### An approver that does not answer
 
 Asks are put to the approver one at a time, so one that never answers holds every other ask of the engine behind it. Give it a time limit; past it the call is denied (and audited) and the engine moves on:
@@ -138,6 +142,8 @@ Each tool call, accepted or refused, produces **one audit event**, with the argu
 ```ts
 createBaseEngine({ /* ... */ audit: new HashChainAuditSink('./audit.log') });
 ```
+
+Each entry is flushed to disk before the call returns, so a crash of the machine does not lose what was recorded. Where throughput matters more than that, `new HashChainAuditSink(path, { fsync: false })` skips the flush: the last entries may be lost in a crash, and the chain stays valid up to what reached the disk. Leave it on for anything that answers to an auditor.
 
 ### Evidence a third party can check
 

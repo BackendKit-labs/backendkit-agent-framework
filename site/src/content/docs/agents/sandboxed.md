@@ -57,6 +57,35 @@ createBaseEngine({ /* ... */ sandbox });                        // every run_com
 createCodingEngine({ /* ... */ sandbox: { preset: 'ask' } });   // the coding agents
 ```
 
+### A complete example
+
+A sandbox with a person who answers, in an engine. A command that needs approval and has nobody to ask is refused, never run:
+
+```ts
+import { createBaseEngine, StdoutTransport, consoleApprover } from '@backendkit-labs/agent-core';
+import { createSandboxPolicy, createSandboxService, DockerBackend, NoneBackend } from '@backendkit-labs/agent-sandbox';
+import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
+
+const sandbox = createSandboxService({
+  policy: createSandboxPolicy({ preset: 'ask' }),                       // workspace-write, network none, commands ask
+  backends: [new DockerBackend({ image: 'node:22' }), new NoneBackend()],
+});
+
+const engine = createBaseEngine({
+  providers: { main: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }) },
+  defaultProvider: 'main',
+  agents: [/* an agent that can run_command */],
+  defaultAgent: 'builder',
+  tools: [/* ... */],
+  transport: new StdoutTransport(),
+  workingDir: process.cwd(),
+  iterationMode: 'auto',
+  sandbox,                                                              // every run_command goes through it
+  approver: consoleApprover(),                                          // the person who says yes or no
+  approverTimeoutMs: 120_000,                                           // nobody answers: denied, not stuck
+});
+```
+
 ## A child is never wider than its parent
 
 An agent that creates another agent cannot hand it more power than it has. `checkNarrower(parent, child)` compares two policies at their *widest* (a rule cannot hide a widening): the child may not exceed the parent's mode or network, and must ask at least as much.

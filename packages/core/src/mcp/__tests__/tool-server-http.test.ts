@@ -57,7 +57,7 @@ describe('startToolServerHttp', () => {
     });
 
     it('guards: 401 without token, 404 off path, 405 for GET, 413 for a large body, 403 for a foreign host', async () => {
-        running = await startToolServerHttp({ name: 't', tools: [echo] }, { port: 0, authToken: 'tok', maxBodyBytes: 64, ...silent });
+        running = await startToolServerHttp({ name: 't', tools: [echo], requireAgentIdentity: false }, { port: 0, authToken: 'tok', maxBodyBytes: 64, ...silent });
         const auth = { Authorization: 'Bearer tok' };
 
         expect((await fetch(running.url, { method: 'POST' })).status).toBe(401);
@@ -77,7 +77,7 @@ describe('startToolServerHttp', () => {
     });
 
     it('serves a full MCP exchange, stateless, to an SDK client', async () => {
-        running = await startToolServerHttp({ name: 't', version: '2.0.0', tools: [echo] }, { port: 0, authToken: 'tok', ...silent });
+        running = await startToolServerHttp({ name: 't', version: '2.0.0', tools: [echo], requireAgentIdentity: false }, { port: 0, authToken: 'tok', ...silent });
 
         const connectClient = async () => {
             const client = new Client({ name: 'c', version: '0' });
@@ -111,7 +111,7 @@ describe('startToolServerHttp', () => {
     });
 
     it('reports the chosen port and url', async () => {
-        running = await startToolServerHttp({ name: 't', tools: [echo] }, { port: 0, path: '/tools', ...silent });
+        running = await startToolServerHttp({ name: 't', tools: [echo], requireAgentIdentity: false }, { port: 0, path: '/tools', ...silent });
         expect(running.port).toBeGreaterThan(0);
         expect(running.url).toBe(`http://127.0.0.1:${running.port}/tools`);
     });

@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { defineTool, z, MemoryAuditSink, type ToolCallRecord } from '@backendkit-labs/agent-core';
+import { defineTool, z, MemoryAuditSink, selfAssertedIdentities, type ToolCallRecord } from '@backendkit-labs/agent-core';
 import { AgentMCPServer } from '../agent-server';
 
 const balances = defineTool({
@@ -65,11 +65,23 @@ describe('AgentMCPServer: construction', () => {
     });
 });
 
+describe('AgentMCPServer: direct tools need an identity too (SPEC-0044)', () => {
+    it('a server with direct tools and no identity refuses every call, and says how to fix it', async () => {
+        const srv = new AgentMCPServer({ name: 'noid', port: 0, directTools: [balances], identity: { userId: 'u-1' } });
+        const client = await connect(srv);
+        try {
+            const r = await client.callTool({ name: 'balances', arguments: { date: 'd' } });
+            expect(r.isError).toBe(true);
+            expect(JSON.stringify(r)).toMatch(/no digital identity.*agentIdentity/);
+        } finally { await client.close(); await srv.stop?.(); }
+    });
+});
+
 describe('AgentMCPServer: direct tools under a policy, audited with the engine event', () => {
     it('a policy deny refuses the call and the audit sink records it with the identity', async () => {
         const sink = new MemoryAuditSink();
         const srv = new AgentMCPServer({
-            name: 'gov', port: 0, directTools: [balances, pay], identity: { tenantId: 'acme' }, auditSink: sink,
+            name: 'gov', port: 0, directTools: [balances, pay], identity: { tenantId: 'acme', userId: 'u-1' }, agentIdentity: selfAssertedIdentities(), auditSink: sink,
             policy: { decide: (_p, c) => c.tool.name === 'pay' ? { effect: 'deny', reason: 'frozen' } : { effect: 'allow' } },
         });
         const client = await connect(srv);
@@ -94,7 +106,7 @@ describe('AgentMCPServer: prompt and direct tools together', () => {
 
     beforeAll(async () => {
         srv = new AgentMCPServer({
-            name: 'mixed',
+            name: 'mixed', requireAgentIdentity: false,
             port: 0,
             tools: [explain],
             engineFactory: throwingFactory as never,

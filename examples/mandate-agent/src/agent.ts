@@ -13,7 +13,7 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import {
-    createBaseEngine, defaultToolPolicy, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, z,
+    createBaseEngine, defaultToolPolicy, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, selfAssertedIdentities, z,
     type AgentProfile, type Approver, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateVerifier, type ToolPolicy, type Transport,
 } from '@backendkit-labs/agent-core';
 import { CAPABILITY_META_KEY } from './capability';
@@ -33,8 +33,9 @@ export interface BuyerAgentOptions {
     /** Turns the credential this agent holds into a verified `Mandate`. From any identity provider, or several behind a router. */
     verifier: MandateVerifier;
     /**
-     * The digital identity of the agent (SPEC-0044, prototyped in `identity/`). Whoever provides it (any identity system) is behind
-     * `AgentIdentityProvider`; this file only knows the layer. CORE: this becomes the engine option `agentIdentity`.
+     * What is still a prototype of SPEC-0044 (`identity/`): the binding of a mandate to the identity of the agent, the proof of possession and the
+     * signature of every audit event. The identity itself is native: the layer hands its provider to the engine's `agentIdentity` option. Without a
+     * layer the agent still has an identity (self-asserted, marked as such in the audit) and its calls are neither bound nor signed.
      */
     agentIdentity?: IdentityLayer;
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
@@ -121,6 +122,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         providers: { mock: options.provider }, defaultProvider: 'mock', agents: [buyerProfile], defaultAgent: AGENT_ID,
         tools: [checkPrice, buy, sign], transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
         identity: { userId: options.userId },
+        ...(options.agentIdentity ? options.agentIdentity.engine : { agentIdentity: selfAssertedIdentities() }),
         audit: options.agentIdentity ? options.agentIdentity.audit(audit) : audit,
         policy,
         approver: recordingApprover,

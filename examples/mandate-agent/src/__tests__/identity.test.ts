@@ -42,11 +42,11 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
         agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,
     });
 
-    function agent(opts: { verifier: MandateVerifier; provider: AgentIdentityProvider; require?: boolean; warn?: (m: string) => void; amount?: number; userId?: string }) {
+    function agent(opts: { verifier: MandateVerifier; provider: AgentIdentityProvider; require?: boolean; amount?: number; userId?: string }) {
         return buildBuyerAgent({
             provider: scriptedProvider([buyCall(opts.amount ?? 500), { content: 'done' }] as never), transport: mockTransport().transport, userId: opts.userId ?? 'carlos',
             verifier: opts.verifier,
-            agentIdentity: identityLayer({ provider: opts.provider, require: opts.require ?? true, ...(opts.warn ? { warn: opts.warn } : {}) }),
+            agentIdentity: identityLayer({ provider: opts.provider, require: opts.require ?? true }),
             auditLogPath: log(), checkpointsPath: join(dir, 'cp.ndjson'),
         });
     }
@@ -137,7 +137,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
             const impostorKey = generateKeyPairSync('ed25519');
             const { sign } = await import('node:crypto');
             const impostor: AgentIdentityProvider = {
-                resolve: (id) => real.resolve(id),
+                resolve: (id, c) => real.resolve(id, c),
                 sign: async (_id, message) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, signature: sign(null, Buffer.from(message), impostorKey.privateKey).toString('base64url') }),
             };
             const a = agent({ verifier: dalionVerifier(() => cred), provider: impostor });
@@ -151,7 +151,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
             const real = dalion.identityProvider();
             const other = dalion.registerAgent('other', 'did:dalion:agent:other-01');
             const cred = credential({ bindToKeyOf: AGENT_ID });
-            const wrong: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: (_id, m) => real.sign('other', m) };
+            const wrong: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: (_id, m) => real.sign('other', m) };
             void other;
             const a = agent({ verifier: dalionVerifier(() => cred), provider: wrong });
             await a.engine.run('buy a television');
@@ -226,12 +226,12 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
             verify: async ({ principal }) => ({ ok: true, mandate: { id: 'm', issuer: 'any', subject: principal.userId ?? '', agent: principal.agentId, actions: ['buy_supplies'] } as never }),
         };
 
-        it('required: an agent that does not say on whose behalf it acts is refused, even with an identity and a verifier that would allow it', async () => {
+        it('required (by agent-core): an agent that does not say on whose behalf it acts is refused, even with an identity and a verifier that would allow it', async () => {
             const a = agent({ verifier: anyVerifier, provider: dalion.identityProvider(), userId: '' });
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);
             expect(buyEvent().decision).toBe('deny');
-            expect(buyEvent().reason).toMatch(/does not say who the agent acts for/);
+            expect(buyEvent().reason).toMatch(/does not say on whose behalf it acts/);
         });
 
         it('with the party stated, the same agent and verifier work: the requirement is the declaration, not a particular kind of party', async () => {
@@ -245,7 +245,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
         it('an identity that signs with another kind of proof is recorded and checked by the verifier registered for its format; the framework knows no legal framework', async () => {
             const real = dalion.identityProvider();
             const sealing: AgentIdentityProvider = {
-                resolve: (id) => real.resolve(id),
+                resolve: (id, c) => real.resolve(id, c),
                 sign: async (_id, message) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, format: 'test-seal', signature: Buffer.from(message).toString('base64url').split('').reverse().join('') }),
             };
             const a = agent({ verifier: dalionVerifier(() => credential()), provider: sealing });
@@ -263,7 +263,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
 
         it('an unknown format name cannot reach inherited properties of the registry', async () => {
             const real = dalion.identityProvider();
-            const odd: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: async (_i, m) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, format: 'constructor', signature: Buffer.from(m).toString('base64url') }) };
+            const odd: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (_i, m) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, format: 'constructor', signature: Buffer.from(m).toString('base64url') }) };
             const a = agent({ verifier: dalionVerifier(() => credential()), provider: odd });
             await a.engine.run('buy a television');
             const check = verifyAgentSignatures(log(), () => undefined, {});
@@ -295,16 +295,16 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
             expect(out.toolCalls.map(c => `${c.name}:${c.success}`)).toEqual(['check_price:false']);
         });
 
-        it('not required (the transition): it works, warns ONCE, and the log records that the identity was missing', async () => {
-            const warnings: string[] = [];
+        it('not required (explicit opt-out, for tests): it works, agent-core warns ONCE on the transport, and the log records that the identity was missing', async () => {
+            const t = mockTransport();
             const script = [buyCall(100, 'c1'), buyCall(100, 'c2'), { content: 'done' }];
             const a = buildBuyerAgent({
-                provider: scriptedProvider(script as never), transport: mockTransport().transport, userId: 'carlos', verifier: dalionVerifier(() => credential({ agent: 'did:dalion:agent:x' })),
-                agentIdentity: identityLayer({ provider: noIdentity, require: false, warn: m => warnings.push(m) }), auditLogPath: log(), checkpointsPath: join(dir, 'cp.ndjson'),
+                provider: scriptedProvider(script as never), transport: t.transport, userId: 'carlos', verifier: dalionVerifier(() => credential({ agent: 'did:dalion:agent:x' })),
+                agentIdentity: identityLayer({ provider: noIdentity, require: false }), auditLogPath: log(), checkpointsPath: join(dir, 'cp.ndjson'),
             });
             await a.engine.run('buy twice');
+            const warnings = t.eventsOf('system').map(e => (e as unknown as { text: string }).text).filter(x => /no digital identity/.test(x));
             expect(warnings).toHaveLength(1);
-            expect(warnings[0]).toMatch(/no digital identity/);
             expect(events().every(e => e.agentIdentityMissing === true && e.agentSignature === undefined)).toBe(true);
             expect(verifyAgentSignatures(log(), () => undefined)).toMatchObject({ ok: true, checked: 0 });
         });
@@ -319,7 +319,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
 
         it('a custody that cannot sign does not lose the record: the event is written, marked unsigned, and the check reports it', async () => {
             const real = dalion.identityProvider();
-            const cannotSign: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: async () => { throw new Error('custody unavailable'); } };
+            const cannotSign: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async () => { throw new Error('custody unavailable'); } };
             const a = agent({ verifier: dalionVerifier(() => credential()), provider: cannotSign });
             const out = await a.engine.run('buy a television');
             expect(out.errors).toEqual([]);

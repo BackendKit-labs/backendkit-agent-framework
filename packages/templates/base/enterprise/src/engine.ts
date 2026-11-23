@@ -7,6 +7,7 @@ import {
     ProviderRegistry,
     CallbackTransport,
     createMemorySystem,
+    selfAssertedIdentities,
 } from '@backendkit-labs/agent-core';
 import { OllamaProvider } from '@backendkit-labs/agent-coding';
 import { ObsidianRAGProvider, VaultWriter } from '@backendkit-labs/agent-enterprise';
@@ -73,6 +74,9 @@ export function createEngine(transport: CallbackTransport): AgentEngine {
     }));
 
     return new AgentEngine({
+        // Who this agent is, and on whose behalf it acts (both are required). Swap `selfAssertedIdentities()` for your identity provider's.
+        agentIdentity: selfAssertedIdentities(),
+        identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
         model:              { provider: 'default', id: config.ollamaModel },
         agents,
         tools,

@@ -7,6 +7,7 @@ import {
     ProviderRegistry,
     CallbackTransport,
     createMemorySystem,
+    selfAssertedIdentities,
 } from '@backendkit-labs/agent-core';
 import { OpenAICompatibleProvider } from '@backendkit-labs/agent-providers';
 import { loadConfig } from './config';
@@ -59,6 +60,9 @@ export function createEngine(transport: CallbackTransport): AgentEngine {
     }));
 
     return new AgentEngine({
+        // Who this agent is, and on whose behalf it acts (both are required). Swap `selfAssertedIdentities()` for your identity provider's.
+        agentIdentity: selfAssertedIdentities(),
+        identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
         model:            { provider: 'default', id: config.llmModel },
         agents,
         tools,

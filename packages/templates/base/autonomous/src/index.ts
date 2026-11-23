@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import * as os from 'os';
 import * as path from 'path';
-import { createAutonomousAgent, createMemorySystem } from '@backendkit-labs/agent-core';
+import { createAutonomousAgent, createMemorySystem, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import type { AgentProfile } from '@backendkit-labs/agent-core';
 
 // ── Agent definition ──────────────────────────────────────────────────────────
@@ -41,6 +41,9 @@ const memory = createMemorySystem({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const agent = createAutonomousAgent({
+    // Who this agent is, and on whose behalf it acts (both are required). Swap `selfAssertedIdentities()` for your identity provider's.
+    agentIdentity: selfAssertedIdentities(),
+    identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
     providers:       { [provider]: { apiKey } } as any,
     defaultProvider: provider,
     agents:          [monitorAgent],

@@ -135,6 +135,20 @@ createBaseEngine({ /* ... */ approver, approverTimeoutMs: 5 * 60_000 });
 
 Without `approverTimeoutMs` there is no limit. A person on a terminal or a chat may need hours; use [stored approvals](#approvals-that-expire) for that and keep this for approvers that should answer quickly.
 
+## Who the agent is, and for whom it acts
+
+Two things are required before any tool call runs: the agent has a **digital identity**, and it says **on whose behalf** it acts (`identity.userId`). Without them the call is denied and the audit records it.
+
+```ts
+createBaseEngine({
+  /* ... */
+  agentIdentity: selfAssertedIdentities(),   // or the AgentIdentityProvider of your identity provider
+  identity: { userId: 'carlos' },
+});
+```
+
+The framework knows no identity provider, credential format or legal framework: an `AgentIdentityProvider` gives each agent its identity, and every audit event carries it (`agentIdentity`, with its `assurance`). Policies see it in `principal.agentIdentity`. With no provider at all, `selfAssertedIdentities()` satisfies the requirement and says so in the audit. A provider that fails or is slow denies the call: it never means "no identity needed".
+
 ## Audit
 
 Each tool call, accepted or refused, produces **one audit event**, with the arguments as a SHA-256 only (no sensitive values in the log). `HashChainAuditSink` writes them chained, so removing or editing a line is detectable.

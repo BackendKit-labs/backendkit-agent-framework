@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import * as readline from 'readline';
 import { createCodingEngine, TerminalTransport } from '@backendkit-labs/agent-coding';
 
@@ -18,6 +19,9 @@ if (!apiKey) {
 const transport = new TerminalTransport();
 
 const engine = createCodingEngine({
+    // Who this agent is, and on whose behalf it acts (both are required). Swap `selfAssertedIdentities()` for your identity provider's.
+    agentIdentity: selfAssertedIdentities(),
+    identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
     providers:       { [provider]: { apiKey, ...(model ? { model } : {}) } },
     defaultProvider: provider,
     workingDir:      process.cwd(),

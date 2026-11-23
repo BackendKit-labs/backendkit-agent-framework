@@ -1,6 +1,6 @@
 # Changelog
 
-## Sin publicar
+## v0.50.0 (2026-11-23)
 
 **Ruptura en `agent-core`: un agente lleva identidad digital y dice a nombre de quién actúa (SPEC-0044 F1).** Sin las dos cosas, cada llamada a una tool se deniega con un motivo que dice cómo arreglarlo. No hay periodo de transición (decisión del autor): el framework está en desarrollo y se usa la última versión.
 
@@ -9,7 +9,28 @@
 - **Fallar cerrado:** un proveedor que lanza una excepción o no contesta en `agentIdentityTimeoutMs` (5 s) deniega la llamada, también con el opt-out. Una respuesta se reutiliza `agentIdentityCacheMs` (5 s; `0` consulta en cada llamada), y un fallo no se recuerda.
 - **Auditoría:** `AuditEvent.agentIdentity` (con `assurance`) o `agentIdentityMissing: true`; el `Principal` que ven las políticas lleva `agentIdentity`. Cada agente de una delegación actúa con su propia identidad.
 - **Opt-out para pruebas:** `requireAgentIdentity: false` (no apto para entornos regulados; avisa una vez por agente). `@backendkit-labs/agent-testkit` trae `testIdentity()`. `agent-enterprise` y `agent-coding` reenvían `agentIdentity`, `identity` y `requireAgentIdentity`.
-- **Pendiente de F2:** la firma de cada evento por la identidad. Pendiente de F4: plantillas, ejemplos, documentación y `agent-mandates` (el barrido de rangos de `agent-core` 0.49.0 va en el PR de bump).
+- **Plantillas y proyectos generados:** todos llevan `agentIdentity: selfAssertedIdentities()` y `identity: { userId }`; `create-bk-agent` sube de versión por ello. La guía de migración y la página de gobernanza lo explican.
+- **Pendiente:** F2 (la firma de cada evento por la identidad) y los ejemplos del repositorio, que esperan a que `agent-core` 0.49.0 esté publicado.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.0 | **ruptura**: identidad del agente y a nombre de quién, obligatorias por defecto |
+| `agent-coding` | 0.32.12 | reenvía `agentIdentity`, `identity` y `requireAgentIdentity`; depende de core 0.49 |
+| `agent-enterprise` | 0.11.8 | ídem; peer `>=0.49.0 <0.50.0` |
+| `agent-testkit` | 0.1.21 | `testIdentity()`; peer `>=0.49.0 <0.50.0` |
+| `mcp-server` | 0.19.12 | depende de core 0.49 |
+| `agent-web` | 0.6.17 | depende de core 0.49 |
+| `create-bk-agent` | 0.24.7 | las plantillas llevan identidad y persona |
+| `agent-mandates` | 0.1.2 | rango de core ampliado a `<0.50.0` |
+| `aval-tools` | 0.1.28 | rango de core ampliado |
+| `document-extract` | 0.1.15 | rango de core ampliado |
+| `agent-flow-queue` | 0.1.7 | rango de core ampliado |
+| `agent-flow-sql` | 0.1.3 | rango de core ampliado |
+| `agent-otel` | 0.1.23 | rango de core ampliado |
+| `agent-providers` | 0.3.17 | rango de core ampliado |
+| `agent-sandbox` | 0.1.23 | rango de core ampliado |
+
+Se publican quince. Orden: `agent-core` primero, `create-bk-agent` al final. Tags: `<paquete>@<versión>` de cada fila.
 
 ## v0.49.19 (2026-11-23)
 

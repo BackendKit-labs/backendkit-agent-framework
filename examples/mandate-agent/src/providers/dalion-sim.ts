@@ -7,6 +7,9 @@ import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { signJws } from '@backendkit-labs/agent-mandates';
 import { DALION_ASSUMED_VCT, type DalionPower } from './dalion-assumed';
 
+/** The non-human identity the simulator gives to the example's buyer agent (assumed shape). */
+export const AGENT_DALION_IDENTITY = 'did:dalion:agent:buyer-01';
+
 export interface IssueOptions {
     /** The non-human identity of the agent the power is for. */
     agent: string;

@@ -1,24 +1,26 @@
 /**
- * A purchasing agent that acts under a power of representation. Inside the limits of its mandate it buys alone; outside them it asks
- * a person; with no valid mandate it does nothing. Every call lands in a hash-chained audit log, with the mandate it ran under, and
- * the head of the chain is signed.
+ * A purchasing agent that acts under a power of representation, WHOEVER ISSUED IT. Inside the limits of its mandate it buys alone;
+ * outside them it asks a person; with no valid mandate it does nothing. Every call lands in a hash-chained audit log, with the mandate it
+ * ran under, and the head of the chain is signed.
  *
- * The credential comes from `dalion-assumed.ts` (an ASSUMED format, see there). Swap that one adapter for the real one when it exists:
- * nothing in this file knows how a credential looks.
+ * This file knows no identity provider. It receives a `MandateVerifier` (the framework's contract) and that is all: the credential of any
+ * identity system reaches the engine as the same `Mandate`, and nothing here changes. The providers
+ * live in `providers/`; choosing one (or several) is the operator's wiring, not the agent's.
  *
  * The credential says WHAT may be done (`buy`), ON WHAT (`television`) and up to HOW MUCH, never which tool runs it. The link between the
- * two is made HERE: each tool declares the verb it performs in its own `meta.capability`, and `objectOf` reads what a call is about.
+ * two is made HERE: each tool declares the verb it performs in its own `meta.capability` (the framework's metadata for governance
+ * clients), and `objectOf` reads what a call is about. A provider that names tools directly (the reference profile) needs neither.
  */
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import {
     createBaseEngine, defaultToolPolicy, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, z,
-    type AgentProfile, type Approver, type ToolPolicy, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateRequest, type Transport,
+    type AgentProfile, type Approver, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateVerifier, type ToolPolicy, type Transport,
 } from '@backendkit-labs/agent-core';
-import { CAPABILITY_META_KEY, dalionMandateVerifier } from './dalion-assumed';
+import { CAPABILITY_META_KEY } from './capability';
 
 export const AGENT_ID = 'buyer';
-/** The non-human identity DALION gave this agent (assumed shape). */
-export const AGENT_DALION_IDENTITY = 'did:dalion:agent:buyer-01';
+
+export { CAPABILITY_META_KEY };
 
 export interface Purchase { item: string; amount: number; currency: string }
 
@@ -27,16 +29,13 @@ export interface BuyerAgentOptions {
     transport: Transport;
     /** For whom the agent acts. The mandate must empower this person. */
     userId: string;
-    /** The credential this agent holds. A function, so a test can change it between runs. */
-    credential: () => string | undefined;
-    /** DALION issuers you trust, with their public keys. */
-    trustedIssuers: Record<string, KeyObject>;
-    isRevoked?: (s: { credentialId: string; statusId: string | undefined }) => boolean | Promise<boolean>;
+    /** Turns the credential this agent holds into a verified `Mandate`. From any identity provider, or several behind a router. */
+    verifier: MandateVerifier;
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
     approver?: Approver;
     /**
-     * The verb `buy_supplies` declares in its metadata, in the credential's vocabulary. Default `buy`. `null`: the tool declares none and is
-     * never covered by a mandate. Renaming the tool or changing its verb never touches the credential.
+     * The verb `buy_supplies` declares in its metadata. Default `buy`. `null`: the tool declares none and is never covered by a mandate
+     * that speaks in verbs. Renaming the tool or changing its verb never touches a credential.
      */
     buyVerb?: string | null;
     auditLogPath: string;
@@ -54,10 +53,10 @@ const buyerProfile: AgentProfile = {
 };
 
 /** What a call is about: the object a power may name (`television`). `undefined` when the call does not say. */
-const objectOf = (args: Record<string, unknown>) => (typeof args.item === 'string' && args.item.length > 0 ? args.item : undefined);
+export const objectOf = (args: Record<string, unknown>) => (typeof args.item === 'string' && args.item.length > 0 ? args.item : undefined);
 
 /** What a call spends, read from its arguments. `undefined` when the call does not say: the policy then refuses to treat it as covered. */
-const amountOf = (args: Record<string, unknown>) =>
+export const amountOf = (args: Record<string, unknown>) =>
     typeof args.amount === 'number' && typeof args.currency === 'string' ? { value: args.amount, currency: args.currency } : undefined;
 
 export function buildBuyerAgent(options: BuyerAgentOptions) {
@@ -103,16 +102,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         request: async (req) => { approvals.push(req); return approver.request(req); },
     };
 
-    const verifier = dalionMandateVerifier({
-        trustedIssuers: options.trustedIssuers,
-        credentialFor: (_: MandateRequest) => options.credential(),
-        agentIdentityOf: (agentId) => (agentId === AGENT_ID ? AGENT_DALION_IDENTITY : undefined),
-        objectOf,
-        ...(options.isRevoked ? { isRevoked: options.isRevoked } : {}),
-        ...(options.now ? { now: options.now } : {}),
-    });
-
-    const governed = mandatePolicy({ verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
+    const governed = mandatePolicy({ verifier: options.verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
     // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate. The framework's own
     // rule for read-only tools decides those. `defaultToolPolicy` cannot be listed next to `mandatePolicy` (it asks for every destructive
     // tool, and an `ask` beats an `allow`, which would cancel the mandate), so the split is by the tool's declared `readOnly`.

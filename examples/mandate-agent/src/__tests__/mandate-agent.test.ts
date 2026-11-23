@@ -13,12 +13,13 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readCheckpoints, verifyAuditChain, type Approver } from '@backendkit-labs/agent-core';
+import { readCheckpoints, verifyAuditChain, type Approver, type MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { signJws } from '@backendkit-labs/agent-mandates';
-import { AGENT_DALION_IDENTITY, buildBuyerAgent } from '../agent';
-import { DalionSim } from '../dalion-sim';
-import { DALION_ASSUMED_VCT, type DalionPower } from '../dalion-assumed';
+import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
+import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
+import { DALION_ASSUMED_VCT, dalionMandateVerifier, type DalionPower } from '../providers/dalion-assumed';
+import type { KeyObject } from 'node:crypto';
 
 const nowS = () => Math.floor(Date.now() / 1000);
 const buyCall = (amount: number, item = 'television', currency = 'EUR', id = 'c1') => ({ tool_calls: [{ id, name: 'buy_supplies', args: { item, amount, currency } }] });
@@ -35,11 +36,32 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         request: async () => ({ decision, by: { kind: 'human', id: 'finance-lead' }, reason: `test: ${decision}`, at: new Date().toISOString() }),
     });
 
-    function setup(credential: () => string | undefined, extra: Partial<Parameters<typeof buildBuyerAgent>[0]> = {}, script: unknown[] = [buyCall(800), { content: 'done' }]) {
+    /** What a test may vary: who approves, the verb the tool declares, and the DALION wiring of this deployment. */
+    interface Extra {
+        approver?: Approver;
+        buyVerb?: string | null;
+        trustedIssuers?: Record<string, KeyObject>;
+        isRevoked?: (s: { credentialId: string; statusId: string | undefined }) => boolean | Promise<boolean>;
+    }
+
+    /** The operator's wiring: the DALION adapter, built from this deployment's trusted issuers and revocation source. */
+    function dalionVerifier(credential: () => string | undefined, extra: Extra): MandateVerifier {
+        return dalionMandateVerifier({
+            trustedIssuers: extra.trustedIssuers ?? { [dalion.issuer]: dalion.publicKey },
+            credentialFor: () => credential(),
+            agentIdentityOf: (id) => (id === AGENT_ID ? AGENT_DALION_IDENTITY : undefined),
+            objectOf,
+            isRevoked: extra.isRevoked ?? dalion.isRevoked,
+        });
+    }
+
+    function setup(credential: () => string | undefined, extra: Extra = {}, script: unknown[] = [buyCall(800), { content: 'done' }]) {
         return buildBuyerAgent({
             provider: scriptedProvider(script as never), transport: mockTransport().transport, userId: 'carlos',
-            credential, trustedIssuers: { [dalion.issuer]: dalion.publicKey }, isRevoked: dalion.isRevoked,
-            auditLogPath: join(dir, 'audit.ndjson'), checkpointsPath: join(dir, 'checkpoints.ndjson'), ...extra,
+            verifier: dalionVerifier(credential, extra),
+            ...(extra.approver ? { approver: extra.approver } : {}),
+            ...(extra.buyVerb !== undefined ? { buyVerb: extra.buyVerb } : {}),
+            auditLogPath: join(dir, 'audit.ndjson'), checkpointsPath: join(dir, 'checkpoints.ndjson'),
         });
     }
     const power = (over: Record<string, unknown> = {}) => dalion.issue({
@@ -221,7 +243,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
 
     describe('with no valid mandate: denied for the RIGHT reason, and nobody is asked', () => {
         /** Runs one purchase under this credential and checks it was refused by the policy, for the reason expected, with no approver consulted. */
-        const denied = async (credential: () => string | undefined, why: RegExp, extra: Partial<Parameters<typeof buildBuyerAgent>[0]> = {}) => {
+        const denied = async (credential: () => string | undefined, why: RegExp, extra: Extra = {}) => {
             const a = setup(credential, { approver: human('approve'), ...extra });
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);       // not even an approver that would say yes gets to decide

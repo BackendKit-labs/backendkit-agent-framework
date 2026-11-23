@@ -1,8 +1,8 @@
 {
-  "name": "@bk/example-dalion-mandate-agent",
+  "name": "@bk/example-mandate-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "An agent that acts under a power of representation (mandate): alone inside its limits, asking a person outside them. The DALION credential format is ASSUMED here, to be replaced by the real one",
+  "description": "An agent that acts under a power of representation (mandate), whoever issues it: alone inside its limits, asking a person outside them. Identity providers plug in behind MandateVerifier; the DALION one is ASSUMED",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

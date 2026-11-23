@@ -35,9 +35,7 @@
  */
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
-
-/** The key of `ToolDefinition.meta` where a tool declares the verb it performs, in the credential's vocabulary (`buy`, `sign`). */
-export const CAPABILITY_META_KEY = 'capability';
+import { CAPABILITY_META_KEY } from '../capability';
 
 /** Names the assumed format. Not DALION's. */
 export const DALION_ASSUMED_VCT = 'urn:dalion:agent-power-of-representation:assumed:1';

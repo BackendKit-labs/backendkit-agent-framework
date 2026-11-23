@@ -9,7 +9,7 @@
  * Agents: general, support, hr, sales, finance, ops. The key is read from DEEPSEEK_API_KEY and never printed.
  */
 import 'dotenv/config';
-import { CallbackTransport, ProviderRegistry } from '@backendkit-labs/agent-core';
+import { CallbackTransport, ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 import { makeWorkspace } from './vault';
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   providers.register('local', provider);       // HR and finance ask for a local model; here they share the cloud one
 
   const ws = makeWorkspace();
-  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main' });
+  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main', agentIdentity: selfAssertedIdentities(), identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' } });
   console.log('Indexing the sample vault...');
   await setup.indexAll();
 

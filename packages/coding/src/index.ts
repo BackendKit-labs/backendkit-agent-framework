@@ -1,7 +1,11 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { userInfo } from 'os';
 import {
     createBaseEngine,
+    selfAssertedIdentities,
+    type AgentIdentityProvider,
+    type Identity,
     ReflectionEngine,
     createMemorySystem,
     adaptProviderToLLMClient,
@@ -712,6 +716,17 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
 
 // ── Config-based factory (reads ~/.bk-agent/config.json) ─────────────────────
 
+/**
+ * What a coding agent run locally gets when nobody configured an identity (SPEC-0044): a self-asserted digital identity (the audit marks it
+ * as such) and the person running it as who it acts for (`BK_AGENT_USER`, else the operating-system user). It is the zero-config path of
+ * `createCodingEngineFromConfig`; `createCodingEngine` itself requires you to say. Anything passed as an override wins.
+ */
+export function localIdentityDefaults(): { agentIdentity: AgentIdentityProvider; identity: Identity } {
+    let user = 'local-user';
+    try { user = userInfo().username || user; } catch { /* no passwd entry: keep the fallback */ }
+    return { agentIdentity: selfAssertedIdentities(), identity: { userId: process.env.BK_AGENT_USER || user } };
+}
+
 export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOptions> = {}): ReturnType<typeof createBaseEngine> {
     const appName = overrides.appName ?? 'bk-agent';
     const loader = new ConfigLoader(appName);
@@ -732,6 +747,7 @@ export function createCodingEngineFromConfig(overrides: Partial<CodingEngineOpti
         providers,
         defaultProvider: config.defaultProvider,
         ...(config.mcpServers?.length ? { mcpServers: config.mcpServers } : {}),
+        ...localIdentityDefaults(),
         ...overrides,
         appName,
     });

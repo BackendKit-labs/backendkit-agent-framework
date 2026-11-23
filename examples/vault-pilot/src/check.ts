@@ -5,7 +5,7 @@
  *   npm run check
  */
 import assert from 'node:assert/strict';
-import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createEnterpriseSetup, ENTERPRISE_TOOLS } from '@backendkit-labs/agent-enterprise';
 import { mockTransport, scriptedProvider } from '@backendkit-labs/agent-testkit';
 import { makeWorkspace, type Workspace } from './vault';
@@ -19,7 +19,7 @@ async function callTool(ws: Workspace, agent: string, tool: string, query: strin
   const providers = new ProviderRegistry();
   providers.register('main', model);
   providers.register('local', model);            // HR and finance are configured to use a local model
-  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main', maxIterations: 4 });
+  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main', maxIterations: 4, agentIdentity: selfAssertedIdentities(), identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' } });
   await setup.indexAll();
 
   const t = mockTransport();

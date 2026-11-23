@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { AgentMCPServer } from '@backendkit-labs/mcp-server';
 import { createCodingEngineFromConfig } from '@backendkit-labs/agent-coding';
-import { CallbackTransport } from '@backendkit-labs/agent-core';
+import { CallbackTransport, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { z } from 'zod';
 
 const PORT = parseInt(process.env.PORT ?? '3010', 10);
@@ -85,7 +85,12 @@ const server = new AgentMCPServer({
     ],
     engineFactory: (transport: CallbackTransport) =>
         // costOptions() adds the optional per-call spending cap.
-        createCodingEngineFromConfig({ appName: 'git-analyst', transport, ...costOptions() }),
+        createCodingEngineFromConfig({
+            appName: 'git-analyst', transport, ...costOptions(),
+            // Who this agent is and on whose behalf it acts: both are required.
+            agentIdentity: selfAssertedIdentities(),
+            identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
+        }),
 });
 
 process.on('SIGINT', () => {

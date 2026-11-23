@@ -1,4 +1,4 @@
-import { createBaseEngine, type CallbackTransport } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities, type AgentIdentityProvider, type CallbackTransport } from '@backendkit-labs/agent-core';
 import { OpenAICompatibleProvider } from '@backendkit-labs/agent-providers';
 import { loadConfig, type Config } from './config';
 import { ORCHESTRATOR_PROFILE } from './agents/orchestrator';
@@ -16,6 +16,10 @@ export interface GitEngineOptions {
     readOnly?: boolean;
     /** Overrides the environment-driven configuration (handy for tests). */
     config?: Config;
+    /** On whose behalf the agent acts. Default: the user running it. */
+    userId?: string;
+    /** The digital identity of the agent. Default: self-asserted (the audit marks it); in production, your identity provider's. */
+    agentIdentity?: AgentIdentityProvider;
 }
 
 export function createGitEngine(transport: CallbackTransport, opts: GitEngineOptions = {}): GitEngine {
@@ -54,6 +58,8 @@ export function createGitEngine(transport: CallbackTransport, opts: GitEngineOpt
         ],
         tools:           readOnly ? READ_ONLY_GIT_TOOLS : ALL_GIT_TOOLS,
         defaultAgent:    'orchestrator',
+        identity:        { userId: opts.userId ?? process.env.USERNAME ?? process.env.USER ?? 'me' },
+        agentIdentity:   opts.agentIdentity ?? selfAssertedIdentities(),
         transport,
         maxIterations:   40,
         iterationMode:   'auto',

@@ -92,6 +92,8 @@ Replace the provider and the transport. A transport is where the engine sends wh
 ```ts
 import { createBaseEngine, selfAssertedIdentities, StdoutTransport } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
+import { weather } from './tool';
+import { assistant } from './agent';
 
 const engine = createBaseEngine({
   providers: { main: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }) },

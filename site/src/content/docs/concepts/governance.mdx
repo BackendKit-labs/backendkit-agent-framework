@@ -57,6 +57,8 @@ The approver needs **at least one** of the roles. The engine does not take them 
 
 ```ts
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   approverDirectory: {
     async describe(by) {                                   // by = { kind: 'human', id: 'ana' }
@@ -81,6 +83,8 @@ A role is not enough when the person who asked for the payment is in finance too
 
 ```ts
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   identity: { userId: 'carlos', tenantId: 'acme' },   // who the agent acts for
   forbidSelfApproval: true,
@@ -97,7 +101,7 @@ Give the engine an **approval store**. The `ask` is saved as pending, the model 
 
 ```ts
 const approvals = new FileApprovalStore('./approvals');
-const engine = createBaseEngine({ /* ... */ approvals });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ approvals });
 
 await engine.run('pay the October invoices');                  // asks become pending requests
 
@@ -113,7 +117,7 @@ await engine.runApproved(req.id);                              // runs once; a s
 By default a stored request never expires: someone who approved on Monday still authorizes the payment on Friday. To limit that, give the request a lifetime:
 
 ```ts
-createBaseEngine({ /* ... */ approvals, approvalTtlSeconds: 24 * 3600 });      // for every ask
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ approvals, approvalTtlSeconds: 24 * 3600 });      // for every ask
 
 // or per ask, in the policy; the shorter one wins
 { effect: 'ask', reason: 'payment above 10k', accepts: ['human'], ttlSeconds: 3600 }
@@ -130,7 +134,7 @@ An approval is only as good as what it shows. The arguments of the call reach th
 Asks are put to the approver one at a time, so one that never answers holds every other ask of the engine behind it. Give it a time limit; past it the call is denied (and audited) and the engine moves on:
 
 ```ts
-createBaseEngine({ /* ... */ approver, approverTimeoutMs: 5 * 60_000 });
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ approver, approverTimeoutMs: 5 * 60_000 });
 ```
 
 Without `approverTimeoutMs` there is no limit. A person on a terminal or a chat may need hours; use [stored approvals](#approvals-that-expire) for that and keep this for approvers that should answer quickly.
@@ -145,10 +149,12 @@ Two pieces, in two packages:
 - **[`@backendkit-labs/agent-mandates`](/packages/mandates/)** brings what you plug into that contract: a **reference verifier** (`jwtMandateVerifier`, a signed credential in a profile of our choosing, with trusted issuers, expiry and revocation) so agents can work under mandates today, and the **pieces to write the adapter of another provider** (SD-JWT, and the rules every adapter applies: well-formed powers, consent, refusing a restriction it cannot enforce).
 
 ```ts
-import { mandatePolicy } from '@backendkit-labs/agent-core';
+import { mandatePolicy, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   identity: { userId: 'carlos' },                       // the person the mandate must empower
   policy: mandatePolicy({
@@ -198,14 +204,14 @@ The proof is **opaque**: `core` verifies Ed25519 and records the `format` of any
 | **Who the agent is**, and its key | `AgentIdentityProvider` (`resolve`, and optionally `sign`) | attributes and signs every audit event; a provider that fails or is slow denies the call |
 | **For whom it works, what it may do, up to how much** | `MandateVerifier`, with `mandatePolicy` | inside the mandate the agent acts alone, outside it asks, with none it does nothing |
 
-You write one adapter per service: its identity API to an `AgentIdentityProvider`, and its credential to a `Mandate`. [`agent-mandates`](/packages/mandates/) brings the pieces (SD-JWT and the rules every adapter applies, including refusing a restriction it cannot enforce). Which issuers to trust, how your user ids map to the service's person ids and which proof formats you accept are operator wiring, never the agent's decision. The [`agent-core` reference](/packages/core/#identity-who-the-agent-is-and-external-identity-services) has the full shape with code. **No official el sistema compatible con eIDAS 2 adapter exists yet**: its format is not public, and the repository's reference adapter is built on an assumption.
+You write one adapter per service: its identity API to an `AgentIdentityProvider`, and its credential to a `Mandate`. [`agent-mandates`](/packages/mandates/) brings the pieces (SD-JWT and the rules every adapter applies, including refusing a restriction it cannot enforce). Which issuers to trust, how your user ids map to the service's person ids and which proof formats you accept are operator wiring, never the agent's decision. The [`agent-core` reference](/packages/core-reference/#identity-who-the-agent-is-and-external-identity-services) has the full shape with code. **No official el sistema compatible con eIDAS 2 adapter exists yet**: its format is not public, and the repository's reference adapter is built on an assumption.
 
 ## Audit
 
 Each tool call, accepted or refused, produces **one audit event**, with the arguments as a SHA-256 only (no sensitive values in the log). `HashChainAuditSink` writes them chained, so removing or editing a line is detectable.
 
 ```ts
-createBaseEngine({ /* ... */ audit: new HashChainAuditSink('./audit.log') });
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ audit: new HashChainAuditSink('./audit.log') });
 ```
 
 Each entry is flushed to disk before the call returns, so a crash of the machine does not lose what was recorded. Where throughput matters more than that, `new HashChainAuditSink(path, { fsync: false })` skips the flush: the last entries may be lost in a crash, and the chain stays valid up to what reached the disk. Leave it on for anything that answers to an auditor.
@@ -281,6 +287,8 @@ const pay = defineTool({
 });
 
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   credentialBroker: {
     async lease({ name, tool, argsHash, principal, approval }) {

@@ -9,12 +9,14 @@ how you run telemetry:
 | An OpenTelemetry SDK already registered in the process (auto-instrumentation, your own processors/exporters) | `otelApiSpanExporter` |
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { otlpHttpSpanExporter } from '@backendkit-labs/agent-otel';
 
 const exporter = otlpHttpSpanExporter({ endpoint: 'http://localhost:4318', serviceName: 'support-agent' });
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...
   observability: { tracing: { exporter } },
 });
@@ -39,7 +41,7 @@ npm install -D @backendkit-labs/agent-testkit typescript tsx
 
 ```ts
 import { createServer } from 'node:http';
-import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { otlpHttpSpanExporter } from '@backendkit-labs/agent-otel';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
@@ -71,6 +73,8 @@ const orderStatus = defineTool({
   execute: async ({ orderId }) => `Order ${orderId}: shipped`,
 });
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'c1', name: 'order_status', args: { orderId: 'A-1001' } }], metrics: { inputTokens: 300, outputTokens: 20 } },
     { content: 'Your order has shipped.', metrics: { inputTokens: 340, outputTokens: 12 } },

@@ -16,7 +16,7 @@ An agent that buys, for Carlos, up to 1000 EUR. The company issues the mandate; 
 
 ```ts
 import { generateKeyPairSync } from 'node:crypto';
-import { createBaseEngine, defineTool, z, mandatePolicy, MemoryAuditSink, type AgentProfile } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, mandatePolicy, MemoryAuditSink, type AgentProfile, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { issueMandate, jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 
@@ -48,6 +48,8 @@ const policy = mandatePolicy({
 
 const audit = new MemoryAuditSink();
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'c', name: 'buy', args: { item: 'television', amount: 600, currency: 'EUR' } }] },
     { content: 'Done.' },

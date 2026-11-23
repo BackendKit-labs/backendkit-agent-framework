@@ -16,7 +16,7 @@ Session history is kept for you. For anything that should outlive a session ther
 | `ProceduralMemory` | How to do something | "Deploy: build, push, apply" |
 
 ```ts
-import { createMemorySystem } from '@backendkit-labs/agent-core';
+import { createMemorySystem, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const memory = createMemorySystem({
   episodic:   { provider: 'json', path: './memory/episodes.json' },
@@ -25,7 +25,7 @@ const memory = createMemorySystem({
   retention:  { maxEpisodes: 500, summarizeAfter: 50 },     // prunes by relevance; can compress with a model
 });
 
-const engine = createBaseEngine({ /* ... */ memorySystem: memory });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ memorySystem: memory });
 ```
 
 Stores are pluggable (an in-memory one for tests, a JSON file for production, your own through `MemoryStoreBackend`), and memory *tools* let the agent write its own notes. Old, unused entries fade by a forgetting curve.
@@ -33,10 +33,10 @@ Stores are pluggable (an in-memory one for tests, a JSON file for production, yo
 ## Learning
 
 ```ts
-import { createLearning } from '@backendkit-labs/agent-core';
+import { createLearning, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const learning = createLearning({ dir: './learning' });
-const engine = createBaseEngine({ /* ... */ learning });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ learning });
 ```
 
 With `learning` on the engine:

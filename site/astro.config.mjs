@@ -35,6 +35,7 @@ export default defineConfig({
             { slug: 'start/what-is-it' },
             { slug: 'start/quickstart' },
             { slug: 'start/first-agent' },
+            { slug: 'start/learning-path' },
             { slug: 'start/agent-designer' },
           ],
         },

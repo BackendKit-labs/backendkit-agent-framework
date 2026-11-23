@@ -27,9 +27,9 @@ This page maps each **control objective** to the piece of the framework that sup
 Everything else is easier to defend when the trail exists. Use a chained sink and keep the log somewhere the agent's process cannot rewrite.
 
 ```ts
-import { createBaseEngine, HashChainAuditSink } from '@backendkit-labs/agent-core';
+import { createBaseEngine, HashChainAuditSink, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
-createBaseEngine({ /* ... */ audit: new HashChainAuditSink('./audit.log') });
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ audit: new HashChainAuditSink('./audit.log') });
 ```
 
 The sink refuses to append to a log whose chain is already broken. Then, on a schedule, sign a checkpoint and, if you can, anchor the head of the chain somewhere the agent's host cannot write. A checkpoint signed with a key that host does not hold is what lets a third party trust the log without trusting you. The signing and anchoring calls are on the [governance page](/concepts/governance/).

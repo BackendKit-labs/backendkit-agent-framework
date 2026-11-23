@@ -8,9 +8,11 @@ A tool call normally blocks the agent: it starts, finishes, and only then does t
 ## Turn it on
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...providers, agents, tools
   jobs: true,                         // defaults, or pass options (below)
 });
@@ -83,7 +85,7 @@ A finished job answers `job_output` with `finished` and its status (`done`, `fai
 | `cancelGraceMs` | `2000` | How long a cancel waits for the job to wind down. |
 
 ```ts
-createBaseEngine({ /* ... */ jobs: { maxPerOwner: 3, retainFinishedMs: 60_000 } });
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ jobs: { maxPerOwner: 3, retainFinishedMs: 60_000 } });
 ```
 
 ## Using the registry without an engine

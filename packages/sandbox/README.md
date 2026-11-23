@@ -77,6 +77,8 @@ parsePolicyConfig(untrusted); // validates a YAML/JSON object and names the path
 
 ```ts
 const engine = createCodingEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     providers, defaultProvider: 'deepseek', transport,
     sandbox: { preset: 'ask' },            // or { preset: 'read-only' | 'auto-edit' | 'full', policy: {...}, backends: ['docker', 'none'], docker: { image: 'node:22' }, auditLog: 'logs/sandbox.ndjson' }
     onToolApproval,                        // the preset says WHICH tools ask; this is who answers

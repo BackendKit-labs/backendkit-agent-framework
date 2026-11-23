@@ -231,8 +231,11 @@ Supported languages: TypeScript, JavaScript, Go, Python, Java, Kotlin, Rust.
 
 ```typescript
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! } },
   defaultProvider: 'deepseek',
   mcpServers: [

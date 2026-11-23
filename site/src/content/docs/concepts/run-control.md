@@ -21,9 +21,11 @@ One run of the engine is a loop: the model answers, asks for tools, the tools ru
 The hard cap of 1000 holds in every mode: no answer to a callback goes past it.
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...providers, agents, tools
   iterationMode: 'interactive',
   maxIterations: 20,
@@ -53,6 +55,8 @@ When a run stops because a callback said `false` (or there was none), the result
 
 ```ts
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...
   iterationMode: 'step-by-step',
   onStep: async (stats) => {
@@ -84,6 +88,7 @@ const control = createEngineControl(engine, {
 
 const server = new AgentServer({
   ...options,
+  gate,                                            // required: who runs capabilities and for whom
   controlApiKey: process.env.AGENT_CONTROL_KEY,    // without it, control answers FORBIDDEN
   control,
 });

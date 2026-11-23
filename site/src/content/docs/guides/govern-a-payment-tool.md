@@ -71,11 +71,13 @@ In a real system the approver asks a person (`consoleApprover()`), or you use a 
 ## 5. Run it twice
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
 for (const amount of [500, 25_000]) {
   const engine = createBaseEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     providers: { mock: scriptedProvider([
       { tool_calls: [{ id: 'p', name: 'pay_invoice', args: { invoiceId: 'INV-1', amount } }] },
       { content: 'done' },
@@ -129,6 +131,8 @@ const answerAs = (id: string) => ({
 
 for (const who of ['carlos', 'intern-17', 'ana']) {
   const engine = createBaseEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     /* providers, agents, tools and transport as in step 5, with amount 25_000 */
     policy: rules,
     approver: answerAs(who),

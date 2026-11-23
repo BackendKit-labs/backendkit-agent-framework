@@ -56,7 +56,11 @@ Isolation here is **what the tool can see**, not a request to the model to behav
 - `src/ask.ts` is the same setup with a real model (`DeepSeekProvider` from `agent-providers`) and a transport that prints what happens.
 
 ```ts
-const setup = createEnterpriseSetup({ vaultPath, indexDir, sessionsDir, providers, defaultProvider: 'main' });
+const setup = createEnterpriseSetup({
+  vaultPath, indexDir, sessionsDir, providers, defaultProvider: 'main',
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
+});
 await setup.indexAll();                       // incremental: only new or changed notes are embedded
 const engine = setup.engineFactory(sessionId, transport);
 engine.switchAgent('hr');

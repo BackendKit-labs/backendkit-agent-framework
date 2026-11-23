@@ -186,6 +186,8 @@ const sales = {
 
 ```ts
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   toolSearch: {
     maxResults: 3,
@@ -210,6 +212,8 @@ An `AgentProfile` is an identity and a list: `id`, `name`, `systemPrompt`, and `
 
 ```ts
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { main: provider }, defaultProvider: 'main',
   agents: [assistant], defaultAgent: 'assistant',
   tools: [readFile], transport,

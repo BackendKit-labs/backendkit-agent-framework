@@ -1,6 +1,6 @@
 # @backendkit-labs/agent-flow-queue
 
-Run [`agent-core` flows](../core/README.md#flows--declarative-and-durable) across processes: a BullMQ `StepExecutor` (each step runs on a worker, maybe on another machine) and a Redis `RunJournal` (a run survives the process and any process can resume it).
+Run [`agent-core` flows](../core/REFERENCE.md#flows--declarative-and-durable) across processes: a BullMQ `StepExecutor` (each step runs on a worker, maybe on another machine) and a Redis `RunJournal` (a run survives the process and any process can resume it).
 
 ```bash
 npm install @backendkit-labs/agent-flow-queue @backendkit-labs/agent-core

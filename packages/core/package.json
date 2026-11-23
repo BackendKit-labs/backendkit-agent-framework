@@ -61,7 +61,8 @@
   },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "REFERENCE.md"
   ],
   "repository": {
     "type": "git",

@@ -180,10 +180,12 @@ Connect to observe all sessions without sending any messages:
 
 ```typescript
 import type { EngineFactory } from '@backendkit-labs/agent-web';
-import { AgentEngine } from '@backendkit-labs/agent-core';
+import { AgentEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engineFactory: EngineFactory = (sessionId, transport) =>
   new AgentEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     transport,
     sessionId,
     model:           { provider: 'openai', id: 'gpt-4o' },
@@ -200,7 +202,7 @@ const engineFactory: EngineFactory = (sessionId, transport) =>
 ### Factory with per-session memory
 
 ```typescript
-import { createMemorySystem } from '@backendkit-labs/agent-core';
+import { createMemorySystem, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -214,6 +216,8 @@ const engineFactory: EngineFactory = (sessionId, transport) => {
   });
 
   return new AgentEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     transport,
     sessionId,
     memorySystem: memory,
@@ -229,6 +233,8 @@ Each WebSocket connection to `/chat` gets its own session with a random `session
 ```typescript
 const engineFactory: EngineFactory = (sessionId, transport) =>
   new AgentEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     ...baseConfig,
     transport,
     sessionId,                 // also the session's id in metrics, monitor and audit
@@ -543,9 +549,10 @@ A `Transport` with no socket: it buffers every `AgentEvent` in memory. `TriggerB
 
 ```typescript
 import { HeadlessTransport } from '@backendkit-labs/agent-web';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const transport = new HeadlessTransport();
-const engine = new AgentEngine({ ...opts, transport });
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, transport });
 await engine.run('Generate a daily report');
 
 transport.getOutput();   // concatenated text of the 'token' events
@@ -561,14 +568,14 @@ JWT auth, Redis sessions, Prometheus metrics, a cron job, a webhook and a queue:
 ```typescript
 import { AgentServer, JwtAuth, TriggerBus, RedisSessionMetaStore } from '@backendkit-labs/agent-web';
 import { createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
-import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 import Redis from 'ioredis';
 
 const providers = new ProviderRegistry();
 providers.register('deepseek', new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY!, model: 'deepseek-chat' }));
 
-const enterprise = createEnterpriseSetup({ vaultPath: process.env.VAULT_PATH!, providers, defaultProvider: 'deepseek' });
+const enterprise = createEnterpriseSetup({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, vaultPath: process.env.VAULT_PATH!, providers, defaultProvider: 'deepseek' });
 await enterprise.indexAll();
 
 const triggers = new TriggerBus(enterprise.engineFactory)

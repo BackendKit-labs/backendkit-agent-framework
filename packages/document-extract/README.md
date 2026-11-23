@@ -33,7 +33,7 @@ npm install -D @backendkit-labs/agent-testkit typescript tsx
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createReadDocumentTool, extractDocument, DocumentExtractError } from '@backendkit-labs/document-extract';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
@@ -60,6 +60,8 @@ const provider = scriptedProvider([
   { content: 'North sold 2630 in total, South 950. I could not read old-report.doc.' },
 ]);
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: provider }, defaultProvider: 'mock',
   agents: [{ id: 'analyst', name: 'Analyst', icon: '📊', description: 'Reads documents', systemPrompt: 'Answer from the documents.', allowedTools: ['read_document'] }],
   defaultAgent: 'analyst',

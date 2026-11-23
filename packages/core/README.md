@@ -263,6 +263,8 @@ const out = await balancesTool.execute({ date: '2026-10-31' }, createToolContext
 
 ```typescript
 new AgentEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // Required
   model:           { provider: 'openai', id: 'gpt-4o' },
   agents,
@@ -333,6 +335,8 @@ Tool approval is independent of the mode: whenever `onToolApproval` is set, the 
 ```typescript
 // Approval — user approves destructive tool calls
 const engine = new AgentEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   onToolApproval: async (toolName, agentId, argsPreview) => {
     console.log(`[${agentId}] → ${toolName}:`, argsPreview);
@@ -347,6 +351,8 @@ const engine = new AgentEngine({
 ```typescript
 // Step-by-step — inspect each iteration
 const engine = new AgentEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   iterationMode: 'step-by-step',
   onStep: async (stats) => {
@@ -372,9 +378,11 @@ await engine.run("What's my name?"); // → "Your name is Alice."
 `createBaseEngine` assembles all internals from a flat options object so you don't have to instantiate registries manually.
 
 ```typescript
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { openai: myOpenAIProvider },
   defaultProvider: 'openai',
   agents:          myAgentList,        // AgentProfile[]
@@ -392,6 +400,8 @@ await engine.run('Hello!');
 
 ```typescript
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { anthropic: myAnthropicProvider },
   defaultProvider: 'anthropic',
   agents:          myAgents,
@@ -423,6 +433,8 @@ history is kept under a **token** budget instead, and old turns are summarized r
 
 ```typescript
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...
   context: {
     maxTokens: 60_000,                                         // budget for the history (not the system prompt)
@@ -457,9 +469,11 @@ Checks on what enters and leaves the agent loop, applied to the main agent **and
 | `output` | the model's answer | the answer is replaced by a notice in the history |
 
 ```typescript
-import { createBaseEngine, secretLeakGuardrail, piiGuardrail, promptInjectionGuardrail } from '@backendkit-labs/agent-core';
+import { createBaseEngine, secretLeakGuardrail, piiGuardrail, promptInjectionGuardrail, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...
   guardrails: [secretLeakGuardrail(), piiGuardrail(), promptInjectionGuardrail()],
   guardrailOutputMode: 'after',   // or 'buffer'
@@ -498,6 +512,8 @@ const fetchPage = defineTool({
 });
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   // ...
   toolTimeoutMs: 60_000,                   // default limit for tools without their own (default: none)
   toolTimeoutGraceMs: 2000,                // wait for a tool to wind down after its signal fires
@@ -559,8 +575,8 @@ Transports receive `AgentEvent` objects and deliver them to consumers.
 Prints events as formatted text — good for CLI tools:
 
 ```typescript
-import { StdoutTransport } from '@backendkit-labs/agent-core';
-const engine = new AgentEngine({ ...opts, transport: new StdoutTransport() });
+import { StdoutTransport, selfAssertedIdentities } from '@backendkit-labs/agent-core';
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, transport: new StdoutTransport() });
 ```
 
 ### CallbackTransport
@@ -598,7 +614,7 @@ const transport = new CallbackTransport((event) => {
 `SessionMemory` stores conversation messages for the current session. `AgentEngine` manages it automatically; use it directly for custom initialization or testing.
 
 ```typescript
-import { SessionMemory } from '@backendkit-labs/agent-core';
+import { SessionMemory, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const memory = new SessionMemory();
 
@@ -606,7 +622,7 @@ const memory = new SessionMemory();
 memory.addMessage({ role: 'user',      content: 'My name is Alice.' });
 memory.addMessage({ role: 'assistant', content: 'Nice to meet you, Alice!' });
 
-const engine = new AgentEngine({ ...opts, sessionMemory: memory });
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, sessionMemory: memory });
 
 await engine.run("What's my name?"); // → "Your name is Alice."
 ```
@@ -645,6 +661,8 @@ Passing `mcpServers` to `createBaseEngine` or `AgentEngine` is the recommended p
 
 ```typescript
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   mcpServers: [
     { name: 'github',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'],   env: { GITHUB_TOKEN: '...' } },
@@ -859,7 +877,7 @@ Beyond session history, agents can use a three-layer persistent memory. Each lay
 ### Creating a full memory system
 
 ```typescript
-import { createMemorySystem } from '@backendkit-labs/agent-core';
+import { createMemorySystem, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const memory = createMemorySystem({
   episodic: {
@@ -886,7 +904,7 @@ const memory = createMemorySystem({
 });
 
 // Pass to engine
-const engine = new AgentEngine({ ...opts, memorySystem: memory });
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, memorySystem: memory });
 ```
 
 ### Using each layer directly
@@ -1002,7 +1020,7 @@ memTools.forEach(t => tools.register(t));
 ### Enable observability on the engine
 
 ```typescript
-import { ObservabilityManager } from '@backendkit-labs/agent-core';
+import { ObservabilityManager, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const obs = new ObservabilityManager({
   costTracking:   true,
@@ -1010,7 +1028,7 @@ const obs = new ObservabilityManager({
   tracing:        true,
 });
 
-const engine = new AgentEngine({ ...opts, observability: obs });
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, observability: obs });
 ```
 
 ### Cost tracking
@@ -1071,9 +1089,11 @@ const tracer = new Tracer({
 Give the engine one or more `AuditSink`s and it records **exactly one `AuditEvent` per tool call**, whether it ran or was refused (not found, not in `allowedTools`, blocked by a guardrail or the sandbox, rejected by the approver), plus one per `ask_agent` delegation. Arguments are recorded only as a SHA-256 of their canonical JSON, never in clear.
 
 ```typescript
-import { createBaseEngine, HashChainAuditSink, NdjsonAuditSink, verifyAuditChain } from '@backendkit-labs/agent-core';
+import { createBaseEngine, HashChainAuditSink, NdjsonAuditSink, verifyAuditChain, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },   // part of every event's principal
   audit: [
@@ -1096,7 +1116,7 @@ An event carries `at`, `principal` (agent, session, delegation chain, tenant, us
 A `ToolPolicy` decides every tool call and every `ask_agent` delegation: `allow`, `deny` or `ask`. It sees the principal (agent, delegation chain, tenant, user, roles) and the call (the tool with its declared facts, the arguments after guardrails). An `ask` goes to the `approver` (a person, another agent, a service), or is stored as pending in `approvals` when nobody answers now.
 
 ```typescript
-import { createBaseEngine, type ToolPolicy, type Approver } from '@backendkit-labs/agent-core';
+import { createBaseEngine, type ToolPolicy, type Approver, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const treasuryRules: ToolPolicy = {
   decide(principal, call) {
@@ -1111,6 +1131,8 @@ const treasuryRules: ToolPolicy = {
 };
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },
   policy: treasuryRules,           // several combine: deny > ask > allow; a throwing policy denies
@@ -1134,10 +1156,10 @@ const engine = createBaseEngine({
 If nobody can answer an `ask` right now, give the engine an `approvals` store. The call is stored as pending, the model is told it did not run, and whoever decides later runs it with `runApproved`.
 
 ```typescript
-import { createBaseEngine, FileApprovalStore, agentApprover, consoleApprover } from '@backendkit-labs/agent-core';
+import { createBaseEngine, FileApprovalStore, agentApprover, consoleApprover, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const approvals = new FileApprovalStore('/var/lib/agent/approvals');
-const engine = createBaseEngine({ ...opts, approvals });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, approvals });
 
 await engine.run('pay the October invoices');          // asks become pending requests
 
@@ -1160,7 +1182,7 @@ createBaseEngine({ ...opts, approver: agentApprover((id, q) => engine.consultAge
 Hooks let a vertical plug into a turn without new engine options. Every hook of one turn shares a `RunContext`: the principal, the input, a `state` map and an abort `signal`.
 
 ```typescript
-import { createBaseEngine, type EngineHooks } from '@backendkit-labs/agent-core';
+import { createBaseEngine, type EngineHooks, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const review: EngineHooks = {
   name: 'review',
@@ -1174,7 +1196,7 @@ const review: EngineHooks = {
   afterRun: (ctx, result) => store.save(ctx.state.get('task'), result.text),
 };
 
-const engine = createBaseEngine({ ...opts, hooks: [review], maxHookContinues: 3 });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, hooks: [review], maxHookContinues: 3 });
 ```
 
 - **Order.** Hooks run in registration order.
@@ -1248,10 +1270,10 @@ createBaseEngine({
 An agent learns from what happens to it. The same failure seen 3 times becomes a **lesson** in its prompt and a **proposed rule** that waits for a person: nothing it learns applies itself.
 
 ```typescript
-import { createLearning } from '@backendkit-labs/agent-core';
+import { createLearning, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const learning = createLearning();     // in memory; pass `store`, `approvals` and `rules` to keep them on disk
-const engine = createBaseEngine({ ...opts, learning });
+const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, learning });
 
 await learning.record({ agentId: 'ap', domain: 'qa', kind: 'wrong_total', situation: 'posting an invoice', action: 'post_invoice' });
 
@@ -1306,6 +1328,8 @@ The engine reads no file by itself. Where its agents, skills and instruction lay
 
 ```typescript
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   agentSources: [{ list: async () => myAgents() }],        // AgentSource: merged with `agents`, a later source wins by id
   skillSources: [{ list: async () => mySkills() }],        // SkillSource: merged with `skills` and `loadSkills`
@@ -1432,7 +1456,7 @@ const checkpoint = await readCheckpoint(summaries[0].id, '/app/.bk-agent/project
 const restoredMemory = new SessionMemory();
 restoredMemory.loadMessages(checkpoint.messages);
 
-const engine = new AgentEngine({ ...opts, sessionMemory: restoredMemory });
+const engine = new AgentEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ...opts, sessionMemory: restoredMemory });
 await engine.run('Continue from where we left off');
 ```
 

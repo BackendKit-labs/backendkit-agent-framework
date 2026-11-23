@@ -38,7 +38,7 @@ npm install @backendkit-labs/agent-enterprise @backendkit-labs/agent-core @backe
 
 ```typescript
 import { createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
-import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { AgentServer } from '@backendkit-labs/agent-web';
 
 // 1. Configure your LLM providers
@@ -47,6 +47,8 @@ providers.register('openai', myOpenAIProvider);
 
 // 2. Create the enterprise setup
 const enterprise = createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   vaultPath:       '/shared/obsidian-vault',
   providers,
   defaultProvider: 'openai',
@@ -177,6 +179,8 @@ VAULT_FOLDERS.POLICIES;    // 'politicas'  (indexed by every department)
 
 ```typescript
 const enterprise = createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   extraProfiles: [
     {
@@ -315,8 +319,11 @@ ollama pull mxbai-embed-large   # higher accuracy
 
 ```typescript
 import { OllamaEmbedder, createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const enterprise = createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   vaultPath: '/vault',
   providers,
   defaultProvider: 'local',
@@ -413,7 +420,7 @@ An on-prem deployment: Ollama embeddings, DeepSeek for general agents, a local m
 
 ```typescript
 import { createEnterpriseSetup, OllamaEmbedder } from '@backendkit-labs/agent-enterprise';
-import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider, OllamaProvider } from '@backendkit-labs/agent-providers';
 import { AgentServer, JwtAuth, TriggerBus, RedisSessionMetaStore } from '@backendkit-labs/agent-web';
 import Redis from 'ioredis';
@@ -423,6 +430,8 @@ providers.register('deepseek', new DeepSeekProvider({ apiKey: process.env.DEEPSE
 providers.register('local', new OllamaProvider({ host: 'http://ollama.internal:11434', model: 'llama3.2' }));   // sensitive data stays on-prem
 
 const enterprise = createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   vaultPath:       process.env.VAULT_PATH!,
   providers,
   defaultProvider: 'deepseek',

@@ -39,7 +39,7 @@ npm install -D @backendkit-labs/agent-testkit typescript tsx
 ```
 
 ```ts
-import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { OpenAICompatibleProvider } from '@backendkit-labs/agent-providers';
 import { startMockLlmServer, mockTransport, type MockBehavior } from '@backendkit-labs/agent-testkit';
 
@@ -62,6 +62,8 @@ async function run(label: string, script: MockBehavior[]) {
   });
   const transport = mockTransport();
   const engine = createBaseEngine({
+    agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+    identity: { userId: 'me' },                // on whose behalf it acts
     providers: { main: provider }, defaultProvider: 'main',
     agents: [support], defaultAgent: 'support', tools: [orderStatus],
     transport: transport.transport, workingDir: process.cwd(), iterationMode: 'auto',
@@ -115,6 +117,8 @@ A run that ended in an error is still a **returned result**, not an exception: l
 
 ```ts
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: {
     fast: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }),
     local: new OllamaProvider({ model: 'llama3.1' }),          // for the agents that must not leave the machine

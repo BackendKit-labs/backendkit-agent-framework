@@ -592,9 +592,11 @@ const tools = mcp.getTools();    // mcp__hubspot__*, mcp__jira__*, mcp__gcal__*
 Pass `mcpServers` to `createBaseEngine` or `createCodingEngine` — the engine manages lifecycle, retries, and disconnect detection:
 
 ```typescript
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   ...baseConfig,
   mcpServers: [
     {
@@ -657,8 +659,11 @@ Full example — an agent that can manage CRM contacts, Jira issues, and calenda
 
 ```typescript
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: {
     deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! },
   },

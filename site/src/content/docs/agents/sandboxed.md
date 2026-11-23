@@ -53,7 +53,7 @@ if (!out.ok) {
 ## In an engine
 
 ```ts
-createBaseEngine({ /* ... */ sandbox });                        // every run_command goes through it
+createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ sandbox });                        // every run_command goes through it
 createCodingEngine({ /* ... */ sandbox: { preset: 'ask' } });   // the coding agents
 ```
 
@@ -62,7 +62,7 @@ createCodingEngine({ /* ... */ sandbox: { preset: 'ask' } });   // the coding ag
 A sandbox with a person who answers, in an engine. A command that needs approval and has nobody to ask is refused, never run:
 
 ```ts
-import { createBaseEngine, StdoutTransport, consoleApprover } from '@backendkit-labs/agent-core';
+import { createBaseEngine, StdoutTransport, consoleApprover, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createSandboxPolicy, createSandboxService, DockerBackend, NoneBackend } from '@backendkit-labs/agent-sandbox';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 
@@ -72,6 +72,8 @@ const sandbox = createSandboxService({
 });
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { main: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }) },
   defaultProvider: 'main',
   agents: [/* an agent that can run_command */],

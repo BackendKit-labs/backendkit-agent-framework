@@ -36,8 +36,11 @@ All provider adapters are bundled — no separate packages needed.
 
 ```typescript
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! } },
   defaultProvider: 'deepseek',
 });
@@ -96,6 +99,8 @@ interface CodingEngineOptions {
 
 ```typescript
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { deepseek: { apiKey: 'sk-...' } },
   defaultProvider: 'deepseek',
 });
@@ -105,6 +110,8 @@ const engine = createCodingEngine({
 
 ```typescript
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: {
     deepseek:  { apiKey: process.env.DEEPSEEK_API_KEY! },
     anthropic: { apiKey: process.env.ANTHROPIC_API_KEY!, model: 'claude-opus-4-8' },
@@ -119,6 +126,8 @@ const engine = createCodingEngine({
 
 ```typescript
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { deepseek: { apiKey: '...' } },
   defaultProvider: 'deepseek',
   orchestration:   true,
@@ -132,6 +141,8 @@ const engine = createCodingEngine({
 
 ```typescript
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { openai: { apiKey: '...' } },
   defaultProvider: 'openai',
   mcpServers: [
@@ -146,6 +157,8 @@ const engine = createCodingEngine({
 
 ```typescript
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers:       { deepseek: { apiKey: '...' } },
   defaultProvider: 'deepseek',
   onToolApproval:  async (toolName, agentId, argsPreview) => {
@@ -393,9 +406,10 @@ With `orchestration` on, the project learns from its audit gates and from tool c
 
 ```typescript
 import { createCodingLearning } from '@backendkit-labs/agent-coding/pipeline';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const learning = createCodingLearning({ appName: 'my-app', projectRoot: process.cwd() });
-createCodingEngine({ ..., orchestration: { learning } });      // or leave it out: a default instance is created
+createCodingEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ..., orchestration: { learning } });      // or leave it out: a default instance is created
 
 for (const p of await learning.proposals()) console.log(p.id, p.reason, p.subject);
 await learning.approve(id, { kind: 'human', id: 'ana' });      // or learning.reject(id, ...)

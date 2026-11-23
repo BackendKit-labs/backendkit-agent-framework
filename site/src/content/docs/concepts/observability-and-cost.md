@@ -11,6 +11,8 @@ The cost tracker prices each model call from its token usage. With a **budget** 
 
 ```ts
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   observability: {
     costTracker: {

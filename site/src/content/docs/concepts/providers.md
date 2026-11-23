@@ -22,6 +22,8 @@ The engine takes providers by name, and each agent can choose one (and a model):
 
 ```ts
 createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { fast: cheapProvider, smart: strongProvider },
   defaultProvider: 'fast',
   agents: [
@@ -59,7 +61,7 @@ const provider = new OpenAICompatibleProvider({
 A provider is one method, `chat`. It streams text with `onChunk`, reports usage with `onMetrics` (cost tracking reads it) and ends with exactly one `onDone` or one `onError`. This one repeats what you say; it runs as it is:
 
 ```ts
-import { createBaseEngine, type AgentProfile, type LLMProvider } from '@backendkit-labs/agent-core';
+import { createBaseEngine, type AgentProfile, type LLMProvider, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { mockTransport } from '@backendkit-labs/agent-testkit';
 
 const echo: LLMProvider = {
@@ -74,6 +76,8 @@ const echo: LLMProvider = {
 
 const agent: AgentProfile = { id: 'echo', name: 'Echo', icon: '🔁', description: 'Repeats', systemPrompt: 'Repeat.', allowedTools: [] };
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { echo }, defaultProvider: 'echo', agents: [agent], defaultAgent: 'echo', tools: [],
   transport: mockTransport().transport, workingDir: process.cwd(), iterationMode: 'auto',
 });

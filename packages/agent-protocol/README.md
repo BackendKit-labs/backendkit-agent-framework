@@ -98,6 +98,7 @@ import { AgentServer, ControlError } from '@backendkit-labs/agent-protocol';
 
 const server = new AgentServer({
   ...opts,
+  gate,                                            // required: who runs capabilities and for whom (see above)
   controlApiKey: process.env.AGENT_CONTROL_KEY,   // without it the control endpoints answer FORBIDDEN
   limits: { maxConcurrent: 4, budgetUsdPerDay: 20 },
   control: {
@@ -123,6 +124,7 @@ import { createApprovalHandler, MemoryApprovalStore } from '@backendkit-labs/age
 const store = new MemoryApprovalStore();            // or FileApprovalStore
 const server = new AgentServer({
   ...opts,
+  gate,                                            // required: who runs capabilities and for whom (see above)
   controlApiKey: process.env.AGENT_CONTROL_KEY,
   flowHandler,                                       // see createFlowHandler in agent-core
   approvalHandler: createApprovalHandler(store, {

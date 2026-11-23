@@ -16,11 +16,13 @@ In a scaffolded project, `npx create-bk-agent add testing` does this and adds an
 `scriptedProvider(turns)` is a model that answers from a script: text, or tool calls. The engine believes it is talking to a real one.
 
 ```ts
-import { createBaseEngine, defineTool, z } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
 const t = mockTransport();
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'c1', name: 'get_weather', args: { city: 'London' } }] },
     { content: 'It is sunny in London.' },
@@ -75,6 +77,7 @@ When "the agent works" has to be a number, write the checks as **data** and run 
 
 ```ts
 import { evalSuite, compare, formatReport, toolCalled, toolNotCalled, noToolErrors, textMatches } from '@backendkit-labs/agent-testkit';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const cases = [
   { id: 'places an order', input: 'buy 10 AAPL', expect: [toolCalled('place_order', { with: a => (a.sizePct as number) <= 15 }), noToolErrors()] },
@@ -83,7 +86,7 @@ const cases = [
 
 const report = await evalSuite({
   name: 'prompt v2', cases, repeat: 5, seed: 1,
-  build: (c, run) => createBaseEngine({ /* your agent */ recordArgs: true /* only if a grader reads arguments */ }),
+  build: (c, run) => createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* your agent */ recordArgs: true /* only if a grader reads arguments */ }),
 });
 console.log(formatReport(report));                 // for a person; the report itself is JSON
 const diff = compare(reportV1, report);            // per case and in total, with the number of runs each rate rests on

@@ -15,7 +15,7 @@ npm install -D @backendkit-labs/agent-testkit typescript
 ```
 
 ```ts
-import { createBaseEngine, defineTool, z, type AgentProfile } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, type AgentProfile, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
 // 1. A tool: what the agent can do. It only looks something up, so it is declared read-only.
@@ -39,6 +39,8 @@ const support: AgentProfile = {
 
 // 3. An engine. The scripted model plays one conversation, so this runs offline.
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: {
     mock: scriptedProvider([
       { tool_calls: [{ id: 'c1', name: 'order_status', args: { orderId: 'A-1001' } }] },
@@ -71,10 +73,10 @@ Run it with Node 24 (`node assistant.ts`) or `npx tsx assistant.ts`. What the mo
 Change only the provider and the transport. Everything else stays:
 
 ```ts
-import { StdoutTransport } from '@backendkit-labs/agent-core';
+import { StdoutTransport, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 
-// in createBaseEngine({ ... })
+// in createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, ... })
 providers: { main: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }) },
 defaultProvider: 'main',
 transport: new StdoutTransport(),

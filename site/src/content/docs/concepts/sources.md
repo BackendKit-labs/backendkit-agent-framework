@@ -21,7 +21,7 @@ npm install -D @backendkit-labs/agent-testkit typescript tsx
 ```
 
 ```ts
-import { createBaseEngine, type AgentSource, type SkillSource, type InstructionSource } from '@backendkit-labs/agent-core';
+import { createBaseEngine, type AgentSource, type SkillSource, type InstructionSource, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
 // Where these come from is up to you: a database, a folder, an HTTP call.
@@ -52,6 +52,8 @@ const instructions: InstructionSource = {
 
 const provider = scriptedProvider([{ content: 'hola' }]);
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: provider },
   defaultProvider: 'mock',
   agents: [],                         // none in code: the source supplies them

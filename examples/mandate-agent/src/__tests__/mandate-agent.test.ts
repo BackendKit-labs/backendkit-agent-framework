@@ -1,13 +1,13 @@
 /**
  * The purchasing agent under a mandate, end to end: the real engine, the real policy and the real verifier of `agent-mandates`; only
- * the model (a script) and DALION (a stand-in issuing an ASSUMED format) are simulated.
+ * the model (a script) and eIDAS 2 (a stand-in issuing an ASSUMED format) are simulated.
  *
  * The credential speaks the language of the domain: FOR WHOM the agent works, WHAT it may do (buy), ON WHAT (a television) and up to
  * HOW MUCH (1000 EUR). It never names a tool: which tool of the agent performs "buy" is the operator's configuration.
  *
  * What is proved: inside the mandate the agent acts alone and the audit names the mandate; outside it, a person decides; with no valid
  * mandate, nothing happens and nobody is even asked; and every way a credential can be wrong, forged, stale, revoked or for somebody
- * else is refused. These tests are also the contract a REAL DALION adapter has to keep passing.
+ * else is refused. These tests are also the contract a REAL eIDAS 2 adapter has to keep passing.
  */
 import { createHmac, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,18 +18,18 @@ import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit'
 import { signJws } from '@backendkit-labs/agent-mandates';
 import { buildBuyerAgent, objectOf } from '../agent';
 import { identityLayer } from '../identity/prototype';
-import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
-import { DALION_ASSUMED_VCT, dalionMandateVerifier, type DalionPower } from '../providers/dalion-assumed';
+import { AGENT_EIDAS2_IDENTITY, Eidas2Sim } from '../providers/eidas2-sim';
+import { EIDAS2_ASSUMED_VCT, eidas2MandateVerifier, type Eidas2Power } from '../providers/eidas2-assumed';
 import type { KeyObject } from 'node:crypto';
 
 const nowS = () => Math.floor(Date.now() / 1000);
 const buyCall = (amount: number, item = 'television', currency = 'EUR', id = 'c1') => ({ tool_calls: [{ id, name: 'buy_supplies', args: { item, amount, currency } }] });
-const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
+const TV_1000: Eidas2Power = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
 
 describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR', () => {
     let dir: string;
-    let dalion: DalionSim;
-    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); dalion = new DalionSim(); dalion.registerAgent('buyer', AGENT_DALION_IDENTITY); dalion.registerHuman('carlos'); });
+    let eidas2: Eidas2Sim;
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); eidas2 = new Eidas2Sim(); eidas2.registerAgent('buyer', AGENT_EIDAS2_IDENTITY); eidas2.registerHuman('carlos'); });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const human = (decision: 'approve' | 'reject'): Approver => ({
@@ -37,7 +37,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         request: async () => ({ decision, by: { kind: 'human', id: 'finance-lead' }, reason: `test: ${decision}`, at: new Date().toISOString() }),
     });
 
-    /** What a test may vary: who approves, the verb the tool declares, and the DALION wiring of this deployment. */
+    /** What a test may vary: who approves, the verb the tool declares, and the eIDAS 2 wiring of this deployment. */
     interface Extra {
         approver?: Approver;
         buyVerb?: string | null;
@@ -45,29 +45,29 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         isRevoked?: (s: { credentialId: string; statusId: string | undefined }) => boolean | Promise<boolean>;
     }
 
-    /** The operator's wiring: the DALION adapter, built from this deployment's trusted issuers and revocation source. */
-    function dalionVerifier(credential: () => string | undefined, extra: Extra): MandateVerifier {
-        return dalionMandateVerifier({
-            trustedIssuers: extra.trustedIssuers ?? { [dalion.issuer]: dalion.publicKey },
+    /** The operator's wiring: the eIDAS 2 adapter, built from this deployment's trusted issuers and revocation source. */
+    function eidas2Verifier(credential: () => string | undefined, extra: Extra): MandateVerifier {
+        return eidas2MandateVerifier({
+            trustedIssuers: extra.trustedIssuers ?? { [eidas2.issuer]: eidas2.publicKey },
             credentialFor: () => credential(),
             objectOf,
-            humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid),
-            isRevoked: extra.isRevoked ?? dalion.isRevoked,
+            humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => eidas2.humanPublicKey(id, kid),
+            isRevoked: extra.isRevoked ?? eidas2.isRevoked,
         });
     }
 
     function setup(credential: () => string | undefined, extra: Extra = {}, script: unknown[] = [buyCall(800), { content: 'done' }]) {
         return buildBuyerAgent({
             provider: scriptedProvider(script as never), transport: mockTransport().transport, userId: 'carlos',
-            verifier: dalionVerifier(credential, extra),
-            agentIdentity: identityLayer({ provider: dalion.identityProvider(), require: true }),
+            verifier: eidas2Verifier(credential, extra),
+            agentIdentity: identityLayer({ provider: eidas2.identityProvider(), require: true }),
             ...(extra.approver ? { approver: extra.approver } : {}),
             ...(extra.buyVerb !== undefined ? { buyVerb: extra.buyVerb } : {}),
             auditLogPath: join(dir, 'audit.ndjson'), checkpointsPath: join(dir, 'checkpoints.ndjson'),
         });
     }
-    const power = (over: Record<string, unknown> = {}) => dalion.issue({
-        agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,
+    const power = (over: Record<string, unknown> = {}) => eidas2.issue({
+        agent: AGENT_EIDAS2_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,
     });
     const auditEntries = () => readFileSync(join(dir, 'audit.ndjson'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as Record<string, any>);
     const eventOf = (tool: string) => auditEntries().map(e => e.event ?? e).find(e => e.tool === tool);
@@ -82,7 +82,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
             expect(a.approvals).toHaveLength(0);
             const ev = eventOf('buy_supplies');
             expect(ev.decision).toBe('allow');
-            expect(ev.mandate).toMatchObject({ id: 'cred-42', issuer: dalion.issuer, subject: 'carlos' });
+            expect(ev.mandate).toMatchObject({ id: 'cred-42', issuer: eidas2.issuer, subject: 'carlos' });
             expect(ev.mandate.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
             expect(JSON.stringify(auditEntries())).not.toContain(cred); // the credential itself never reaches the log
         });
@@ -252,14 +252,14 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
 
         it('no credential', async () => { await denied(() => undefined, /holds no power/); });
         it('a credential signed by somebody else', async () => {
-            const forged = dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000] }, generateKeyPairSync('ed25519').privateKey);
+            const forged = eidas2.issue({ agent: AGENT_EIDAS2_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000] }, generateKeyPairSync('ed25519').privateKey);
             await denied(() => forged, /signature does not verify/);
         });
-        it('an issuer that is not trusted', async () => { await denied(() => power(), /is not one you trust/, { trustedIssuers: { 'did:dalion:issuer:other': dalion.publicKey } }); });
+        it('an issuer that is not trusted', async () => { await denied(() => power(), /is not one you trust/, { trustedIssuers: { 'did:eidas2:issuer:other': eidas2.publicKey } }); });
         it('an expired credential', async () => { await denied(() => power({ notBefore: nowS() - 7200, expiresAt: nowS() - 3600 }), /has expired/); });
         it('a credential that is not valid yet', async () => { await denied(() => power({ notBefore: nowS() + 3600, expiresAt: nowS() + 7200 }), /not valid yet/); });
         it('a credential with no expiry', async () => { await denied(() => power({ payload: { exp: undefined } }), /no expiry/); });
-        it('a credential issued to another agent identity', async () => { await denied(() => power({ agent: 'did:dalion:agent:somebody-else' }), /another agent identity/); });
+        it('a credential issued to another agent identity', async () => { await denied(() => power({ agent: 'did:eidas2:agent:somebody-else' }), /another agent identity/); });
         it('a credential that grants no powers', async () => { await denied(() => power({ powers: [] }), /grants no powers/); });
         it('a wildcard action', async () => { await denied(() => power({ powers: [{ action: '*', max: { value: 1_000_000, currency: 'EUR' } }] }), /wildcard/); });
         it('a wildcard object', async () => { await denied(() => power({ powers: [{ action: 'buy', object: '*', max: { value: 1_000_000, currency: 'EUR' } }] }), /wildcard object/); });
@@ -270,7 +270,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         it('a limit that is not a number', async () => { await denied(() => power({ powers: [{ action: 'buy', object: 'television', max: { value: 'lots', currency: 'EUR' } }] }), /limit of "buy" is not valid/); });
         it('an object that is not a string', async () => { await denied(() => power({ powers: [{ action: 'buy', object: 42, max: { value: 1000, currency: 'EUR' } }] }), /object of "buy" is not valid/); });
         it('a credential of ANOTHER person is no power at all: denied, and nobody is asked (it is not "out of scope")', async () => {
-            dalion.registerHuman('ana');
+            eidas2.registerHuman('ana');
             await denied(() => power({ represents: 'ana' }), /empowers another person than the one the agent acts for/);
         });
         it('a credential that does not say for whom the agent works', async () => { await denied(() => power({ payload: { represents: {} } }), /does not say who the agent works for/); });
@@ -296,10 +296,10 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         });
 
         it('an HMAC token signed with the issuer\'s PUBLIC key as the secret (algorithm confusion)', async () => {
-            const pem = dalion.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+            const pem = eidas2.publicKey.export({ type: 'spki', format: 'pem' }).toString();
             const h = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'dc+sd-jwt' })).toString('base64url');
             const p = Buffer.from(JSON.stringify({
-                iss: dalion.issuer, sub: AGENT_DALION_IDENTITY, jti: 'x', exp: nowS() + 3600, vct: DALION_ASSUMED_VCT,
+                iss: eidas2.issuer, sub: AGENT_EIDAS2_IDENTITY, jti: 'x', exp: nowS() + 3600, vct: EIDAS2_ASSUMED_VCT,
                 represents: { id: 'carlos' }, powers: [TV_1000],
             })).toString('base64url');
             const sig = createHmac('sha256', pem).update(`${h}.${p}`).digest('base64url');
@@ -312,7 +312,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         });
         it('a credential revoked at the issuer', async () => {
             const cred = power({ id: 'cred-gone' });
-            dalion.revoke('cred-gone');
+            eidas2.revoke('cred-gone');
             await denied(() => cred, /revoked/);
         });
     });
@@ -323,7 +323,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
             const a = setup(() => cred, {}, [buyCall(100, 'television', 'EUR', 'c1'), buyCall(100, 'television', 'EUR', 'c2'), { content: 'done' }]);
             let revoked = false;
             const original = a.purchases.push.bind(a.purchases);
-            a.purchases.push = (...items) => { const n = original(...items); if (!revoked) { revoked = true; dalion.revoke('cred-rev'); } return n; };
+            a.purchases.push = (...items) => { const n = original(...items); if (!revoked) { revoked = true; eidas2.revoke('cred-rev'); } return n; };
             await a.engine.run('buy twice');
             expect(a.purchases).toHaveLength(1);
         });
@@ -349,7 +349,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
     it('a mandate forged in the token body does not help without the issuer\'s key', async () => {
         const stranger = generateKeyPairSync('ed25519');
         const forged = signJws(stranger.privateKey, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, {
-            iss: dalion.issuer, sub: AGENT_DALION_IDENTITY, jti: 'forged', exp: nowS() + 3600, vct: DALION_ASSUMED_VCT,
+            iss: eidas2.issuer, sub: AGENT_EIDAS2_IDENTITY, jti: 'forged', exp: nowS() + 3600, vct: EIDAS2_ASSUMED_VCT,
             represents: { id: 'carlos' }, powers: [{ action: 'buy', max: { value: 1_000_000, currency: 'EUR' } }],
         });
         const a = setup(() => forged, { approver: human('approve') });

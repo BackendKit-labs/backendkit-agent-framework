@@ -4,7 +4,7 @@
  * The human is not a string the application declares and the credential repeats. Here they are an identifier of the identity provider, mapped
  * from the application's own user id, structured (a person or a legal entity, with an assurance level), and they CONSENT: the person's own
  * signature covers what the agent may do for them, so the issuer cannot grant powers nobody granted, nor widen them afterwards.
- * (The consent mechanism is ASSUMED, like the rest of the DALION format.)
+ * (The consent mechanism is ASSUMED, like the rest of the eIDAS 2 format.)
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,26 +12,26 @@ import { join } from 'node:path';
 import type { Approver, MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
-import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
-import { dalionMandateVerifier, type DalionAdapterOptions, type DalionPower } from '../providers/dalion-assumed';
+import { AGENT_EIDAS2_IDENTITY, Eidas2Sim } from '../providers/eidas2-sim';
+import { eidas2MandateVerifier, type Eidas2AdapterOptions, type Eidas2Power } from '../providers/eidas2-assumed';
 import { identityLayer, type IdentityAuditEvent } from '../identity/prototype';
 
 const nowS = () => Math.floor(Date.now() / 1000);
-const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
-const CARLOS = 'did:dalion:person:carlos';
-const ANA = 'did:dalion:person:ana';
-/** The application's ids are not DALION's: this is the operator's mapping. */
+const TV_1000: Eidas2Power = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
+const CARLOS = 'did:eidas2:person:carlos';
+const ANA = 'did:eidas2:person:ana';
+/** The application's ids are not eIDAS 2's: this is the operator's mapping. */
 const HUMANS: Record<string, string> = { 'u-1001': CARLOS, 'u-1002': ANA };
 
 describe('for whom the agent works: the human of the credential', () => {
     let dir: string;
-    let dalion: DalionSim;
+    let eidas2: Eidas2Sim;
     beforeEach(() => {
         dir = mkdtempSync(join(tmpdir(), 'human-'));
-        dalion = new DalionSim();
-        dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY);
-        dalion.registerHuman(CARLOS);
-        dalion.registerHuman(ANA);
+        eidas2 = new Eidas2Sim();
+        eidas2.registerAgent(AGENT_ID, AGENT_EIDAS2_IDENTITY);
+        eidas2.registerHuman(CARLOS);
+        eidas2.registerHuman(ANA);
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -40,12 +40,12 @@ describe('for whom the agent works: the human of the credential', () => {
     const buyEvent = () => events().find(e => e.tool === 'buy_supplies')!;
     const mandateOf = (e: IdentityAuditEvent) => e.mandate as unknown as Record<string, unknown>;
 
-    const credential = (over: Record<string, unknown> = {}) => dalion.issue({
-        agent: AGENT_DALION_IDENTITY, represents: CARLOS, assurance: 'high', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,
+    const credential = (over: Record<string, unknown> = {}) => eidas2.issue({
+        agent: AGENT_EIDAS2_IDENTITY, represents: CARLOS, assurance: 'high', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,
     });
-    const verifier = (cred: () => string | undefined, extra: Partial<DalionAdapterOptions> = {}): MandateVerifier => dalionMandateVerifier({
-        trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => cred(), objectOf,
-        humanIdOf: (userId) => HUMANS[userId], humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid), ...extra,
+    const verifier = (cred: () => string | undefined, extra: Partial<Eidas2AdapterOptions> = {}): MandateVerifier => eidas2MandateVerifier({
+        trustedIssuers: { [eidas2.issuer]: eidas2.publicKey }, credentialFor: () => cred(), objectOf,
+        humanIdOf: (userId) => HUMANS[userId], humanKeyOf: (id, kid) => eidas2.humanPublicKey(id, kid), ...extra,
     });
     const asker = (): Approver & { asked: number } => {
         const a = { asked: 0, ref: { kind: 'human' as const, id: 'lead' }, request: async () => { a.asked++; return { decision: 'approve' as const, by: { kind: 'human' as const, id: 'lead' }, at: new Date().toISOString() }; } };
@@ -56,7 +56,7 @@ describe('for whom the agent works: the human of the credential', () => {
         return buildBuyerAgent({
             provider: scriptedProvider([{ tool_calls: [{ id: 'c', name: 'buy_supplies', args: { item: 'television', amount: 500, currency: 'EUR' } }] }, { content: 'done' }] as never),
             transport: mockTransport().transport, userId, verifier: v, ...(approver ? { approver } : {}),
-            agentIdentity: identityLayer({ provider: dalion.identityProvider(), require: true }),
+            agentIdentity: identityLayer({ provider: eidas2.identityProvider(), require: true }),
             auditLogPath: log(), checkpointsPath: join(dir, 'cp.ndjson'),
         });
     }
@@ -72,7 +72,7 @@ describe('for whom the agent works: the human of the credential', () => {
     };
 
     describe('the application\'s person and the provider\'s person are mapped', () => {
-        it('the application says "u-1001"; the credential represents did:dalion:person:carlos; the operator maps one to the other', async () => {
+        it('the application says "u-1001"; the credential represents did:eidas2:person:carlos; the operator maps one to the other', async () => {
             const a = agent(verifier(() => credential()));
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(1);
@@ -91,7 +91,7 @@ describe('for whom the agent works: the human of the credential', () => {
 
         it('...and the adapter ALONE refuses it too, so it does not depend on the engine having checked', async () => {
             const request = {
-                principal: { agentId: AGENT_ID, sessionId: 's', chain: [AGENT_ID], agentIdentity: { id: AGENT_DALION_IDENTITY } },
+                principal: { agentId: AGENT_ID, sessionId: 's', chain: [AGENT_ID], agentIdentity: { id: AGENT_EIDAS2_IDENTITY } },
                 call: { tool: { name: 'buy_supplies', meta: { capability: 'buy' } }, args: { item: 'television', amount: 500, currency: 'EUR' } },
             };
             const verdict = await verifier(() => credential()).verify(request as never);
@@ -128,18 +128,18 @@ describe('for whom the agent works: the human of the credential', () => {
         });
 
         it('THE ISSUER CANNOT WIDEN WHAT THE PERSON AGREED TO: same credential, limit raised, re-signed by the issuer', async () => {
-            const widened = dalion.reissueWith(credential(), p => { (p.powers as DalionPower[])[0]!.max!.value = 50_000; });
+            const widened = eidas2.reissueWith(credential(), p => { (p.powers as Eidas2Power[])[0]!.max!.value = 50_000; });
             await refused(verifier(() => widened), /person did not consent to these powers/);
         });
 
         it('...nor add a power the person never granted', async () => {
-            const extra = dalion.reissueWith(credential(), p => { (p.powers as DalionPower[]).push({ action: 'sign' }); });
+            const extra = eidas2.reissueWith(credential(), p => { (p.powers as Eidas2Power[]).push({ action: 'sign' }); });
             await refused(verifier(() => extra), /person did not consent to these powers/);
         });
 
         it('...nor hand the same consent to another agent', async () => {
-            dalion.registerAgent('thief', 'did:dalion:agent:thief-01');
-            const moved = dalion.reissueWith(credential(), p => { p.sub = 'did:dalion:agent:thief-01'; });
+            eidas2.registerAgent('thief', 'did:eidas2:agent:thief-01');
+            const moved = eidas2.reissueWith(credential(), p => { p.sub = 'did:eidas2:agent:thief-01'; });
             // the credential now names the thief; the engine's agent (buyer) is refused for the identity mismatch first, which is the point
             await refused(verifier(() => moved), /another agent identity/);
         });
@@ -147,10 +147,10 @@ describe('for whom the agent works: the human of the credential', () => {
 
     describe('who the human is: a person or a legal entity, and how well they were identified', () => {
         it('a legal entity can be represented, and the audit says so', async () => {
-            const COMPANY = 'did:dalion:org:acme-sl';
-            dalion.registerHuman(COMPANY);
+            const COMPANY = 'did:eidas2:org:acme-sl';
+            eidas2.registerHuman(COMPANY);
             const humans: Record<string, string> = { ...HUMANS, 'u-1001': COMPANY };
-            const a = agent(verifier(() => dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: COMPANY, kind: 'legal-entity', assurance: 'substantial', expiresAt: nowS() + 3600, powers: [TV_1000] }), { humanIdOf: (u) => humans[u] }));
+            const a = agent(verifier(() => eidas2.issue({ agent: AGENT_EIDAS2_IDENTITY, represents: COMPANY, kind: 'legal-entity', assurance: 'substantial', expiresAt: nowS() + 3600, powers: [TV_1000] }), { humanIdOf: (u) => humans[u] }));
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(1);
             expect(mandateOf(buyEvent()).represents).toMatchObject({ id: COMPANY, kind: 'legal-entity', assurance: 'substantial' });

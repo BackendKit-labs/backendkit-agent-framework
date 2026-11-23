@@ -1,7 +1,7 @@
 /**
  * Several identity providers behind ONE `MandateVerifier`. The framework is not tied to a provider: an agent holds a credential issued by
  * whoever its operator chose, and the engine only ever sees a verifier. When an operator works with more than one provider (a company
- * identity system for some agents, a wallet for others, DALION for a third group), this picks which provider's verifier reads a credential.
+ * identity system for some agents, a wallet for others, eIDAS 2 for a third group), this picks which provider's verifier reads a credential.
  *
  * It routes on the `iss` of the credential, READ WITHOUT VERIFYING. That is safe because it only chooses who judges the credential: the
  * chosen verifier checks the signature against the keys IT trusts for that issuer, and a credential that claims an issuer whose key it was

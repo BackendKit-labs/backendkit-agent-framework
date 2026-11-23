@@ -242,6 +242,13 @@ export interface AuditMandate {
     issuer: string;
     /** On whose behalf the agent acted. */
     subject: string;
+    /** The digital identity of the agent the mandate was bound to, as the credential says (SPEC-0044 F3). Absent: the mandate named no agent identity. */
+    agentIdentity?: string;
+    /**
+     * Did the agent prove it holds the key the credential is tied to? `proven`: yes, at this call. `none`: the credential is a bearer one (whoever holds
+     * the string can use it), so the audit does not pretend a possession was shown.
+     */
+    holderBinding?: 'proven' | 'none';
     validUntil?: string;
     /** SHA-256 of the credential the mandate came from: a third party who holds the credential can compare. */
     evidenceHash?: string;

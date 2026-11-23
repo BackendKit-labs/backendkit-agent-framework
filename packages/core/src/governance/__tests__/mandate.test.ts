@@ -137,3 +137,49 @@ describe('in the engine', () => {
         expect(ev.mandate).toBeUndefined();
     });
 });
+
+describe('a mandate bound to the identity of the agent (SPEC-0044 F3)', () => {
+    const withId = (id?: string): Principal => ({ ...principal, ...(id ? { agentIdentity: { id } } : {}) });
+    const args = { amount: 5, currency: 'EUR' };
+
+    it('covers the agent whose identity it names and refuses another one, or an agent with none', () => {
+        const m = mandate({ agentIdentity: 'did:ex:buyer' });
+        expect(mandateCovers(m, withId('did:ex:buyer'), call(args), { amountOf, now: () => now })).toEqual({ ok: true });
+        expect(mandateCovers(m, withId('did:ex:other'), call(args), { amountOf, now: () => now })).toMatchObject({ ok: false, reason: expect.stringContaining('another agent identity') });
+        expect(mandateCovers(m, withId(), call(args), { amountOf, now: () => now })).toMatchObject({ ok: false, reason: expect.stringContaining('has none') });
+    });
+    it('a mandate that names no identity does not look at it', () => {
+        expect(mandateCovers(mandate(), withId('did:ex:anything'), call(args), { amountOf, now: () => now })).toEqual({ ok: true });
+    });
+    it('the audit says which identity and whether possession was proven; a bearer credential is marked none', () => {
+        expect(auditMandate(mandate({ agentIdentity: 'did:ex:buyer', holderBinding: 'proven' }))).toMatchObject({ agentIdentity: 'did:ex:buyer', holderBinding: 'proven' });
+        expect(auditMandate(mandate())).toMatchObject({ holderBinding: 'none' });
+        expect(auditMandate(mandate())).not.toHaveProperty('agentIdentity');
+    });
+
+    describe('proof of possession and the policy', () => {
+        const seen: Array<{ hasProve: boolean }> = [];
+        const spying = (m: Mandate): MandateVerifier => ({ verify: async (req) => { seen.push({ hasProve: typeof req.prove === 'function' }); return { ok: true, mandate: m }; } });
+        beforeEach(() => { seen.length = 0; });
+
+        it('hands the verifier a prove function that signs with the provider, only with an identity and a provider that can sign', async () => {
+            const sign = jest.fn(async () => ({ kid: 'k', signature: 'sig' }));
+            const p = mandatePolicy({ verifier: spying(mandate()), amountOf, now: () => now, agentIdentity: { sign } });
+            await p.decide(withId('did:ex:buyer'), call(args));
+            await p.decide(withId(), call(args));
+            await mandatePolicy({ verifier: spying(mandate()), amountOf, now: () => now }).decide(withId('did:ex:buyer'), call(args));
+            expect(seen.map(s => s.hasProve)).toEqual([true, false, false]);
+            // and it signs for THIS agent
+            const proveReq = [] as Array<NonNullable<Parameters<MandateVerifier['verify']>[0]['prove']>>;
+            await mandatePolicy({ verifier: { verify: async r => { proveReq.push(r.prove!); return { ok: true, mandate: mandate() }; } }, amountOf, now: () => now, agentIdentity: { sign } }).decide(withId('did:ex:buyer'), call(args));
+            await expect(proveReq[0]!(Buffer.from('c'))).resolves.toEqual({ kid: 'k', signature: 'sig' });
+            expect(sign).toHaveBeenCalledWith('buyer', expect.any(Buffer), expect.objectContaining({ sessionId: 's', userId: 'carlos' }));
+        });
+        it('requireHolderBinding refuses a bearer credential and accepts a proven one; by default both pass and the audit tells', async () => {
+            const bearer = policy(mandate(), { requireHolderBinding: true });
+            expect(await bearer.decide(principal, call(args))).toMatchObject({ effect: 'deny', reason: expect.stringContaining('proof of possession') });
+            expect(await policy(mandate({ holderBinding: 'proven' }), { requireHolderBinding: true }).decide(principal, call(args))).toMatchObject({ effect: 'allow', mandate: { holderBinding: 'proven' } });
+            expect(await policy(mandate()).decide(principal, call(args))).toMatchObject({ effect: 'allow', mandate: { holderBinding: 'none' } });
+        });
+    });
+});

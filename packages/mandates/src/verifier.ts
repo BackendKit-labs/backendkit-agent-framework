@@ -1,15 +1,22 @@
 /**
  * The default verifier of mandates (SPEC-0043 F2): a signed credential in the shape of an SD-JWT VC (a JWT with `iss`, `sub`, `jti`,
  * `nbf`, `exp` and `vct`) that carries the mandate in a `mandate` claim. It is a REFERENCE: it fixes a neutral profile so that
- * agents can work under mandates now. The credential of a specific provider (DALION or any eIDAS 2 wallet) is an adapter that
+ * agents can work under mandates now. The credential of a specific provider (an eIDAS 2-compatible system or any wallet) is an adapter that
  * turns its own format into the same {@link Mandate}; see the README.
  *
  * What it checks, and fails closed on each: a compact JWS with an algorithm of its list; a `typ` of its list; an issuer the OPERATOR
  * trusts, with that issuer's key; the signature; the `vct`; a `jti`, a `sub` and an `exp`; the dates; the shape of the `mandate`
  * claim; and a revocation hook. A credential with selective disclosures is refused (not supported yet), not half read.
+ *
+ * A credential tied to a key (`cnf`, SPEC-0044 F3) is only good in the hands of whoever holds that key: the verifier builds a Key Binding JWT
+ * for THIS verification (its audience, a fresh nonce, the credential) and the agent signs it with the key of its digital identity
+ * (`request.prove`, given by `mandatePolicy({ agentIdentity })`). No proof, or a proof by another key, is a refusal; a proven one marks the
+ * mandate `holderBinding: 'proven'`. A credential with no `cnf` is a bearer one and is marked `none`.
  */
 import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
+import { createPublicKey, randomBytes } from 'node:crypto';
 import { ALGORITHMS, parseJws, verifyJws, type JwsAlgorithm, type KeyInput } from './jws';
+import { kbSigningInput, verifyKbJwt } from './sd-jwt';
 
 /** The credential type this profile defines. */
 export const MANDATE_VCT = 'urn:backendkit:mandate:1';
@@ -27,12 +34,18 @@ export interface JwtMandateVerifierOptions {
     types?: string[];
     /** The `vct` of the credential. Default {@link MANDATE_VCT}. */
     vct?: string;
+    /**
+     * This verifier's identifier, put in the `aud` of the proof of possession: a proof made for another verifier is not valid here. Only used for
+     * credentials tied to a key (`cnf`). Default `urn:agent-framework:verifier`.
+     */
+    audience?: string;
     /** Seconds of clock difference accepted at `nbf` and `exp`. Default 0. */
     leewaySeconds?: number;
     /** Clock, for tests. */
     now?: () => Date;
 }
 
+const DEFAULT_AUDIENCE = 'urn:agent-framework:verifier';
 const deny = (reason: string): MandateVerification => ({ ok: false, reason });
 const iso = (seconds: number): string => new Date(seconds * 1000).toISOString();
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x.length > 0);
@@ -82,6 +95,7 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
             const m = claim as Record<string, unknown>;
             if (!isStringArray(m.actions)) return deny('the mandate does not list what the agent may do (actions)');
             if (m.agent !== undefined && (typeof m.agent !== 'string' || m.agent.length === 0)) return deny('the agent of the mandate is not valid');
+            if (m.agentIdentity !== undefined && (typeof m.agentIdentity !== 'string' || m.agentIdentity.length === 0)) return deny('the agent identity of the mandate is not valid');
             if (m.resources !== undefined && !isStringArray(m.resources)) return deny('the resources of the mandate are not valid');
             let limits: Mandate['limits'];
             if (m.limits !== undefined) {
@@ -93,11 +107,33 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
                 limits = amount ? { amount: { max: amount.max as number, ...(amount.currency !== undefined ? { currency: amount.currency as string } : {}) } } : {};
             }
 
+            // Proof of possession, when the credential is tied to a key. `cnf` is read from the signed payload.
+            let holderBinding: 'proven' | 'none' = 'none';
+            const cnf = payload.cnf as { jwk?: unknown } | undefined;
+            if (cnf !== undefined) {
+                if (!request.prove) return deny('the credential is tied to a key and the agent has no way to prove it holds it (give mandatePolicy the agentIdentity provider)');
+                let key;
+                try { key = createPublicKey({ key: cnf.jwk as never, format: 'jwk' }); } catch { return deny('the key the credential is tied to is not readable'); }
+                if (key.asymmetricKeyType !== 'ed25519') return deny('only Ed25519 keys are accepted for the proof of possession');
+                const at = options.now?.() ?? new Date();
+                const aud = options.audience ?? DEFAULT_AUDIENCE;
+                const nonce = randomBytes(16).toString('base64url');
+                const kb = kbSigningInput({ jwt: token!, disclosures: [], aud, nonce, iat: Math.floor(at.getTime() / 1000) });
+                let proof: { kid: string; signature: string };
+                try { proof = await request.prove(Buffer.from(kb.signingInput, 'ascii')); } catch (err) { return deny(`the agent could not prove possession of the key: ${err instanceof Error ? err.message : String(err)}`); }
+                if (!proof || typeof proof.signature !== 'string') return deny('the agent could not prove possession of the key: it returned no signature');
+                const checked = verifyKbJwt(`${kb.signingInput}.${proof.signature}`, { key, jwt: token!, disclosures: [], aud, nonce, now: at });
+                if (!checked.ok) return deny(`the agent could not prove possession of the key the credential is tied to: ${checked.reason}`);
+                holderBinding = 'proven';
+            }
+
             const mandate: Mandate = {
                 id: jti,
                 issuer,
                 subject: sub,
                 ...(m.agent !== undefined ? { agent: m.agent as string } : {}),
+                ...(m.agentIdentity !== undefined ? { agentIdentity: m.agentIdentity as string } : {}),
+                holderBinding,
                 actions: m.actions,
                 ...(m.resources !== undefined ? { resources: m.resources as string[] } : {}),
                 ...(limits ? { limits } : {}),

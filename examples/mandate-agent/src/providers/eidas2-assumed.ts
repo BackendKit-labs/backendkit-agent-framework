@@ -1,12 +1,12 @@
 /**
- * ADAPTER OF AN ASSUMED DALION CREDENTIAL. READ THIS BEFORE USING IT.
+ * ADAPTER OF AN ASSUMED eIDAS 2 CREDENTIAL. READ THIS BEFORE USING IT.
  *
- * The real format of the DALION credential is not known yet (SPEC-0043 §6, F3 is blocked on it). This file fixes an ASSUMED shape so
- * the agent, the policy, the audit and the failure cases can be built and tested NOW. Nothing here is DALION's format and nothing
+ * The real format of the eIDAS 2 credential is not known yet (SPEC-0043 §6, F3 is blocked on it). This file fixes an ASSUMED shape so
+ * the agent, the policy, the audit and the failure cases can be built and tested NOW. Nothing here is eIDAS 2's format and nothing
  * here proves compatibility with it. When the real format arrives, this adapter is the ONLY thing that changes: it must keep turning
  * a credential into the same `Mandate`, and the tests in `__tests__/` are the contract the new adapter has to keep passing.
  *
- * WHAT IS KNOWN of DALION: an agent works from a digital identity (like a person) that gives it a power of representation which says
+ * WHAT IS KNOWN of eIDAS 2: an agent works from a digital identity (like a person) that gives it a power of representation which says
  *   - FOR WHOM it works (the human),
  *   - WHAT it may do (buy),
  *   - ON WHAT (a television),
@@ -16,14 +16,14 @@
  * framework reserves for governance clients (`ToolDefinition.meta`, key `capability`), and what a call is about is read by the operator
  * (`objectOf`). Neither lives in the credential.
  *
- * WHAT IS DEDUCED (DALION is described as compatible with eIDAS 2, and its attestation formats are public): the CONTAINER is an SD-JWT VC
+ * WHAT IS DEDUCED (eIDAS 2 is described as compatible with eIDAS 2, and its attestation formats are public): the CONTAINER is an SD-JWT VC
  * (RFC 9901 + the SD-JWT VC draft), one of the two formats of the EUDI wallet. So: `typ` `dc+sd-jwt`; selective Disclosures; holder binding by `cnf`
  * and a Key Binding JWT (`kb+jwt` with `aud`, `nonce`, `sd_hash`); revocation by a Token Status List reference (`status.status_list.{idx, uri}`).
  * Trust in the issuer is a key the operator lists here; a real EUDI relying party would build it from `x5c` and trusted lists.
  *
  * WHAT IS ASSUMED (no public schema of a power-of-representation attestation was found: the ARF defines natural persons representing legal
  * persons and plans "digital power of attorney" as a business-wallet use case, but gives no claims): the PAYLOAD:
- *   - `sub`: the identity of the AGENT (a non-human identity, e.g. `did:dalion:agent:buyer-01`), not of the person;
+ *   - `sub`: the identity of the AGENT (a non-human identity, e.g. `did:eidas2:agent:buyer-01`), not of the person;
  *   - `represents`: `{ id }`, the person or entity the agent works for;
  *   - `powers`: a list of `{ action, object?, max?: { value, currency } }`: a verb, optionally the object it applies to, optionally a
  *     limit. No tool names;
@@ -47,10 +47,10 @@ import type { IdentityMandate, IdentityRequest, Represented } from '../identity/
 import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from '@backendkit-labs/agent-mandates';
 import { CAPABILITY_META_KEY } from '../capability';
 
-/** Names the assumed format. Not DALION's. */
-export const DALION_ASSUMED_VCT = 'urn:dalion:agent-power-of-representation:assumed:1';
+/** Names the assumed format. Not eIDAS 2's. */
+export const EIDAS2_ASSUMED_VCT = 'urn:eidas2:agent-power-of-representation:assumed:1';
 
-export interface DalionPower {
+export interface Eidas2Power {
     /** What may be done, in the credential's vocabulary: `buy`, `sign`, `pay`. Never a tool name. */
     action: string;
     /** What it may be done on: `television`. Absent: any object. */
@@ -59,13 +59,13 @@ export interface DalionPower {
     max?: { value: number; currency: string };
 }
 
-export interface DalionAdapterOptions {
-    /** DALION issuers you trust and their public keys. Nothing is trusted by default. */
+export interface Eidas2AdapterOptions {
+    /** eIDAS 2 issuers you trust and their public keys. Nothing is trusted by default. */
     trustedIssuers: Record<string, KeyInput | KeyInput[]>;
     /** The credential this agent holds for this call. `undefined`: there is none, and that is a refusal. */
     credentialFor(request: MandateRequest): string | undefined | Promise<string | undefined>;
     /**
-     * The identifier DALION uses for the person the agent acts for, given the application's `userId`. The application's ids and DALION's are
+     * The identifier eIDAS 2 uses for the person the agent acts for, given the application's `userId`. The application's ids and eIDAS 2's are
      * different namespaces: this is the operator's mapping. `undefined`: the application has no identifier for that person, a refusal.
      */
     humanIdOf(userId: string): string | undefined;
@@ -103,7 +103,7 @@ const deny = (reason: string): MandateVerification => ({ ok: false, reason });
 const iso = (seconds: number): string => new Date(seconds * 1000).toISOString();
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
-export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVerifier {
+export function eidas2MandateVerifier(options: Eidas2AdapterOptions): MandateVerifier {
     const algorithms = options.algorithms ?? [...ALGORITHMS];
     const leeway = options.leewaySeconds ?? 0;
 
@@ -137,7 +137,7 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             const claims = resolved.claims;
 
             // Is it for THIS agent, is it current, and is what it says a well formed power.
-            if (claims.vct !== DALION_ASSUMED_VCT) return deny(`the credential is not a "${DALION_ASSUMED_VCT}" credential`);
+            if (claims.vct !== EIDAS2_ASSUMED_VCT) return deny(`the credential is not a "${EIDAS2_ASSUMED_VCT}" credential`);
             // The identity of the agent comes from the ENGINE (its identity provider), never from this credential: the credential is presented by
             // the agent, so what it says about who the agent is can only be COMPARED with what the provider says.
             const identity = (request as IdentityRequest).principal.agentIdentity;
@@ -171,9 +171,9 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             };
             const checkedPowers = checkPowers((powers as unknown[]).map(raw => ({ power: raw, extraKeys: extras(raw) })));
             if (!checkedPowers.ok) return deny(checkedPowers.reason);
-            const granted = checkedPowers.powers as DalionPower[];
+            const granted = checkedPowers.powers as Eidas2Power[];
 
-            // FOR WHOM. The application says who the agent acts for in ITS ids; DALION says in its own. The operator maps one to the other, and
+            // FOR WHOM. The application says who the agent acts for in ITS ids; eIDAS 2 says in its own. The operator maps one to the other, and
             // the credential has to empower exactly that person: a credential of another person is not "out of scope", it is no power at all.
             const userId = request.principal.userId;
             if (!userId) return deny('the engine does not say who the agent acts for, so the credential cannot be matched to a person');

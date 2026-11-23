@@ -4,7 +4,7 @@
  * `authorizations` with `permission`, `target` and `ceiling`), different revocation entry (`credentialStatus` of a bitstring status list),
  * no selective disclosure. It is translated into the SAME neutral powers and the SAME `Mandate`, and it has to pass the SAME conformance suite.
  *
- * ASSUMED, like the DALION one: the shape of an agent-authorization credential is not standardised; the container (VC Data Model as a JWT) is.
+ * ASSUMED, like the eIDAS 2 one: the shape of an agent-authorization credential is not standardised; the container (VC Data Model as a JWT) is.
  *
  * Not implemented here, and said so: holder binding. A VC-JWT is presented inside a Verifiable Presentation signed by the holder; this
  * adapter has no presentation step, so its mandates say `holderBinding: 'none'` and `requireHolderBinding` refuses them.

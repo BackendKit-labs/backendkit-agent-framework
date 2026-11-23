@@ -14,8 +14,8 @@ import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit'
 import { issueMandate, jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
 import { identityLayer } from '../identity/prototype';
-import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
-import { dalionMandateVerifier } from '../providers/dalion-assumed';
+import { AGENT_EIDAS2_IDENTITY, Eidas2Sim } from '../providers/eidas2-sim';
+import { eidas2MandateVerifier } from '../providers/eidas2-assumed';
 import { VcJwtSim } from '../providers/vc-jwt-sim';
 import { vcJwtMandateVerifier } from '../providers/vc-jwt-assumed';
 
@@ -54,18 +54,18 @@ const baseSpec = (over: Partial<Spec> = {}): Spec => ({ human: 'carlos', verb: '
 
 // ── three formats ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-function dalionHarness(): Harness {
-    const sim = new DalionSim();
-    const other = new DalionSim('https://other-issuer.example');
+function eidas2Harness(): Harness {
+    const sim = new Eidas2Sim();
+    const other = new Eidas2Sim('https://other-issuer.example');
     sim.registerHuman('carlos'); sim.registerHuman('ana'); other.registerHuman('carlos');
     return {
         can: { identityBinding: true, unknownRestriction: true, consent: true, denyOtherPerson: true },
         issue: (s) => (s.untrustedIssuer ? other : sim).issue({
-            agent: s.agentIdentity ?? AGENT_DALION_IDENTITY, represents: s.human, expiresAt: nowS() + s.ttl, ...(s.notBefore !== undefined ? { notBefore: s.notBefore } : {}),
+            agent: s.agentIdentity ?? AGENT_EIDAS2_IDENTITY, represents: s.human, expiresAt: nowS() + s.ttl, ...(s.notBefore !== undefined ? { notBefore: s.notBefore } : {}),
             ...(s.id ? { id: s.id } : {}), ...(s.noConsent ? { consent: false as const } : {}),
             powers: [{ action: s.verb, object: s.object, max: { value: s.max, currency: s.currency }, ...(s.unknownRestriction ? { maxPerDay: 1 } : {}) } as never],
         }, s.forged ? generateKeyPairSync('ed25519').privateKey : undefined),
-        verifier: (credential) => dalionMandateVerifier({
+        verifier: (credential) => eidas2MandateVerifier({
             trustedIssuers: { [sim.issuer]: sim.publicKey }, credentialFor: () => credential(), objectOf,
             humanIdOf: (u) => u, humanKeyOf: (id, kid) => sim.humanPublicKey(id, kid), isRevoked: sim.isRevoked,
         }),
@@ -80,7 +80,7 @@ function vcJwtHarness(): Harness {
     return {
         can: { identityBinding: true, unknownRestriction: true, consent: true, denyOtherPerson: true },
         issue: (s) => (s.untrustedIssuer ? other : sim).issue({
-            agent: s.agentIdentity ?? AGENT_DALION_IDENTITY, actingFor: s.human, expiresAt: nowS() + s.ttl, ...(s.notBefore !== undefined ? { notBefore: s.notBefore } : {}),
+            agent: s.agentIdentity ?? AGENT_EIDAS2_IDENTITY, actingFor: s.human, expiresAt: nowS() + s.ttl, ...(s.notBefore !== undefined ? { notBefore: s.notBefore } : {}),
             ...(s.id ? { id: s.id } : {}), ...(s.noConsent ? { consent: false as const } : {}),
             powers: [{ action: s.verb, object: s.object, max: { value: s.max, currency: s.currency } }],
             ...(s.unknownRestriction ? { authorizationExtras: { validBetween: ['09:00', '18:00'] } } : {}),
@@ -113,15 +113,15 @@ function referenceHarness(): Harness {
 // ── the scenarios ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 describe.each([
-    ['SD-JWT VC (DALION, assumed payload)', dalionHarness],
+    ['SD-JWT VC (eIDAS 2, assumed payload)', eidas2Harness],
     ['W3C VC-JWT (assumed payload)', vcJwtHarness],
     ['the reference profile of agent-mandates', referenceHarness],
 ] as const)('conformance of the adapter for: %s', (_name, make) => {
     const caps = make().can;                  // what this format can express, known up front so the others are SKIPPED, not silently passed
     let dir: string;
     let h: Harness;
-    let idp: DalionSim;                       // the identity provider of the AGENT, independent of who issues the credential
-    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'conformance-')); h = make(); idp = new DalionSim(); idp.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY); });
+    let idp: Eidas2Sim;                       // the identity provider of the AGENT, independent of who issues the credential
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'conformance-')); h = make(); idp = new Eidas2Sim(); idp.registerAgent(AGENT_ID, AGENT_EIDAS2_IDENTITY); });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const rejecting: Approver & { asked: number } = {
@@ -197,7 +197,7 @@ describe.each([
                 call: { tool: { name: 'buy_supplies', meta: { capability: 'buy' } } as never, args: { item: 'television' } },
             });
             const cred = h.issue(baseSpec());
-            const mine = await h.verifier(() => cred).verify(request(AGENT_DALION_IDENTITY) as never);
+            const mine = await h.verifier(() => cred).verify(request(AGENT_EIDAS2_IDENTITY) as never);
             expect(mine.ok).toBe(true);
             const other = await h.verifier(() => cred).verify(request('did:example:agent:somebody-else') as never);
             expect(other.ok).toBe(false);

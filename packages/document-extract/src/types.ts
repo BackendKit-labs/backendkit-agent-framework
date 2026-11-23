@@ -7,7 +7,7 @@ export interface ExtractLimits {
     maxBytes: number;
     /** Pages (PDF) or sheets (Excel). Default 200. */
     maxPages: number;
-    /** What a docx/xlsx declares to expand to. Default 100 MiB. */
+    /** What a docx/xlsx expands to, measured by inflating it (the declared size is not trusted). Default 100 MiB. */
     maxUncompressedBytes: number;
     /** Parts inside a docx/xlsx. Default 2000. */
     maxEntries: number;

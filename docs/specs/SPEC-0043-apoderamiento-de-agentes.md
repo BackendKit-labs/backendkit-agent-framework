@@ -31,6 +31,7 @@ Verificado el 2026-11-22 en `packages/core/src/governance`:
 | D6 | ¿Se puede delegar a otro agente? | Un agente que delega a otro **no le da más poder del que tiene**: el apoderamiento del hijo es un subconjunto del padre (mismo criterio que `checkNarrower` en el sandbox). |
 | D7 | ¿Revocación? | El SDK no la resuelve: el verificador recibe un gancho `isRevoked(mandate)` que el operador conecta a su fuente. Sin gancho, solo cuenta la caducidad, y la salida de `verify` lo dice. |
 | D8 | ¿Dónde vive la implementación concreta? | En un **paquete opcional**, `agent-mandates` (nombre provisional): un verificador de referencia (credencial firmada contra claves de emisor que el operador configura, con `node:crypto`, el mismo patrón de `trustedKeys` de los bundles de auditoría) y, más adelante, el adaptador del formato real. Steward aporta su propia implementación (confianza, revocación, claves gestionadas) detrás de la misma interfaz. |
+| D9 | ¿Quién es la persona a la que se apodera? | **Un identificador del proveedor, con tipo y garantía, que consiente y que el operador mapea.** (a) `Mandate.subject` sigue siendo el `userId` de la aplicación, que es lo que `mandateCovers` compara; el identificador de la persona en el proveedor (`represents`: `id`, `kind` persona o entidad jurídica, `assurance`) viaja aparte y llega a la auditoría. (b) El operador aporta la traducción entre su `userId` y el identificador del proveedor: son espacios de nombres distintos y sin traducción no hay credencial válida. (c) La credencial lleva el **consentimiento de la persona**, su firma sobre los poderes, para que el emisor no pueda conceder ni ensanchar lo que la persona no concedió; sin él se rechaza por defecto, y un despliegue puede aceptarlo dejando `consent: none` en la auditoría. (d) Una credencial **de otra persona** no se trata como fuera de alcance: es **ningún poder** y se deniega sin consultar a nadie. |
 
 ## 3. Qué NO hace
 
@@ -74,6 +75,8 @@ Normas a mapear, sin afirmar nada todavía: ISO/IEC 42001 (gestión de sistemas 
 4. **¿"Fuera de alcance" pide aprobación o se deniega?** Por defecto `ask`, configurable.
 5. **Nombre y consulta del paquete.** `agent-mandates` es provisional. Crearlo y publicarlo se consulta antes, como con cualquier paquete nuevo.
 6. **Cómo se identifica el agente** en la credencial (un id de agente, una clave pública, ambos) y si coincide con `agentId` del perfil.
+
+7. **El consentimiento de la persona.** D9 propone que la persona firme los poderes. El mecanismo real (una firma suya con una clave que el operador confía, una presentación de su cartera, un acto notarial) **depende de cómo DALION registra el apoderamiento** y no se conoce: queda como suposición declarada del adaptador, igual que el resto del formato.
 
 ## 7. Lo que se revisó del estándar y lo que se hizo (2026-11-22)
 

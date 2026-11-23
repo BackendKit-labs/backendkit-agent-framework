@@ -33,10 +33,10 @@
  * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool that
  * declares no capability is never covered.
  */
-import { createPublicKey, randomBytes, verify as edVerify } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes, verify as edVerify, type KeyObject } from 'node:crypto';
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
-import type { IdentityMandate, IdentityRequest } from '../identity/prototype';
+import { canonicalJson, type IdentityMandate, type IdentityRequest, type Represented } from '../identity/prototype';
 import { CAPABILITY_META_KEY } from '../capability';
 
 /** Names the assumed format. Not DALION's. */
@@ -56,6 +56,23 @@ export interface DalionAdapterOptions {
     trustedIssuers: Record<string, KeyInput | KeyInput[]>;
     /** The credential this agent holds for this call. `undefined`: there is none, and that is a refusal. */
     credentialFor(request: MandateRequest): string | undefined | Promise<string | undefined>;
+    /**
+     * The identifier DALION uses for the person the agent acts for, given the application's `userId`. The application's ids and DALION's are
+     * different namespaces: this is the operator's mapping. `undefined`: the application has no identifier for that person, a refusal.
+     */
+    humanIdOf(userId: string): string | undefined;
+    /**
+     * The public key a person consents with (by their identifier and the key id in the credential), from the operator's trust list.
+     * Without it no consent can be verified.
+     */
+    humanKeyOf?(humanId: string, kid: string): KeyObject | undefined;
+    /**
+     * Refuse a credential that carries no verified consent of the person it represents. Default true: a power the person did not grant is not a
+     * power. `false` accepts it and the audit says `consent: none`.
+     */
+    requireConsent?: boolean;
+    /** The lowest assurance level of the person accepted (`low` < `substantial` < `high`). Without it the level is only recorded. */
+    minAssurance?: 'low' | 'substantial' | 'high';
     /**
      * Refuse a credential that is not tied to the agent's key (a bearer credential: whoever holds the string can use it). Default false: it is
      * accepted, and the mandate says `holderBinding: 'none'` so the audit does not pretend a possession was proven.
@@ -120,6 +137,9 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             if (!represents || typeof represents !== 'object' || Array.isArray(represents) || !nonEmpty((represents as { id?: unknown }).id)) {
                 return deny('the credential does not say who the agent works for (represents.id)');
             }
+            const rep = represents as { id: string; kind?: unknown; assurance?: unknown; consent?: { kid?: unknown; signature?: unknown } };
+            if (rep.kind !== 'person' && rep.kind !== 'legal-entity') return deny('the credential does not say whether it represents a person or a legal entity (represents.kind)');
+            if (rep.assurance !== undefined && !nonEmpty(rep.assurance)) return deny('the assurance level of the person is not valid');
             if (!Array.isArray(powers) || powers.length === 0) return deny('the credential grants no powers');
 
             const granted: DalionPower[] = [];
@@ -139,6 +159,35 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
                     if (!nonEmpty(max.currency)) return deny(`the limit of "${p.action}" has no currency`);
                 }
                 granted.push(p as DalionPower);
+            }
+
+            // FOR WHOM. The application says who the agent acts for in ITS ids; DALION says in its own. The operator maps one to the other, and
+            // the credential has to empower exactly that person: a credential of another person is not "out of scope", it is no power at all.
+            const userId = request.principal.userId;
+            if (!userId) return deny('the engine does not say who the agent acts for, so the credential cannot be matched to a person');
+            const expectedHuman = options.humanIdOf(userId);
+            if (!nonEmpty(expectedHuman)) return deny('the application has no identifier for this person in the identity provider');
+            if (rep.id !== expectedHuman) return deny('the credential empowers another person than the one the agent acts for');
+
+            if (options.minAssurance) {
+                const rank = { low: 0, substantial: 1, high: 2 } as const;
+                const got = typeof rep.assurance === 'string' && rep.assurance in rank ? rank[rep.assurance as keyof typeof rank] : -1;
+                if (got < rank[options.minAssurance]) return deny(`the person was identified with a lower assurance than the "${options.minAssurance}" this deployment requires`);
+            }
+
+            // The person's OWN signature over what the agent may do for them. Without it the issuer could grant powers nobody consented to; with it
+            // the issuer cannot widen them afterwards, because the signature covers the powers.
+            let consent: 'verified' | 'none' = 'none';
+            if (rep.consent !== undefined) {
+                const key = typeof rep.consent.kid === 'string' ? options.humanKeyOf?.(rep.id, rep.consent.kid) : undefined;
+                if (!key) return deny('the consent of the person cannot be checked: no key of theirs is trusted for it');
+                const message = Buffer.from(createHash('sha256').update(canonicalJson({ jti, agent: payload.sub, exp, represents: { id: rep.id, kind: rep.kind }, powers })).digest('hex'), 'hex');
+                let ok = false;
+                try { ok = typeof rep.consent.signature === 'string' && edVerify(null, message, key, Buffer.from(rep.consent.signature, 'base64url')); } catch { ok = false; }
+                if (!ok) return deny('the person did not consent to these powers (their signature does not verify)');
+                consent = 'verified';
+            } else if (options.requireConsent !== false) {
+                return deny('the credential carries no consent of the person it represents');
             }
 
             // The mandate for THIS call. The verb is what the TOOL declares, never what the credential says about tools. The power
@@ -177,8 +226,9 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             const mandate: IdentityMandate = {
                 id: jti,
                 issuer,
-                subject: (represents as { id: string }).id,
+                subject: userId,   // the application's id for the person: what the framework compares with `principal.userId`
                 agent: request.principal.agentId,
+                represents: { id: rep.id, kind: rep.kind, ...(typeof rep.assurance === 'string' ? { assurance: rep.assurance } : {}), consent } as Represented,
                 agentIdentity: payload.sub as string,   // what the CREDENTIAL says; the layer compares it with what the provider says
                 holderBinding,
                 actions: power ? [tool] : [],

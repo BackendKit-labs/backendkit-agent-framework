@@ -29,7 +29,7 @@ const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value
 describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR', () => {
     let dir: string;
     let dalion: DalionSim;
-    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); dalion = new DalionSim(); dalion.registerAgent('buyer', AGENT_DALION_IDENTITY); });
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); dalion = new DalionSim(); dalion.registerAgent('buyer', AGENT_DALION_IDENTITY); dalion.registerHuman('carlos'); });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const human = (decision: 'approve' | 'reject'): Approver => ({
@@ -51,6 +51,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
             trustedIssuers: extra.trustedIssuers ?? { [dalion.issuer]: dalion.publicKey },
             credentialFor: () => credential(),
             objectOf,
+            humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid),
             isRevoked: extra.isRevoked ?? dalion.isRevoked,
         });
     }
@@ -188,12 +189,6 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
             expect(a.purchases).toHaveLength(0);
         });
 
-        it('a mandate for another person than the one the agent acts for is not a permission', async () => {
-            const a = setup(() => power({ represents: 'ana' }), { approver: human('reject') });
-            await a.engine.run('buy');
-            expect(a.approvals).toHaveLength(1);
-            expect(a.purchases).toHaveLength(0);
-        });
     });
 
     describe('several powers in one credential', () => {
@@ -274,6 +269,10 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         it('a limit with no currency', async () => { await denied(() => power({ powers: [{ action: 'buy', object: 'television', max: { value: 1000 } }] }), /no currency/); });
         it('a limit that is not a number', async () => { await denied(() => power({ powers: [{ action: 'buy', object: 'television', max: { value: 'lots', currency: 'EUR' } }] }), /limit of "buy" is not valid/); });
         it('an object that is not a string', async () => { await denied(() => power({ powers: [{ action: 'buy', object: 42, max: { value: 1000, currency: 'EUR' } }] }), /object of "buy" is not valid/); });
+        it('a credential of ANOTHER person is no power at all: denied, and nobody is asked (it is not "out of scope")', async () => {
+            dalion.registerHuman('ana');
+            await denied(() => power({ represents: 'ana' }), /empowers another person than the one the agent acts for/);
+        });
         it('a credential that does not say for whom the agent works', async () => { await denied(() => power({ payload: { represents: {} } }), /does not say who the agent works for/); });
         it('a credential that is not the assumed type', async () => { await denied(() => power({ payload: { vct: 'urn:something:else' } }), /is not a ".*" credential/); });
         it('a credential with selective disclosures, which are not supported', async () => { await denied(() => `${power()}~WyJzYWx0Il0~`, /selective disclosures/); });

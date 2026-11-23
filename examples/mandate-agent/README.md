@@ -41,6 +41,18 @@ proveedor de identidad  ──resolve(agentId)──▶  { id, issuer, kid }   l
 
 Los tests de la identidad están en `src/__tests__/identity.test.ts` (21 casos); cada pieza se defiende por sí sola (el adaptador, la capa del verificador y la política no se apoyan unas en otras).
 
+## Para quién trabaja: el humano de la credencial
+
+La credencial dice para quién trabaja el agente. Eso no es solo un texto que la aplicación declara y la credencial repite:
+
+- **Se mapea.** La aplicación dice `u-1001`; DALION dice `did:dalion:person:carlos`. Son espacios de nombres distintos, y el operador aporta la traducción (`humanIdOf`). Sin traducción, la credencial se rechaza.
+- **Es estructurado.** `represents` lleva `id`, `kind` (**persona** o **entidad jurídica**) y `assurance` (con qué garantía se identificó a la persona: `low`, `substantial`, `high`). Un despliegue puede exigir un mínimo (`minAssurance`); sin mínimo, solo se registra.
+- **La persona consiente.** La persona firma con su propia clave lo que el agente puede hacer por ella (el agente, los poderes y la fecha de fin). Sin esa firma el emisor podría conceder poderes que nadie concedió; con ella, **el emisor no puede ensancharlos después**: aunque vuelva a firmar la credencial con una clave válida y suba el límite, la firma de la persona ya no cubre lo que dice y se rechaza. Tampoco puede añadir un poder ni pasarle el consentimiento a otro agente. Sin consentimiento, se rechaza (`requireConsent`); un despliegue puede aceptarlo y la auditoría dice `consent: none`.
+- **Una credencial de otra persona no es "fuera de alcance": es ningún poder.** Se **deniega** y nadie es consultado, en vez de pedir a un humano que apruebe algo que ni siquiera es de esta persona.
+- **La auditoría lo registra** (`represents`: identificador, tipo, garantía y si el consentimiento se verificó), además del `subject` con el id de la aplicación.
+
+Los tests están en `src/__tests__/human.test.ts` (16 casos). **El mecanismo del consentimiento es SUPUESTO**, como el resto del formato de DALION: no sé cómo lo registra el real.
+
 ## La credencial habla del dominio, no del código
 
 La credencial de DALION **no dice qué herramientas puede ejecutar el agente**. Dice un **verbo** (`buy`), un **objeto** (`television`) y un **importe**. Qué herramienta de *este* agente realiza "comprar" lo declara **la propia herramienta**, en el campo de metadatos que el framework reserva para los clientes de gobernanza (`ToolDefinition.meta`), nunca la credencial:
@@ -90,6 +102,7 @@ Responde **por llamada**: toma el verbo que declara la herramienta llamada, busc
 - `src/__tests__/mandate-agent.test.ts`: 48 casos de extremo a extremo bajo DALION (el contrato del adaptador).
 - `src/__tests__/providers.test.ts`: 14 casos de neutralidad: el mismo agente bajo tres proveedores y bajo varios a la vez.
 - `src/__tests__/identity.test.ts`: 21 casos de la identidad del agente (atribución, firma, prueba de posesión, obligatoriedad).
+- `src/__tests__/human.test.ts`: 16 casos del humano de la credencial (mapeo, tipo y garantía, consentimiento, credencial de otra persona).
 
 ```bash
 npm install

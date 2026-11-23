@@ -24,7 +24,7 @@ Every kind gets swappable providers, resilient LLM calls, and test doubles (`age
 ### Governed agents in a few lines
 
 ```ts
-import { createBaseEngine, defineTool, z, HashChainAuditSink, FileApprovalStore } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, HashChainAuditSink, FileApprovalStore, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const pay = defineTool({
   name: 'pay_invoice', description: 'Pay an approved invoice', destructive: true,
@@ -34,7 +34,8 @@ const pay = defineTool({
 
 const engine = createBaseEngine({
   providers, defaultProvider: 'anthropic', agents: [treasuryAgent], tools: [pay],
-  identity: { tenantId: 'acme', userId: 'u-42' },
+  agentIdentity: selfAssertedIdentities(),             // who the agent is (or your identity provider's)
+  identity: { tenantId: 'acme', userId: 'u-42' },      // for whom it acts
   approvals: new FileApprovalStore('./approvals'),     // destructive calls wait for a person
   audit: new HashChainAuditSink('./audit.log'),        // one tamper-evident event per call
 });

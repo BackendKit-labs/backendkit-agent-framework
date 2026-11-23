@@ -1790,6 +1790,8 @@ export class AgentEngine {
                 reason = withheld;
                 onArgsRefused?.();
             } else {
+                // A worker that runs a stored approval acts for whoever asked, as the stored request recorded (SPEC-0041 F2): it needs no `identity.userId` of its own.
+                if (principal.userId === undefined && approved?.requestedBy !== undefined) principal = { ...principal, userId: approved.requestedBy };
                 // SPEC-0044: no identity, or no one to act for, and nothing runs (unless the operator switched it off, for tests).
                 const who = await this.identities.check(profile.id, { sessionId: principal.sessionId, ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}), ...(principal.userId !== undefined ? { userId: principal.userId } : {}) });
                 if (who.ok && who.identity) principal = { ...principal, agentIdentity: who.identity };
@@ -1848,6 +1850,7 @@ export class AgentEngine {
             startedAt: callStart,
             agentId: profile.id,
             chain: principal.chain,
+            ...(principal.userId !== undefined ? { userId: principal.userId } : {}),
             tool: call.name,
             rawArgs: call.args,
             decision,
@@ -2010,7 +2013,7 @@ export class AgentEngine {
      * hashed as text when it cannot.
      */
     private async recordAudit(c: {
-        startedAt: number; agentId: string; chain?: string[]; tool: string; rawArgs: string | Record<string, unknown>;
+        startedAt: number; agentId: string; chain?: string[]; /** Whom the call acted for, when the principal of the engine does not say (a stored approval run by a worker). */ userId?: string; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
         approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; mandate?: AuditMandate; meta?: Record<string, unknown>;
     }): Promise<void> {
@@ -2019,7 +2022,8 @@ export class AgentEngine {
         if (typeof c.rawArgs === 'string') {
             try { args = JSON.parse(c.rawArgs); } catch { args = c.rawArgs; }
         }
-        const p = this.principalFor(c.agentId, c.chain);
+        const own = this.principalFor(c.agentId, c.chain);
+        const p: Principal = own.userId === undefined && c.userId !== undefined ? { ...own, userId: c.userId } : own;
         // The identity the call is attributed to: the one already resolved for it (the policy saw it), or asked for now. A failure is not hidden.
         const who = await this.identities.check(c.agentId, { sessionId: p.sessionId, ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}), ...(p.userId !== undefined ? { userId: p.userId } : {}) });
         const attributed = who.ok ? who.identity : this.identities.peek(c.agentId);

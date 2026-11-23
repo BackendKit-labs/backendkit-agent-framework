@@ -46,7 +46,7 @@ When an `ask` carries `approverRoles`, only a person holding that role can answe
 
 Without a mandate, an agent either asks every time or has a blanket permission. A mandate sits between the two: **inside the limits it signed, the agent acts alone; outside them it asks; without a valid one it does nothing.** Every audit event then names the mandate (id, issuer, the person it acts for, validity and a hash of the credential, never the credential itself).
 
-`agent-mandates` 0.1.0 is published on npm as a **reference verifier**: it reads a signed credential in a profile of our choosing, shaped like an SD-JWT VC. It is **not** the credential of any specific provider, and it does not do selective disclosure or key binding (a credential that carries them is rejected). The credential of a wallet or an identity provider would be an adapter to the same `Mandate`; no adapter exists yet. The limit it enforces is **per operation**, not accumulated.
+`agent-mandates` is published on npm as a **reference verifier**: it reads a signed credential in a profile of our choosing, shaped like an SD-JWT VC. It is **not** the credential of any specific provider, and its reference verifier does not do selective disclosure or key binding (a credential that carries them is rejected). The credential of a wallet or an identity provider is an adapter to the same `Mandate`, and the package ships the pieces to write one (SD-JWT, and the rules every adapter applies); no adapter of a real provider exists yet. The limit it enforces is **per operation**, not accumulated. The [Governance concept page](/concepts/governance/) explains how a mandate fits with the identity of the agent.
 
 ## 5. Revocation
 

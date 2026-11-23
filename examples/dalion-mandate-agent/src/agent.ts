@@ -127,7 +127,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         audit,
         policy,
         approver: recordingApprover,
-    } as never);
+    });
 
     return { engine, audit, purchases, contracts, approvals };
 }

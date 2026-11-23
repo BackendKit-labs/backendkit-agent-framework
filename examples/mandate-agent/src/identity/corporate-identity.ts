@@ -1,5 +1,5 @@
 /**
- * A SECOND identity provider, to show that the design does not depend on DALION: a company's own IAM with its keys in a KMS. Different
+ * A SECOND identity provider, to show that the design does not depend on eIDAS 2: a company's own IAM with its keys in a KMS. Different
  * identifiers (a URN, not a DID), a different issuer and a different custody, behind the same `AgentIdentityProvider`. A stand-in for tests.
  */
 import { generateKeyPairSync, sign as edSign, type KeyObject } from 'node:crypto';

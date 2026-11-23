@@ -1,12 +1,12 @@
-# Cuestionario para el equipo de Identidad (DALION)
+# Cuestionario para el equipo de Identidad
 
 Documento de trabajo de [SPEC-0044](SPEC-0044-identidad-digital-del-agente.md), F3. **No es una especificación: son las preguntas cuyas respuestas faltan** para sustituir el formato que hoy se *asume* por el real. Las respuestas se anotan debajo de cada pregunta y, al final, se comparan con el modelo asumido (§ «Modelo asumido» abajo).
 
-Cómo usarlo: se envía tal cual; cada pregunta dice **por qué se hace** y **qué cambia en el framework según la respuesta**, para que quien responda sepa qué se decide con ella. Lo que el framework ya hace (y no depende de DALION) está en la sección final, para no preguntarlo.
+Cómo usarlo: se envía tal cual; cada pregunta dice **por qué se hace** y **qué cambia en el framework según la respuesta**, para que quien responda sepa qué se decide con ella. Lo que el framework ya hace (y no depende de un sistema concreto) está en la sección final, para no preguntarlo.
 
 ## Contexto, en cuatro líneas
 
-Un agente de software actúa en nombre de una persona o de una entidad. El framework exige dos cosas antes de ejecutar nada: (1) **una identidad digital del agente** y (2) **un apoderamiento** que diga a nombre de quién actúa y qué puede hacer. Queremos que ambas las respalde DALION, no una cadena de texto que ponga la aplicación. Hoy las dos están **simuladas** con un formato supuesto; necesitamos el real.
+Un agente de software actúa en nombre de una persona o de una entidad. El framework exige dos cosas antes de ejecutar nada: (1) **una identidad digital del agente** y (2) **un apoderamiento** que diga a nombre de quién actúa y qué puede hacer. Queremos que ambas las respaldel sistema de identidad, no una cadena de texto que ponga la aplicación. Hoy las dos están **simuladas** con un formato supuesto; necesitamos el real.
 
 ## A. El apoderamiento (la credencial)
 
@@ -38,7 +38,7 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 
 **B1. ¿Cómo se identifica un agente?** Formato del identificador (DID, URN, otro), quién lo asigna y si es estable ante rotaciones de clave.
 
-**B2. ¿Quién genera y custodia la clave del agente?** El agente (clave local), un KMS/HSM de la organización, o la plataforma de DALION (el agente pide firmar y nunca ve la clave).
+**B2. ¿Quién genera y custodia la clave del agente?** El agente (clave local), un KMS/HSM de la organización, o la plataforma del sistema de identidad (el agente pide firmar y nunca ve la clave).
 *Por qué:* decide cómo registramos la clave pública del agente en la credencial y la latencia de cada firma (microsegundos en local, milisegundos en remoto, que se suman a cada llamada).
 
 **B3. ¿Qué algoritmos de firma admite la clave del agente?** El framework verifica Ed25519 de serie; otros (ES256, secp256k1, P-256…) necesitan un verificador que registre el operador.
@@ -46,7 +46,7 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 **B4. ¿Cómo se ata la credencial a esa clave?** ¿Con `cnf` (RFC 7800: clave incrustada o `kid` referenciado) u otro mecanismo? ¿Cómo se prueba la posesión (Key Binding JWT, firma de un reto propio)?
 *Por qué:* sin esto un apoderamiento es una cadena que cualquiera que la lea puede usar (credencial «al portador»). *Asumido:* `cnf.jwk` y un KB-JWT con `aud`, `nonce`, `sd_hash`.
 
-**B5. ¿Cómo obtiene el framework la identidad y la firma de un agente?** ¿API de DALION (REST, SDK, token), con qué autenticación, qué latencia y qué disponibilidad? ¿Qué pasa si no responde?
+**B5. ¿Cómo obtiene el framework la identidad y la firma de un agente?** ¿API del sistema de identidad (REST, SDK, token), con qué autenticación, qué latencia y qué disponibilidad? ¿Qué pasa si no responde?
 *Por qué:* se llama en cada ejecución (con caché corta y plazo máximo); un proveedor lento o caído **deniega** la llamada.
 
 **B6. ¿Cómo se rota o revoca la clave de un agente?** ¿Cómo se entera el framework de que la clave quedó comprometida?
@@ -63,7 +63,7 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 **D1. ¿Qué valor tiene la firma del agente?** ¿Es una firma electrónica con efecto legal, o una firma técnica que prueba solo quién actuó? ¿Hay sello de tiempo cualificado?
 *Por qué:* el framework **no** afirma valor legal (lo decide cada despliegue); necesitamos saber qué podemos decir con honestidad.
 
-**D2. ¿DALION es compatible con eIDAS 2 / EUDI Wallet?** ¿En qué formato y con qué perfil (ARF)? ¿Un apoderamiento de persona física a agente tiene un esquema público?
+**D2. ¿El sistema es compatible con eIDAS 2 / EUDI Wallet?** ¿En qué formato y con qué perfil (ARF)? ¿Un apoderamiento de persona física a agente tiene un esquema público?
 
 **D3. ¿Qué datos personales viajan en la credencial?** El framework nunca guarda la credencial en la auditoría (solo su hash); queremos saber qué contiene para no filtrarlo en registros.
 
@@ -81,13 +81,15 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 - **Falla cerrado**: sin identidad, sin persona, sin credencial, con proveedor caído o con una prueba que no verifica, no se ejecuta nada.
 - Cada evento de auditoría lo **firma la identidad del agente** y lleva si la posesión de la clave se probó (`holderBinding: proven | none`).
 - Una credencial **al portador** (sin clave) se acepta solo si el operador no exige posesión, y la auditoría la marca `none`.
-- Nada de esto depende de un proveedor: el adaptador de DALION traduce su formato a un `Mandate` neutral; el resto del framework no cambia.
+- Nada de esto depende de un proveedor: el adaptador del sistema traduce su formato a un `Mandate` neutral; el resto del framework no cambia.
 
 ## Modelo asumido hoy (lo que se sustituye)
 
+Por ahora **tratamos nuestro formato supuesto como el de un sistema compatible con eIDAS 2**: contenedor SD-JWT VC y atestaciones públicas del ecosistema EUDI, con un contenido (los claims) que no es público y que estas preguntas cierran. No se nombra ningún producto concreto.
+
 | Pieza | Supuesto | Dónde vive | Preguntas que lo cierran |
 |---|---|---|---|
-| Contenedor | SD-JWT VC | `examples/mandate-agent/src/providers/dalion-assumed.ts` | A1 |
+| Contenedor | SD-JWT VC | `examples/mandate-agent/src/providers/eidas2-assumed.ts` | A1 |
 | Agente | `sub` = identidad del agente | ídem | A2, B1 |
 | Persona | `represents: { id, kind, assurance }` | ídem | A2 |
 | Poderes | `powers: [{ action, object?, max? }]`, sin nombres de tools | ídem | A2, A3 |

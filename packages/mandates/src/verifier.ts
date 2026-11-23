@@ -1,7 +1,7 @@
 /**
  * The default verifier of mandates (SPEC-0043 F2): a signed credential in the shape of an SD-JWT VC (a JWT with `iss`, `sub`, `jti`,
  * `nbf`, `exp` and `vct`) that carries the mandate in a `mandate` claim. It is a REFERENCE: it fixes a neutral profile so that
- * agents can work under mandates now. The credential of a specific provider (DALION or any eIDAS 2 wallet) is an adapter that
+ * agents can work under mandates now. The credential of a specific provider (an eIDAS 2-compatible system or any wallet) is an adapter that
  * turns its own format into the same {@link Mandate}; see the README.
  *
  * What it checks, and fails closed on each: a compact JWS with an algorithm of its list; a `typ` of its list; an issuer the OPERATOR

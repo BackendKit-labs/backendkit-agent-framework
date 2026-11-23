@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import type { Approver, MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
-import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
-import { dalionMandateVerifier, type DalionAdapterOptions, type DalionPower } from '../providers/dalion-assumed';
+import { AGENT_EIDAS2_IDENTITY, Eidas2Sim } from '../providers/eidas2-sim';
+import { eidas2MandateVerifier, type Eidas2AdapterOptions, type Eidas2Power } from '../providers/eidas2-assumed';
 import { identityLayer, type AgentIdentityProvider, type IdentityAuditEvent } from '../identity/prototype';
 
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -22,27 +22,27 @@ const isKbSigningInput = (t: string): boolean => {
     if (!h || !p || extra !== undefined) return false;
     try { return JSON.parse(Buffer.from(h, 'base64url').toString()).typ === 'kb+jwt'; } catch { return false; }
 };
-const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
+const TV_1000: Eidas2Power = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
 
 describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
     let dir: string;
-    let dalion: DalionSim;
+    let eidas2: Eidas2Sim;
     beforeEach(() => {
         dir = mkdtempSync(join(tmpdir(), 'eidas-'));
-        dalion = new DalionSim();
-        dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY);
-        dalion.registerHuman('carlos');
+        eidas2 = new Eidas2Sim();
+        eidas2.registerAgent(AGENT_ID, AGENT_EIDAS2_IDENTITY);
+        eidas2.registerHuman('carlos');
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const log = () => join(dir, 'audit.ndjson');
     const buyEvent = () => readFileSync(log(), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l).event as IdentityAuditEvent).find(e => e.tool === 'buy_supplies')!;
-    const credential = (over: Record<string, unknown> = {}) => dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over });
-    const verifier = (cred: () => string | undefined, extra: Partial<DalionAdapterOptions> = {}): MandateVerifier => dalionMandateVerifier({
-        trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => cred(), objectOf,
-        humanIdOf: (u) => u, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid), isRevoked: dalion.isRevoked, ...extra,
+    const credential = (over: Record<string, unknown> = {}) => eidas2.issue({ agent: AGENT_EIDAS2_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over });
+    const verifier = (cred: () => string | undefined, extra: Partial<Eidas2AdapterOptions> = {}): MandateVerifier => eidas2MandateVerifier({
+        trustedIssuers: { [eidas2.issuer]: eidas2.publicKey }, credentialFor: () => cred(), objectOf,
+        humanIdOf: (u) => u, humanKeyOf: (id, kid) => eidas2.humanPublicKey(id, kid), isRevoked: eidas2.isRevoked, ...extra,
     });
-    function agent(v: MandateVerifier, provider: AgentIdentityProvider = dalion.identityProvider(), approver?: Approver) {
+    function agent(v: MandateVerifier, provider: AgentIdentityProvider = eidas2.identityProvider(), approver?: Approver) {
         return buildBuyerAgent({
             provider: scriptedProvider([{ tool_calls: [{ id: 'c', name: 'buy_supplies', args: { item: 'television', amount: 500, currency: 'EUR' } }] }, { content: 'done' }] as never),
             transport: mockTransport().transport, userId: 'carlos', verifier: v, ...(approver ? { approver } : {}),
@@ -72,7 +72,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
             const other = credential({ disclose: ['powers'], powers: [{ action: 'buy', max: { value: 99_999, currency: 'EUR' } }] });
             const mine = credential({ disclose: ['powers'] });
             const frankenstein = `${mine.split('~')[0]}~${other.split('~')[1]}~`;
-            const a = agent(verifier(() => frankenstein), dalion.identityProvider(), { ref: { kind: 'human', id: 'x' }, request: async () => ({ decision: 'approve', by: { kind: 'human', id: 'x' }, at: new Date().toISOString() }) });
+            const a = agent(verifier(() => frankenstein), eidas2.identityProvider(), { ref: { kind: 'human', id: 'x' }, request: async () => ({ decision: 'approve', by: { kind: 'human', id: 'x' }, at: new Date().toISOString() }) });
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);
             expect(buyEvent().reason).toMatch(/Disclosures of the credential are not valid/);
@@ -86,7 +86,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
             const payload = JSON.parse(Buffer.from(jwt!.split('.')[1]!, 'base64url').toString());
             const { createHash } = await import('node:crypto');
             payload._sd = [createHash('sha256').update(widened, 'ascii').digest('base64url')];
-            const reissued = `${dalion.reissueWith(real, p => { p._sd = payload._sd; })}${widened}~`;
+            const reissued = `${eidas2.reissueWith(real, p => { p._sd = payload._sd; })}${widened}~`;
             const a = agent(verifier(() => reissued));
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);
@@ -104,7 +104,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
 
         it('a different nonce on every verification: a proof is never reused', async () => {
             const signed: string[] = [];
-            const real = dalion.identityProvider();
+            const real = eidas2.identityProvider();
             const spy: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (id, m) => { signed.push(Buffer.from(m).toString('ascii')); return real.sign(id, m); } };
             const v = verifier(() => credential({ bindToKeyOf: AGENT_ID }));
             const call = (id: string) => ({ tool_calls: [{ id, name: 'buy_supplies', args: { item: 'television', amount: 100, currency: 'EUR' } }] });
@@ -128,7 +128,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
 
         it('what the agent signs is a kb+jwt addressed to this verifier, tied to the credential by sd_hash', async () => {
             let seen = '';
-            const real = dalion.identityProvider();
+            const real = eidas2.identityProvider();
             const spy: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (id, m) => { const t = Buffer.from(m).toString('ascii'); if (isKbSigningInput(t)) seen = t; return real.sign(id, m); } };
             const a = agent(verifier(() => credential({ bindToKeyOf: AGENT_ID }), { audience: 'urn:verifier:acme' }), spy);
             await a.engine.run('buy a television');
@@ -145,10 +145,10 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
         });
 
         it('the same name, another key: refused with the reason from the standard\'s check', async () => {
-            const real = dalion.identityProvider();
+            const real = eidas2.identityProvider();
             const impostorKey = generateKeyPairSync('ed25519');
             const { sign } = await import('node:crypto');
-            const impostor: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (_i, m) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, signature: sign(null, Buffer.from(m), impostorKey.privateKey).toString('base64url') }) };
+            const impostor: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (_i, m) => ({ kid: `${AGENT_EIDAS2_IDENTITY}#key-1`, signature: sign(null, Buffer.from(m), impostorKey.privateKey).toString('base64url') }) };
             const a = agent(verifier(() => credential({ bindToKeyOf: AGENT_ID })), impostor);
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);
@@ -162,7 +162,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
             const a = agent(verifier(() => credential(), { isRevoked: (s) => { got = s; return false; } }));
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(1);
-            expect(got).toMatchObject({ credentialId: expect.any(String), status: { uri: 'https://status.dalion.example/lists/1', idx: expect.any(Number) } });
+            expect(got).toMatchObject({ credentialId: expect.any(String), status: { uri: 'https://status.eidas2.example/lists/1', idx: expect.any(Number) } });
         });
 
         it('a status that says revoked, or cannot be read, refuses the credential', async () => {

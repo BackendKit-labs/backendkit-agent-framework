@@ -3,7 +3,7 @@
  * different providers, each behind the framework's one contract (`MandateVerifier`), and under several at once.
  *
  * Three providers, three different ways of saying the same thing ("Carlos's agent may buy a television, up to 1000 EUR"):
- *   - DALION (ASSUMED format): verbs of the domain, `represents`, `powers`;
+ *   - eIDAS 2 (ASSUMED format): verbs of the domain, `represents`, `powers`;
  *   - the reference profile of `agent-mandates`: tool names, `resources`, `limits`;
  *   - a provider with no credential at all: the operator's own table of grants, answering the same contract.
  * The agent, the policy and the audit do not know which one they are talking to.
@@ -17,8 +17,8 @@ import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit'
 import { issueMandate, jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
 import { identityLayer } from '../identity/prototype';
-import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
-import { dalionMandateVerifier } from '../providers/dalion-assumed';
+import { AGENT_EIDAS2_IDENTITY, Eidas2Sim } from '../providers/eidas2-sim';
+import { eidas2MandateVerifier } from '../providers/eidas2-assumed';
 import { routeByIssuer } from '../providers/router';
 
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -41,16 +41,16 @@ describe('the agent knows no identity provider', () => {
         auditLogPath: join(dir, `audit-${Math.random().toString(36).slice(2)}.ndjson`), checkpointsPath: join(dir, `cp-${Math.random().toString(36).slice(2)}.ndjson`),
     });
 
-    // ── provider A: DALION (assumed) ────────────────────────────────────────────────────────────────────────────
-    const dalion = new DalionSim();
-    dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY);
-    dalion.registerHuman('carlos');
-    const layer = () => identityLayer({ provider: dalion.identityProvider(), require: true });
-    const dalionCredential = () => dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
-    const dalionVerifier = (credential: () => string | undefined) => dalionMandateVerifier({
-        trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => credential(),
+    // ── provider A: eIDAS 2 (assumed) ────────────────────────────────────────────────────────────────────────────
+    const eidas2 = new Eidas2Sim();
+    eidas2.registerAgent(AGENT_ID, AGENT_EIDAS2_IDENTITY);
+    eidas2.registerHuman('carlos');
+    const layer = () => identityLayer({ provider: eidas2.identityProvider(), require: true });
+    const eidas2Credential = () => eidas2.issue({ agent: AGENT_EIDAS2_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
+    const eidas2Verifier = (credential: () => string | undefined) => eidas2MandateVerifier({
+        trustedIssuers: { [eidas2.issuer]: eidas2.publicKey }, credentialFor: () => credential(),
         objectOf,
-        humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid),
+        humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => eidas2.humanPublicKey(id, kid),
     });
 
     // ── provider B: the reference profile of agent-mandates (names tools, not verbs) ────────────────────────────
@@ -75,13 +75,13 @@ describe('the agent knows no identity provider', () => {
 
     it('the agent\'s own source mentions no provider and imports none', () => {
         const source = readFileSync(join(__dirname, '..', 'agent.ts'), 'utf8');
-        expect(source).not.toMatch(/dalion/i);
+        expect(source).not.toMatch(/eidas2/i);
         expect(source).not.toMatch(/from '\.\/providers/);
         expect(source).not.toMatch(/agent-mandates/);   // not even the reference package: it takes the framework's contract and nothing else
     });
 
     describe.each([
-        ['DALION (assumed)', (c: () => string | undefined) => dalionVerifier(c), dalionCredential],
+        ['eIDAS 2 (assumed)', (c: () => string | undefined) => eidas2Verifier(c), eidas2Credential],
         ['the reference profile of agent-mandates', (c: () => string | undefined) => referenceVerifier(c), () => referenceCredential()],
     ])('under %s', (_name, makeVerifier, issue) => {
         it('800 EUR for a television: buys alone', async () => {
@@ -123,33 +123,33 @@ describe('the agent knows no identity provider', () => {
 
     it('the audit says which provider\'s mandate the call ran under, whichever it was', async () => {
         const issuers: string[] = [];
-        for (const [verifier, file] of [[dalionVerifier(dalionCredential), 'a'], [referenceVerifier(() => referenceCredential()), 'b'], [tableVerifier({ carlos: { max: 1000 } }), 'c']] as const) {
+        for (const [verifier, file] of [[eidas2Verifier(eidas2Credential), 'a'], [referenceVerifier(() => referenceCredential()), 'b'], [tableVerifier({ carlos: { max: 1000 } }), 'c']] as const) {
             const auditLogPath = join(dir, `audit-${file}.ndjson`);
             const a = buildBuyerAgent({ provider: scriptedProvider([buyCall(100), { content: 'done' }] as never), transport: mockTransport().transport, userId: 'carlos', agentIdentity: layer(), verifier, auditLogPath, checkpointsPath: join(dir, `cp-${file}.ndjson`) });
             await a.engine.run('buy');
             const ev = readFileSync(auditLogPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l).event).find(e => e.tool === 'buy_supplies');
             issuers.push(ev.mandate.issuer);
         }
-        expect(issuers).toEqual([dalion.issuer, COMPANY, 'internal:grants-table']);
+        expect(issuers).toEqual([eidas2.issuer, COMPANY, 'internal:grants-table']);
     });
 
     describe('several providers at once, behind one router', () => {
         const verifierFor = (credential: () => string | undefined): MandateVerifier => routeByIssuer({
             credentialFor: () => credential(),
-            routes: { [dalion.issuer]: dalionVerifier(credential), [COMPANY]: referenceVerifier(credential) },
+            routes: { [eidas2.issuer]: eidas2Verifier(credential), [COMPANY]: referenceVerifier(credential) },
         });
 
         it('a credential of either provider is read by its own verifier', async () => {
-            const viaDalion = agentWith(verifierFor(() => dalionCredential()), 500);
-            await viaDalion.engine.run('buy');
-            expect(viaDalion.purchases).toHaveLength(1);
+            const viaEidas2 = agentWith(verifierFor(() => eidas2Credential()), 500);
+            await viaEidas2.engine.run('buy');
+            expect(viaEidas2.purchases).toHaveLength(1);
             const viaCompany = agentWith(verifierFor(() => referenceCredential()), 500);
             await viaCompany.engine.run('buy');
             expect(viaCompany.purchases).toHaveLength(1);
         });
 
         it('each provider\'s own limits apply: the same 1200 EUR is refused under both', async () => {
-            for (const credential of [dalionCredential, () => referenceCredential()]) {
+            for (const credential of [eidas2Credential, () => referenceCredential()]) {
                 const a = agentWith(verifierFor(() => credential()), 1200, human('reject'));
                 await a.engine.run('buy');
                 expect(a.approvals).toHaveLength(1);
@@ -174,11 +174,11 @@ describe('the agent knows no identity provider', () => {
         });
 
         it('claiming one provider\'s name while signed with another\'s key does not get a credential accepted', async () => {
-            // says it is DALION, signed by the company's key
-            await deniedBy(issueMandate({ privateKey: company.privateKey, alg: 'EdDSA', issuer: dalion.issuer, subject: 'carlos', actions: ['buy_supplies'], expiresAt: nowS() + 3600 }), /not valid|does not verify|signature|not a/);
-            // says it is the company, signed by DALION's key
-            const dalionKeySigned = dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', max: { value: 1_000_000, currency: 'EUR' } }], payload: { iss: COMPANY } });
-            await deniedBy(dalionKeySigned, /signature does not verify/);
+            // says it is eIDAS 2, signed by the company's key
+            await deniedBy(issueMandate({ privateKey: company.privateKey, alg: 'EdDSA', issuer: eidas2.issuer, subject: 'carlos', actions: ['buy_supplies'], expiresAt: nowS() + 3600 }), /not valid|does not verify|signature|not a/);
+            // says it is the company, signed by eIDAS 2's key
+            const eidas2KeySigned = eidas2.issue({ agent: AGENT_EIDAS2_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', max: { value: 1_000_000, currency: 'EUR' } }], payload: { iss: COMPANY } });
+            await deniedBy(eidas2KeySigned, /signature does not verify/);
         });
 
         it('no credential, or garbage, is refused before any provider sees it', async () => {

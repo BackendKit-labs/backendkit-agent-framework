@@ -2,7 +2,7 @@
 
 **Mandates for agents:** a power of representation the agent acts under. It says, signed by someone with authority, who the agent works for, what it may do, on what and up to how much. With a valid mandate the agent acts **alone inside its limits**, without asking a person each time; outside them it asks, and without a mandate it does nothing.
 
-**This package is a reference implementation, not a standard of its own and not tied to any identity provider.** `agent-core` knows nothing of any credential format or issuer: it only knows a `Mandate` and a `MandateVerifier`. You can use this verifier, write yours, or put an adapter of a provider in its place; the agent, the policy and the audit do not change. It is the **default verifier**. The contract (`Mandate`, `MandateVerifier`, `mandatePolicy`) lives in `@backendkit-labs/agent-core`; here is a verifier that reads a signed credential in a fixed profile (described below), so agents can work under mandates **now**. The credential of a specific provider (an eIDAS 2 wallet, DALION) is an **adapter** to the same `Mandate`: nothing in your agent changes when it arrives.
+**This package is a reference implementation, not a standard of its own and not tied to any identity provider.** `agent-core` knows nothing of any credential format or issuer: it only knows a `Mandate` and a `MandateVerifier`. You can use this verifier, write yours, or put an adapter of a provider in its place; the agent, the policy and the audit do not change. It is the **default verifier**. The contract (`Mandate`, `MandateVerifier`, `mandatePolicy`) lives in `@backendkit-labs/agent-core`; here is a verifier that reads a signed credential in a fixed profile (described below), so agents can work under mandates **now**. The credential of a specific provider (an eIDAS 2 wallet, el sistema compatible con eIDAS 2) is an **adapter** to the same `Mandate`: nothing in your agent changes when it arrives.
 
 The profile below (a JWT shaped like an SD-JWT VC, type `urn:backendkit:mandate:1`) is **our choice**, so the claims of another provider's credential do not match it as they are: that is what an adapter is for. The type is configurable (`vct`).
 
@@ -67,7 +67,7 @@ With `amount: 1500` the same agent does not buy: it is outside the mandate, so i
 
 ## Building the adapter of another identity provider
 
-The credential of a provider (a wallet, DALION, a corporate directory) is an **adapter** to the same `Mandate`. These are the pieces every adapter needs, so none has to rewrite them:
+The credential of a provider (a wallet, an eIDAS 2-compatible service, a corporate directory) is an **adapter** to the same `Mandate`. These are the pieces every adapter needs, so none has to rewrite them:
 
 - **SD-JWT (RFC 9901):** `splitSdJwt`, `resolveDisclosures` (rejects a repeated digest, a Disclosure nobody references and a colliding claim name), `verifyKbJwt` with `kbSigningInput` (key binding: `aud`, `nonce`, `iat`, `sd_hash`) and `hideClaims` (to issue in tests).
 - **Format-neutral rules:** the adapter translates its format into a list of powers (`Power`: a verb, an optional object, an optional amount limit) and applies the same rules to all of them: `checkPowers` (**refuses a power with a restriction it cannot enforce**, because ignoring it would grant more than the issuer meant), `selectPower`, `checkAssurance`, `consentMessage` and `checkConsent` (the person's own signature over the powers).

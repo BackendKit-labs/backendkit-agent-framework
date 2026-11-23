@@ -1,24 +1,24 @@
 /**
- * A stand-in for DALION, for tests and demos. It is not DALION and it does not speak to it. It plays the three roles the real one is
+ * A stand-in for eIDAS 2, for tests and demos. It is not eIDAS 2 and it does not speak to it. It plays the three roles the real one is
  * described to play, in an ASSUMED shape:
  *   1. it gives each agent a non-human digital identity (a DID) and keeps its key in "custody" (so it signs for it, asynchronously);
- *   2. it issues credentials of power of representation in the assumed format of `dalion-assumed.ts`, optionally TIED to the agent's key;
+ *   2. it issues credentials of power of representation in the assumed format of `eidas2-assumed.ts`, optionally TIED to the agent's key;
  *   3. it keeps a revocation list.
  */
 import { generateKeyPairSync, sign as edSign, type KeyObject } from 'node:crypto';
 import { signJws } from '@backendkit-labs/agent-mandates';
-import { DALION_ASSUMED_VCT, type DalionPower } from './dalion-assumed';
+import { EIDAS2_ASSUMED_VCT, type Eidas2Power } from './eidas2-assumed';
 import type { AgentIdentity, AgentIdentityProvider } from '../identity/prototype';
 import { consentMessage } from '@backendkit-labs/agent-mandates';
 import { hideClaims } from '@backendkit-labs/agent-mandates';
 
 /** The non-human identity the simulator gives to the example's buyer agent (assumed shape). */
-export const AGENT_DALION_IDENTITY = 'did:dalion:agent:buyer-01';
+export const AGENT_EIDAS2_IDENTITY = 'did:eidas2:agent:buyer-01';
 
 export interface IssueOptions {
     /** The non-human identity of the agent the power is for. */
     agent: string;
-    /** For whom the agent works (the human's identifier in DALION). */
+    /** For whom the agent works (the human's identifier in eIDAS 2). */
     represents: string;
     /** A person or a legal entity. Default `person`. */
     kind?: 'person' | 'legal-entity';
@@ -29,7 +29,7 @@ export interface IssueOptions {
      * it out (a credential the person never consented to).
      */
     consent?: false | { by: string };
-    powers: DalionPower[];
+    powers: Eidas2Power[];
     id?: string;
     /** Seconds since the epoch. */
     notBefore?: number;
@@ -47,7 +47,7 @@ export interface IssueOptions {
 interface Custody { identity: AgentIdentity; privateKey: KeyObject; publicKey: KeyObject }
 interface Human { kid: string; privateKey: KeyObject; publicKey: KeyObject }
 
-export class DalionSim {
+export class Eidas2Sim {
     readonly issuer: string;
     readonly publicKey: KeyObject;
     private readonly privateKey: KeyObject;
@@ -56,7 +56,7 @@ export class DalionSim {
     private readonly humans = new Map<string, Human>();
     private n = 0;
 
-    constructor(issuer = 'https://issuer.dalion.example') {
+    constructor(issuer = 'https://issuer.eidas2.example') {
         this.issuer = issuer;
         const pair = generateKeyPairSync('ed25519');
         this.publicKey = pair.publicKey;
@@ -68,12 +68,12 @@ export class DalionSim {
         const known = this.agents.get(agentId);
         if (known) return known.identity;
         const pair = generateKeyPairSync('ed25519');
-        const identity: AgentIdentity = { id: did ?? `did:dalion:agent:${agentId}-01`, issuer: this.issuer, kid: `${did ?? `did:dalion:agent:${agentId}-01`}#key-1` };
+        const identity: AgentIdentity = { id: did ?? `did:eidas2:agent:${agentId}-01`, issuer: this.issuer, kid: `${did ?? `did:eidas2:agent:${agentId}-01`}#key-1` };
         this.agents.set(agentId, { identity, privateKey: pair.privateKey, publicKey: pair.publicKey });
         return identity;
     }
 
-    /** Gives a person (by their DALION identifier) a key to consent with. Idempotent. In real life the person holds it, not DALION. */
+    /** Gives a person (by their eIDAS 2 identifier) a key to consent with. Idempotent. In real life the person holds it, not eIDAS 2. */
     registerHuman(humanId: string): string {
         const known = this.humans.get(humanId);
         if (known) return known.kid;
@@ -95,7 +95,7 @@ export class DalionSim {
         return undefined;
     }
 
-    /** The agent side: how an engine asks DALION who an agent is and gets it to sign. Asynchronous, like a custody service would be. */
+    /** The agent side: how an engine asks eIDAS 2 who an agent is and gets it to sign. Asynchronous, like a custody service would be. */
     identityProvider(): AgentIdentityProvider {
         return {
             resolve: async (agentId) => { await tick(); return this.agents.get(agentId)?.identity; },
@@ -110,7 +110,7 @@ export class DalionSim {
 
     /** A credential signed by this issuer; `signedBy` lets a test sign it with another key (a forgery). */
     issue(o: IssueOptions, signedBy: KeyObject = this.privateKey): string {
-        const id = o.id ?? `dalion-cred-${++this.n}`;
+        const id = o.id ?? `eidas2-cred-${++this.n}`;
         const bound = o.bindToKeyOf ? this.agents.get(o.bindToKeyOf) : undefined;
         if (o.bindToKeyOf && !bound) throw new Error(`no key in custody for "${o.bindToKeyOf}"`);
         const payload: Record<string, unknown> = {
@@ -120,10 +120,10 @@ export class DalionSim {
             iat: Math.floor(Date.now() / 1000),
             nbf: o.notBefore ?? Math.floor(Date.now() / 1000),
             exp: o.expiresAt,
-            vct: DALION_ASSUMED_VCT,
+            vct: EIDAS2_ASSUMED_VCT,
             represents: { id: o.represents, kind: o.kind ?? 'person', ...(o.assurance !== undefined ? { assurance: o.assurance } : {}) },
             powers: o.powers,
-            status: { status_list: { idx: ++this.n, uri: 'https://status.dalion.example/lists/1' } },
+            status: { status_list: { idx: ++this.n, uri: 'https://status.eidas2.example/lists/1' } },
             ...(bound ? { cnf: { kid: bound.identity.kid, jwk: bound.publicKey.export({ format: 'jwk' }) } } : {}),
             ...(o.payload ?? {}),
         };

@@ -18,7 +18,13 @@ export interface Session {
     activeRuns: number;
 }
 
-export type EngineFactory = (sessionId: string, transport: WebSocketTransport) => AgentEngine;
+/**
+ * Who opened the session, as the server authenticated them (the `sub` of the verified token). Hand it to the engine as `identity: { userId }`:
+ * an agent says on whose behalf it acts (SPEC-0044), and for a web session that is this person, not a fixed one.
+ */
+export interface SessionCaller { userId?: string }
+
+export type EngineFactory = (sessionId: string, transport: WebSocketTransport, caller?: SessionCaller) => AgentEngine;
 
 export interface SessionManagerOptions {
     /** Factory that creates a fresh AgentEngine for a session. Called once per session. */
@@ -86,7 +92,7 @@ export class SessionManager {
             };
         }
 
-        const engine = this.engineFactory(id, transport);
+        const engine = this.engineFactory(id, transport, userId !== undefined ? { userId } : {});
         const now = new Date();
 
         const session: Session = {

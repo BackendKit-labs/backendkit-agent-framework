@@ -52,7 +52,7 @@ const running: AgentServer[] = [];
 async function start(opts: Partial<ConstructorParameters<typeof AgentServer>[0]> = {}) {
     const port = await freePort();
     const handler = memoryApprovals();
-    const server = new AgentServer({ name: 'appr', version: '1.0.0', description: 'd', port, approvalHandler: handler, ...opts });
+    const server = new AgentServer({ allowUngated: true, name: 'appr', version: '1.0.0', description: 'd', port, approvalHandler: handler, ...opts });
     await server.start();
     running.push(server);
     return { url: `http://127.0.0.1:${port}`, port, handler };

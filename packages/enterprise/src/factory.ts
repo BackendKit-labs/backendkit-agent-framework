@@ -79,8 +79,11 @@ export interface EnterpriseSetupOptions {
 export interface EnterpriseSetup {
     /** Call once at startup to index all vault folders. */
     indexAll(opts?: { verbose?: boolean }): Promise<void>;
-    /** EngineFactory compatible with AgentServer from @backendkit-labs/agent-web. */
-    engineFactory: (sessionId: string, transport: Transport) => AgentEngine;
+    /**
+     * EngineFactory compatible with AgentServer from @backendkit-labs/agent-web. The third argument is who opened the session, as the server
+     * authenticated them: when present it is who the engine acts for (`identity.userId`), over the one of the setup options.
+     */
+    engineFactory: (sessionId: string, transport: Transport, caller?: { userId?: string }) => AgentEngine;
 }
 
 // ── Department RAG config ─────────────────────────────────────────────────────
@@ -172,7 +175,7 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
 
     // ── Engine factory ────────────────────────────────────────────────────────
 
-    function engineFactory(sessionId: string, transport: Transport): AgentEngine {
+    function engineFactory(sessionId: string, transport: Transport, caller?: { userId?: string }): AgentEngine {
         const tools: ToolDefinition[] = [globalRAG.createTool()];
 
         // Department search tools
@@ -230,7 +233,7 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
             ...(opts.context ? { context: opts.context } : {}),
             ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
-            ...(opts.identity ? { identity: opts.identity } : {}),
+            ...(opts.identity || caller?.userId ? { identity: { ...opts.identity, ...(caller?.userId ? { userId: caller.userId } : {}) } } : {}),
             ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.

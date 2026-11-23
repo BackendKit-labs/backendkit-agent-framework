@@ -32,7 +32,7 @@ describe('AgentServer + AgentClient (HTTP real)', () => {
     beforeAll(async () => {
         const port = await freePort();
         url = `http://127.0.0.1:${port}`;
-        server = new AgentServer({ name: 'test-agent', version: '1.2.3', description: 'd', port, apiKey: 'k3y' });
+        server = new AgentServer({ allowUngated: true, name: 'test-agent', version: '1.2.3', description: 'd', port, apiKey: 'k3y' });
         server
             .register({ definition: def('echo'), execute: async (input, ctx) => ({ input, tenant: ctx.tenantId }) })
             .register({ definition: def('boom'), execute: async () => { throw new Error('kaput'); } })

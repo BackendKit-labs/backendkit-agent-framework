@@ -50,12 +50,14 @@ npm install ioredis               # Redis session store
 ```typescript
 import { AgentServer } from '@backendkit-labs/agent-web';
 import type { EngineFactory } from '@backendkit-labs/agent-web';
-import { AgentEngine, AgentRegistry, ToolRegistry, ProviderRegistry } from '@backendkit-labs/agent-core';
+import { AgentEngine, AgentRegistry, ToolRegistry, ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
-const engineFactory: EngineFactory = (sessionId, transport) =>
+const engineFactory: EngineFactory = (sessionId, transport, caller) =>
   new AgentEngine({
     transport,
     sessionId,
+    agentIdentity: selfAssertedIdentities(),                    // who the agent is
+    identity: { userId: caller?.userId ?? 'anonymous' },        // for whom: the person the server authenticated
     // ...your engine config
   });
 

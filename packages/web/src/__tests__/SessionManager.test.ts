@@ -72,6 +72,22 @@ describe('SessionManager', () => {
         engineFactory = jest.fn().mockReturnValue(engine);
     });
 
+    // ── who the session is for (SPEC-0044) ─────────────
+
+    describe('the authenticated user reaches the engine factory', () => {
+        it('hands the factory the userId of the session, so the engine acts for that person', () => {
+            const mgr = new SessionManager({ engineFactory });
+            mgr.create(makeSocket(), 'u-42');
+            expect(engineFactory).toHaveBeenCalledWith(expect.any(String), expect.anything(), { userId: 'u-42' });
+        });
+
+        it('with no authentication there is no user to hand over', () => {
+            const mgr = new SessionManager({ engineFactory });
+            mgr.create(makeSocket());
+            expect(engineFactory).toHaveBeenCalledWith(expect.any(String), expect.anything(), {});
+        });
+    });
+
     // ── create() ──────────────────────────────────────────────────────────────
 
     describe('create()', () => {
@@ -108,7 +124,7 @@ describe('SessionManager', () => {
         it('calls engineFactory with the session id and a transport', () => {
             const mgr     = new SessionManager({ engineFactory });
             const session = mgr.create(makeSocket());
-            expect(engineFactory).toHaveBeenCalledWith(session.id, expect.any(Object));
+            expect(engineFactory).toHaveBeenCalledWith(session.id, expect.any(Object), {});
             mgr.close();
         });
 

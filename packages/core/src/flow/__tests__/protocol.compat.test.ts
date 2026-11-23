@@ -47,7 +47,7 @@ describe('a handler from core, served by a real AgentServer', () => {
         const view: FlowRunView = {} as FlowRunState;
         void view;
         const port = await freePort();
-        const server = new AgentServer({ name: 'books', version: '1.0.0', description: 'books', port, apiKey: 'run', controlApiKey: 'ctl', flowHandler: asProtocol });
+        const server = new AgentServer({ allowUngated: true, name: 'books', version: '1.0.0', description: 'books', port, apiKey: 'run', controlApiKey: 'ctl', flowHandler: asProtocol });
         await server.start();
         stops.push(async () => { await host.close(); await server.stop(); });
         const url = `http://127.0.0.1:${port}`;

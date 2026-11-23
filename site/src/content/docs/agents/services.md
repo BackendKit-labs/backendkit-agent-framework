@@ -56,6 +56,8 @@ If you do not want a model between the caller and the tool, `createToolServer` e
 
 ## To other agents: `agent-protocol`
 
+A capability is another way to act, so `AgentServer` runs nothing without an **identity gate** (`capabilityIdentityGate` of `agent-core`): the agent has a digital identity and says for whom it acts, every run is attributed to it and signed in the audit, and the handler receives them in its context. The protocol authenticates a caller with one shared key, so who a run is for is something you establish from what you verified, never from a header the caller sets. See [Governance](../../concepts/governance/).
+
 `AgentServer` publishes an agent's capabilities, `AgentClient` calls them with retries and a circuit breaker, and a control surface lets a supervisor **pause, drain, budget, audit and steer** an agent and its [flows](../../guides/let-a-model-supervise-flows/).
 
 Limits of the browser server, all with a default you can change:

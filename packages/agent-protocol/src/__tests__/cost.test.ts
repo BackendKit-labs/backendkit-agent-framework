@@ -24,7 +24,7 @@ describe('costUsd reported by a handler', () => {
     beforeAll(async () => {
         const port = await freePort();
         url = `http://127.0.0.1:${port}`;
-        server = new AgentServer({ name: 'a', version: '1.0.0', description: 'd', port });
+        server = new AgentServer({ allowUngated: true, name: 'a', version: '1.0.0', description: 'd', port });
         server
             .register({ definition: def('paid'), execute: async (_i, ctx) => { ctx.reportCost?.(0.25); ctx.reportCost?.(0.5); return 'ok'; } })
             .register({ definition: def('free'), execute: async () => 'ok' })

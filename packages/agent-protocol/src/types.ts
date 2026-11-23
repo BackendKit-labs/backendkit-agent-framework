@@ -6,9 +6,41 @@ export interface AgentContext {
     tenantId?:  string;
     traceId?:   string;
     requestId?: string;
+    /** On whose behalf the run acts, when the gate of the server says so (SPEC-0044). */
+    userId?:    string;
+    /** The digital identity of the agent that runs it, when the gate of the server resolved one. Opaque to the protocol. */
+    agentIdentity?: { id: string; kid?: string; issuer?: string; assurance?: string };
     /** Adds the USD this run spent. Set by `AgentServer` on capability runs; the total travels in the answer as `costUsd`. */
     reportCost?: (usd: number) => void;
 }
+
+/** What the gate of an `AgentServer` is told about a run that is about to start. */
+export interface CapabilityCall {
+    /** The capability, or `flow:<name>` for the start of a flow. */
+    capability: string;
+    input: Record<string, unknown>;
+    context: AgentContext;
+    /** The headers of the request. Authenticated by the server (`apiKey`) as one shared key, nothing more: who the caller is, is for the gate to say. */
+    headers: Record<string, string | string[] | undefined>;
+}
+
+/** The answer of a gate: let the run start (with more context for it) or refuse it. */
+export type CapabilityGateResult =
+    | {
+        ok: true;
+        /** Merged into the context the handler receives (the user and the identity it acts under). */
+        context?: Partial<AgentContext>;
+        /** Called when the run ends, so the gate can record how it went. A failure here never changes the answer. */
+        finish?(outcome: { ok: boolean; error?: string }): void | Promise<void>;
+    }
+    | { ok: false; code?: 'UNAUTHORIZED' | 'FORBIDDEN'; message: string };
+
+/**
+ * Decides whether a run may start and under which identity (SPEC-0044). The protocol knows no identity provider: `@backendkit-labs/agent-core`
+ * brings one (`capabilityIdentityGate`) that requires an identity for the agent and a person to act for, attributes and signs the audit.
+ * A gate that throws refuses the run.
+ */
+export type CapabilityGate = (call: CapabilityCall) => CapabilityGateResult | Promise<CapabilityGateResult>;
 
 // ── Capability schema ─────────────────────────────────────────────────────────
 

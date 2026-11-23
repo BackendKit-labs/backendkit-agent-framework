@@ -23,7 +23,7 @@ interface Started { server: AgentServer; url: string }
 const running: AgentServer[] = [];
 async function start(opts: Partial<ConstructorParameters<typeof AgentServer>[0]> = {}): Promise<Started> {
     const port = await freePort();
-    const server = new AgentServer({ name: 'ctl', version: '1.0.0', description: 'd', port, ...opts });
+    const server = new AgentServer({ allowUngated: true, name: 'ctl', version: '1.0.0', description: 'd', port, ...opts });
     server.register({ definition: def('echo'), execute: async input => input });
     server.register({ definition: def('long', true), execute: async () => 'done' });
     server.register({ definition: def('boom'), execute: async () => { throw new Error('kaput'); } });

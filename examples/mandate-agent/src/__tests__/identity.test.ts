@@ -28,7 +28,7 @@ const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value
 describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
     let dir: string;
     let dalion: DalionSim;
-    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'identity-')); dalion = new DalionSim(); dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY); });
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'identity-')); dalion = new DalionSim(); dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY); dalion.registerHuman('carlos'); });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const log = () => join(dir, 'audit.ndjson');
@@ -36,7 +36,7 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
     const buyEvent = () => events().find(e => e.tool === 'buy_supplies')!;
 
     const dalionVerifier = (credential: () => string | undefined, extra: { requireHolderBinding?: boolean } = {}): MandateVerifier => dalionMandateVerifier({
-        trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => credential(), objectOf, isRevoked: dalion.isRevoked, ...extra,
+        trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => credential(), objectOf, humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid), isRevoked: dalion.isRevoked, ...extra,
     });
     const credential = (over: Record<string, unknown> = {}) => dalion.issue({
         agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [TV_1000], ...over,

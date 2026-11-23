@@ -44,11 +44,13 @@ describe('the agent knows no identity provider', () => {
     // ── provider A: DALION (assumed) ────────────────────────────────────────────────────────────────────────────
     const dalion = new DalionSim();
     dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY);
+    dalion.registerHuman('carlos');
     const layer = () => identityLayer({ provider: dalion.identityProvider(), require: true });
     const dalionCredential = () => dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
     const dalionVerifier = (credential: () => string | undefined) => dalionMandateVerifier({
         trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => credential(),
         objectOf,
+        humanIdOf: (userId) => userId, humanKeyOf: (id, kid) => dalion.humanPublicKey(id, kid),
     });
 
     // ── provider B: the reference profile of agent-mandates (names tools, not verbs) ────────────────────────────

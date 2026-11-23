@@ -8,7 +8,7 @@ Este ejemplo lo demuestra, no solo lo afirma:
 
 - **`agent.ts` no conoce ningún proveedor.** Recibe un `MandateVerifier` (el contrato de `agent-core`) y nada más. Un test comprueba que su código no nombra a ningún proveedor ni importa nada de `providers/`.
 - **Los proveedores viven en `providers/`** y cada uno es un adaptador detrás de ese mismo contrato:
-  - `dalion-assumed.ts`: DALION, con un formato **supuesto** (ver abajo). Habla en verbos del dominio.
+  - `dalion-assumed.ts`: DALION, con un contenedor **deducido de eIDAS 2** y un contenido **supuesto** (ver abajo). Habla en verbos del dominio.
   - El **perfil de referencia** de `@backendkit-labs/agent-mandates` (`jwtMandateVerifier`): nombra herramientas.
   - Una **tabla propia del operador** (en los tests): sin credencial ni criptografía, responde el mismo contrato.
 - **`router.ts`** pone varios proveedores detrás de **un** verificador, para un operador que trabaja con más de uno. Enruta por el `iss` de la credencial **leído sin verificar**; eso es seguro porque solo elige quién la juzga: el verificador elegido comprueba la firma con las claves que ÉL confía para ese emisor. Una credencial que dice ser de un proveedor pero está firmada con la clave de otro se rechaza.
@@ -16,7 +16,7 @@ Este ejemplo lo demuestra, no solo lo afirma:
 
 Cambiar de proveedor, o sumar uno, es **cableado del operador**, no una decisión del agente.
 
-> **El formato de la credencial de DALION es SUPUESTO.** Todavía no se conoce el real (SPEC-0043 §6; la F3 está bloqueada por eso). `src/providers/dalion-assumed.ts` fija una forma inventada a partir de lo que se sabe del producto, para poder construir y probar ya el agente, la política, la auditoría y los casos de fallo. **No demuestra compatibilidad con DALION.** Cuando llegue el formato real, lo único que cambia es ese adaptador; los tests de `src/__tests__/mandate-agent.test.ts` son el contrato que el nuevo adaptador tiene que seguir cumpliendo.
+> **Qué se deduce y qué se supone del formato de DALION.** El formato real de DALION no se conoce (SPEC-0043 §6; la F3 está bloqueada por eso). Pero DALION se describe como **compatible con eIDAS 2**, y los formatos de atestación de ese ecosistema son públicos, así que el **contenedor** se deduce de ahí y no se inventa: un **SD-JWT VC** (RFC 9901 y el borrador SD-JWT VC; el otro formato de la cartera europea es ISO mdoc), con divulgación selectiva, vinculación de clave por `cnf` y un **Key Binding JWT**, y revocación por referencia a una **Token Status List**. Lo que **no** se puede deducir es el **contenido** de una atestación de poder de representación: no se encontró un esquema público (el ARF define a una persona natural que representa a una jurídica y planea el "poder digital" como caso de uso de las carteras de empresa, sin campos). Por eso los campos `represents`, `powers` y el consentimiento siguen siendo **supuestos**. **Nada de esto demuestra compatibilidad con DALION**; los tests de `src/__tests__/` son el contrato que el adaptador real tiene que seguir cumpliendo.
 
 ## La identidad digital del agente (maqueta de SPEC-0044)
 
@@ -41,6 +41,18 @@ proveedor de identidad  ──resolve(agentId)──▶  { id, issuer, kid }   l
 
 Los tests de la identidad están en `src/__tests__/identity.test.ts` (21 casos); cada pieza se defiende por sí sola (el adaptador, la capa del verificador y la política no se apoyan unas en otras).
 
+## Para quién trabaja: el humano de la credencial
+
+La credencial dice para quién trabaja el agente. Eso no es solo un texto que la aplicación declara y la credencial repite:
+
+- **Se mapea.** La aplicación dice `u-1001`; DALION dice `did:dalion:person:carlos`. Son espacios de nombres distintos, y el operador aporta la traducción (`humanIdOf`). Sin traducción, la credencial se rechaza.
+- **Es estructurado.** `represents` lleva `id`, `kind` (**persona** o **entidad jurídica**) y `assurance` (con qué garantía se identificó a la persona: `low`, `substantial`, `high`). Un despliegue puede exigir un mínimo (`minAssurance`); sin mínimo, solo se registra.
+- **La persona consiente.** La persona firma con su propia clave lo que el agente puede hacer por ella (el agente, los poderes y la fecha de fin). Sin esa firma el emisor podría conceder poderes que nadie concedió; con ella, **el emisor no puede ensancharlos después**: aunque vuelva a firmar la credencial con una clave válida y suba el límite, la firma de la persona ya no cubre lo que dice y se rechaza. Tampoco puede añadir un poder ni pasarle el consentimiento a otro agente. Sin consentimiento, se rechaza (`requireConsent`); un despliegue puede aceptarlo y la auditoría dice `consent: none`.
+- **Una credencial de otra persona no es "fuera de alcance": es ningún poder.** Se **deniega** y nadie es consultado, en vez de pedir a un humano que apruebe algo que ni siquiera es de esta persona.
+- **La auditoría lo registra** (`represents`: identificador, tipo, garantía y si el consentimiento se verificó), además del `subject` con el id de la aplicación.
+
+Los tests están en `src/__tests__/human.test.ts` (16 casos). **El mecanismo del consentimiento es SUPUESTO**, como el resto del formato de DALION: no sé cómo lo registra el real.
+
 ## La credencial habla del dominio, no del código
 
 La credencial de DALION **no dice qué herramientas puede ejecutar el agente**. Dice un **verbo** (`buy`), un **objeto** (`television`) y un **importe**. Qué herramienta de *este* agente realiza "comprar" lo declara **la propia herramienta**, en el campo de metadatos que el framework reserva para los clientes de gobernanza (`ToolDefinition.meta`), nunca la credencial:
@@ -57,16 +69,28 @@ defineTool({
 
 Así, renombrar una herramienta no toca la credencial, y una herramienta que no declara ningún verbo **nunca** queda cubierta por un proveedor que habla en verbos. Un proveedor que nombra herramientas (el perfil de referencia) no necesita nada de esto.
 
-## Qué se supone del contenedor de DALION
+**Fuentes consultadas** (los borradores del IETF cambian de revisión): [RFC 9901, SD-JWT](https://www.rfc-editor.org/rfc/rfc9901.html), [SD-JWT VC](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/), [Token Status List](https://datatracker.ietf.org/doc/draft-ietf-oauth-status-list/) y el [ARF de la cartera europea](https://eu-digital-identity-wallet.github.io/eudi-doc-architecture-and-reference-framework/arf).
 
-Un JWT con forma de SD-JWT VC, firmado por el emisor (`iss`):
+## Qué se deduce de eIDAS 2 y qué se supone
+
+**Deducido (estándares públicos; los borradores del IETF pueden cambiar):**
+
+| Aspecto | Qué dice el estándar | Dónde está en el ejemplo |
+|---|---|---|
+| Formato | SD-JWT VC, `typ` `dc+sd-jwt` (se acepta también `vc+sd-jwt`), `vct` como nombre del tipo | `dalion-assumed.ts` |
+| Divulgación selectiva | Las Disclosures `[sal, nombre, valor]` y los resúmenes en `_sd`; se rechazan la duplicada, la no referenciada, la que pisa otro claim, `_sd`/`...` como nombre y un algoritmo distinto de SHA-256 | `standards/sd-jwt.ts` |
+| Vinculación de clave | `cnf` en la credencial y un **KB-JWT** (`typ` `kb+jwt`) con `iat`, `aud`, `nonce` y `sd_hash` sobre `<jwt>~<disclosures>~`, firmado con esa clave | `standards/sd-jwt.ts`, `dalion-assumed.ts` |
+| Revocación | Referencia a una **Token Status List**: `status.status_list.{idx, uri}` | `dalion-assumed.ts` (el operador aporta la consulta) |
+| Confianza en el emisor | En un relying party real: `x5c` y listas de confianza | **No se implementa**: el operador lista las claves de emisor |
+
+**Supuesto (no se encontró un esquema público de un poder de representación):** el contenido. Un JWT con `iss`, `sub`, `jti`, `nbf`, `exp`, `vct` propio y:
 
 | Campo | Qué es |
 |---|---|
 | `sub` | La identidad **no humana del agente** (`did:dalion:agent:buyer-01`), no la de la persona |
 | `represents.id` | Para quién trabaja el agente |
 | `powers[]` | `{ action, object?, max?: { value, currency } }`: un verbo, opcionalmente el objeto, opcionalmente un límite. **Sin nombres de herramientas** |
-| `status.id` | Lo que usa la consulta de revocación |
+| `status.status_list` | `{ idx, uri }`: la referencia a la Token Status List |
 | `jti`, `nbf`, `exp` | Id y vigencia. **`exp` es obligatorio**: un poder sin fin no se acepta |
 | `vct` | Nombra este formato supuesto |
 
@@ -90,6 +114,10 @@ Responde **por llamada**: toma el verbo que declara la herramienta llamada, busc
 - `src/__tests__/mandate-agent.test.ts`: 48 casos de extremo a extremo bajo DALION (el contrato del adaptador).
 - `src/__tests__/providers.test.ts`: 14 casos de neutralidad: el mismo agente bajo tres proveedores y bajo varios a la vez.
 - `src/__tests__/identity.test.ts`: 21 casos de la identidad del agente (atribución, firma, prueba de posesión, obligatoriedad).
+- `src/__tests__/human.test.ts`: 16 casos del humano de la credencial (mapeo, tipo y garantía, consentimiento, credencial de otra persona).
+- `src/standards/sd-jwt.ts`: el contenedor SD-JWT (RFC 9901), **neutral al proveedor**: Disclosures, KB-JWT y su verificación.
+- `src/__tests__/sd-jwt.test.ts`: 24 casos del contenedor, con los rechazos que el RFC exige a un verificador.
+- `src/__tests__/eidas.test.ts`: 11 casos de la credencial como la llevaría una cartera eIDAS 2 (divulgación selectiva, KB-JWT, Token Status List).
 
 ```bash
 npm install
@@ -114,5 +142,7 @@ Se comprobó que los tests tienen dientes: debilitaciones deliberadas del adapta
 - **El objeto se compara por texto exacto.** Si el modelo dice «TV» en vez de «television», **pregunta**: es seguro pero incómodo. La normalización (o un catálogo de objetos) es una decisión de quien despliega el agente.
 - **No autentica a nadie.** `identity.userId` es lo que dice la aplicación; el mandato dice qué puede hacer el agente por esa persona.
 - **No gestiona claves ni la fuente de revocación.** La lista de emisores confiables y dónde se consulta el estado son del operador.
-- **Sin divulgación selectiva ni *key binding*:** una credencial que los trae se rechaza.
+- **No construye la cadena de confianza del emisor.** Un relying party de la cartera europea usaría `x5c` y las listas de confianza; aquí el operador lista las claves de los emisores.
+- **Solo EdDSA para la clave del titular**, y no se descarga ni se valida la Token Status List: el operador aporta `isRevoked`, que recibe `{ uri, idx }`.
+- **Una credencial con `cnf` oculto detrás de una Disclosure** (lo que el RFC prohíbe al emisor) no se detecta: el titular podría no divulgarlo. Un despliegue que quiera cerrar eso exige `requireHolderBinding`.
 - **El enrutador no es parte del framework.** Es una pieza de este ejemplo. Si varios operadores lo necesitan, la propuesta es llevarlo a `agent-mandates`.

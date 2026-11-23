@@ -43,7 +43,13 @@ export type ProofOfPossession = (challenge: Uint8Array) => Promise<{ kid: string
 export interface IdentityRequest extends MandateRequest { principal: MandateRequest['principal'] & IdentityPrincipal; prove?: ProofOfPossession }
 
 /** CORE: `Mandate.agentIdentity` and `Mandate.holderBinding` (SPEC-0044 D5, D6). */
-export type IdentityMandate = Mandate & { agentIdentity?: string; holderBinding?: 'proven' | 'none' };
+export type IdentityMandate = Mandate & { agentIdentity?: string; holderBinding?: 'proven' | 'none'; represents?: Represented };
+
+/**
+ * Who the agent works for, as the credential says and as was checked (SPEC-0043/0044: the human is not just a string). CORE: part of `Mandate`
+ * and of `AuditMandate`. `consent` says whether the person's own signature over the powers was verified.
+ */
+export interface Represented { id: string; kind: 'person' | 'legal-entity'; assurance?: string; consent: 'verified' | 'none' }
 
 /** What the layer leaves in the audit, next to the event (CORE: `AuditEvent.agentIdentity`, `AuditMandate.agentIdentity/holderBinding`, D4). */
 export interface AgentSignature { kid: string; signature: string }
@@ -98,7 +104,7 @@ export function identityLayer(options: IdentityLayerOptions): IdentityLayer {
 
     // What the verifier learned about one call, for the policy to put in the audited mandate. Keyed by the call object: the policy hands the
     // SAME object to the verifier. CORE: the mandate itself carries these (D5, D6) and this map disappears.
-    const facts = new WeakMap<ToolCall, { agentIdentity?: string; holderBinding: 'proven' | 'none' }>();
+    const facts = new WeakMap<ToolCall, { agentIdentity?: string; holderBinding: 'proven' | 'none'; represents?: Represented }>();
 
     return {
         verifier(inner) {
@@ -126,6 +132,7 @@ export function identityLayer(options: IdentityLayerOptions): IdentityLayer {
                     facts.set(request.call, {
                         ...(mandate.agentIdentity !== undefined ? { agentIdentity: mandate.agentIdentity } : {}),
                         holderBinding: mandate.holderBinding ?? 'none',
+                        ...(mandate.represents ? { represents: mandate.represents } : {}),
                     });
                     return verdict;
                 },

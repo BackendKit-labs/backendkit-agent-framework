@@ -105,7 +105,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
         it('a different nonce on every verification: a proof is never reused', async () => {
             const signed: string[] = [];
             const real = dalion.identityProvider();
-            const spy: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: async (id, m) => { signed.push(Buffer.from(m).toString('ascii')); return real.sign(id, m); } };
+            const spy: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (id, m) => { signed.push(Buffer.from(m).toString('ascii')); return real.sign(id, m); } };
             const v = verifier(() => credential({ bindToKeyOf: AGENT_ID }));
             const call = (id: string) => ({ tool_calls: [{ id, name: 'buy_supplies', args: { item: 'television', amount: 100, currency: 'EUR' } }] });
             const a = buildBuyerAgent({
@@ -129,7 +129,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
         it('what the agent signs is a kb+jwt addressed to this verifier, tied to the credential by sd_hash', async () => {
             let seen = '';
             const real = dalion.identityProvider();
-            const spy: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: async (id, m) => { const t = Buffer.from(m).toString('ascii'); if (isKbSigningInput(t)) seen = t; return real.sign(id, m); } };
+            const spy: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (id, m) => { const t = Buffer.from(m).toString('ascii'); if (isKbSigningInput(t)) seen = t; return real.sign(id, m); } };
             const a = agent(verifier(() => credential({ bindToKeyOf: AGENT_ID }), { audience: 'urn:verifier:acme' }), spy);
             await a.engine.run('buy a television');
             const [h, p] = seen.split('.') as [string, string];
@@ -148,7 +148,7 @@ describe('the credential as an SD-JWT VC (eIDAS 2 container)', () => {
             const real = dalion.identityProvider();
             const impostorKey = generateKeyPairSync('ed25519');
             const { sign } = await import('node:crypto');
-            const impostor: AgentIdentityProvider = { resolve: (id) => real.resolve(id), sign: async (_i, m) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, signature: sign(null, Buffer.from(m), impostorKey.privateKey).toString('base64url') }) };
+            const impostor: AgentIdentityProvider = { resolve: (id, c) => real.resolve(id, c), sign: async (_i, m) => ({ kid: `${AGENT_DALION_IDENTITY}#key-1`, signature: sign(null, Buffer.from(m), impostorKey.privateKey).toString('base64url') }) };
             const a = agent(verifier(() => credential({ bindToKeyOf: AGENT_ID })), impostor);
             await a.engine.run('buy a television');
             expect(a.purchases).toHaveLength(0);

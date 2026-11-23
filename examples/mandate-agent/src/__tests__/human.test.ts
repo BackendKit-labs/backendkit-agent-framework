@@ -85,8 +85,17 @@ describe('for whom the agent works: the human of the credential', () => {
             await refused(verifier(() => credential()), /no identifier for this person/, 'u-9999');
         });
 
-        it('the engine does not say who the agent acts for: refused', async () => {
-            await refused(verifier(() => credential()), /does not say who the agent acts for/, '');
+        it('the engine does not say who the agent acts for: refused, by agent-core before any adapter runs', async () => {
+            await refused(verifier(() => credential()), /does not say on whose behalf it acts/, '');
+        });
+
+        it('...and the adapter ALONE refuses it too, so it does not depend on the engine having checked', async () => {
+            const request = {
+                principal: { agentId: AGENT_ID, sessionId: 's', chain: [AGENT_ID], agentIdentity: { id: AGENT_DALION_IDENTITY } },
+                call: { tool: { name: 'buy_supplies', meta: { capability: 'buy' } }, args: { item: 'television', amount: 500, currency: 'EUR' } },
+            };
+            const verdict = await verifier(() => credential()).verify(request as never);
+            expect(verdict).toMatchObject({ ok: false, reason: expect.stringMatching(/does not say who the agent acts for/) });
         });
 
         it('a credential of ANOTHER person is no power at all: denied, and nobody is asked (it is not "out of scope")', async () => {

@@ -65,6 +65,15 @@ console.log(audit.events.find(e => e.tool === 'buy')?.mandate);      // { id, is
 
 With `amount: 1500` the same agent does not buy: it is outside the mandate, so it asks a person (and with no approver configured, it is refused). Without a credential, or with one signed by someone you do not trust, it does nothing.
 
+## Building the adapter of another identity provider
+
+The credential of a provider (a wallet, DALION, a corporate directory) is an **adapter** to the same `Mandate`. These are the pieces every adapter needs, so none has to rewrite them:
+
+- **SD-JWT (RFC 9901):** `splitSdJwt`, `resolveDisclosures` (rejects a repeated digest, a Disclosure nobody references and a colliding claim name), `verifyKbJwt` with `kbSigningInput` (key binding: `aud`, `nonce`, `iat`, `sd_hash`) and `hideClaims` (to issue in tests).
+- **Format-neutral rules:** the adapter translates its format into a list of powers (`Power`: a verb, an optional object, an optional amount limit) and applies the same rules to all of them: `checkPowers` (**refuses a power with a restriction it cannot enforce**, because ignoring it would grant more than the issuer meant), `selectPower`, `checkAssurance`, `consentMessage` and `checkConsent` (the person's own signature over the powers).
+
+Nothing here knows a provider. Writing an adapter is translating its format into these shapes and returning a `Mandate`.
+
 ## What the verifier checks
 
 Each one fails closed, with its own reason:

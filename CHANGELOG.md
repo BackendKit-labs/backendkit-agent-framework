@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.49.19 (2026-11-23)
+
+`agent-mandates` ofrece las piezas para escribir el adaptador de cualquier proveedor de identidad. Es aditivo: no cambia lo que ya hacía.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-mandates` | 0.1.1 | SD-JWT (RFC 9901) y las reglas comunes de un adaptador (poderes, consentimiento, garantía), que antes solo vivían en un ejemplo |
+
+Se publica uno. Tag: `agent-mandates@0.1.1`.
+
 ## v0.49.18 (2026-11-23)
 
 Cierre de los pendientes de la auditoría que sí se podían cerrar. Ninguno cambia una API: llegan como parche.

@@ -34,6 +34,9 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 **A6. ¿La persona consiente con su propia firma?** ¿Hay una firma o prueba de consentimiento de quien otorga el poder sobre los poderes concedidos? ¿Con qué clave y formato?
 *Por qué:* sin ella, el emisor podría conceder poderes que nadie aceptó. *Asumido:* firma Ed25519 de la persona sobre un mensaje canónico (id, agente, caducidad, quién, poderes).
 
+**A7. ¿Qué alcance tiene el apoderamiento?** ¿Solo compras y transacciones con dinero, o cualquier acción en nombre de la persona (firmar un documento, reservar, presentar un trámite, acceder a datos)? Y para el dinero: ¿el pago lo ejecuta el propio sistema o solo lo autoriza (y lo ejecuta un tercero con la autenticación reforzada del pagador, PSD2/PSD3)?
+*Por qué:* el framework es neutro (verbo, objeto, límites); el importe es una restricción más. Saber si el dinero es el único dominio decide qué restricciones hay que saber aplicar y si el pago es una tool aparte detrás del apoderamiento. *Asumido:* compras con importe máximo por operación; el pago real queda fuera del framework.
+
 ## B. La identidad del agente y su clave
 
 **B1. ¿Cómo se identifica un agente?** Formato del identificador (DID, URN, otro), quién lo asigna y si es estable ante rotaciones de clave.
@@ -92,7 +95,7 @@ Por ahora **tratamos nuestro formato supuesto como el de un sistema compatible c
 | Contenedor | SD-JWT VC | `examples/mandate-agent/src/providers/eidas2-assumed.ts` | A1 |
 | Agente | `sub` = identidad del agente | ídem | A2, B1 |
 | Persona | `represents: { id, kind, assurance }` | ídem | A2 |
-| Poderes | `powers: [{ action, object?, max? }]`, sin nombres de tools | ídem | A2, A3 |
+| Poderes | `powers: [{ action, object?, max? }]`, sin nombres de tools | ídem | A2, A3, A7 |
 | Ligadura a clave | `cnf.jwk` + Key Binding JWT (`aud`, `nonce`, `sd_hash`) | ídem + `agent-mandates` | B2, B3, B4 |
 | Consentimiento | firma Ed25519 de la persona | ídem + `adapter-kit` | A6 |
 | Revocación | Token Status List | ídem | C1 |
@@ -110,6 +113,7 @@ Por ahora **tratamos nuestro formato supuesto como el de un sistema compatible c
 | A4 | | | |
 | A5 | | | |
 | A6 | | | |
+| A7 | | | |
 | B1 | | | |
 | B2 | | | |
 | B3 | | | |

@@ -132,7 +132,7 @@ describe('with an engine: a signed mandate lets an agent buy alone, within its l
             if (turn.tool_calls) { for (const t of turn.tool_calls) cb.onToolCall?.(t.name, JSON.stringify(t.args), t.id); cb.onDone({ role: 'assistant', content: null, tool_calls: turn.tool_calls.map((t: any) => ({ id: t.id, type: 'function', function: { name: t.name, arguments: JSON.stringify(t.args) } })) }); }
             else { cb.onChunk?.(turn.content); cb.onDone({ role: 'assistant', content: turn.content }); }
         } };
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider as never }, defaultProvider: 'mock', agents: [agent], defaultAgent: 'buyer', tools: [buy],
             transport: { emit: () => undefined } as never, workingDir: process.cwd(), iterationMode: 'auto', audit, identity: { userId: 'carlos' },
             policy: mandatePolicy({

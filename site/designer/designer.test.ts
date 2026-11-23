@@ -256,13 +256,15 @@ describe('the skeleton', () => {
 
     test('the engine wires what the design asked for, and only that', () => {
         const refunds = file('refunds', 'src/engine.ts');
-        for (const piece of ['forbidSelfApproval: true', 'approverDirectory: deps.approverDirectory', 'credentialBroker: deps.credentialBroker', 'new FileApprovalStore', 'ed25519Signer(deps.auditSigningKeyPem', 'abortOnBudget: true', 'perRun: 0.5, perDay: 25', 'identity: { userId: deps.userId }']) {
+        for (const piece of ['forbidSelfApproval: true', 'approverDirectory: deps.approverDirectory', 'credentialBroker: deps.credentialBroker', 'new FileApprovalStore', 'ed25519Signer(deps.auditSigningKeyPem', 'abortOnBudget: true', 'perRun: 0.5, perDay: 25']) {
             assert.ok(refunds.includes(piece), `refunds should have ${piece}`);
         }
         const report = file('report-readonly', 'src/engine.ts');
-        for (const piece of ['forbidSelfApproval', 'approverDirectory', 'credentialBroker', 'FileApprovalStore', 'ed25519Signer', 'abortOnBudget', 'identity']) {
+        for (const piece of ['forbidSelfApproval', 'approverDirectory', 'credentialBroker', 'FileApprovalStore', 'ed25519Signer', 'abortOnBudget']) {
             assert.ok(!report.includes(piece), `the read-only design should not have ${piece}`);
         }
+        // every agent says who it is and for whom it acts (SPEC-0044), whatever the design asked
+        for (const piece of ['identity: { userId: deps.userId }', 'agentIdentity: deps.agentIdentity ?? selfAssertedIdentities()']) assert.ok(report.includes(piece), `every engine should have ${piece}`);
         assert.match(report, /approver\?: Approver;/);                         // nobody to ask, so no approver is required
         assert.match(file('support-triage', 'src/engine.ts'), /\n {2}approver: Approver;/);   // a write tool asks, so one is required
     });

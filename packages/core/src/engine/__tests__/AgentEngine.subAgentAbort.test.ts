@@ -33,7 +33,7 @@ describe('AgentEngine — abort() reaches a sub-agent mid-call', () => {
         providers.register('slow', specialistProvider);
 
         const { transport } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
             defaultProvider: 'mock', transport, defaultAgentId: testAgent.id, iterationMode: 'auto', maxIterations: 5,
         });

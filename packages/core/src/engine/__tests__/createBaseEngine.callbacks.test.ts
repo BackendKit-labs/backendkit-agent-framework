@@ -27,7 +27,7 @@ function buildEngine(
     extra: Partial<BaseEngineOptions>,
 ) {
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) },
         defaultProvider: 'mock',
         // the agent lists its tools: an empty allowedTools means no tools, and these tests are about the approval gate

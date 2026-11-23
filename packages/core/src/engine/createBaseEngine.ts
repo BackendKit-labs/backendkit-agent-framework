@@ -27,6 +27,7 @@ import type { AgentSource, SkillSource, InstructionSource } from '../sources';
 import type { IterationMode, IterationStats } from './IterationManager';
 import type { ContextOptions } from './ContextManager';
 import type { ApprovalStore, Approver, ApproverDirectory, AuditSink, CredentialBroker, Identity, ToolPolicy } from '../governance/types';
+import type { AgentIdentityProvider } from '../governance/agent-identity';
 import { defaultToolPolicy } from '../governance/policy';
 import type { Learning } from '../learning/types';
 import { LEARNED_RULES_SERVICE } from '../tools/services';
@@ -298,6 +299,15 @@ export interface BaseEngineOptions {
     /** Who the engine acts for (tenant, user, roles, scopes...). Part of the `Principal` of every call. */
     identity?: Identity;
 
+    /** Gives each agent its digital identity (SPEC-0044). Required by default: see `requireAgentIdentity`. */
+    agentIdentity?: AgentIdentityProvider;
+    /** Default `true`: an agent with no identity, or that does not say on whose behalf it acts (`identity.userId`), is denied. `false` is for tests only. */
+    requireAgentIdentity?: boolean;
+    /** How long the identity provider has to answer before the call is denied. Default 5000. */
+    agentIdentityTimeoutMs?: number;
+    /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
+    agentIdentityCacheMs?: number;
+
     /**
      * Decides every tool call and delegation: allow, deny or ask (SPEC-0014). Several combine (deny > ask > allow).
      * Setting `policy`, `approver` or `approvals` switches to the policy path; with none of them `onToolApproval`
@@ -527,6 +537,10 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
             }
             : {}),
         ...(opts.identity ? { identity: opts.identity } : {}),
+        ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
+        ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
+        ...(opts.agentIdentityTimeoutMs !== undefined ? { agentIdentityTimeoutMs: opts.agentIdentityTimeoutMs } : {}),
+        ...(opts.agentIdentityCacheMs !== undefined ? { agentIdentityCacheMs: opts.agentIdentityCacheMs } : {}),
         ...(opts.learning && (opts.policy || opts.approver || opts.approvals)
             ? {
                 // Without a configured policy the engine would apply defaultToolPolicy: keep it, and add the learned rules.

@@ -25,7 +25,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, agents: A
     const seen: Seen[] = [];
     const audit = new MemoryAuditSink();
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents, defaultAgent: 'main', tools: tools(seen),
         transport, workingDir: process.cwd(), iterationMode: 'auto', audit, sessionId: 's1',

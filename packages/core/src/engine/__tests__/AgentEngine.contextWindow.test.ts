@@ -23,7 +23,7 @@ function buildEngine(
 ) {
     const { agents, tools, providers } = buildRegistries(provider);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' },
         agents, tools, providers,
         defaultProvider: 'mock',
@@ -109,7 +109,7 @@ describe('AgentEngine — context window (trimHistory)', () => {
 
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -130,7 +130,7 @@ describe('AgentEngine — default history cap', () => {
         const provider = makeInspectingProvider(msgs => { lastSeen = msgs.filter(m => m.role !== 'system').length; });
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
             defaultProvider: 'mock', transport, defaultAgentId: 'test-agent', ...extra,
         });

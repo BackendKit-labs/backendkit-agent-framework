@@ -34,7 +34,7 @@ describe('un agente de negocio aprende de una tool que falla', () => {
             },
         } as LLMProvider;
 
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock',
             agents: [agent], defaultAgent: agent.id, tools: [failingTool],
             transport, workingDir: process.cwd(), iterationMode: 'auto',

@@ -23,7 +23,7 @@ function tools(): ToolDefinition[] {
 function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}) {
     const sink = new MemoryAuditSink();
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [agent, helper], defaultAgent: agent.id, tools: tools(),
         transport, workingDir: process.cwd(), iterationMode: 'auto', toolTimeoutGraceMs: 10,

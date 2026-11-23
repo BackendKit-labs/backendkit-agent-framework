@@ -20,7 +20,7 @@ function buildEngine(
 ) {
     const { agents, tools, providers } = buildRegistries(provider, agent);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' },
         agents, tools, providers,
         defaultProvider: 'mock',
@@ -81,7 +81,7 @@ describe('1.1 — abort() mid-tool chain: sanitizeMessages strips incomplete cha
         tools.register(neverTool);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -172,7 +172,7 @@ describe('1.2 — 3 ask_agent calls: results mapped to correct tool_call_ids', (
         }
 
         const { transport, events } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -284,7 +284,7 @@ describe('1.5 — history round-trip: save and restore across engine instances',
         // Engine 1 — run once and save
         const { agents, tools, providers } = buildRegistries(createTextProvider('reply-1'));
         const { transport: t1 } = createMockTransport();
-        const engine1 = new AgentEngine({
+        const engine1 = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport: t1,
@@ -305,7 +305,7 @@ describe('1.5 — history round-trip: save and restore across engine instances',
         };
         const { agents: a2, tools: t2, providers: p2 } = buildRegistries(provider2);
         const { transport: tr2 } = createMockTransport();
-        const engine2 = new AgentEngine({
+        const engine2 = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents: a2, tools: t2, providers: p2,
             defaultProvider: 'mock', transport: tr2,
@@ -337,7 +337,7 @@ describe('1.6 — toolTrigger: routes through executeToolCall', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -388,7 +388,7 @@ describe('1.7 — onToolApproval: reject prevents tool execution', () => {
         tools.register(writeTool);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -459,7 +459,7 @@ describe('1.8 — sub-agent maxIterations: uses engine config, not hardcoded', (
         tools.register(loopTool);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -518,7 +518,7 @@ describe('1.9 — parallel agent events: block_start…block_end are contiguous'
         }
 
         const { transport, events } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,
@@ -562,7 +562,7 @@ describe('1.10 — loadAgents Promise cache: concurrent calls share one load', (
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock', transport,

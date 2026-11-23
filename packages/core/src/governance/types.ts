@@ -4,12 +4,15 @@
  * pipeline, Steward, Hermes) implement them.
  */
 import type { ToolDefinition } from '../types';
+import type { AgentIdentity } from './agent-identity';
 
 // ── Who acts ──────────────────────────────────────────────────────────────────
 
 export interface Principal {
     /** The agent that executes. */
     agentId: string;
+    /** Its digital identity, as its provider gave it (SPEC-0044). Absent only when the engine runs with `requireAgentIdentity: false`. */
+    agentIdentity?: AgentIdentity;
     sessionId: string;
     /** Delegation chain from whoever started the work to the agent that executes, e.g. [user?, orchestrator, specialist]. */
     chain: string[];
@@ -23,7 +26,7 @@ export interface Principal {
 }
 
 /** The part of a principal the engine does not compute: who the engine acts for. */
-export type Identity = Omit<Principal, 'agentId' | 'sessionId' | 'chain'>;
+export type Identity = Omit<Principal, 'agentId' | 'agentIdentity' | 'sessionId' | 'chain'>;
 
 // ── Approval: who approves, and what ──────────────────────────────────────────
 
@@ -249,6 +252,10 @@ export interface AuditEvent {
     /** The run (`engine.run`) the call belongs to: the same id as `RunResult.runId` and the `run_id` tag of its spans. Absent for a tool called outside a run. */
     runId?: string;
     principal: Pick<Principal, 'agentId' | 'sessionId' | 'chain' | 'tenantId' | 'userId'>;
+    /** The identity the call is attributed to (SPEC-0044), with how well backed it is (`assurance`). */
+    agentIdentity?: AgentIdentity;
+    /** The agent had no identity and the engine let it run (`requireAgentIdentity: false`): the log says so instead of staying silent. */
+    agentIdentityMissing?: true;
     tool: string;
     /** SHA-256 of the canonical JSON of the arguments (`hashArgs`). */
     argsHash: string;

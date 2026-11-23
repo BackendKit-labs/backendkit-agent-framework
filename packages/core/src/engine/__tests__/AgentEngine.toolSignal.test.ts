@@ -31,7 +31,7 @@ function build(provider: LLMProvider, tools: ReturnType<typeof defineTool>[], ex
     const { agents, tools: registry, providers } = buildRegistries(provider, { ...agent, allowedTools: [...agent.allowedTools, ...allowed] });
     for (const t of tools) registry.register(t);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools: registry, providers,
         defaultProvider: 'mock', transport, defaultAgentId: 'test-agent', iterationMode: 'auto', ...extra,
     });

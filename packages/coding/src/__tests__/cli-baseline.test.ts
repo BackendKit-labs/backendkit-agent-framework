@@ -34,7 +34,7 @@ jest.mock('@backendkit-labs/agent-core', () => {
     return {
         ...actual,
         createBaseEngine: (o: { defaultProvider: string }) =>
-            actual.createBaseEngine({ ...o, providers: { [o.defaultProvider]: (global as { __bkProvider?: unknown }).__bkProvider } }),
+            actual.createBaseEngine({ requireAgentIdentity: false, ...o, providers: { [o.defaultProvider]: (global as { __bkProvider?: unknown }).__bkProvider } }),
     };
 });
 

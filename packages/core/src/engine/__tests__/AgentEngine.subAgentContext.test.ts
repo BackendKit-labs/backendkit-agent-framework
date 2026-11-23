@@ -27,7 +27,7 @@ function build(workerProvider: LLMProvider, context?: ConstructorParameters<type
     agents.upsert({ id: 'worker', name: 'worker', icon: '⚙', description: 'w', systemPrompt: 'work', allowedTools: ['bulk'], delegatesTo: [], provider: 'worker' });
     providers.register('worker', workerProvider);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers, defaultProvider: 'mock', transport,
         defaultAgentId: testAgent.id, iterationMode: 'auto', maxIterations: 30,
         ...(context ? { context } : {}),

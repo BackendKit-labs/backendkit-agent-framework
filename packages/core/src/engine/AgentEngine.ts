@@ -10,6 +10,7 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
+import { IdentityResolver, type AgentIdentityProvider } from '../governance/agent-identity';
 import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition, type ToolSearchOptions } from './toolSearch';
 import { declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approverFromCallback, type CallbackApprover } from '../governance/approval';
@@ -147,6 +148,20 @@ export interface AgentEngineOptions extends EngineOptions {
     /** Who this engine acts for (tenant, user, roles...). Becomes part of the `Principal` of every call. */
     identity?: Identity;
     /**
+     * Gives each agent its digital identity (SPEC-0044). Every call is attributed to it in the audit and the policies see it in
+     * `principal.agentIdentity`. See `staticAgentIdentities`, `selfAssertedIdentities`.
+     */
+    agentIdentity?: AgentIdentityProvider;
+    /**
+     * Default `true`: an agent with no identity, or that does not say on whose behalf it acts (`identity.userId`), is denied, with a reason that
+     * says how to fix it. `false` is for tests: not suitable for regulated environments.
+     */
+    requireAgentIdentity?: boolean;
+    /** How long the identity provider has to answer before the call is denied. Default 5000. */
+    agentIdentityTimeoutMs?: number;
+    /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
+    agentIdentityCacheMs?: number;
+    /**
      * Decides every tool call and delegation (allow, deny, ask) after allowedTools, the sandbox and the argument
      * guardrails. Several policies combine: deny wins, then ask, then allow. When absent but there is someone to
      * ask (`approver`, `approvals` or `onToolApproval`), `defaultToolPolicy` applies: readOnly runs, everything else
@@ -277,6 +292,7 @@ export class AgentEngine {
     private lastRequestEstimate = 0;
     private readonly auditLogger: AuditLogger;
     private readonly audit: AuditDispatcher;
+    private readonly identities: IdentityResolver;
     /** Policy path (SPEC-0014 F2) instead of the legacy ApprovalGate: on when policy, approver or approvals is set. */
     private readonly governed: boolean;
     private readonly policies: ToolPolicy[];
@@ -352,6 +368,13 @@ export class AgentEngine {
             type: 'system', level: 'warn',
             text: `[audit] a sink failed to record a tool call: ${err instanceof Error ? err.message : String(err)}`,
         }));
+        this.identities = new IdentityResolver({
+            ...(opts.agentIdentity ? { provider: opts.agentIdentity } : {}),
+            ...(opts.requireAgentIdentity !== undefined ? { require: opts.requireAgentIdentity } : {}),
+            ...(opts.agentIdentityTimeoutMs !== undefined ? { timeoutMs: opts.agentIdentityTimeoutMs } : {}),
+            ...(opts.agentIdentityCacheMs !== undefined ? { cacheMs: opts.agentIdentityCacheMs } : {}),
+            warn: (text) => this.transport.emit({ type: 'system', level: 'warn', text }),
+        });
         this.hooks = opts.hooks ?? [];
         this.governed = !!(opts.policy || opts.approver || opts.approvals);
         if (this.governed) {
@@ -1344,9 +1367,11 @@ export class AgentEngine {
                 for (const call of validCalls) {
                     if (!this.governed) { allowedCalls.push(call); continue; }
                     const startedAt = Date.now();
-                    const verdict = await this.gate.decide(
-                        ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), this.principalFor(currentProfile.id, callerChain), [],
-                    );
+                    const base = this.principalFor(currentProfile.id, callerChain);
+                    const who = await this.identities.check(currentProfile.id, { sessionId: base.sessionId, ...(base.tenantId !== undefined ? { tenantId: base.tenantId } : {}), ...(base.userId !== undefined ? { userId: base.userId } : {}) });
+                    const verdict = !who.ok
+                        ? { run: false as const, decision: 'deny' as const, reason: who.reason, message: `Tool call "ask_agent" denied: ${who.reason}` }
+                        : await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, []);
                     if (verdict.run) { allowedCalls.push(call); continue; }
                     this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: verdict.message.slice(0, 120) });
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: verdict.message });
@@ -1691,7 +1716,7 @@ export class AgentEngine {
         // `tool_search` exists only for an agent that has deferred tools, and needs no entry in its allowedTools.
         const isToolSearch = call.name === TOOL_SEARCH_NAME && this.agentHasDeferred(profile);
         const toolDef = isToolSearch ? this.toolSearchTool(profile) : this.opts.tools.get(call.name);
-        const principal = this.principalFor(profile.id, chain);
+        let principal = this.principalFor(profile.id, chain);
         let result: string;
         let success: boolean;
         let outcome: 'timeout' | 'aborted' | undefined;
@@ -1758,9 +1783,14 @@ export class AgentEngine {
                 reason = withheld;
                 onArgsRefused?.();
             } else {
-                const verdict = this.governed
-                    ? await this.gate.decide(toolDef, effective.args, principal, sandboxDecisions, approved)
-                    : await this.decideLegacy(effective, profile.id, sandboxDecisions);
+                // SPEC-0044: no identity, or no one to act for, and nothing runs (unless the operator switched it off, for tests).
+                const who = await this.identities.check(profile.id, { sessionId: principal.sessionId, ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}), ...(principal.userId !== undefined ? { userId: principal.userId } : {}) });
+                if (who.ok && who.identity) principal = { ...principal, agentIdentity: who.identity };
+                const verdict = !who.ok
+                    ? { run: false as const, decision: 'deny' as const, reason: who.reason, message: `Tool call "${call.name}" denied: ${who.reason}` }
+                    : this.governed
+                        ? await this.gate.decide(toolDef, effective.args, principal, sandboxDecisions, approved)
+                        : await this.decideLegacy(effective, profile.id, sandboxDecisions);
                 if (!verdict.run) {
                     result = verdict.message; success = false;
                     decision = verdict.decision;
@@ -1957,9 +1987,11 @@ export class AgentEngine {
 
     /** The principal of a call: this engine's identity, the executing agent and its delegation chain. */
     private principalFor(agentId: string, chain?: string[]): Principal {
+        const agentIdentity = this.identities.peek(agentId);
         return {
             ...this.opts.identity,
             agentId,
+            ...(agentIdentity ? { agentIdentity } : {}),
             sessionId: this.opts.sessionId ?? 'default',
             chain: chain && chain.length > 0 ? chain : [agentId],
         };
@@ -1981,6 +2013,9 @@ export class AgentEngine {
             try { args = JSON.parse(c.rawArgs); } catch { args = c.rawArgs; }
         }
         const p = this.principalFor(c.agentId, c.chain);
+        // The identity the call is attributed to: the one already resolved for it (the policy saw it), or asked for now. A failure is not hidden.
+        const who = await this.identities.check(c.agentId, { sessionId: p.sessionId, ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}), ...(p.userId !== undefined ? { userId: p.userId } : {}) });
+        const attributed = who.ok ? who.identity : this.identities.peek(c.agentId);
         const event: AuditEvent = {
             at: new Date(c.startedAt).toISOString(),
             ...(this.currentRunId ? { runId: this.currentRunId } : {}),
@@ -1989,6 +2024,7 @@ export class AgentEngine {
                 ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}),
                 ...(p.userId !== undefined ? { userId: p.userId } : {}),
             },
+            ...(attributed ? { agentIdentity: attributed } : { agentIdentityMissing: true as const }),
             tool: c.tool,
             argsHash: hashArgs(args),
             decision: c.decision,

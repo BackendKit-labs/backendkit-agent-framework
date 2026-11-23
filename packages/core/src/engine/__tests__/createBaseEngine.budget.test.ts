@@ -26,7 +26,7 @@ function spendingProvider(calls: { n: number }): LLMProvider {
 
 function build(extra: Partial<BaseEngineOptions>, provider: LLMProvider, agents: AgentProfile[] = [{ ...testAgent, allowedTools: ['noop'] }]) {
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider },
         defaultProvider: 'mock',
         agents,
@@ -85,7 +85,7 @@ describe('abortOnBudget (ADR-0002)', () => {
             { ...testAgent, id: 'worker', provider: 'worker', allowedTools: ['noop'] },
         ];
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: boss, boss, worker: spendingProvider(workerCalls) },
             defaultProvider: 'mock', agents, defaultAgent: 'boss', tools: [noop], transport,
             workingDir: process.cwd(), iterationMode: 'auto', maxIterations: 5,

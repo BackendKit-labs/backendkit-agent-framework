@@ -17,7 +17,7 @@ function run(
 ) {
     const executed: string[] = [];
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider([
             { tool_calls: calls.map((name, i) => ({ id: `c${i}`, name, args: {} })) },
             { content: 'done' },

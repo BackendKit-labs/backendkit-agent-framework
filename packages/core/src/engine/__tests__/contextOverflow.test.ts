@@ -45,7 +45,7 @@ function build(chat: LLMProvider['chat'], context: object = {}) {
     const main: LLMProvider = { chat };
     const { agents, tools, providers } = buildRegistries(main);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
         defaultProvider: 'mock', transport, defaultAgentId: 'test-agent',
         context: { maxTokens: 100_000, keepRecentTurns: 2, strategy: 'drop', ...context },

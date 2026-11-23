@@ -10,7 +10,7 @@ function run(services: Parameters<typeof createBaseEngine>[0]['services']) {
         execute: async (_a, ctx) => { seen.push({ agent: ctx.agentId, value: getService(ctx, 'vertical.value') }); return 'ok'; },
     };
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider([{ tool_calls: [{ id: 'c1', name: 'probe', args: {} }] }, { content: 'done' }]) },
         defaultProvider: 'mock', agents: [{ ...testAgent, allowedTools: ['probe'] }], defaultAgent: testAgent.id,
         tools: [tool], transport, workingDir: process.cwd(), iterationMode: 'auto', services,

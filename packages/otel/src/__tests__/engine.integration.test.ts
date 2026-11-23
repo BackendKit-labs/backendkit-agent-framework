@@ -21,7 +21,7 @@ describe('agent-core engine → OTLP', () => {
             serviceName: 'it', flushIntervalMs: 0,
             fetch: (async (_u: string, init: RequestInit) => { posted.push(JSON.parse(String(init.body))); return { ok: true, status: 200 } as Response; }) as unknown as typeof fetch,
         });
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent], transport, iterationMode: 'auto',
             tools: [defineTool({ name: 'echo', description: 'echo', input: z.object({ x: z.number() }), execute: async ({ x }) => `x=${x}` })],
             observability: { tracing: { exporter } },

@@ -168,7 +168,7 @@ describe('the advice comes from whoever knows the domain', () => {
         } as LLMProvider;
         const { transport } = createMockTransport();
         const learning = createLearning();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id, tools: [tool],
             transport, workingDir: process.cwd(), iterationMode: 'auto', learning,
         });

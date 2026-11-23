@@ -20,7 +20,7 @@ const call = (...names: string[]): Turn => ({ tool_calls: names.map((name, i) =>
 
 function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, provider?: LLMProvider) {
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider ?? createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent, helper], defaultAgent: agent.id,
         tools, transport, workingDir: process.cwd(), iterationMode: 'auto', ...extra,
     });

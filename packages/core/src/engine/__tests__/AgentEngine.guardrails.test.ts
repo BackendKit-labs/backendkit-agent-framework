@@ -38,7 +38,7 @@ function build(provider: LLMProvider, guardrails: Guardrail[], extra: Partial<Co
         execute: async (args) => { executed.push(args); return tool ? tool() : `result for ${args.q}`; },
     }));
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
         defaultProvider: 'mock', transport, defaultAgentId: 'test-agent', guardrails, ...extra,
     });
@@ -194,7 +194,7 @@ describe('AgentEngine — guardrails', () => {
         const seenByMain: LLMMessage[][] = [];
         const wrapped: LLMProvider = { chat: (m, t, cb, o) => { seenByMain.push(m); return provider.chat(m, t, cb, o); } };
         providers.register('mock', wrapped);
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
             defaultProvider: 'mock', transport, defaultAgentId: 'main', guardrails: [secretLeakGuardrail()],
         });

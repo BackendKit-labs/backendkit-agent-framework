@@ -105,7 +105,7 @@ describe('in the engine', () => {
         const bought: unknown[] = [];
         const tool: ToolDefinition = { ...buy, execute: async (a) => { bought.push(a); return 'bought'; } };
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider([turn(amount), { content: 'done' }]) }, defaultProvider: 'mock',
             agents: [agent], defaultAgent: 'buyer', tools: [tool], transport, workingDir: process.cwd(), iterationMode: 'auto',
             policy: policy(m), audit, identity: { userId: 'carlos' },

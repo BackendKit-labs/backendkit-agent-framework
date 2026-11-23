@@ -56,7 +56,7 @@ describe('a tool reads the rules through the engine', () => {
             },
         };
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider([{ tool_calls: [{ id: '1', name: 'probe', args: {} }] }, { content: 'done' }]) }, defaultProvider: 'mock',
             agents: [agent], defaultAgent: agent.id, tools: [probe], transport, workingDir: process.cwd(), iterationMode: 'auto', learning, ...extra,
         });
@@ -84,7 +84,7 @@ describe('a tool reads the rules through the engine', () => {
                 execute: async (_a, ctx) => { got.push(getService(ctx, 'mine'), (await learnedRules(ctx, isGuard)).length); return 'ok'; },
             };
             const { transport } = createMockTransport();
-            const engine = createBaseEngine({
+            const engine = createBaseEngine({ requireAgentIdentity: false,
                 providers: { mock: createScriptedProvider([{ tool_calls: [{ id: '1', name: 'probe', args: {} }] }, { content: 'done' }]) }, defaultProvider: 'mock',
                 agents: [agent], defaultAgent: agent.id, tools: [probe], transport, workingDir: process.cwd(), iterationMode: 'auto', learning, services,
             });
@@ -100,7 +100,7 @@ describe('a tool reads the rules through the engine', () => {
             execute: async (_a, ctx) => { got.push((await learnedRules(ctx, isGuard)).length); return 'ok'; },
         };
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider([{ tool_calls: [{ id: '1', name: 'probe', args: {} }] }, { content: 'done' }]) }, defaultProvider: 'mock',
             agents: [agent], defaultAgent: agent.id, tools: [probe], transport, workingDir: process.cwd(), iterationMode: 'auto',
         });

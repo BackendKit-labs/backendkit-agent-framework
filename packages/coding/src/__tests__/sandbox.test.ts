@@ -87,7 +87,7 @@ describe('an engine with the coding tools in read-only', () => {
         writeFileSync(join(dir, 'a.txt'), 'original');
         const events: AgentEvent[] = [];
         const sandbox = buildCodingSandbox({ preset: 'read-only', backends: ['docker'], docker: { probe: async () => false } });
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: scripted([
                 // The argument is `file_path`. With `path` the call was malformed, and used to be counted as a success.
                 { name: 'read_file', args: { file_path: 'a.txt' } },

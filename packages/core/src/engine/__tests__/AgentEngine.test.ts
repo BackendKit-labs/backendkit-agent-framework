@@ -13,7 +13,7 @@ function buildEngine(options: Partial<ConstructorParameters<typeof AgentEngine>[
     const { agents, tools, providers } = buildRegistries(provider);
     const { transport } = createMockTransport();
 
-    return new AgentEngine({
+    return new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' },
         agents,
         tools,
@@ -32,7 +32,7 @@ describe('AgentEngine — basic run', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -50,7 +50,7 @@ describe('AgentEngine — basic run', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -68,7 +68,7 @@ describe('AgentEngine — basic run', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -96,7 +96,7 @@ describe('AgentEngine — tool execution', () => {
         tools.register(tool);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -117,7 +117,7 @@ describe('AgentEngine — tool execution', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -151,7 +151,7 @@ describe('AgentEngine — abort / maxIterations', () => {
         const { agents, tools, providers } = buildRegistries(loopingProvider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -191,7 +191,7 @@ describe('AgentEngine — abort / maxIterations', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -215,7 +215,7 @@ describe('AgentEngine — switchAgent', () => {
         agents.upsert(secondAgent);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -240,7 +240,7 @@ describe('AgentEngine — token events carry agent_id', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -319,7 +319,7 @@ describe('AgentEngine — token events carry agent_id', () => {
 
         const { transport, events } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -373,7 +373,7 @@ describe('AgentEngine — MCP mode=tools (default)', () => {
         };
         agents.upsert(specialist);
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -448,7 +448,7 @@ describe('AgentEngine — MCP mode=agent', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',

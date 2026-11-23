@@ -1,5 +1,5 @@
 /**
- * `createBaseEngine({ learning })` wires the sink, the hook and, on the policy path, the policy of the learning module.
+ * `createBaseEngine({ requireAgentIdentity: false, learning })` wires the sink, the hook and, on the policy path, the policy of the learning module.
  */
 import { createBaseEngine, type BaseEngineOptions } from '../../engine/createBaseEngine';
 import { MemoryAuditSink } from '../../governance/audit';
@@ -30,7 +30,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions>) {
         },
     } as LLMProvider;
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id, tools,
         transport, workingDir: process.cwd(), iterationMode: 'auto', ...extra,
     });
@@ -39,7 +39,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions>) {
 
 beforeEach(() => { fails = true; });
 
-describe('createBaseEngine({ learning })', () => {
+describe('createBaseEngine({ requireAgentIdentity: false, learning })', () => {
     it('keeps the other audit sinks and hooks, and learns within the tenant of the engine', async () => {
         const learning = createLearning();
         const sink = new MemoryAuditSink();

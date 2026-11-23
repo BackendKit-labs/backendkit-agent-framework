@@ -48,7 +48,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, tools?: T
         execute: async (_a, ctx) => { seen.push({ credentials: ctx.credentials, secrets: ctx.secrets }); return 'found'; },
     };
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [{ ...main, secrets: { STRIPE: 'sk-agent-wide-secret' } }], defaultAgent: 'main',
         tools: tools ?? [pay, lookup], transport, workingDir: process.cwd(), iterationMode: 'auto', audit, ...extra,

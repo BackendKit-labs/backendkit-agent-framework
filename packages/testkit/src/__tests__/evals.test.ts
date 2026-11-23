@@ -11,7 +11,7 @@ const tool = (name: string, execute: ToolDefinition['execute'] = async () => 'ok
 /** A real engine over a scripted provider: no model, no network. */
 function engineFor(script: Turn[], extra: Record<string, unknown> = {}): AgentEngine {
     const { transport } = mockTransport();
-    return createBaseEngine({
+    return createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: scriptedProvider(script) }, defaultProvider: 'mock', transport, iterationMode: 'auto',
         agents: [{ id: 'a', name: 'A', icon: 'x', description: 'd', systemPrompt: 'p', allowedTools: ['place_order', 'lookup', 'broken'], delegatesTo: [] }],
         defaultAgent: 'a', workingDir: process.cwd(),

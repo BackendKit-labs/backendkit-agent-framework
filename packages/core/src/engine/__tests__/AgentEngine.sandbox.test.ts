@@ -42,7 +42,7 @@ function tool(name: string, ran: string[]): ToolDefinition {
 function build(runner: SandboxRunner | undefined, script: Parameters<typeof createScriptedProvider>[0], extra: Partial<BaseEngineOptions> = {}) {
     const ran: string[] = [];
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [agent], defaultAgent: agent.id, tools: ['read_file', 'write_file', 'run_command'].map(n => tool(n, ran)),
         transport, workingDir: process.cwd(), iterationMode: 'auto',
@@ -204,7 +204,7 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
 
     function engineWith(runner: SandboxRunner, script: Parameters<typeof createScriptedProvider>[0], extra: Partial<BaseEngineOptions> = {}, marker: { seen?: string } = {}) {
         const { transport, events } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id,
             tools: [sandboxCaller(marker), tool('write_file', []), tool('read_file', [])], transport, workingDir: process.cwd(),
             iterationMode: 'auto', sandbox: runner, ...extra,
@@ -259,7 +259,7 @@ describe('AgentEngine — sandbox, several engines and edge cases', () => {
         }) as unknown as SandboxRunner;
         const build2 = (runner: SandboxRunner, tools: ToolDefinition[], script: Parameters<typeof createScriptedProvider>[0]) => {
             const { transport, events } = createMockTransport();
-            const engine = createBaseEngine({
+            const engine = createBaseEngine({ requireAgentIdentity: false,
                 providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [{ ...agent, allowedTools: tools.map(t => t.name) }],
                 defaultAgent: agent.id, tools, transport, workingDir: process.cwd(), iterationMode: 'auto', sandbox: runner,
             });

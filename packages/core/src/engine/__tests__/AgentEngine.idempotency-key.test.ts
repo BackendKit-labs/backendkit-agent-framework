@@ -16,7 +16,7 @@ function build(script: Turn[], extra: Record<string, unknown> = {}, policy: Tool
     const tool = { name: 'pay', description: '', parameters: { type: 'object' }, destructive: true,
         execute: async (_a: unknown, ctx: { idempotencyKey?: string }) => { keys.push(ctx.idempotencyKey); return 'paid'; } } as ToolDefinition;
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent], defaultAgent: 'desk',
         tools: [tool], transport, workingDir: process.cwd(), iterationMode: 'auto', policy, ...extra,
     } as never);

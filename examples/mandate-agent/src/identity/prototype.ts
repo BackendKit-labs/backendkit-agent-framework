@@ -13,7 +13,7 @@
  *     about who the agent is would be circular. A credential's own claim about the agent is COMPARED with the provider's identity.
  *   - Every action is attributed to that identity in the audit, and signed by it.
  *   - A mandate is bound to the identity, and when the credential is tied to a key, the agent proves it holds that key.
- *   - `require` (SPEC-0044 D8): an agent with no identity is denied. The destination of the framework; here it can be switched off.
+ *   - `require` (SPEC-0044 D8): an agent with no identity is denied, by default from the first version (no transition period). Switch-off is an explicit opt-out for tests.
  */
 import { createHash, createPublicKey, verify as edVerify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -64,7 +64,7 @@ export type IdentityAuditEvent = AuditEvent & {
 
 export interface IdentityLayerOptions {
     provider: AgentIdentityProvider;
-    /** SPEC-0044 D8: an agent with no identity is denied. Default true: the destination. `false` is the transition and is for tests. */
+    /** SPEC-0044 D8: an agent with no identity is denied. Default true, from the first version (SPEC-0044: no transition period). `false` is the explicit opt-out, for tests only. */
     require?: boolean;
     /** Called once per agent without identity when `require` is off (CORE: a warning on the transport). */
     warn?: (message: string) => void;

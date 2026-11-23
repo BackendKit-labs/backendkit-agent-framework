@@ -1,28 +1,36 @@
 /**
  * ADAPTER OF AN ASSUMED DALION CREDENTIAL. READ THIS BEFORE USING IT.
  *
- * The real format of the DALION credential is not known yet (SPEC-0043 §6, F3 is blocked on it). This file fixes an ASSUMED shape,
- * written from what is known of the product, so the agent, the policy, the audit and the failure cases can be built and tested NOW.
- * Nothing here is DALION's format and nothing here proves compatibility with it. When the real format arrives, this adapter is the
- * ONLY thing that changes: it must keep turning a credential into the same `Mandate`, and the tests in `__tests__/` are the contract
- * the new adapter has to keep passing.
+ * The real format of the DALION credential is not known yet (SPEC-0043 §6, F3 is blocked on it). This file fixes an ASSUMED shape so
+ * the agent, the policy, the audit and the failure cases can be built and tested NOW. Nothing here is DALION's format and nothing
+ * here proves compatibility with it. When the real format arrives, this adapter is the ONLY thing that changes: it must keep turning
+ * a credential into the same `Mandate`, and the tests in `__tests__/` are the contract the new adapter has to keep passing.
  *
- * What is assumed (from the description of DALION: a non-human digital identity per agent, and a power of representation that says
- * for whom the agent works, what it may do and up to what amount, compatible with eIDAS 2):
- *   - an SD-JWT-VC-shaped JWT, signed by DALION (`iss`), type `dc+sd-jwt`;
+ * WHAT IS KNOWN of DALION: an agent works from a digital identity (like a person) that gives it a power of representation which says
+ *   - FOR WHOM it works (the human),
+ *   - WHAT it may do (buy),
+ *   - ON WHAT (a television),
+ *   - up to HOW MUCH (at most 1000 EUR).
+ * The credential does NOT say which tools the agent may run. It speaks the language of the DOMAIN (a verb, an object, an amount), not
+ * the language of a particular agent's code. Which tool of this agent performs "buy" is a decision of whoever deploys the agent, and
+ * it lives here, in the operator's configuration (`capabilityOf`, `objectOf`), never in the credential.
+ *
+ * WHAT IS ASSUMED (the container, since the real one is unknown): an SD-JWT-VC-shaped JWT signed by DALION (`iss`), type `dc+sd-jwt`:
  *   - `sub`: the identity of the AGENT (a non-human identity, e.g. `did:dalion:agent:buyer-01`), not of the person;
- *   - `represents`: the person or entity the agent works for (`{ id }`);
- *   - `powers`: a list of `{ action, max?: { value, currency }, resources? }`, one per tool, each with ITS OWN amount limit;
+ *   - `represents`: `{ id }`, the person or entity the agent works for;
+ *   - `powers`: a list of `{ action, object?, max?: { value, currency } }`: a verb, optionally the object it applies to, optionally a
+ *     limit. No tool names;
  *   - `status`: `{ id }`, what a revocation lookup uses;
- *   - `jti`, `nbf`, `exp` (an expiry is required: an open-ended power is not accepted), and a `vct` that names this assumed format.
+ *   - `jti`, `nbf`, `exp` (an expiry is required: an open-ended power is not accepted), and a `vct` naming this assumed format.
  *
- * What the adapter decides, failing closed on each: the algorithm and `typ` are on an allow-list; the issuer is one the operator
- * trusts, with its key; the signature verifies; the agent identity in `sub` is the one the operator registered for the engine's agent
- * (so a credential issued to another agent is useless here); the powers are well formed, with no wildcard and no duplicated action;
- * a limit with no currency is refused; the credential is current; and the revocation hook, if it fails, counts as revoked.
+ * What the adapter decides, failing closed on each: algorithm and `typ` on an allow-list; an issuer the operator trusts, with its key;
+ * the signature; the agent identity in `sub` is the one the operator registered for the engine's agent (a credential issued to another
+ * agent is useless here); the powers are well formed, with no wildcard and no repeated (verb, object); a limit with no currency is
+ * refused; the credential is current; the revocation hook, if it fails, counts as revoked.
  *
- * Because DALION puts a limit on EACH action, the adapter answers per call: the `Mandate` it returns covers the tool being called,
- * with that tool's limit. `mandatePolicy` stays unchanged.
+ * It answers PER CALL: it takes the verb the called tool performs, finds the power for that verb (and the object the call is about),
+ * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool the operator
+ * did not map to a verb is never covered.
  */
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
@@ -31,9 +39,12 @@ import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } fr
 export const DALION_ASSUMED_VCT = 'urn:dalion:agent-power-of-representation:assumed:1';
 
 export interface DalionPower {
+    /** What may be done, in the credential's vocabulary: `buy`, `sign`, `pay`. Never a tool name. */
     action: string;
+    /** What it may be done on: `television`. Absent: any object. */
+    object?: string;
+    /** The most it may spend on one operation. Absent: no limit. */
     max?: { value: number; currency: string };
-    resources?: string[];
 }
 
 export interface DalionAdapterOptions {
@@ -46,6 +57,13 @@ export interface DalionAdapterOptions {
      * `undefined`: the agent has none registered, and that is a refusal.
      */
     agentIdentityOf(agentId: string): string | undefined;
+    /**
+     * What a tool of THIS agent does, in the credential's vocabulary (`buy_supplies` → `buy`). `undefined`: the operator did not say, and
+     * the tool is never covered by a mandate. This is where the agent's code meets the credential; the credential never names a tool.
+     */
+    capabilityOf(toolName: string): string | undefined;
+    /** What a call acts on, read from its arguments (`args.item` → `television`). Needed for powers that name an object. */
+    objectOf?(args: Record<string, unknown>): string | undefined;
     /** Is the credential revoked? Where to look is yours. A hook that throws counts as revoked. */
     isRevoked?(status: { credentialId: string; statusId: string | undefined }): boolean | Promise<boolean>;
     algorithms?: JwsAlgorithm[];
@@ -103,34 +121,43 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             }
             if (!Array.isArray(powers) || powers.length === 0) return deny('the credential grants no powers');
 
-            const granted = new Map<string, DalionPower>();
+            const granted: DalionPower[] = [];
+            const seen = new Set<string>();
             for (const raw of powers as unknown[]) {
                 const p = raw as Partial<DalionPower> | null;
                 if (!p || typeof p !== 'object' || !nonEmpty(p.action)) return deny('a power has no action');
-                if (p.action === '*') return deny('a wildcard power is not accepted: name the actions');
-                if (granted.has(p.action)) return deny(`the action "${p.action}" appears more than once: its limit would be ambiguous`);
+                if (p.action === '*') return deny('a wildcard power is not accepted: name the action');
+                if (p.object !== undefined && !nonEmpty(p.object)) return deny(`the object of "${p.action}" is not valid`);
+                if (p.object === '*') return deny('a wildcard object is not accepted: name the object, or leave it out');
+                const key = `${p.action}\u0000${p.object ?? ''}`;
+                if (seen.has(key)) return deny(`"${p.action}${p.object ? ` ${p.object}` : ''}" appears more than once: its limit would be ambiguous`);
+                seen.add(key);
                 if (p.max !== undefined) {
                     const max = p.max as { value?: unknown; currency?: unknown };
                     if (typeof max.value !== 'number' || !Number.isFinite(max.value) || max.value < 0) return deny(`the limit of "${p.action}" is not valid`);
                     if (!nonEmpty(max.currency)) return deny(`the limit of "${p.action}" has no currency`);
                 }
-                if (p.resources !== undefined && (!Array.isArray(p.resources) || p.resources.length === 0 || !p.resources.every(nonEmpty))) {
-                    return deny(`the resources of "${p.action}" are not valid`);
-                }
-                granted.set(p.action, p as DalionPower);
+                granted.push(p as DalionPower);
             }
 
-            // The mandate for THIS call: the tool's own power and limit. A tool with no power gets a mandate that does not list it,
-            // so the policy sends it to a person instead of treating it as covered.
+            // The mandate for THIS call. The verb comes from the operator's mapping of the tool, never from the credential. The power
+            // is the one for that verb and the object the call is about; with none for the object, the verb's first power is used so
+            // the policy refuses with the right reason ("does not cover <object>") instead of a vague one.
             const tool = request.call.tool.name;
-            const power = granted.get(tool);
+            const verb = options.capabilityOf(tool);
+            const forVerb = verb === undefined ? [] : granted.filter(p => p.action === verb);
+            const object = options.objectOf?.(request.call.args);
+            const power = forVerb.find(p => p.object !== undefined && p.object === object)
+                ?? forVerb.find(p => p.object === undefined)
+                ?? forVerb[0];
+
             const mandate: Mandate = {
                 id: jti,
                 issuer,
                 subject: (represents as { id: string }).id,
                 agent: request.principal.agentId,
-                actions: power ? [tool] : [...granted.keys()],
-                ...(power?.resources ? { resources: power.resources } : {}),
+                actions: power ? [tool] : [],
+                ...(power?.object !== undefined ? { resources: [power.object] } : {}),
                 ...(power?.max ? { limits: { amount: { max: power.max.value, currency: power.max.currency } } } : {}),
                 ...(typeof nbf === 'number' ? { validFrom: iso(nbf) } : {}),
                 validUntil: iso(exp),

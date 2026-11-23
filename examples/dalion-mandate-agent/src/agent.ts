@@ -5,11 +5,14 @@
  *
  * The credential comes from `dalion-assumed.ts` (an ASSUMED format, see there). Swap that one adapter for the real one when it exists:
  * nothing in this file knows how a credential looks.
+ *
+ * The credential says WHAT may be done (`buy`), ON WHAT (`television`) and up to HOW MUCH, never which tool runs it. The link between the
+ * two is made HERE, by whoever deploys the agent: `capabilities` says which tool performs which verb, and `objectOf` reads what a call is about.
  */
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import {
     createBaseEngine, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, z,
-    type AgentProfile, type Approver, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateRequest, type Transport,
+    type AgentProfile, type Approver, type ToolPolicy, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateRequest, type Transport,
 } from '@backendkit-labs/agent-core';
 import { dalionMandateVerifier } from './dalion-assumed';
 
@@ -31,6 +34,11 @@ export interface BuyerAgentOptions {
     isRevoked?: (s: { credentialId: string; statusId: string | undefined }) => boolean | Promise<boolean>;
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
     approver?: Approver;
+    /**
+     * What each of THIS agent's tools does, in the credential's vocabulary. A tool that is not here is never covered by a mandate.
+     * Default: `buy_supplies` buys and `sign_contract` signs. Renaming a tool changes this map, never the credential.
+     */
+    capabilities?: Record<string, string>;
     auditLogPath: string;
     checkpointsPath: string;
     now?: () => Date;
@@ -44,6 +52,11 @@ const buyerProfile: AgentProfile = {
     systemPrompt: 'You buy supplies. Check a price before you buy. Never try to work around a refusal: report it.',
     allowedTools: ['check_price', 'buy_supplies', 'sign_contract'],
 };
+
+/** What a call is about: the object a power may name (`television`). `undefined` when the call does not say. */
+const objectOf = (args: Record<string, unknown>) => (typeof args.item === 'string' && args.item.length > 0 ? args.item : undefined);
+
+const DEFAULT_CAPABILITIES: Record<string, string> = { buy_supplies: 'buy', sign_contract: 'sign' };
 
 /** What a call spends, read from its arguments. `undefined` when the call does not say: the policy then refuses to treat it as covered. */
 const amountOf = (args: Record<string, unknown>) =>
@@ -90,20 +103,29 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         request: async (req) => { approvals.push(req); return approver.request(req); },
     };
 
+    const capabilities = options.capabilities ?? DEFAULT_CAPABILITIES;
     const verifier = dalionMandateVerifier({
         trustedIssuers: options.trustedIssuers,
         credentialFor: (_: MandateRequest) => options.credential(),
         agentIdentityOf: (agentId) => (agentId === AGENT_ID ? AGENT_DALION_IDENTITY : undefined),
+        capabilityOf: (tool) => Object.prototype.hasOwnProperty.call(capabilities, tool) ? capabilities[tool] : undefined,
+        objectOf,
         ...(options.isRevoked ? { isRevoked: options.isRevoked } : {}),
         ...(options.now ? { now: options.now } : {}),
     });
+
+    const governed = mandatePolicy({ verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
+    // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate.
+    const policy: ToolPolicy = {
+        decide: (principal, call) => (call.tool.readOnly ? { effect: 'allow', reason: 'read-only tool' } : governed.decide(principal, call)),
+    };
 
     const engine = createBaseEngine({
         providers: { mock: options.provider }, defaultProvider: 'mock', agents: [buyerProfile], defaultAgent: AGENT_ID,
         tools: [checkPrice, buy, sign], transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
         identity: { userId: options.userId },
         audit,
-        policy: mandatePolicy({ verifier, amountOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) }),
+        policy,
         approver: recordingApprover,
     } as never);
 

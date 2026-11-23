@@ -95,7 +95,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createBaseEngine, defineTool, z, FileApprovalStore, MemoryAuditSink,
-  type AgentProfile, type ToolPolicy,
+  type AgentProfile, type ToolPolicy,,
+  selfAssertedIdentities,
 } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
@@ -117,6 +118,8 @@ const approvals = new FileApprovalStore(mkdtempSync(join(tmpdir(), 'approvals-')
 const audit = new MemoryAuditSink();                                                  // HashChainAuditSink('audit.log') in production
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'r1', name: 'refund', args: { orderId: 'A-9', amount: 450 } }] },
     { content: 'Waiting for approval.' },

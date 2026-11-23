@@ -26,7 +26,7 @@ npm install @backendkit-labs/mcp-connectors
 An engine connects to MCP servers with `mcpServers`. Their tools appear next to yours with the server name as a prefix (`mcp__hubspot__create_deal`) and every call goes through the same [policy](../../concepts/governance/). Here a sales agent reads the CRM freely, but anything that creates or changes a record asks a person first:
 
 ```ts
-import { createBaseEngine, StdoutTransport, consoleApprover, type AgentProfile, type ToolPolicy } from '@backendkit-labs/agent-core';
+import { createBaseEngine, StdoutTransport, consoleApprover, type AgentProfile, type ToolPolicy, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 
 const sales: AgentProfile = {
@@ -44,6 +44,8 @@ const crmPolicy: ToolPolicy = {
 };
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { main: new DeepSeekProvider({ apiKey: process.env.DEEPSEEK_API_KEY! }) },
   defaultProvider: 'main',
   agents: [sales],

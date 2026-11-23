@@ -65,6 +65,8 @@ Two layers stop approval: the policy denies the call, and even without it the to
 
 ```ts
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { main: provider }, defaultProvider: 'main',
   agents: [captainProfile], defaultAgent: 'captain',
   tools: [...flowTools, ...yourOwnTools],

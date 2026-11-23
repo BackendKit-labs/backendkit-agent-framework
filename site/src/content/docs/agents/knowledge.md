@@ -7,13 +7,15 @@ description: Department agents (support, HR, sales, finance, ops) that answer fr
 
 ```ts
 import { createEnterpriseSetup } from '@backendkit-labs/agent-enterprise';
-import { ProviderRegistry } from '@backendkit-labs/agent-core';
+import { ProviderRegistry, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { AgentServer } from '@backendkit-labs/agent-web';
 
 const providers = new ProviderRegistry();
 providers.register('openai', myOpenAIProvider);
 
 const enterprise = createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   vaultPath: '/shared/obsidian-vault',
   providers,
   defaultProvider: 'openai',
@@ -46,6 +48,8 @@ The `general` agent uses the default provider, which may be a remote one, and it
 
 ```ts
 createEnterpriseSetup({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   vaultPath, providers, defaultProvider: 'openai',
   globalExcludeFolders: ['rrhh', 'finanzas', 'legal'],   // folders the general agent never searches
   // globalExcludeFolders: [],                           // the whole vault, as in earlier versions: only if its provider may see all of it

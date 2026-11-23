@@ -24,7 +24,7 @@ const orchestrator: AgentProfile = {
 A complete team, runnable offline. The specialist owns the tool; the orchestrator owns none and only decides who answers. One scripted model plays both agents, in the order they speak:
 
 ```ts
-import { createBaseEngine, defineTool, z, type AgentProfile } from '@backendkit-labs/agent-core';
+import { createBaseEngine, defineTool, z, type AgentProfile, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
 const invoiceTotal = defineTool({
@@ -46,6 +46,8 @@ const orchestrator: AgentProfile = {
 };
 
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'a1', name: 'ask_agent', args: { agent_id: 'billing', question: 'What is the total of invoice INV-7?' } }] },
     { tool_calls: [{ id: 'b1', name: 'invoice_total', args: { invoiceId: 'INV-7' } }] },

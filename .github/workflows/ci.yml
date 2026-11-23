@@ -105,6 +105,11 @@ jobs:
       - name: Typecheck all packages
         run: npm run typecheck --workspaces --if-present
 
+      # The examples of the documentation have to work: every block that builds an engine gives it an identity (SPEC-0044), and the first-agent
+      # page is compiled against the packages built above and its offline example is run.
+      - name: Documentation examples
+        run: node scripts/check-doc-snippets.mjs
+
       # ── Test ──────────────────────────────────────────────────────────────────
       # Jest packages run with --coverage so each coverageThreshold gates the build.
       - name: Test (jest, coverage thresholds)

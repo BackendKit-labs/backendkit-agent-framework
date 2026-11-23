@@ -73,7 +73,7 @@ npm install -D @backendkit-labs/agent-testkit typescript tsx
 
 ```ts
 import { createServer } from 'node:http';
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createAvalTools } from '@backendkit-labs/aval-tools';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
@@ -146,6 +146,8 @@ const provider = scriptedProvider([
 
 const t = mockTransport();
 const engine = createBaseEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: provider }, defaultProvider: 'mock', agents: [buyer], defaultAgent: 'expedientes-bot',
   tools: [...createAvalTools({ baseUrl, maxAttempts: 2 })],
   transport: t.transport, workingDir: process.cwd(), iterationMode: 'auto',
@@ -202,7 +204,7 @@ El simulador sirve para aprender y para probar tu agente sin depender de nada. P
 Este script hace el recorrido completo contra un AVAL real: da de alta al agente con su política, deja que gaste, aprueba con el token de consola lo que quedó retenido, y el agente vuelve a preguntar. Se probó contra AVAL en local (`http://127.0.0.1:3101`, con un directorio de datos desechable):
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { createAvalTools } from '@backendkit-labs/aval-tools';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 
@@ -228,7 +230,7 @@ const pay = (counterparty: string, ceilingUsd: number, purpose: string) =>
 
 async function run(turns: any[], prompt: string): Promise<string[]> {
   const provider = scriptedProvider(turns);
-  const engine = createBaseEngine({ providers: { mock: provider }, defaultProvider: 'mock', agents: [buyer], defaultAgent: 'expedientes-bot',
+  const engine = createBaseEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, providers: { mock: provider }, defaultProvider: 'mock', agents: [buyer], defaultAgent: 'expedientes-bot',
     tools: [...createAvalTools({ baseUrl })], transport: mockTransport().transport, workingDir: process.cwd(), iterationMode: 'auto' });
   await engine.run(prompt);
   return provider.calls.at(-1)!.filter(m => m.role === 'tool').map(m => String(m.content));

@@ -13,8 +13,11 @@ npm install @backendkit-labs/agent-coding
 
 ```ts
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
+import { selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! } },
   defaultProvider: 'deepseek',
 });
@@ -30,7 +33,7 @@ The same engine, with what an agent that edits files and runs commands should ha
 
 ```ts
 import { createCodingEngine } from '@backendkit-labs/agent-coding';
-import { defineTool, z } from '@backendkit-labs/agent-core';
+import { defineTool, z, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { readFile } from 'node:fs/promises';
 
 // A tool of your own: it only reads, so it is declared read-only and runs without asking.
@@ -43,6 +46,8 @@ const countLines = defineTool({
 });
 
 const engine = createCodingEngine({
+  agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
+  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { deepseek: { apiKey: process.env.DEEPSEEK_API_KEY! } },
   defaultProvider: 'deepseek',
   workingDir: process.cwd(),
@@ -94,7 +99,7 @@ Orchestration routes a task to the right one, or you select an agent yourself. Y
 `createCodingEngine({ extraTools: [myTool] })` adds tools of yours after the coding tools. A tool with the name of an existing one does **not** replace it. To replace or wrap a built-in (to add a path check, say), use the registry of the engine:
 
 ```ts
-const engine = createCodingEngine({ /* ... */ });
+const engine = createCodingEngine({ agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' }, /* ... */ });
 engine.getTools().unregister('write_file');
 engine.getTools().register(guardedWriteFile);   // the next run uses it
 ```

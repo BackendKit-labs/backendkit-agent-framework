@@ -1,8 +1,19 @@
 # Changelog
 
+## v0.50.8 (2026-11-23)
+
+**Un apoderamiento atado a otra identidad de agente se deniega; ya no «pide a una persona».** En 0.49.5, `mandatePolicy` trataba un apoderamiento que nombra otra identidad como «fuera de alcance», y el valor por defecto de «fuera de alcance» es pedir aprobación: una persona podía aprobar con un apoderamiento que no era de ese agente. Ahora es un rechazo (`no valid mandate: the mandate is bound to another agent identity`), igual que sin credencial. Lo encontró la refactorización del ejemplo `mandate-agent` al pasar a lo nativo.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.6 | `mandatePolicy` deniega un apoderamiento de otra identidad (o de un agente sin identidad) |
+
+Se publica uno. Tag: `agent-core@0.49.6`.
+
 ## v0.50.7 (2026-11-23)
 
 **Se retira el paquete `@backendkit-labs/codemod`.** Nadie lo usa y se decidió no mantenerlo (SPEC-0037). Se borra `packages/codemod` del repositorio y del CI; la versión publicada (0.1.0) se deprecará en npm, no se despublica. La guía [migrar entre versiones](site/src/content/docs/guides/migrate-between-versions.md) ya no remite al codemod: para cada ruptura dice qué cambiar a mano. No cambia ningún otro paquete.
+
 
 ## v0.50.6 (2026-11-23)
 

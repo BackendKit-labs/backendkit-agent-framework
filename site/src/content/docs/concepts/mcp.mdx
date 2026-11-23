@@ -17,12 +17,14 @@ Give the engine MCP servers and their tools appear next to yours. The client can
 `createToolServer` exposes your `ToolDefinition`s as MCP tools that run **directly**: the arguments the client sends are the arguments `execute` receives, with no language model between. Use it for anything a program or a person should call deterministically.
 
 ```ts
-import { createToolServer, startToolServerHttp, runToolServer } from '@backendkit-labs/agent-core';
+import { createToolServer, startToolServerHttp, runToolServer, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const options = {
   name: 'ledger',
   version: '1.0.0',
   tools: [balancesTool, payTool],
+  agentIdentity: selfAssertedIdentities(),            // who executes the calls
+  identity: { userId: 'svc-ledger' },                 // for whom
   // required because payTool is destructive: a direct tool skips the engine's gates
   authorize: async ({ tool, args }) => !tool.destructive || approvals.isValid(args.approvalId as string),
   audit: record => fs.appendFile('tool-calls.ndjson', JSON.stringify(record) + '\n'),
@@ -33,6 +35,7 @@ await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });  
 
 What each call gets:
 
+- an **identity check first**: the server needs a digital identity and `identity.userId`, like an agent in the engine, or every call is denied with a reason that says how to fix it; the audit event is attributed to that identity and signed by it;
 - validation against the tool's schema **before** anything runs;
 - your `authorize` gate or a `policy` (the same contract the engine uses, with `ask` going to an `approver`); one of them is mandatory when a tool is `destructive`, so you cannot forget it;
 - a bounded output (default 1 MiB) and an audit record.

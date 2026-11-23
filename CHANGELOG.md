@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.50.4 (2026-11-23)
+
+**La vía directa de herramientas también exige identidad (SPEC-0044): no queda ningún camino para ejecutar una tool sin ella.** `createToolServer` (y `startToolServerHttp`, `runToolServer`, `createToolRegistrar`) ejecutaba tools sin motor, y por tanto sin la exigencia que `agent-core` 0.49.0 puso al motor. Ahora aplican la misma regla y el mismo valor por defecto:
+
+- **Identidad del servidor y a nombre de quién actúa:** `agentIdentity` (el mismo `AgentIdentityProvider`) e `identity.userId`. Sin ellos **cada llamada se deniega**, antes de `authorize` y de la política, con un motivo que dice cómo arreglarlo. `requireAgentIdentity: false` queda para pruebas (avisa una vez por stderr). Un proveedor que falla o no contesta en `agentIdentityTimeoutMs` deniega la llamada, también con el opt-out.
+- **Auditoría:** cada evento de `auditSink`, permitido o denegado, lleva `agentIdentity` (o `agentIdentityMissing`) y lo firma la identidad del servidor si su proveedor puede firmar (`signAuditEvents: false` para no firmar); una custodia que no puede firmar deja el evento marcado `agentSignatureFailed`.
+- **`AgentMCPServer` (mcp-server)** reenvía las mismas opciones para sus `directTools`; las herramientas de prompt corren en un motor, que ya tenía la regla.
+- **Ruptura:** todo servidor de tools directas sin identidad pasa a denegar. Es la misma ruptura declarada en 0.49.0, ahora completa; no hay usuarios externos (decisión del autor), por eso va como parche. La identidad de un servidor es la del servidor, una por servidor, no una por cliente MCP.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.3 | identidad obligatoria, atribución y firma en la vía directa de herramientas |
+| `mcp-server` | 0.19.13 | reenvía las opciones de identidad a sus `directTools` |
+
+Se publican dos. Orden: `agent-core` primero. Tags: `agent-core@0.49.3`, `mcp-server@0.19.13`.
 ## v0.50.3 (2026-11-23)
 
 Corrección en `agent-core` 0.49.2: **un worker que reanuda una aprobación guardada actúa a nombre de quien la pidió.** Con la identidad obligatoria (0.49.0), un motor sin `identity.userId` propio, como el worker que corre `runApproved` más tarde (SPEC-0041 F2), se denegaba con «no dice a nombre de quién actúa», aunque la petición guardada ya registra quién la hizo. Ahora usa ese `requestedBy` y la auditoría lo anota. Sigue exigiendo que el agente tenga identidad: la aprobación no la sustituye. No lo cazaron las pruebas porque casi todas se pasaron a `requireAgentIdentity: false`.

@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-enterprise",
-  "version": "0.11.7",
+  "version": "0.11.8",
   "description": "Business agents with local LLM and RAG knowledge base for agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +16,7 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@backendkit-labs/agent-core": ">=0.48.0 <0.49.0"
+    "@backendkit-labs/agent-core": ">=0.49.0 <0.50.0"
   },
   "dependencies": {
     "@backendkit-labs/retry": "^0.1.2",

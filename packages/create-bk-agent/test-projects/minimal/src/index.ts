@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import type { AgentProfile, LLMProvider } from '@backendkit-labs/agent-core';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -29,6 +29,9 @@ const myAgent: AgentProfile = {
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 const engine = createBaseEngine({
+    // Who this agent is, and on whose behalf it acts (both are required). Swap `selfAssertedIdentities()` for your identity provider's.
+    agentIdentity: selfAssertedIdentities(),
+    identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' },
     providers:       { default: myProvider },
     defaultProvider: 'default',
     agents:          [myAgent],

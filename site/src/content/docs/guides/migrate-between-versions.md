@@ -19,6 +19,26 @@ The codemod only moves `import` and `export ... from` statements (and the `z.rec
 3. Run `tsc`, then **run your tests**. The compiler catches renamed imports; it does not catch [a change of behavior](#validation-throws-since-agent-core-034).
 :::
 
+## An agent needs an identity and a person to act for (agent-core 0.49)
+
+Every tool call is now attributed to a digital identity of the agent, and says on whose behalf it acts. With neither, the call is **denied**, with a reason that says how to fix it. There is no warning period.
+
+```ts
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
+
+createBaseEngine({
+  /* ... */
+  agentIdentity: selfAssertedIdentities(),         // who the agent is
+  identity: { userId: 'carlos' },                  // on whose behalf it acts
+});
+```
+
+- **No identity provider yet?** `selfAssertedIdentities()` (or `staticAgentIdentities({...})`) satisfies the requirement. The identity is marked `assurance: 'self-asserted'` in every audit event, so a reader can tell it from one a provider vouches for.
+- **With a provider:** pass its `AgentIdentityProvider`. The framework knows no provider or credential format.
+- **Tests:** `requireAgentIdentity: false` lets an agent act without identity (it warns once per agent; not for regulated environments), or spread `testIdentity()` from `@backendkit-labs/agent-testkit`.
+- **A provider that throws or does not answer in 5 s** denies the call, also with the opt-out. Tune it with `agentIdentityTimeoutMs` and `agentIdentityCacheMs`.
+- **The codemod does not do this:** it is a decision about who your agents are, not an import.
+
 ## A failing MCP tool now throws (agent-core 0.48)
 
 `MCPClientManager` used to ignore `isError` in the answer of an MCP server. When a server said a call had failed (bad arguments, denied, an error), the tool returned the error text **as a normal result**: the audit log and the learning counted it as a success, and a script could not tell. Now the tool's `execute` throws a `ToolError` with the code `MCP_TOOL_ERROR` and the text of the server.

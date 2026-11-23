@@ -135,6 +135,31 @@ createBaseEngine({ /* ... */ approver, approverTimeoutMs: 5 * 60_000 });
 
 Without `approverTimeoutMs` there is no limit. A person on a terminal or a chat may need hours; use [stored approvals](#approvals-that-expire) for that and keep this for approvers that should answer quickly.
 
+## Acting alone inside a signed power: mandates
+
+A policy that asks every time makes the agent useless; a blanket permission makes it dangerous. A **mandate** sits between the two: a power of representation, signed by someone with authority, that says **who the agent works for, what it may do, on what and up to how much**. Inside those limits the agent acts alone and the call is audited under that mandate; outside them it asks a person; without a valid mandate it does nothing.
+
+Two pieces, in two packages:
+
+- **`agent-core`** knows only the contract: a `Mandate`, a `MandateVerifier` (turns a credential into a `Mandate`, or refuses) and `mandatePolicy` (decides, with the facts of the call, whether the mandate covers it). It knows no credential format and no issuer.
+- **[`@backendkit-labs/agent-mandates`](/packages/mandates/)** brings what you plug into that contract: a **reference verifier** (`jwtMandateVerifier`, a signed credential in a profile of our choosing, with trusted issuers, expiry and revocation) so agents can work under mandates today, and the **pieces to write the adapter of another provider** (SD-JWT, and the rules every adapter applies: well-formed powers, consent, refusing a restriction it cannot enforce).
+
+```ts
+import { mandatePolicy } from '@backendkit-labs/agent-core';
+import { jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
+
+createBaseEngine({
+  /* ... */
+  identity: { userId: 'carlos' },                       // the person the mandate must empower
+  policy: mandatePolicy({
+    verifier: jwtMandateVerifier({ trustedIssuers: { 'did:example:acme': acmePublicKey }, credentialFor: () => credential }),
+    amountOf: (args) => ({ value: Number(args.amount), currency: String(args.currency) }),
+  }),
+});
+```
+
+The credential of an identity provider (a wallet, a corporate directory) is an **adapter** to the same `Mandate`: your agent, the policy and the audit do not change when you swap one for another, which is why `core` is tied to none. An adapter fails closed: a power with a restriction the framework cannot enforce (a daily cap, a time window) is refused, never ignored. The mandate is matched to the person in `identity.userId`, and the audit event names the mandate next to the identity of the agent (next section). What a mandate does **not** do yet: it is not bound to the identity of the agent that presents it, so a credential issued for one agent is not refused by `core` when another presents it (SPEC-0044 F3; the adapters compare it themselves). See the [package page](/packages/mandates/) for the full example and the [guide](/guides/controls-for-an-agent-without-steward/) for where it fits among the other controls.
+
 ## Who the agent is, and for whom it acts
 
 Two things are required before any tool call runs: the agent has a **digital identity**, and it says **on whose behalf** it acts (`identity.userId`). Without them the call is denied and the audit records it.

@@ -1,8 +1,8 @@
 ---
-// What happens to a tool call: policy, then allow / ask / deny. Inline SVG.
+// What happens to a tool call: the identity check, then the policy: allow / ask / deny. Inline SVG.
 ---
 <figure class="diagram">
-  <svg viewBox="0 0 760 300" role="img" aria-label="A tool call reaches the policy, which allows it, asks an approver or an approval store, or denies it; every call is audited">
+  <svg viewBox="0 0 910 300" role="img" aria-label="A tool call first needs the agent's identity and the person it acts for, or it is denied; then the policy allows it, asks an approver or an approval store, or denies it; every call is audited, attributed to the agent's identity and signed by it">
     <defs>
       <marker id="pd-ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#697080"/></marker>
       <marker id="pd-red" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#b42318"/></marker>
@@ -10,40 +10,48 @@
     <g stroke="#14171f" stroke-width="1.2" fill="#fff">
       <rect x="10" y="108" width="110" height="56" rx="8"/>
       <rect x="165" y="108" width="125" height="56" rx="8" fill="#e8f3f0" stroke="#0e6b5c"/>
-      <rect x="390" y="26" width="170" height="52" rx="8"/>
-      <rect x="390" y="110" width="170" height="52" rx="8"/>
-      <rect x="390" y="194" width="170" height="52" rx="8" stroke="#b42318"/>
-      <rect x="610" y="84" width="140" height="48" rx="8"/>
-      <rect x="610" y="140" width="140" height="48" rx="8"/>
+      <rect x="335" y="108" width="125" height="56" rx="8" fill="#e8f3f0" stroke="#0e6b5c"/>
+      <rect x="540" y="26" width="170" height="52" rx="8"/>
+      <rect x="540" y="110" width="170" height="52" rx="8"/>
+      <rect x="540" y="194" width="170" height="52" rx="8" stroke="#b42318"/>
+      <rect x="760" y="84" width="140" height="48" rx="8"/>
+      <rect x="760" y="140" width="140" height="48" rx="8"/>
     </g>
     <g font-size="14" font-weight="600" fill="#14171f" text-anchor="middle">
       <text x="65" y="141">Tool call</text>
-      <text x="227" y="132">Policy</text>
-      <text x="475" y="49">allow</text>
-      <text x="475" y="133">ask</text>
-      <text x="475" y="217" fill="#b42318">deny</text>
-      <text x="680" y="105">Approver</text>
-      <text x="680" y="161">Approval store</text>
+      <text x="227" y="132">Identity</text>
+      <text x="397" y="132">Policy</text>
+      <text x="625" y="49">allow</text>
+      <text x="625" y="133">ask</text>
+      <text x="625" y="217" fill="#b42318">deny</text>
+      <text x="830" y="105">Approver</text>
+      <text x="830" y="161">Approval store</text>
     </g>
     <g font-size="12" fill="#697080" text-anchor="middle">
       <text x="65" y="157">and its facts</text>
-      <text x="227" y="150">deny &gt; ask &gt; allow</text>
-      <text x="475" y="67">runs now</text>
-      <text x="475" y="151">someone approves first</text>
-      <text x="475" y="235" fill="#b42318">the model is told why</text>
-      <text x="680" y="122">answers right away</text>
-      <text x="680" y="178">pending, resolved later</text>
+      <text x="227" y="150">who, and for whom</text>
+      <text x="397" y="150">deny &gt; ask &gt; allow</text>
+      <text x="625" y="67">runs now</text>
+      <text x="625" y="151">someone approves first</text>
+      <text x="625" y="235" fill="#b42318">the model is told why</text>
+      <text x="830" y="122">answers right away</text>
+      <text x="830" y="178">pending, resolved later</text>
+      <text x="395" y="238" fill="#b42318">no identity, or no one to act for</text>
     </g>
     <g stroke="#697080" stroke-width="1.3" fill="none" marker-end="url(#pd-ah)">
       <path d="M120 136H163"/>
-      <path d="M290 126L388 58"/>
-      <path d="M290 136H388"/>
-      <path d="M560 128L608 110"/>
-      <path d="M560 144L608 164"/>
+      <path d="M290 136H333"/>
+      <path d="M460 126L538 58"/>
+      <path d="M460 136H538"/>
+      <path d="M710 128L758 110"/>
+      <path d="M710 144L758 164"/>
     </g>
-    <g stroke="#b42318" stroke-width="1.3" fill="none" marker-end="url(#pd-red)"><path d="M290 146L388 214"/></g>
-    <rect x="10" y="268" width="740" height="24" rx="6" fill="#f7f8fa" stroke="#e3e6ec"/>
-    <text x="380" y="284" font-size="12" fill="#697080" text-anchor="middle">Every call, allowed or not, leaves one audit event. None of this is the model's decision.</text>
+    <g stroke="#b42318" stroke-width="1.3" fill="none" marker-end="url(#pd-red)">
+      <path d="M460 146L538 214"/>
+      <path d="M227 164V220H538"/>
+    </g>
+    <rect x="10" y="268" width="890" height="24" rx="6" fill="#f7f8fa" stroke="#e3e6ec"/>
+    <text x="455" y="284" font-size="12" fill="#697080" text-anchor="middle">Every call, allowed or not, leaves one audit event, attributed to the agent's identity and signed by it. None of this is the model's decision.</text>
   </svg>
-  <figcaption>The policy answers before the tool runs. A denied call never runs; an asked call runs once, after someone with the right to approve says yes.</figcaption>
+  <figcaption>The identity answers who the agent is and for whom it acts; the policy answers whether this call may run. A denied call never runs; an asked call runs once, after someone with the right to approve says yes.</figcaption>
 </figure>

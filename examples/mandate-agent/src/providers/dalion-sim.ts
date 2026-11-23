@@ -5,10 +5,11 @@
  *   2. it issues credentials of power of representation in the assumed format of `dalion-assumed.ts`, optionally TIED to the agent's key;
  *   3. it keeps a revocation list.
  */
-import { createHash, generateKeyPairSync, sign as edSign, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync, sign as edSign, type KeyObject } from 'node:crypto';
 import { signJws } from '@backendkit-labs/agent-mandates';
 import { DALION_ASSUMED_VCT, type DalionPower } from './dalion-assumed';
-import { canonicalJson, type AgentIdentity, type AgentIdentityProvider } from '../identity/prototype';
+import type { AgentIdentity, AgentIdentityProvider } from '../identity/prototype';
+import { consentMessage } from './common';
 import { hideClaims } from '../standards/sd-jwt';
 
 /** The non-human identity the simulator gives to the example's buyer agent (assumed shape). */
@@ -45,11 +46,6 @@ export interface IssueOptions {
 
 interface Custody { identity: AgentIdentity; privateKey: KeyObject; publicKey: KeyObject }
 interface Human { kid: string; privateKey: KeyObject; publicKey: KeyObject }
-
-/** What the person signs when they consent: the agent, the person, the powers and the end date, canonically. The issuer cannot widen any of it. */
-export function consentMessage(p: { jti: unknown; sub: unknown; exp: unknown; represents: { id: unknown; kind: unknown }; powers: unknown }): Buffer {
-    return Buffer.from(createHash('sha256').update(canonicalJson({ jti: p.jti, agent: p.sub, exp: p.exp, represents: { id: p.represents.id, kind: p.represents.kind }, powers: p.powers })).digest('hex'), 'hex');
-}
 
 export class DalionSim {
     readonly issuer: string;
@@ -135,7 +131,7 @@ export class DalionSim {
         const rep = payload.represents as { id?: unknown; kind?: unknown } | undefined;
         const signer = o.consent === false ? undefined : this.humans.get(o.consent?.by ?? o.represents);
         if (signer && rep && typeof rep === 'object') {
-            const signature = edSign(null, consentMessage({ jti: payload.jti, sub: payload.sub, exp: payload.exp, represents: { id: rep.id, kind: rep.kind }, powers: payload.powers }), signer.privateKey).toString('base64url');
+            const signature = edSign(null, consentMessage({ jti: payload.jti, agent: payload.sub, exp: payload.exp, represents: { id: rep.id, kind: rep.kind }, powers: payload.powers }), signer.privateKey).toString('base64url');
             (payload.represents as Record<string, unknown>).consent = { kid: signer.kid, signature };
         }
         // An SD-JWT travels as `<jwt>~<disclosure>~...~`. The consent above covers the real values, whatever is hidden.

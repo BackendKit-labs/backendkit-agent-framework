@@ -39,11 +39,12 @@
  * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool that
  * declares no capability is never covered.
  */
-import { createHash, createPublicKey, randomBytes, verify as edVerify, type KeyObject } from 'node:crypto';
+import { createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
 import { kbSigningInput, resolveDisclosures, splitSdJwt, verifyKbJwt } from '../standards/sd-jwt';
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
-import { canonicalJson, type IdentityMandate, type IdentityRequest, type Represented } from '../identity/prototype';
+import type { IdentityMandate, IdentityRequest, Represented } from '../identity/prototype';
+import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from './common';
 import { CAPABILITY_META_KEY } from '../capability';
 
 /** Names the assumed format. Not DALION's. */
@@ -159,24 +160,18 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             if (rep.assurance !== undefined && !nonEmpty(rep.assurance)) return deny('the assurance level of the person is not valid');
             if (!Array.isArray(powers) || powers.length === 0) return deny('the credential grants no powers');
 
-            const granted: DalionPower[] = [];
-            const seen = new Set<string>();
-            for (const raw of powers as unknown[]) {
-                const p = raw as Partial<DalionPower> | null;
-                if (!p || typeof p !== 'object' || !nonEmpty(p.action)) return deny('a power has no action');
-                if (p.action === '*') return deny('a wildcard power is not accepted: name the action');
-                if (p.object !== undefined && !nonEmpty(p.object)) return deny(`the object of "${p.action}" is not valid`);
-                if (p.object === '*') return deny('a wildcard object is not accepted: name the object, or leave it out');
-                const key = `${p.action}\u0000${p.object ?? ''}`;
-                if (seen.has(key)) return deny(`"${p.action}${p.object ? ` ${p.object}` : ''}" appears more than once: its limit would be ambiguous`);
-                seen.add(key);
-                if (p.max !== undefined) {
-                    const max = p.max as { value?: unknown; currency?: unknown };
-                    if (typeof max.value !== 'number' || !Number.isFinite(max.value) || max.value < 0) return deny(`the limit of "${p.action}" is not valid`);
-                    if (!nonEmpty(max.currency)) return deny(`the limit of "${p.action}" has no currency`);
-                }
-                granted.push(p as DalionPower);
-            }
+            // The three fields of a power are the neutral shape. Any other field is a restriction this adapter cannot enforce, and a restriction that is
+            // ignored grants MORE than the issuer meant: the credential is refused (common.ts).
+            const POWER_KEYS = ['action', 'object', 'max'];
+            const extras = (raw: unknown): string[] => {
+                if (!raw || typeof raw !== 'object') return [];
+                const p = raw as Record<string, unknown>;
+                const max = p.max && typeof p.max === 'object' ? Object.keys(p.max as object).filter(k => !['value', 'currency'].includes(k)).map(k => `max.${k}`) : [];
+                return [...Object.keys(p).filter(k => !POWER_KEYS.includes(k)), ...max];
+            };
+            const checkedPowers = checkPowers((powers as unknown[]).map(raw => ({ power: raw, extraKeys: extras(raw) })));
+            if (!checkedPowers.ok) return deny(checkedPowers.reason);
+            const granted = checkedPowers.powers as DalionPower[];
 
             // FOR WHOM. The application says who the agent acts for in ITS ids; DALION says in its own. The operator maps one to the other, and
             // the credential has to empower exactly that person: a credential of another person is not "out of scope", it is no power at all.
@@ -186,26 +181,19 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             if (!nonEmpty(expectedHuman)) return deny('the application has no identifier for this person in the identity provider');
             if (rep.id !== expectedHuman) return deny('the credential empowers another person than the one the agent acts for');
 
-            if (options.minAssurance) {
-                const rank = { low: 0, substantial: 1, high: 2 } as const;
-                const got = typeof rep.assurance === 'string' && rep.assurance in rank ? rank[rep.assurance as keyof typeof rank] : -1;
-                if (got < rank[options.minAssurance]) return deny(`the person was identified with a lower assurance than the "${options.minAssurance}" this deployment requires`);
-            }
+            const lowAssurance = checkAssurance(options.minAssurance, rep.assurance);
+            if (lowAssurance) return deny(lowAssurance);
 
             // The person's OWN signature over what the agent may do for them. Without it the issuer could grant powers nobody consented to; with it
             // the issuer cannot widen them afterwards, because the signature covers the powers.
-            let consent: 'verified' | 'none' = 'none';
-            if (rep.consent !== undefined) {
-                const key = typeof rep.consent.kid === 'string' ? options.humanKeyOf?.(rep.id, rep.consent.kid) : undefined;
-                if (!key) return deny('the consent of the person cannot be checked: no key of theirs is trusted for it');
-                const message = Buffer.from(createHash('sha256').update(canonicalJson({ jti, agent: claims.sub, exp, represents: { id: rep.id, kind: rep.kind }, powers })).digest('hex'), 'hex');
-                let ok = false;
-                try { ok = typeof rep.consent.signature === 'string' && edVerify(null, message, key, Buffer.from(rep.consent.signature, 'base64url')); } catch { ok = false; }
-                if (!ok) return deny('the person did not consent to these powers (their signature does not verify)');
-                consent = 'verified';
-            } else if (options.requireConsent !== false) {
-                return deny('the credential carries no consent of the person it represents');
-            }
+            const checkedConsent = checkConsent({
+                consent: rep.consent,
+                keyOf: (kid) => options.humanKeyOf?.(rep.id, kid),
+                require: options.requireConsent !== false,
+                message: consentMessage({ jti, agent: claims.sub, exp, represents: { id: rep.id, kind: rep.kind }, powers }),
+            });
+            if (!checkedConsent.ok) return deny(checkedConsent.reason);
+            const consent = checkedConsent.consent;
 
             // The mandate for THIS call. The verb is what the TOOL declares, never what the credential says about tools. The power
             // is the one for that verb and the object the call is about; with none for the object, the verb's first power is used so
@@ -213,11 +201,8 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
             const tool = request.call.tool.name;
             const declared = request.call.tool.meta?.[CAPABILITY_META_KEY];
             const verb = typeof declared === 'string' && declared.length > 0 ? declared : undefined;
-            const forVerb = verb === undefined ? [] : granted.filter(p => p.action === verb);
             const object = options.objectOf?.(request.call.args);
-            const power = forVerb.find(p => p.object !== undefined && p.object === object)
-                ?? forVerb.find(p => p.object === undefined)
-                ?? forVerb[0];
+            const power = selectPower(granted, verb, object);
 
             // Proof of possession, as RFC 9901 does it. A credential tied to a key (`cnf`) is only good in the hands of whoever holds that key:
             // the holder presents it with a Key Binding JWT that covers THIS verifier (aud), THIS request (nonce) and THIS presentation (sd_hash).

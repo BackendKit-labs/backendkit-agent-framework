@@ -5,6 +5,7 @@
  */
 import type { ToolDefinition } from '../types';
 import type { AgentIdentity } from './agent-identity';
+import type { AgentProof } from './agent-signature';
 
 // ── Who acts ──────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,10 @@ export interface AuditEvent {
     agentIdentity?: AgentIdentity;
     /** The agent had no identity and the engine let it run (`requireAgentIdentity: false`): the log says so instead of staying silent. */
     agentIdentityMissing?: true;
+    /** The identity that executed the call signed this event (SPEC-0044 F2). See `agentSignatureProblem` and `verifyAuditChain`'s `agentSignatures`. */
+    agentSignature?: AgentProof;
+    /** The identity could not sign this event (its custody was down or too slow). The event is recorded anyway, unsigned and marked: a lost record is worse than an unsigned one, and a verifier never accepts it as signed. */
+    agentSignatureFailed?: true;
     tool: string;
     /** SHA-256 of the canonical JSON of the arguments (`hashArgs`). */
     argsHash: string;

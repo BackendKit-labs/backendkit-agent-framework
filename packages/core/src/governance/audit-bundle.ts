@@ -15,6 +15,7 @@ import { verify as edVerify, type KeyObject } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GENESIS_HASH, verifyAuditChain, type ChainedAuditEntry } from './audit';
+import type { AgentSignatureCheckOptions } from './agent-signature';
 import { asPublicKey, checkpointMessage, readCheckpoints, type AuditCheckpoint, type KeyInput } from './audit-checkpoint';
 import { readAnchors, type AnchorRecord, type TimestampAnchor } from './audit-anchor';
 
@@ -84,6 +85,8 @@ export type BundleVerification =
         /** Anchor records found in the bundle, verified or not. */
         anchorRecords: number;
         warnings: string[];
+        /** With `agentSignatures`: how many events carried a signature by the identity they name that verified. Absent when it was not asked for. */
+        signedEvents?: number;
     }
     | { ok: false; reason: string; at?: number };
 
@@ -95,7 +98,7 @@ export type BundleVerification =
  * and the result says `keySource: 'bundle'`: whoever forged the bundle can include their own key, so then a valid
  * signature only shows the log is consistent with the key it carries.
  */
-export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<string, KeyInput> } = {}): BundleVerification {
+export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<string, KeyInput>; /** Also check that each event is signed by the identity it names (SPEC-0044 F2), with keys and verifiers YOU hold. */ agentSignatures?: AgentSignatureCheckOptions } = {}): BundleVerification {
     const file = (name: string): string => join(dir, name);
     for (const name of ['audit.ndjson', 'checkpoints.ndjson', 'keys.json', 'manifest.json']) {
         if (!existsSync(file(name))) return { ok: false, reason: `the bundle has no ${name}` };
@@ -110,7 +113,7 @@ export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<s
     }
     if (manifest.format !== BUNDLE_FORMAT) return { ok: false, reason: `unknown bundle format "${String(manifest.format)}"` };
 
-    const chain = verifyAuditChain(file('audit.ndjson'));
+    const chain = verifyAuditChain(file('audit.ndjson'), options.agentSignatures ? { agentSignatures: options.agentSignatures } : {});
     if (!chain.ok) return { ok: false, reason: `the log is not intact at entry ${chain.brokenAt}: ${chain.reason}`, at: chain.brokenAt };
 
     // The manifest is the operator's description of the log, not evidence: a mismatch is told, and the checkpoints and anchors
@@ -167,6 +170,7 @@ export function verifyAuditBundle(dir: string, options: { trustedKeys?: Record<s
     return {
         ok: true, entries: chain.entries, head: chain.head, checkpoints: checkpoints.length, signedUpTo: lastSeq,
         unsignedTail: chain.entries - lastSeq, keySource, anchored: false, anchoredUpTo: 0, anchorRecords: records.length, warnings,
+        ...(chain.signedEvents !== undefined ? { signedEvents: chain.signedEvents } : {}),
     };
 }
 
@@ -196,9 +200,9 @@ function anchorProblem(path: string, hashes: Map<number, string>): AnchorRecord[
  * detectable even by whoever holds the signing key and rewrote the log, the checkpoints and the keys.
  */
 export async function verifyAuditBundleAnchored(
-    dir: string, options: { trustedKeys?: Record<string, KeyInput>; anchors: TimestampAnchor[] },
+    dir: string, options: { trustedKeys?: Record<string, KeyInput>; agentSignatures?: AgentSignatureCheckOptions; anchors: TimestampAnchor[] },
 ): Promise<BundleVerification> {
-    const base = verifyAuditBundle(dir, options.trustedKeys ? { trustedKeys: options.trustedKeys } : {});
+    const base = verifyAuditBundle(dir, { ...(options.trustedKeys ? { trustedKeys: options.trustedKeys } : {}), ...(options.agentSignatures ? { agentSignatures: options.agentSignatures } : {}) });
     if (!base.ok) return base;
     const records = readAnchors(join(dir, 'anchors.ndjson'));
     const warnings = base.warnings.filter(w => !w.includes('were not verified') && !w.startsWith('not anchored'));

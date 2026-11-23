@@ -149,6 +149,21 @@ createBaseEngine({
 
 The framework knows no identity provider, credential format or legal framework: an `AgentIdentityProvider` gives each agent its identity, and every audit event carries it (`agentIdentity`, with its `assurance`). Policies see it in `principal.agentIdentity`. With no provider at all, `selfAssertedIdentities()` satisfies the requirement and says so in the audit. A provider that fails or is slow denies the call: it never means "no identity needed".
 
+### Signed by the identity that acted
+
+If the identity provider can sign (`sign`, asynchronous: the key may sit in a KMS or an HSM), the engine signs **every audit event** with the identity that executed the call, and waits for the signature. Anyone with the public keys can then check the log, even if somebody rewrote the whole chain: the signature covers the content.
+
+```ts
+import { ed25519AgentIdentities, verifyAuditChain } from '@backendkit-labs/agent-core';
+
+const identities = ed25519AgentIdentities({ buyer: { id: 'did:example:buyer', privateKey } });
+createBaseEngine({ /* ... */ agentIdentity: identities, identity: { userId: 'carlos' }, audit: new HashChainAuditSink('./audit.log') });
+
+verifyAuditChain('./audit.log', { agentSignatures: { keyOf: (kid) => identities.publicKeyOf(kid) } });
+```
+
+The proof is **opaque**: `core` verifies Ed25519 and records the `format` of any other (a JWS, a qualified seal, a timestamp). Another format is verified by the piece you register in `formats`; one with no verifier does not pass as verified. If the identity cannot sign, the event is still written, marked `agentSignatureFailed`, and a verifier never accepts it. Signing costs about 0.1 ms with a local key; a remote custody adds its latency to every call, so for a slow one use `signAuditEvents: false` and sign the head of the chain every N events with an asynchronous `CheckpointSigner`.
+
 ## Audit
 
 Each tool call, accepted or refused, produces **one audit event**, with the arguments as a SHA-256 only (no sensitive values in the log). `HashChainAuditSink` writes them chained, so removing or editing a line is detectable.

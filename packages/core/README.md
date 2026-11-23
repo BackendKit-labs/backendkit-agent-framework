@@ -1240,7 +1240,7 @@ createBaseEngine({
 - **What `core` does not know.** Which issuers to trust, how your application's user ids map to the service's person ids, which proof formats you accept: all of that is operator wiring in the adapter, never a decision of the agent.
 - **The proof of a signed event is opaque.** `core` checks Ed25519 itself; any other format (a JWS, a qualified electronic seal, a timestamp) is checked by the verifier **you** register in `verifyAuditChain(path, { agentSignatures: { formats } })`, and a format with no verifier does not pass as verified. What legal value a signature has is for the provider and the operator.
 - **Reference adapters.** `examples/mandate-agent` builds, with the real engine and tests, an adapter for a DALION-like credential (an SD-JWT VC), another for a W3C VC-JWT and a conformance suite that runs the same scenarios against both. **The DALION payload is an assumption**: its real format is not public, so there is no official DALION adapter yet.
-- **What it does not do yet.** A mandate is not yet bound to the identity of the agent that presents it, so `core` does not refuse a credential issued for one agent when another presents it: adapters compare it themselves (SPEC-0044 F3). The direct tool server (`createToolServer`) does not require an agent identity.
+- **What it does not do yet.** A mandate is not yet bound to the identity of the agent that presents it, so `core` does not refuse a credential issued for one agent when another presents it: adapters compare it themselves (SPEC-0044 F3). The identity of a direct tool server (`createToolServer`) is that of the server, one per server, not one per MCP client.
 
 ## Learning from experience
 

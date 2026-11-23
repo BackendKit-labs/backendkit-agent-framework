@@ -99,7 +99,7 @@ export {
 } from './governance/audit';
 export type { ChainedAuditEntry, ChainVerification, SegmentVerification } from './governance/audit';
 export type { HashChainCheckpointOptions } from './governance/audit';
-export { ed25519Signer, signCheckpoint, appendCheckpoint, readCheckpoints, checkpointMessage } from './governance/audit-checkpoint';
+export { ed25519Signer, signCheckpoint, signCheckpointAsync, appendCheckpoint, readCheckpoints, checkpointMessage } from './governance/audit-checkpoint';
 export type { AuditCheckpoint, CheckpointSigner } from './governance/audit-checkpoint';
 export { exportAuditBundle, verifyAuditBundle, verifyAuditBundleAnchored, BUNDLE_FORMAT } from './governance/audit-bundle';
 export { anchorAuditLog, fileAnchor, readAnchors } from './governance/audit-anchor';
@@ -107,7 +107,9 @@ export type { AnchorRecord, AnchorVerification, TimestampAnchor } from './govern
 export type { BundleManifest, BundleVerification } from './governance/audit-bundle';
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';
-export { staticAgentIdentities, selfAssertedIdentities, SELF_ASSERTED, IdentityResolver } from './governance/agent-identity';
+export { staticAgentIdentities, selfAssertedIdentities, ed25519AgentIdentities, SELF_ASSERTED, IdentityResolver } from './governance/agent-identity';
+export { agentSignatureProblem, eventSigningMessage, ED25519 } from './governance/agent-signature';
+export type { AgentProof, ProofCheck, ProofVerifier, AgentSignatureCheckOptions } from './governance/agent-signature';
 export type { AgentIdentity, AgentIdentityProvider, AgentIdentityContext, IdentityCheck } from './governance/agent-identity';
 export { mandatePolicy, mandateCovers, auditMandate } from './governance/mandate';
 export type { Mandate, MandateRequest, MandateVerification, MandateVerifier, MandatePolicyOptions } from './governance/mandate';

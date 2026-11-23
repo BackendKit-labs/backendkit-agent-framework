@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.50.2 (2026-11-23)
+
+**Cada evento de auditoría lo firma la identidad que ejecutó la llamada (SPEC-0044 F2).** Es aditivo: sin un proveedor que firme, nada cambia.
+
+- **`sign` en el proveedor** (opcional, asíncrono: la clave puede estar en un KMS o un HSM). El motor firma cada evento con la identidad que lo ejecutó y **espera la firma**; `signAuditEvents: false` registra solo la identidad. Si la identidad no puede firmar (falla, tarda más del límite o devuelve algo que no es una prueba), el evento se escribe igualmente, marcado `agentSignatureFailed`: un registro perdido es peor que uno sin firmar, y un verificador nunca lo da por firmado.
+- **Verificar:** `verifyAuditChain(ruta, { agentSignatures })` y `verifyAuditBundle(dir, { agentSignatures })` comprueban que cada evento está firmado por la clave de la identidad que nombra, con las claves públicas que TÚ tienes, nunca las del propio registro. Reescribir todo el registro y recalcular la cadena no basta: la firma cubre el contenido.
+- **La prueba es opaca:** `core` verifica Ed25519 y registra la etiqueta `format` de cualquier otra; los demás formatos los verifica la pieza que el operador registra en `formats`. Un formato sin verificador **no pasa por verificado**. `core` no conoce ningún marco legal.
+- **Proveedor de referencia que firma:** `ed25519AgentIdentities({...})`, con una clave Ed25519 por agente y `publicKeyOf(kid)`.
+- **`CheckpointSigner.sign`** puede devolver una `Promise` (aditivo): `HashChainAuditSink.checkpointAsync()` y la firma automática cada N eventos la esperan. `checkpoint()` sigue siendo síncrono y avisa si el firmante no lo es.
+- **Coste medido** (Ed25519 local, Node 22, esta máquina): construir el mensaje y firmar un evento cuesta **~0,1 ms**; verificarlo, **~0,4 ms**. Una custodia remota suma su latencia a cada llamada, porque el motor espera la firma: si no cabe en el presupuesto, `signAuditEvents: false` y un firmante asíncrono de checkpoints cada N eventos.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.1 | firma de eventos por la identidad, verificación y firmante de checkpoints asíncrono |
+
+Se publica uno. Tag: `agent-core@0.49.1`.
+
 ## v0.50.1 (2026-11-23)
 
 Los agentes del repositorio llevan identidad y persona (SPEC-0044 F4). `createCodingEngineFromConfig`, la vía sin configuración del agente de código, da por defecto una identidad autoafirmada y actúa a nombre de quien lo ejecuta (`BK_AGENT_USER`, si no el usuario del sistema); lo que se pase como opción manda. `createCodingEngine` sigue exigiendo que se diga.

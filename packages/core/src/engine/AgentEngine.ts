@@ -10,7 +10,8 @@ import type { GuardrailOutcome, GuardrailPhase } from '../guardrails/types';
 import { MCPRegistrar } from './MCPRegistrar';
 import { randomUUID } from 'node:crypto';
 import { AuditDispatcher } from '../governance/audit';
-import { IdentityResolver, type AgentIdentityProvider } from '../governance/agent-identity';
+import { IdentityResolver, type AgentIdentity, type AgentIdentityProvider } from '../governance/agent-identity';
+import { eventSigningMessage } from '../governance/agent-signature';
 import { TOOL_SEARCH_NAME, TOOL_SEARCH_DEFAULT_RESULTS, isDeferred, rankTools, describeFound, toolSearchDefinition, type ToolSearchOptions } from './toolSearch';
 import { declaredAskPolicy, defaultToolPolicy, evaluatePolicies } from '../governance/policy';
 import { approverFromCallback, type CallbackApprover } from '../governance/approval';
@@ -161,6 +162,12 @@ export interface AgentEngineOptions extends EngineOptions {
     agentIdentityTimeoutMs?: number;
     /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
     agentIdentityCacheMs?: number;
+    /**
+     * Default `true`: when the identity provider can sign, every audit event is signed by the identity that executed the call, and the engine
+     * waits for that signature (SPEC-0044 F2). `false` records only the identity, for a custody too slow to wait for: sign the head of the chain
+     * every N events instead (`HashChainAuditSink` with an asynchronous `CheckpointSigner`).
+     */
+    signAuditEvents?: boolean;
     /**
      * Decides every tool call and delegation (allow, deny, ask) after allowedTools, the sandbox and the argument
      * guardrails. Several policies combine: deny wins, then ask, then allow. When absent but there is someone to
@@ -2038,7 +2045,18 @@ export class AgentEngine {
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
             ...(c.meta ? { meta: c.meta } : {}),
         };
-        await this.audit.write(event);
+        await this.audit.write(await this.signed(event, who.ok ? who.identity : undefined, p));
+    }
+
+    /** The event signed by the identity it names (SPEC-0044 F2), or marked unsigned when the identity cannot sign: the record is never lost. */
+    private async signed(event: AuditEvent, identity: AgentIdentity | undefined, p: Principal): Promise<AuditEvent> {
+        if (this.opts.signAuditEvents === false || !identity || !event.agentIdentity || !this.identities.canSign) return event;
+        try {
+            const agentSignature = await this.identities.sign(p.agentId, { sessionId: p.sessionId, ...(p.tenantId !== undefined ? { tenantId: p.tenantId } : {}), ...(p.userId !== undefined ? { userId: p.userId } : {}) }, eventSigningMessage(event));
+            return { ...event, agentSignature };
+        } catch {
+            return { ...event, agentSignatureFailed: true };
+        }
     }
 
     private buildContext(agentId?: string, depth = 0, chain?: string[]): ExecutionContext {

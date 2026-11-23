@@ -307,6 +307,8 @@ export interface BaseEngineOptions {
     agentIdentityTimeoutMs?: number;
     /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
     agentIdentityCacheMs?: number;
+    /** Default `true`: audit events are signed by the identity that executed the call, when its provider can sign (SPEC-0044 F2). */
+    signAuditEvents?: boolean;
 
     /**
      * Decides every tool call and delegation: allow, deny or ask (SPEC-0014). Several combine (deny > ask > allow).
@@ -541,6 +543,7 @@ export function createBaseEngine(opts: BaseEngineOptions): AgentEngine {
         ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
         ...(opts.agentIdentityTimeoutMs !== undefined ? { agentIdentityTimeoutMs: opts.agentIdentityTimeoutMs } : {}),
         ...(opts.agentIdentityCacheMs !== undefined ? { agentIdentityCacheMs: opts.agentIdentityCacheMs } : {}),
+        ...(opts.signAuditEvents !== undefined ? { signAuditEvents: opts.signAuditEvents } : {}),
         ...(opts.learning && (opts.policy || opts.approver || opts.approvals)
             ? {
                 // Without a configured policy the engine would apply defaultToolPolicy: keep it, and add the learned rules.

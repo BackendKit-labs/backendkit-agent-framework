@@ -4,7 +4,8 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, wr
 import { dirname } from 'node:path';
 import { canonicalJson } from '../shared/utils/canonical-json';
 import type { AuditEvent, AuditSink } from './types';
-import { appendCheckpoint, signCheckpoint, type AuditCheckpoint, type CheckpointSigner } from './audit-checkpoint';
+import { appendCheckpoint, checkpointMessage, type AuditCheckpoint, type CheckpointSigner } from './audit-checkpoint';
+import { agentSignatureProblem, type AgentSignatureCheckOptions } from './agent-signature';
 
 /** Keeps events in memory, in write order. For tests and for in-process inspection. */
 export class MemoryAuditSink implements AuditSink {
@@ -42,7 +43,7 @@ export interface ChainedAuditEntry {
 }
 
 export type ChainVerification =
-    | { ok: true; entries: number; head: string }
+    | { ok: true; entries: number; head: string; /** With `agentSignatures`: how many events carried a signature that verified. */ signedEvents?: number }
     | { ok: false; entries: number; brokenAt: number; reason: string };
 
 export type SegmentVerification =
@@ -66,10 +67,11 @@ function macMatches(secret: string | Uint8Array, hash: string, mac: string | und
  * Checks a chained log from its first line. A missing file is an empty, valid log. With `secret`, every entry
  * must also carry a valid MAC: a log rewritten by someone without the secret, every hash recomputed, does not pass.
  */
-export function verifyAuditChain(filePath: string, options: { secret?: string | Uint8Array } = {}): ChainVerification {
+export function verifyAuditChain(filePath: string, options: { secret?: string | Uint8Array; /** Also check that each event is signed by the identity it names (SPEC-0044 F2). Keys and verifiers come from YOU, never from the log. */ agentSignatures?: AgentSignatureCheckOptions } = {}): ChainVerification {
     if (!existsSync(filePath)) return { ok: true, entries: 0, head: GENESIS_HASH };
     const lines = readFileSync(filePath, 'utf8').split('\n').filter(l => l.length > 0);
     let prev = GENESIS_HASH;
+    let signedEvents = 0;
     for (let i = 0; i < lines.length; i++) {
         const seq = i + 1;
         let entry: ChainedAuditEntry;
@@ -84,9 +86,14 @@ export function verifyAuditChain(filePath: string, options: { secret?: string | 
         if (options.secret && !macMatches(options.secret, entry.hash, entry.mac)) {
             return { ok: false, entries: i, brokenAt: seq, reason: 'the entry carries no valid MAC for this secret' };
         }
+        if (options.agentSignatures) {
+            const problem = agentSignatureProblem(entry.event, options.agentSignatures);
+            if (problem) return { ok: false, entries: i, brokenAt: seq, reason: `agent signature: ${problem}` };
+            if (entry.event.agentSignature) signedEvents++;
+        }
         prev = entry.hash;
     }
-    return { ok: true, entries: lines.length, head: prev };
+    return { ok: true, entries: lines.length, head: prev, ...(options.agentSignatures ? { signedEvents } : {}) };
 }
 
 /**
@@ -156,7 +163,7 @@ export class HashChainAuditSink implements AuditSink {
     /** Number of entries: the `seq` of the last one. */
     get count(): number { return this.seq; }
 
-    write(event: AuditEvent): void {
+    write(event: AuditEvent): void | Promise<void> {
         const seq = this.seq + 1;
         const hash = entryHash(seq, this.prevHash, event);
         const entry: ChainedAuditEntry = {
@@ -168,7 +175,11 @@ export class HashChainAuditSink implements AuditSink {
         this.seq = seq;
         this.prevHash = hash;
         const cp = this.options.checkpoints;
-        if (cp?.every !== undefined && seq % cp.every === 0) this.checkpoint();
+        if (cp?.every !== undefined && seq % cp.every === 0) {
+            // A signer in a KMS answers later: the engine awaits this write, so the checkpoint is on disk before the next event.
+            const pending = this.signNow();
+            if (pending instanceof Promise) return pending.then(() => undefined);
+        }
     }
 
     /**
@@ -176,11 +187,31 @@ export class HashChainAuditSink implements AuditSink {
      * without `checkpoints` or the log is empty (there is nothing to sign). Errors are thrown, like the writes.
      */
     checkpoint(at?: string): AuditCheckpoint | undefined {
+        const pending = this.signNow(at);
+        if (pending instanceof Promise) {
+            pending.catch(() => undefined);
+            throw new Error('this checkpoint signer is asynchronous: use checkpointAsync()');
+        }
+        return pending;
+    }
+
+    /** Like {@link checkpoint}, for a signer that may be asynchronous (a KMS, an HSM). Works with a synchronous one too. */
+    async checkpointAsync(at?: string): Promise<AuditCheckpoint | undefined> {
+        return this.signNow(at);
+    }
+
+    /** Signs the head as it is NOW (it can move while an asynchronous signer answers) and appends the checkpoint when the signature is there. */
+    private signNow(at: string = new Date().toISOString()): AuditCheckpoint | undefined | Promise<AuditCheckpoint> {
         const cp = this.options.checkpoints;
         if (!cp || this.seq === 0) return undefined;
-        const signed = signCheckpoint(cp.signer, this.seq, this.prevHash, at);
-        appendCheckpoint(cp.path, signed);
-        return signed;
+        const { seq, prevHash: head } = this;
+        const sig = cp.signer.sign(checkpointMessage({ seq, head, at, kid: cp.signer.kid }));
+        const finish = (signature: string): AuditCheckpoint => {
+            const signed: AuditCheckpoint = { seq, head, at, kid: cp.signer.kid, sig: signature };
+            appendCheckpoint(cp.path, signed);
+            return signed;
+        };
+        return typeof sig === 'string' ? finish(sig) : sig.then(finish);
     }
 }
 

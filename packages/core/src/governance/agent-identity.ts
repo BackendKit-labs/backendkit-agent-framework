@@ -21,6 +21,9 @@ export interface AgentIdentity {
     assurance?: string;
 }
 
+import type { AgentProof } from './agent-signature';
+import { createPrivateKey, createPublicKey, sign as edSign, type KeyObject } from 'node:crypto';
+
 /** What a provider is told about who is asking, to decide which identity applies. */
 export interface AgentIdentityContext {
     sessionId: string;
@@ -32,6 +35,12 @@ export interface AgentIdentityContext {
 export interface AgentIdentityProvider {
     /** The identity of this agent (its profile id), or `undefined` when the provider has none for it. */
     resolve(agentId: string, context: AgentIdentityContext): Promise<AgentIdentity | undefined> | AgentIdentity | undefined;
+    /**
+     * Signs for the identity of this agent (SPEC-0044 F2): the engine signs every audit event with it, unless `signAuditEvents` is off. Optional
+     * and asynchronous on purpose: the key may sit in a KMS, an HSM or the provider's custody, and `core` never holds a private key it was not
+     * given. A provider without `sign` only attributes events.
+     */
+    sign?(agentId: string, message: Uint8Array, context: AgentIdentityContext): Promise<AgentProof> | AgentProof;
 }
 
 /** The assurance the reference providers put on every identity: the developer wrote it down, nobody else vouches for it. */
@@ -123,6 +132,31 @@ export class IdentityResolver {
         return answer;
     }
 
+    /**
+     * Signs with the identity of this agent, within the same time limit as resolving it. Throws when the provider cannot (no `sign`, it
+     * fails, it is too slow or returns something that is not a proof): the caller records the event unsigned and marked.
+     */
+    async sign(agentId: string, context: AgentIdentityContext, message: Uint8Array): Promise<AgentProof> {
+        const provider = this.options.provider;
+        if (!provider?.sign) throw new Error('the identity provider cannot sign');
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const proof = await Promise.race([
+                Promise.resolve(provider.sign(agentId, message, context)),
+                new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no signature in ${this.timeoutMs} ms`)), this.timeoutMs); }),
+            ]);
+            if (!proof || typeof proof !== 'object' || typeof proof.kid !== 'string' || proof.kid.length === 0 || typeof proof.signature !== 'string' || proof.signature.length === 0) {
+                throw new Error('the identity provider returned something that is not a proof');
+            }
+            return proof;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    /** True when the provider can sign. */
+    get canSign(): boolean { return typeof this.options.provider?.sign === 'function'; }
+
     /** The identity of this agent, and whether the call may go on. */
     async check(agentId: string, context: AgentIdentityContext): Promise<IdentityCheck> {
         const { identity, error } = await this.ask(agentId, context);
@@ -147,4 +181,36 @@ export class IdentityResolver {
         }
         return { ok: true, identity };
     }
+}
+
+/**
+ * The reference provider that SIGNS, in memory: each agent has an Ed25519 key you hold. For tests, demos and for whoever has no external
+ * provider but wants signed audit events. The identity is `self-asserted` unless the entry says otherwise. Persist the public keys (`publicKeyOf`)
+ * where a verifier can find them: they are what `verifyAuditChain`'s `agentSignatures.keyOf` needs.
+ */
+export function ed25519AgentIdentities(entries: Record<string, { id: string; privateKey: string | KeyObject; kid?: string; issuer?: string; assurance?: string }>): AgentIdentityProvider & { publicKeyOf(kid: string): KeyObject | undefined } {
+    const own = (agentId: string) => (Object.prototype.hasOwnProperty.call(entries, agentId) ? entries[agentId] : undefined);
+    const keyOf = (e: NonNullable<ReturnType<typeof own>>): KeyObject => {
+        const k = typeof e.privateKey === 'string' ? createPrivateKey(e.privateKey) : e.privateKey;
+        if (k.asymmetricKeyType !== 'ed25519') throw new Error('an agent identity key must be Ed25519');
+        return k;
+    };
+    const kidOf = (e: NonNullable<ReturnType<typeof own>>) => e.kid ?? `${e.id}#key-1`;
+    for (const e of Object.values(entries)) keyOf(e);   // a wrong key fails when the provider is built, not at the first call
+    return {
+        resolve(agentId) {
+            const e = own(agentId);
+            if (!e) return undefined;
+            return { id: e.id, kid: kidOf(e), ...(e.issuer ? { issuer: e.issuer } : {}), assurance: e.assurance ?? SELF_ASSERTED };
+        },
+        sign(agentId, message) {
+            const e = own(agentId);
+            if (!e) throw new Error(`no key for the agent "${agentId}"`);
+            return { kid: kidOf(e), signature: edSign(null, Buffer.from(message), keyOf(e)).toString('base64url'), format: 'ed25519' };
+        },
+        publicKeyOf(kid) {
+            const e = Object.values(entries).find(x => kidOf(x) === kid);
+            return e ? createPublicKey(keyOf(e)) : undefined;
+        },
+    };
 }

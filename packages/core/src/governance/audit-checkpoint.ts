@@ -28,10 +28,13 @@ export interface AuditCheckpoint {
 export const checkpointMessage = (c: Pick<AuditCheckpoint, 'seq' | 'head' | 'at' | 'kid'>): Buffer =>
     Buffer.from(`bk-audit-checkpoint/1\n${c.seq}\n${c.head}\n${c.at}\n${c.kid}`, 'utf8');
 
-/** Signs checkpoints. Synchronous, like the sink that calls it: a key in a file or in memory. */
+/**
+ * Signs checkpoints. Synchronous for a key in a file or in memory. It may return a Promise for a key in a KMS or an HSM (SPEC-0044 F2): use
+ * `HashChainAuditSink.checkpointAsync()` (the sink awaits it on its own when it signs every N entries).
+ */
 export interface CheckpointSigner {
     readonly kid: string;
-    sign(message: Buffer): string;
+    sign(message: Buffer): string | Promise<string>;
 }
 
 export type KeyInput = string | KeyObject;
@@ -47,7 +50,14 @@ export function ed25519Signer(privateKey: KeyInput, kid: string): CheckpointSign
 }
 
 export function signCheckpoint(signer: CheckpointSigner, seq: number, head: string, at: string = new Date().toISOString()): AuditCheckpoint {
-    return { seq, head, at, kid: signer.kid, sig: signer.sign(checkpointMessage({ seq, head, at, kid: signer.kid })) };
+    const sig = signer.sign(checkpointMessage({ seq, head, at, kid: signer.kid }));
+    if (typeof sig !== 'string') throw new Error('this signer is asynchronous: use signCheckpointAsync, or HashChainAuditSink.checkpointAsync()');
+    return { seq, head, at, kid: signer.kid, sig };
+}
+
+/** Like {@link signCheckpoint}, for a signer that may be asynchronous (a KMS, an HSM). */
+export async function signCheckpointAsync(signer: CheckpointSigner, seq: number, head: string, at: string = new Date().toISOString()): Promise<AuditCheckpoint> {
+    return { seq, head, at, kid: signer.kid, sig: await signer.sign(checkpointMessage({ seq, head, at, kid: signer.kid })) };
 }
 
 /** Appends a checkpoint to its file (one JSON line, fsync'd; the directory is created if missing). */

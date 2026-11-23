@@ -1,0 +1,25 @@
+{
+  "name": "@bk/example-mandate-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An agent that acts under a power of representation (mandate), whoever issues it: alone inside its limits, asking a person outside them. Identity providers plug in behind MandateVerifier; the DALION one is ASSUMED",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@backendkit-labs/agent-core": "^0.48.10",
+    "@backendkit-labs/agent-mandates": "^0.1.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@backendkit-labs/agent-testkit": "^0.1.20",
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.4.0"
+  }
+}

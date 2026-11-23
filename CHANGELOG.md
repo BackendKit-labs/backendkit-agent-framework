@@ -10,6 +10,11 @@
 
 Se publica uno. Tag: `agent-core@0.49.6`.
 
+## v0.50.7 (2026-11-23)
+
+**Se retira el paquete `@backendkit-labs/codemod`.** Nadie lo usa y se decidió no mantenerlo (SPEC-0037). Se borra `packages/codemod` del repositorio y del CI; la versión publicada (0.1.0) se deprecará en npm, no se despublica. La guía [migrar entre versiones](site/src/content/docs/guides/migrate-between-versions.md) ya no remite al codemod: para cada ruptura dice qué cambiar a mano. No cambia ningún otro paquete.
+
+
 ## v0.50.6 (2026-11-23)
 
 **F3 de SPEC-0044: el apoderamiento queda atado a la identidad del agente, y la posesión de la clave se prueba en cada llamada.** Hasta ahora un apoderamiento era una cadena que servía a quien la tuviera. Ahora puede nombrar la identidad del agente al que se emitió y estar atado a su clave: sin la clave, no vale.

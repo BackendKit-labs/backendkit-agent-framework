@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.49.17 (2026-11-23)
+
+Mismo arreglo que `aval-tools` y `document-extract`, ahora para `agent-enterprise`. No cambia ninguna API: llega como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-enterprise` | 0.11.7 | `agent-core` pasa a `peerDependencies` |
+
+Se publica uno. Tag: `agent-enterprise@0.11.7`.
+
+- **`agent-enterprise`, dos copias de `agent-core`:** declaraba `agent-core` como dependencia, así que una app con otra versión de `agent-core` recibía una segunda copia anidada: tipos incompatibles, dos `EventBus` y `instanceof` que da `false` entre copias. Ahora es `peerDependency` (`>=0.48.0 <0.49.0`): la app pone una sola. Si tu app usa un `agent-core` anterior a 0.48, súbelo; las plantillas de `create-bk-agent` ya declaran `agent-core` por su cuenta.
+
 ## v0.49.16 (2026-11-22)
 
 Segunda tanda de la cuarta pasada de auditoría. Ninguna cambia una API: llegan como parche.

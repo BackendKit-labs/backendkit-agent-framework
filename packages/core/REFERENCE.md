@@ -1019,7 +1019,6 @@ import { createBaseEngine, HashChainAuditSink, NdjsonAuditSink, verifyAuditChain
 
 const engine = createBaseEngine({
   agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },   // part of every event's principal
   audit: [
@@ -1058,7 +1057,6 @@ const treasuryRules: ToolPolicy = {
 
 const engine = createBaseEngine({
   agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-  identity: { userId: 'me' },                // on whose behalf it acts
   ...opts,
   identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },
   policy: treasuryRules,           // several combine: deny > ask > allow; a throwing policy denies

@@ -132,7 +132,6 @@ const answerAs = (id: string) => ({
 for (const who of ['carlos', 'intern-17', 'ana']) {
   const engine = createBaseEngine({
     agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-    identity: { userId: 'me' },                // on whose behalf it acts
     /* providers, agents, tools and transport as in step 5, with amount 25_000 */
     policy: rules,
     approver: answerAs(who),

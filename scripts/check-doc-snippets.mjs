@@ -78,6 +78,8 @@ for (const dir of ['packages', 'site/src/content/docs', 'docs/adr', 'examples'])
         for (const b of blocks(file)) {
             if (!isTs(b.lang) && b.lang !== 'js' && b.lang !== 'javascript') continue;
             const where = `${relative(root, file)}:${b.line}`;
+            const keyCount = (name) => b.code.split('\n').filter(l => new RegExp(`^\\s*${name}:`).test(l)).length;
+            if (keyCount('identity') > 1 || keyCount('agentIdentity') > 1) problems.push(`${where}: gives the same option twice (identity or agentIdentity): the second silently wins`);
             if (CONSTRUCTORS.test(b.code)) {
                 checked++;
                 if (!HAS_IDENTITY.test(b.code)) problems.push(`${where}: builds an engine with no identity (add agentIdentity and identity: { userId }). An agent with none runs nothing.`);

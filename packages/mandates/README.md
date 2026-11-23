@@ -49,7 +49,6 @@ const policy = mandatePolicy({
 const audit = new MemoryAuditSink();
 const engine = createBaseEngine({
   agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-  identity: { userId: 'me' },                // on whose behalf it acts
   providers: { mock: scriptedProvider([
     { tool_calls: [{ id: 'c', name: 'buy', args: { item: 'television', amount: 600, currency: 'EUR' } }] },
     { content: 'Done.' },

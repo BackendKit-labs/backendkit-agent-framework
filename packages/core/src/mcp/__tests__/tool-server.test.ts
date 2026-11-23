@@ -59,7 +59,7 @@ const rawTool: ToolDefinition = {
 };
 
 async function connect(opts: ToolServerOptions): Promise<{ client: Client; close: () => Promise<void> }> {
-    const server = createToolServer(opts);
+    const server = createToolServer({ requireAgentIdentity: false, ...opts });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     const client = new Client({ name: 'test-client', version: '0.0.0' });

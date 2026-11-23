@@ -670,13 +670,16 @@ await mcp.reconnectFailed();   // retry the servers marked 'failed'
 Each call gets: validation against the tool's schema before anything runs (the SDK answers invalid arguments with `isError` and a `-32602` message), an optional `authorize` gate, an `ExecutionContext` whose `signal` aborts on client cancellation or `timeoutMs`, an output cap, and an `audit` record. Tools from `defineTool` are registered with their own Zod schema, so what the client validates against is exactly what `execute` validates against; a hand-written `ToolDefinition` goes through `z.fromJSONSchema`, which fails loudly on constructs it cannot express.
 
 ```typescript
-import { createToolServer, startToolServerHttp, runToolServer } from '@backendkit-labs/agent-core';
+import { createToolServer, startToolServerHttp, runToolServer, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 // also available from '@backendkit-labs/agent-core/mcp'
 
 const options = {
   name:    'ledger',
   version: '1.0.0',
   tools:   [balancesTool, payTool],
+  // Who executes the calls, and for whom: required, like in the engine (see "Identity" below).
+  agentIdentity: selfAssertedIdentities(),
+  identity: { userId: 'svc-ledger' },
   // Required because payTool is destructive: a direct tool skips the engine's allowedTools, gates and budget.
   authorize: async ({ tool, args, sessionId }) =>
     !tool.destructive || approvals.isValid(args.approvalId as string),
@@ -696,6 +699,8 @@ const running = await startToolServerHttp(options, { port: 3100, authToken: proc
 // 3. The usual command line: stdio by default, `--http --port 3100 --host 0.0.0.0 --token <t>`, `--help`.
 await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });
 ```
+
+**Identity.** A direct tool is another way to run a tool, so it needs the same two things as the engine: the server has a digital identity (`agentIdentity`, a provider of identities, here named after the server) and says for whom it acts (`identity.userId`). Without them **every call is denied**, before `authorize` or the policy are even asked, and the reason says how to fix it. Every audit event is attributed to that identity and signed by it when the provider can sign; `requireAgentIdentity: false` is for tests only. A provider that fails or does not answer in time denies the call.
 
 **Error contract.** `isError: true` means the call did not run to completion: denied by `authorize`, timed out, threw (message only, no stack), or returned more than `maxOutputChars`. Whatever the tool *returned* is payload, even a JSON `{ ok: false }` that encodes a business failure. The `audit` hook receives one record per call, including denied and failed ones, with a SHA-256 of the arguments rather than the arguments themselves; if the hook throws, the failure goes to stderr and the result does not change (the tool has already run).
 

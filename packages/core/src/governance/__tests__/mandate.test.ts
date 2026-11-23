@@ -183,3 +183,18 @@ describe('a mandate bound to the identity of the agent (SPEC-0044 F3)', () => {
         });
     });
 });
+
+describe('a mandate for another agent identity is a refusal, not "out of scope" (SPEC-0044 F3)', () => {
+    const args = { amount: 5, currency: 'EUR' };
+    const other: Principal = { ...principal, agentIdentity: { id: 'did:ex:other' } };
+
+    it('is denied even when out of scope would ask a person (the default), and says why', async () => {
+        const p = policy(mandate({ agentIdentity: 'did:ex:buyer' }));
+        expect(await p.decide(other, call(args))).toMatchObject({ effect: 'deny', reason: expect.stringMatching(/no valid mandate.*another agent identity/) });
+    });
+    it('an agent with no identity is denied too, and the right identity is allowed', async () => {
+        const p = policy(mandate({ agentIdentity: 'did:ex:buyer' }));
+        expect(await p.decide(principal, call(args))).toMatchObject({ effect: 'deny' });
+        expect(await p.decide({ ...principal, agentIdentity: { id: 'did:ex:buyer' } }, call(args))).toMatchObject({ effect: 'allow' });
+    });
+});

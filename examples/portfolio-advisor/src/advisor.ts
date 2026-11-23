@@ -1,0 +1,66 @@
+import type { KeyObject } from 'node:crypto';
+import {
+    HashChainAuditSink, createBaseEngine, mandatePolicy,
+    type AgentIdentityProvider, type AgentProfile, type Approver, type ApproverDirectory, type LLMProvider, type Transport,
+} from '@backendkit-labs/agent-core';
+import { jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
+import { ORCHESTRATOR, profiles } from './agents';
+import { CURRENCY, type SimulatedBroker, type Targets } from './domain';
+import { buildTools } from './tools';
+
+export interface AdvisorOptions {
+    provider: LLMProvider;
+    transport: Transport;
+    /** The person the agents act for: the one who asked. The mandates have to empower this person. */
+    userId: string;
+    broker: SimulatedBroker;
+    targets: Targets;
+    /** Who each agent is, and what signs for it. */
+    identities: AgentIdentityProvider;
+    /** The credential each agent holds, by agent id. An agent with none holds no power. */
+    credentials: Record<string, string | undefined>;
+    /** The issuers of credentials you trust, with their keys. */
+    trustedIssuers: Record<string, KeyObject>;
+    /** Who the people are and what roles they have. */
+    directory: ApproverDirectory;
+    /** Who answers when an order is above what the agent may do alone. */
+    approver: Approver;
+    auditLogPath: string;
+    /** Default true: a credential not tied to the key of the agent (a bearer one) is refused. */
+    requireHolderBinding?: boolean;
+    /** Replace the agents (tests add one that should not be able to trade). */
+    agents?: AgentProfile[];
+}
+
+/**
+ * The whole advisor. Everything that governs it is framework: the identity of each agent and the signature of its audit events
+ * (`agentIdentity`), the power each one holds (`mandatePolicy` with the reference verifier of `agent-mandates`), what happens outside that power
+ * (`approver`, `approverDirectory`, `forbidSelfApproval`) and who hands work to whom (`delegatesTo`).
+ */
+export function createAdvisor(options: AdvisorOptions) {
+    const audit = new HashChainAuditSink(options.auditLogPath);
+
+    const policy = mandatePolicy({
+        verifier: jwtMandateVerifier({
+            trustedIssuers: options.trustedIssuers,
+            credentialFor: (request) => options.credentials[request.principal.agentId],
+        }),
+        // What an order spends is read from its arguments. A tool that does not say it spends nothing is never limited by the amount.
+        amountOf: (args) => (typeof args.amount === 'number' ? { value: args.amount, currency: typeof args.currency === 'string' ? args.currency : CURRENCY } : undefined),
+        agentIdentity: options.identities,
+        requireHolderBinding: options.requireHolderBinding ?? true,
+        outOfScope: 'ask',
+    });
+
+    const engine = createBaseEngine({
+        providers: { mock: options.provider }, defaultProvider: 'mock',
+        agents: options.agents ?? profiles, defaultAgent: ORCHESTRATOR,
+        tools: buildTools(options.broker, options.targets),
+        transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
+        agentIdentity: options.identities, identity: { userId: options.userId },
+        audit, policy,
+        approver: options.approver, approverDirectory: options.directory, forbidSelfApproval: true,
+    });
+
+    return { engine, audit };
+}

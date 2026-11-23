@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.50.6 (2026-11-23)
+
+**F3 de SPEC-0044: el apoderamiento queda atado a la identidad del agente, y la posesión de la clave se prueba en cada llamada.** Hasta ahora un apoderamiento era una cadena que servía a quien la tuviera. Ahora puede nombrar la identidad del agente al que se emitió y estar atado a su clave: sin la clave, no vale.
+
+- `Mandate.agentIdentity` y `mandateCovers` (agent-core 0.49.5): si el apoderamiento nombra una identidad, solo cubre al agente cuya identidad, resuelta por su proveedor, es esa. Una credencial emitida a otro agente no es «fuera de alcance»: no es ningún poder.
+- `MandateRequest.prove` (agent-core 0.49.5): `mandatePolicy({ agentIdentity })` da al verificador una función que firma un reto con la clave de la identidad del agente. El verificador construye el reto para **esa** verificación y comprueba la firma con la clave de la credencial.
+- `Mandate.holderBinding` y `AuditMandate`: la auditoría dice `proven` cuando el agente probó que tiene la clave y `none` cuando la credencial es al portador, y qué identidad de agente nombraba. `requireHolderBinding: true` en `mandatePolicy` rechaza las credenciales al portador (por defecto se aceptan y quedan marcadas `none`).
+- **Verificador de referencia (agent-mandates 0.1.3):** admite credenciales atadas a una clave (`cnf`, RFC 7800, Ed25519). Construye un Key Binding JWT con su audiencia, un nonce nuevo y la credencial, el agente lo firma y el verificador lo comprueba. Sin prueba, o con la firma de otra clave, rechaza. `issueMandate` acepta `holderKey` y `agentIdentity`.
+- **Cuestionario para el equipo de Identidad:** `docs/specs/SPEC-0044-cuestionario-equipo-identidad.md` lista lo que falta para sustituir el formato de DALION que hoy se asume.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.5 | `agentIdentity` y `holderBinding` en el apoderamiento, `prove` en la petición, `agentIdentity` y `requireHolderBinding` en la política |
+| `agent-mandates` | 0.1.3 | verificador de referencia con credenciales atadas a una clave |
+
+Se publican dos. Orden: `agent-core`, `agent-mandates`. Tags: `agent-core@0.49.5`, `agent-mandates@0.1.3`.
+
 ## v0.50.5 (2026-11-23)
 
 **El servidor de capacidades de `agent-protocol` también exige identidad (SPEC-0044): cierra el último camino que ejecutaba trabajo sin ella.** `AgentServer` corre capacidades y flujos para llamadores remotos con una sola clave compartida, sin saber para quién ni bajo qué identidad.

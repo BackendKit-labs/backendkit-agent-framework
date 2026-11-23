@@ -100,7 +100,8 @@ The profile this reference verifier reads, a JWT in the shape of an SD-JWT VC:
 ## What it does not do
 
 - **It does not authenticate anyone.** `identity.userId` is what your application says. The mandate says what the agent may do on that person's behalf; that the person is who they claim is for whoever issued it.
-- **Selective disclosure and key binding are not supported yet.** A credential with disclosures (`jwt~disclosure~...`) is **refused**, not half read.
+- **Tied to the key of the agent (SPEC-0044 F3).** A credential with `cnf` (an Ed25519 key, RFC 7800) is only good for whoever holds that key: the verifier builds a Key Binding JWT for this verification (its `audience`, a fresh nonce, the credential), the agent signs it through the identity provider you hand to `mandatePolicy({ agentIdentity })`, and the verifier checks it. No proof, or a proof by another key, is a refusal; a proven one is recorded `holderBinding: 'proven'`. A credential with no `cnf` is a bearer one: accepted unless you set `requireHolderBinding: true`, and recorded `none`. The mandate can also name the agent identity it is for (`mandate.agentIdentity`); it then covers only the agent whose identity is that one. `issueMandate` takes `holderKey` and `agentIdentity` for tests and demos.
+- **Selective disclosure in the reference verifier is not supported yet** (the SD-JWT module above reads it, adapters use it). A credential with disclosures (`jwt~disclosure~...`) is **refused**, not half read.
 - **No cumulative limits.** A ceiling is per call. A total ("up to 1000 EUR in the month") needs a state somebody has to keep: see SPEC-0043.
 - **It does not decide whom to trust, nor check revocation for you.** The list of issuers and the status source are yours.
 - **The wallet protocols** (OpenID4VCI / OpenID4VP) and the format of a specific provider are an adapter, and wait for that provider's format.

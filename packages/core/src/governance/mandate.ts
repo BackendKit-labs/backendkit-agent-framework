@@ -32,6 +32,16 @@ export interface Mandate {
     /** ISO times. Absent `validUntil`: no expiry (the verifier may have decided otherwise). */
     validFrom?: string;
     validUntil?: string;
+    /**
+     * The digital identity of the agent this mandate was issued to (SPEC-0044 F3). When set, the mandate only covers the agent whose identity,
+     * as its provider resolved it, is this one: a credential for another agent is no power here.
+     */
+    agentIdentity?: string;
+    /**
+     * Whether the verifier checked that the agent holds the key the credential is tied to (`proven`), or the credential is a bearer one (`none`,
+     * the default when absent). Set by the verifier, after calling `request.prove`.
+     */
+    holderBinding?: 'proven' | 'none';
     /** The original credential, kept so a third party can compare it with the audit trail. Never logged: only its hash. */
     evidence?: string;
 }
@@ -40,6 +50,12 @@ export interface Mandate {
 export interface MandateRequest {
     principal: Principal;
     call: ToolCall;
+    /**
+     * Proof of possession (SPEC-0044 F3): signs `challenge` with the key of the agent's digital identity. A verifier that finds a credential tied to a
+     * key builds a challenge for THIS verification (verifier, nonce, credential) and asks the agent to sign it; it then checks the signature with the
+     * key of the credential. Present only when `mandatePolicy` was given the identity provider.
+     */
+    prove?: (challenge: Uint8Array) => Promise<{ kid: string; signature: string }>;
 }
 
 export type MandateVerification = { ok: true; mandate: Mandate } | { ok: false; reason: string };
@@ -60,6 +76,16 @@ export interface MandatePolicyOptions {
     resourceOf?: (args: Record<string, unknown>) => string | undefined;
     /** What happens to a call with a valid mandate that does not cover it. Default `ask` (a person decides). */
     outOfScope?: 'ask' | 'deny';
+    /**
+     * The identity provider of the engine. With it, a verifier can ask the agent to prove it holds the key a credential is tied to
+     * (`request.prove`). Without it no proof can be made and a credential tied to a key is refused by the verifiers that require one.
+     */
+    agentIdentity?: { sign?: (agentId: string, message: Uint8Array, context: { sessionId: string; tenantId?: string; userId?: string }) => Promise<{ kid: string; signature: string }> | { kid: string; signature: string } };
+    /**
+     * Refuse a credential that is not tied to the agent's key (a bearer credential). Default false: it is accepted and the audit says
+     * `holderBinding: none`, so it does not look like a possession was shown. `true` is the setting for a deployment that wants possession.
+     */
+    requireHolderBinding?: boolean;
     /** Require that the mandate is for the person the agent acts for (`principal.userId`). Default true. */
     requireSubject?: boolean;
     /** Clock, for tests. */
@@ -74,6 +100,8 @@ export function auditMandate(m: Mandate): AuditMandate {
         id: m.id,
         issuer: m.issuer,
         subject: m.subject,
+        ...(m.agentIdentity !== undefined ? { agentIdentity: m.agentIdentity } : {}),
+        holderBinding: m.holderBinding ?? 'none',
         ...(m.validUntil !== undefined ? { validUntil: m.validUntil } : {}),
         ...(m.evidence !== undefined ? { evidenceHash: sha256(m.evidence) } : {}),
     };
@@ -87,6 +115,10 @@ export function mandateCovers(
     if (m.validFrom !== undefined && !(Date.parse(m.validFrom) <= now)) return { ok: false, reason: 'the mandate is not valid yet, or its start cannot be read' };
     if (m.validUntil !== undefined && !(now <= Date.parse(m.validUntil))) return { ok: false, reason: 'the mandate has expired, or its end cannot be read' };
     if (m.agent !== undefined && m.agent !== principal.agentId) return { ok: false, reason: `the mandate is for agent "${m.agent}", not "${principal.agentId}"` };
+    if (m.agentIdentity !== undefined) {
+        if (!principal.agentIdentity) return { ok: false, reason: 'the mandate is bound to an agent identity and this agent has none' };
+        if (m.agentIdentity !== principal.agentIdentity.id) return { ok: false, reason: 'the mandate is bound to another agent identity' };
+    }
     if (options.requireSubject !== false) {
         if (principal.userId === undefined) return { ok: false, reason: 'the engine does not say who the agent acts for (identity.userId), so the mandate cannot be matched to a person' };
         if (m.subject !== principal.userId) return { ok: false, reason: 'the mandate empowers another person than the one the agent acts for' };
@@ -122,13 +154,20 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
         async decide(principal: Principal, call: ToolCall): Promise<PolicyDecision> {
             let verdict: Awaited<ReturnType<MandateVerifier['verify']>>;
             try {
-                verdict = await options.verifier.verify({ principal, call });
+                const provider = options.agentIdentity;
+                const prove: MandateRequest['prove'] | undefined = principal.agentIdentity && provider?.sign
+                    ? async (challenge) => provider.sign!(principal.agentId, challenge, { sessionId: principal.sessionId, ...(principal.tenantId ? { tenantId: principal.tenantId } : {}), ...(principal.userId ? { userId: principal.userId } : {}) })
+                    : undefined;
+                verdict = await options.verifier.verify({ principal, call, ...(prove ? { prove } : {}) });
             } catch (err) {
                 return { effect: 'deny', reason: `the mandate verifier failed: ${err instanceof Error ? err.message : String(err)}` };
             }
             if (!verdict || typeof verdict !== 'object' || verdict.ok !== true || !verdict.mandate) {
                 const why = verdict && typeof verdict === 'object' && 'reason' in verdict ? String(verdict.reason) : 'no answer';
                 return { effect: 'deny', reason: `no valid mandate: ${why}` };
+            }
+            if (options.requireHolderBinding && verdict.mandate.holderBinding !== 'proven') {
+                return { effect: 'deny', reason: 'no valid mandate: the credential is not tied to the key of the agent (a bearer credential) and this deployment requires proof of possession' };
             }
             const covered = mandateCovers(verdict.mandate, principal, call, options);
             if (covered.ok) return { effect: 'allow', reason: `covered by mandate ${verdict.mandate.id}`, mandate: auditMandate(verdict.mandate) };

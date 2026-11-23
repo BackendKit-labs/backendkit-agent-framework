@@ -272,7 +272,8 @@ export function renderSkeleton(spec: DesignSpec, options: { stubs?: 'throw' | 'e
         '  provider: LLMProvider;',
         '  transport: Transport;',
         f.needsApprover ? '  /** Answers an `ask` right away. Required: with none, every ask is refused. */\n  approver: Approver;' : '  /** Answers an `ask` right away, when the design does not store approvals. */\n  approver?: Approver;',
-        ...(g.actsForUser ? ['  /** Who the agent acts for. Already authenticated by your application. */\n  userId: string;'] : []),
+        '  /** Who the agent acts for. Already authenticated by your application. Required: an agent says on whose behalf it acts. */\n  userId: string;',
+        '  /** Gives the agent its digital identity. Default: self-asserted (the audit marks it); pass the one of your identity provider to have it vouched for. */\n  agentIdentity?: AgentIdentityProvider;',
         ...(f.usesRoles ? [`  /** Who an approver is and which roles they hold (${f.roles.join(', ')}). From your user system; the framework does not authenticate. */\n  approverDirectory: ApproverDirectory;`] : []),
         ...(f.usesCredentials ? ['  /** Leases the credentials the tools declare, for one authorized call. The framework ships the contract, not an implementation. */\n  credentialBroker: CredentialBroker;'] : []),
         ...(f.signed ? ['  /** PEM of the Ed25519 private key that signs the checkpoints of the audit. Keep it away from whoever writes the log. */\n  auditSigningKeyPem: string;'] : []),
@@ -286,7 +287,7 @@ export function renderSkeleton(spec: DesignSpec, options: { stubs?: 'throw' | 'e
         ...(g.durableApprovals ? ['FileApprovalStore'] : []),
         ...(f.signed ? ['ed25519Signer'] : []),
         'type Approver', ...(f.usesRoles ? ['type ApproverDirectory'] : []), ...(f.usesCredentials ? ['type CredentialBroker'] : []),
-        'type LLMProvider', 'type Transport',
+        'type LLMProvider', 'type Transport', 'selfAssertedIdentities', 'type AgentIdentityProvider',
     ];
     const budget = spec.budget && f.hasBudget
         ? [
@@ -321,7 +322,8 @@ export function renderSkeleton(spec: DesignSpec, options: { stubs?: 'throw' | 'e
             '    policy: rules,',
             '    ...(deps.approver ? { approver: deps.approver } : {}),',
             ...(g.durableApprovals ? ["    approvals: new FileApprovalStore(deps.approvalsDir ?? './approvals'),"] : []),
-            ...(g.actsForUser ? ['    identity: { userId: deps.userId },'] : []),
+            '    identity: { userId: deps.userId },',
+            '    agentIdentity: deps.agentIdentity ?? selfAssertedIdentities(),',
             ...(g.fourEyes ? ['    forbidSelfApproval: true,'] : []),
             ...(f.usesRoles ? ['    approverDirectory: deps.approverDirectory,'] : []),
             ...(f.usesCredentials ? ['    credentialBroker: deps.credentialBroker,'] : []),
@@ -391,7 +393,7 @@ export function renderSkeleton(spec: DesignSpec, options: { stubs?: 'throw' | 'e
             '    transport: mockTransport().transport,',
             "    auditDir: mkdtempSync(join(tmpdir(), 'agent-audit-')),",
             ...(g.durableApprovals ? ["    approvalsDir: mkdtempSync(join(tmpdir(), 'agent-approvals-')),"] : []),
-            ...(g.actsForUser ? ["    userId: 'requester-1',"] : []),
+            "    userId: 'requester-1',",
             ...(f.usesRoles ? [`    approverDirectory: { describe: () => ({ roles: ${list(roleList)} }) },`] : []),
             ...(f.usesCredentials ? ["    credentialBroker: { lease: () => ({ value: 'test-credential', id: 'lease-1' }) },"] : []),
             ...(f.signed ? ["    auditSigningKeyPem: generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),"] : []),

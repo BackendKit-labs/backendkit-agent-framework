@@ -18,7 +18,7 @@ describe('AgentServer bind address', () => {
 
     it('binds to loopback by default', async () => {
         const port = await freePort();
-        server = new AgentServer({ name: 'a', version: '1.0.0', description: 'd', port });
+        server = new AgentServer({ allowUngated: true, name: 'a', version: '1.0.0', description: 'd', port });
         await server.start();
         const addr = (server as unknown as { server: { address(): net.AddressInfo } }).server.address();
         expect(addr.address).toBe('127.0.0.1');
@@ -26,7 +26,7 @@ describe('AgentServer bind address', () => {
 
     it('binds to the given host', async () => {
         const port = await freePort();
-        server = new AgentServer({ name: 'a', version: '1.0.0', description: 'd', port, host: '0.0.0.0' });
+        server = new AgentServer({ allowUngated: true, name: 'a', version: '1.0.0', description: 'd', port, host: '0.0.0.0' });
         await server.start();
         const addr = (server as unknown as { server: { address(): net.AddressInfo } }).server.address();
         expect(addr.address).toBe('0.0.0.0');

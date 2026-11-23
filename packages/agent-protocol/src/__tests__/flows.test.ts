@@ -45,7 +45,7 @@ const running: AgentServer[] = [];
 async function start(opts: Partial<ConstructorParameters<typeof AgentServer>[0]> = {}) {
     const port = await freePort();
     const handler = memoryFlows();
-    const server = new AgentServer({ name: 'flows', version: '1.0.0', description: 'd', port, flowHandler: handler, ...opts });
+    const server = new AgentServer({ allowUngated: true, name: 'flows', version: '1.0.0', description: 'd', port, flowHandler: handler, ...opts });
     await server.start();
     running.push(server);
     return { server, url: `http://127.0.0.1:${port}`, handler };

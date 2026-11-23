@@ -109,6 +109,8 @@ export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicie
 export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';
 export { staticAgentIdentities, selfAssertedIdentities, ed25519AgentIdentities, SELF_ASSERTED, IdentityResolver } from './governance/agent-identity';
 export { agentSignatureProblem, eventSigningMessage, ED25519 } from './governance/agent-signature';
+export { capabilityIdentityGate } from './governance/capability-gate';
+export type { CapabilityIdentityGateOptions } from './governance/capability-gate';
 export type { AgentProof, ProofCheck, ProofVerifier, AgentSignatureCheckOptions } from './governance/agent-signature';
 export type { AgentIdentity, AgentIdentityProvider, AgentIdentityContext, IdentityCheck } from './governance/agent-identity';
 export { mandatePolicy, mandateCovers, auditMandate } from './governance/mandate';

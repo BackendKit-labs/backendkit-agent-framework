@@ -4,6 +4,9 @@ export { PROTOCOL_VERSION, PROTOCOL_MINOR, CONTROL_ACTIONS, FLOW_STEER_ACTIONS }
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type {
     AgentContext,
+    CapabilityCall,
+    CapabilityGate,
+    CapabilityGateResult,
     AgentInfo,
     CapabilityDefinition,
     CapabilityField,

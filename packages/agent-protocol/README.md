@@ -20,6 +20,7 @@ A capability is a named operation with an input and output schema and an `execut
 
 ```typescript
 import { AgentServer } from '@backendkit-labs/agent-protocol';
+import { capabilityIdentityGate, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 
 const server = new AgentServer({
   name: 'invoice-agent',
@@ -29,6 +30,8 @@ const server = new AgentServer({
   host: '0.0.0.0',
   apiKey: process.env.AGENT_API_KEY,        // required off loopback (strict: true makes it mandatory)
   strict: true,
+  // Who runs the capabilities and for whom (required: with no gate the server runs nothing).
+  gate: capabilityIdentityGate({ name: 'invoice-agent', agentIdentity: selfAssertedIdentities(), identity: { userId: 'finance-team' } }),
 });
 
 server.register({
@@ -48,6 +51,8 @@ server.register({
 
 await server.start();
 ```
+
+**A run needs an identity gate (SPEC-0044).** A capability, or the start of a flow, is another way to act, so the server runs nothing unless a `gate` lets the run in: the agent has a digital identity and says for whom it acts, as in the engine. `capabilityIdentityGate` of `@backendkit-labs/agent-core` builds one: it refuses without them (with a reason that says how to fix it), attributes each run to the identity in an audit event, signs it when the identity provider can, and passes `userId` and `agentIdentity` to the handler in its context. This protocol authenticates a caller with **one shared key** and nothing more, so who a run is **for** is not in the request: set it with a fixed `identity`, or with a function of the call built from something **you** verified (a validated token), never from `x-tenant-id`, which the caller sets by itself. A gate that throws refuses the run. `allowUngated: true` is for tests only. The gate is a plain function (`CapabilityGate`), so this package depends on no identity provider.
 
 | Endpoint | What it does |
 |---|---|

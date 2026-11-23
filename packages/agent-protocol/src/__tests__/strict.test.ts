@@ -4,7 +4,7 @@ const base = { name: 'a', version: '1.0.0', description: 'd', port: 0 };
 
 describe('AgentServer strict', () => {
     it('refuses a non-loopback host without an apiKey', () => {
-        expect(() => new AgentServer({ ...base, host: '0.0.0.0', strict: true })).toThrow(/strict mode/);
+        expect(() => new AgentServer({ allowUngated: true, ...base, host: '0.0.0.0', strict: true })).toThrow(/strict mode/);
     });
 
     it('allows loopback, or a non-loopback host with an apiKey', () => {
@@ -13,7 +13,7 @@ describe('AgentServer strict', () => {
             { strict: true, host: '127.0.0.1' },
             { strict: true, host: '0.0.0.0', apiKey: 'k' },
         ]) {
-            const server = new AgentServer({ ...base, ...opts });
+            const server = new AgentServer({ allowUngated: true, ...base, ...opts });
             void server.stop();
         }
     });
@@ -21,7 +21,7 @@ describe('AgentServer strict', () => {
     it('without strict the server still starts, but warns when it is open to the network', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
         const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
-        const server = new AgentServer({ ...base, host: '0.0.0.0' });
+        const server = new AgentServer({ allowUngated: true, ...base, host: '0.0.0.0' });
         try {
             await server.start();
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('without an apiKey'));

@@ -6,6 +6,8 @@ import {
     type AgentInfo,
     type CapabilityDefinition,
     type AgentContext,
+    type CapabilityGate,
+    type CapabilityGateResult,
     type ControlAction,
     type FlowDescriptor,
     type RunRequest,
@@ -71,6 +73,14 @@ export interface AgentServerOptions {
     flowHandler?: FlowHandler;
     /** Lets a supervisor list what waits for a person and decide it (protocol 1.2). Needs `controlApiKey`. */
     approvalHandler?: ApprovalHandler;
+    /**
+     * Decides every run (a capability or the start of a flow) before it starts: under which identity and for whom (SPEC-0044). **Required by
+     * default**: without a gate the server refuses to run anything, because a capability is another way to act and must not be a way around the
+     * identity the rest of the framework requires. `capabilityIdentityGate` of `@backendkit-labs/agent-core` builds one.
+     */
+    gate?: CapabilityGate;
+    /** Run with no gate, for tests only. Default false. */
+    allowUngated?: boolean;
 }
 
 const isLoopback = (host: string): boolean => host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
@@ -87,6 +97,8 @@ export class AgentServer {
     private readonly control?:   ControlHandler;
     private readonly flowHandler?: FlowHandler;
     private readonly approvalHandler?: ApprovalHandler;
+    private readonly gate?: CapabilityGate;
+    private readonly allowUngated: boolean;
     private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
@@ -102,6 +114,8 @@ export class AgentServer {
         this.control   = opts.control;
         this.flowHandler = opts.flowHandler;
         this.approvalHandler = opts.approvalHandler;
+        if (opts.gate) this.gate = opts.gate;
+        this.allowUngated = opts.allowUngated === true;
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
         this.info      = {
@@ -125,6 +139,38 @@ export class AgentServer {
         this.handlers.set(handler.definition.name, handler);
         this.info.capabilities.push(handler.definition);
         return this;
+    }
+
+    /**
+     * The gate of a run (SPEC-0044). With no gate the server refuses, unless `allowUngated`. A gate that throws, or returns something that is not
+     * an answer, refuses too: it never means "let it through".
+     */
+    private async passGate(
+        req: Request, capability: string, input: Record<string, unknown>, context: AgentContext,
+    ): Promise<{ ok: true; context?: Partial<AgentContext>; finish?: NonNullable<Extract<CapabilityGateResult, { ok: true }>['finish']> } | { ok: false; status: number; code: ErrorCode; message: string }> {
+        if (!this.gate) {
+            if (this.allowUngated) return { ok: true };
+            return {
+                ok: false, status: 403, code: 'FORBIDDEN',
+                message: 'This agent has no identity gate, so it runs nothing: pass `gate` to AgentServer (see `capabilityIdentityGate` of @backendkit-labs/agent-core), or `allowUngated: true` for tests only',
+            };
+        }
+        let answer: CapabilityGateResult;
+        try {
+            answer = await this.gate({ capability, input, context, headers: req.headers });
+        } catch (err) {
+            return { ok: false, status: 403, code: 'FORBIDDEN', message: `the identity gate failed: ${(err as Error).message}` };
+        }
+        if (!answer || typeof answer !== 'object' || typeof answer.ok !== 'boolean') {
+            return { ok: false, status: 403, code: 'FORBIDDEN', message: 'the identity gate returned something that is not an answer' };
+        }
+        if (!answer.ok) {
+            const unauthorized = answer.code === 'UNAUTHORIZED';
+            return { ok: false, status: unauthorized ? 401 : 403, code: unauthorized ? 'UNAUTHORIZED' : 'FORBIDDEN', message: String(answer.message) };
+        }
+        const { context: more, finish } = answer;
+        const safeFinish = finish ? async (o: { ok: boolean; error?: string }) => { try { await finish.call(answer, o); } catch { /* recording must not change the answer */ } } : undefined;
+        return { ok: true, ...(more ? { context: more } : {}), ...(safeFinish ? { finish: safeFinish } : {}) };
     }
 
     // ── Middleware ──────────────────────────────────────────────────────────
@@ -183,11 +229,15 @@ export class AgentServer {
                 return res.status(503).json(this.errEnvelope('AGENT_UNAVAILABLE', 'The agent is draining: it is not accepting new runs'));
             }
 
+            const gated = await this.passGate(req, body.capability, (body.input ?? {}) as Record<string, unknown>, context);
+            if (!gated.ok) return res.status(gated.status).json(this.errEnvelope(gated.code, gated.message, undefined, context.traceId));
+
             const runAsync = body.async ?? handler.definition.async;
             // What the handler reports as spent. Only finite, non-negative amounts count; none reported stays undefined.
             let cost: number | undefined;
             const runContext: AgentContext = {
                 ...context,
+                ...gated.context,
                 reportCost: usd => { if (Number.isFinite(usd) && usd >= 0) cost = (cost ?? 0) + usd; },
             };
 
@@ -195,11 +245,13 @@ export class AgentServer {
                 // Synchronous
                 try {
                     const output = await handler.execute(body.input ?? {}, runContext);
+                    await gated.finish?.({ ok: true });
                     res.json(this.okEnvelope(
                         { status: 'done', output, ...(cost !== undefined ? { costUsd: cost } : {}) },
                         { durationMs: Date.now() - start, traceId: context.traceId, agentVersion: this.info.version },
                     ));
                 } catch (err) {
+                    await gated.finish?.({ ok: false, error: (err as Error).message });
                     res.status(500).json(
                         this.errEnvelope('EXECUTION_FAILED', (err as Error).message, undefined, context.traceId)
                     );
@@ -219,8 +271,10 @@ export class AgentServer {
                 this.taskStore.setRunning(taskId);
                 try {
                     const output = await handler.execute(body.input ?? {}, runContext);
+                    await gated.finish?.({ ok: true });
                     this.taskStore.complete(taskId, output, cost);
                 } catch (err) {
+                    await gated.finish?.({ ok: false, error: (err as Error).message });
                     this.taskStore.fail(taskId, (err as Error).message, cost);
                 }
             });
@@ -326,9 +380,17 @@ export class AgentServer {
                 return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'input' must be an object"));
             }
             const context = extractContext(req);
+            const gated = await this.passGate(req, `flow:${String(req.params.name)}`, input as Record<string, unknown>, context);
+            if (!gated.ok) return res.status(gated.status).json(this.errEnvelope(gated.code, gated.message, undefined, context.traceId));
             try {
-                res.json(this.okEnvelope(await this.flowHandler.start(String(req.params.name), input as Record<string, unknown>, context)));
-            } catch (err) { this.sendControlError(res, err, context.traceId); }
+                // The flow runs on in the background: what the gate can record here is that it started.
+                const started = await this.flowHandler.start(String(req.params.name), input as Record<string, unknown>, { ...context, ...gated.context });
+                await gated.finish?.({ ok: true });
+                res.json(this.okEnvelope(started));
+            } catch (err) {
+                await gated.finish?.({ ok: false, error: (err as Error).message });
+                this.sendControlError(res, err, context.traceId);
+            }
         });
 
         this.app.get('/v1/agent/flow-runs/:id', async (req: Request, res: Response) => {

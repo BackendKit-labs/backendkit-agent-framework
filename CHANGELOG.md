@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.50.5 (2026-11-23)
+
+**El servidor de capacidades de `agent-protocol` también exige identidad (SPEC-0044): cierra el último camino que ejecutaba trabajo sin ella.** `AgentServer` corre capacidades y flujos para llamadores remotos con una sola clave compartida, sin saber para quién ni bajo qué identidad.
+
+- **`gate` (agent-protocol 0.7.2):** una función `CapabilityGate` decide cada ejecución (`POST /run` y el inicio de un flujo) antes de que empiece, puede añadir al contexto del handler `userId` y `agentIdentity`, y se entera de cómo termina (`finish`). **Sin gate el servidor no ejecuta nada** (403 `FORBIDDEN` con un motivo que dice cómo arreglarlo); `allowUngated: true` es solo para pruebas. Un gate que lanza o devuelve algo que no es una respuesta rechaza: nunca significa «déjalo pasar». El protocolo no depende de ningún proveedor de identidad.
+- **`capabilityIdentityGate({ name, agentIdentity, identity })` (agent-core 0.49.4):** el gate con la misma regla y el mismo valor por defecto que el motor: identidad del agente y para quién actúa, o se rechaza; un evento de auditoría por ejecución, atribuido a la identidad y firmado si el proveedor firma (`auditSink`, `signAuditEvents`). Como la clave compartida no dice quién llama, **para quién es la ejecución lo dices tú**: una `identity` fija o una función de la llamada, construida con algo que hayas verificado, nunca con `x-tenant-id`, que pone el llamador.
+- **Sesiones web (agent-web 0.6.18):** `EngineFactory` recibe un tercer argumento `caller: { userId? }` con la persona que el servidor autenticó (el `sub` del token), para que el motor de esa sesión actúe a nombre de ella. `agent-enterprise` 0.11.9 lo usa como `identity.userId`.
+- **Ruptura:** todo `AgentServer` de agent-protocol sin gate pasa a rechazar las ejecuciones. Va como parche por la misma razón que antes: no hay usuarios externos (decisión del autor). Con esto, **todas las vías que ejecutan una tool o una capacidad exigen identidad**: el motor, el servidor de tools directas y el servidor de capacidades.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-protocol` | 0.7.2 | `gate` y `allowUngated` en `AgentServer`; `userId` y `agentIdentity` en el contexto |
+| `agent-core` | 0.49.4 | `capabilityIdentityGate`; depende de agent-protocol ^0.7.2 |
+| `agent-web` | 0.6.18 | la fábrica de motores recibe quién abrió la sesión |
+| `agent-enterprise` | 0.11.9 | usa a esa persona como `identity.userId` |
+
+Se publican cuatro. Orden: `agent-protocol`, `agent-core`, `agent-web`, `agent-enterprise`. Tags: `agent-protocol@0.7.2`, `agent-core@0.49.4`, `agent-web@0.6.18`, `agent-enterprise@0.11.9`.
+
 ## v0.50.4 (2026-11-23)
 
 **La vía directa de herramientas también exige identidad (SPEC-0044): no queda ningún camino para ejecutar una tool sin ella.** `createToolServer` (y `startToolServerHttp`, `runToolServer`, `createToolRegistrar`) ejecutaba tools sin motor, y por tanto sin la exigencia que `agent-core` 0.49.0 puso al motor. Ahora aplican la misma regla y el mismo valor por defecto:

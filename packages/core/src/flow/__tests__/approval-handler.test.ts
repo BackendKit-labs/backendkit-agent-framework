@@ -199,7 +199,7 @@ describe('over agent-protocol', () => {
     it('a supervisor lists and decides through AgentServer/AgentClient', async () => {
         const store = await seeded(request('a1'));
         const port = await freePort();
-        const server = new AgentServer({
+        const server = new AgentServer({ allowUngated: true,
             name: 'finance', version: '1.0.0', description: 'd', port, controlApiKey: 'ctl',
             approvalHandler: createApprovalHandler(store) as unknown as ApprovalHandler,
         });

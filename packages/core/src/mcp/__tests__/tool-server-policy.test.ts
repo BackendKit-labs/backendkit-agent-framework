@@ -18,7 +18,7 @@ const pay = defineTool({
 });
 
 async function connect(opts: ToolServerOptions) {
-    const server = createToolServer(opts);
+    const server = createToolServer({ requireAgentIdentity: false, ...opts });
     const [c, s] = InMemoryTransport.createLinkedPair();
     await server.connect(s);
     const client = new Client({ name: 'c', version: '0' });

@@ -8,8 +8,10 @@ import { getToolInputSchema, validateToolDefinition } from '../tools/defineTool'
 import { AuditDispatcher } from '../governance/audit';
 import { agentCouldPerform, evaluatePolicies } from '../governance/policy';
 import { approvalProblem } from '../governance/approval';
+import { IdentityResolver, type AgentIdentity, type AgentIdentityContext, type AgentIdentityProvider } from '../governance/agent-identity';
+import { eventSigningMessage } from '../governance/agent-signature';
 import type {
-    ApprovalRequest, Approver, ApproverRef, AuditDecision, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
+    ApprovalRequest, Approver, ApproverRef, AuditDecision, AuditEvent, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
 } from '../governance/types';
 import { randomUUID } from 'node:crypto';
 
@@ -84,8 +86,24 @@ export interface ToolServerOptions {
     policy?: ToolPolicy | ToolPolicy[];
     /** Answers an `ask` now. Its answer is validated (accepted kind, no self-approval) before it counts. */
     approver?: Approver;
-    /** Who the server acts for; part of the principal policies and audit events see. */
+    /** Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off. */
     identity?: Identity;
+    /**
+     * Gives the server its digital identity (SPEC-0044): who executes the calls. The same contract and the same default as the engine: every call
+     * is attributed to it in the audit and signed by it when the provider can sign. See `selfAssertedIdentities`, `ed25519AgentIdentities`.
+     */
+    agentIdentity?: AgentIdentityProvider;
+    /**
+     * Default `true`: without an identity for the server and `identity.userId`, every call is denied, with a reason that says how to fix it. A direct
+     * tool is the other way to run a tool, and it must not be a way around the requirement. `false` is for tests only.
+     */
+    requireAgentIdentity?: boolean;
+    /** How long the identity provider has to answer before the call is denied. Default 5000. */
+    agentIdentityTimeoutMs?: number;
+    /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
+    agentIdentityCacheMs?: number;
+    /** Default `true`: audit events are signed by the identity of the server when its provider can sign (SPEC-0044 F2). */
+    signAuditEvents?: boolean;
     /**
      * Receives one record per call, after it finishes (also for denied and failed calls). A failure inside the
      * hook is written to stderr and does not change the result: the tool has already run.
@@ -193,6 +211,7 @@ function annotationsOf(tool: ToolDefinition): PreparedTool['annotations'] {
 interface Governance {
     policies: ToolPolicy[];
     sinks: AuditDispatcher;
+    identities: IdentityResolver;
 }
 
 const governanceOf = new WeakMap<ToolServerOptions, Governance>();
@@ -204,6 +223,13 @@ function governance(opts: ToolServerOptions): Governance {
             policies: opts.policy ? (Array.isArray(opts.policy) ? opts.policy : [opts.policy]) : [],
             sinks: new AuditDispatcher(opts.auditSink, (err) =>
                 process.stderr.write(`[${opts.name}] audit sink failed: ${messageOf(err)}\n`)),
+            identities: new IdentityResolver({
+                ...(opts.agentIdentity ? { provider: opts.agentIdentity } : {}),
+                ...(opts.requireAgentIdentity !== undefined ? { require: opts.requireAgentIdentity } : {}),
+                ...(opts.agentIdentityTimeoutMs !== undefined ? { timeoutMs: opts.agentIdentityTimeoutMs } : {}),
+                ...(opts.agentIdentityCacheMs !== undefined ? { cacheMs: opts.agentIdentityCacheMs } : {}),
+                warn: (text) => process.stderr.write(`[${opts.name}] ${text}\n`),
+            }),
         };
         governanceOf.set(opts, g);
     }
@@ -253,6 +279,10 @@ async function runCall(
     };
     let approval: { id: string; by: ApproverRef } | undefined;
     let policyDecision: AuditDecision = 'allow';
+    // SPEC-0044: who executes this call, and for whom. Resolved before anything else runs; the audit event is attributed to it.
+    const identityContext = { sessionId: principal.sessionId, ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}), ...(principal.userId !== undefined ? { userId: principal.userId } : {}) };
+    const who = await gov.identities.check(opts.name, identityContext);
+    if (who.ok && who.identity) principal.agentIdentity = who.identity;
 
     const finish = async (outcome: ToolCallOutcome, text: string, error?: string): Promise<CallToolResult> => {
         await audit(opts, {
@@ -269,7 +299,7 @@ async function runCall(
         });
         if (gov.sinks.enabled) {
             const ran = outcome !== 'denied';
-            await gov.sinks.write({
+            const event: AuditEvent = {
                 at: new Date(started).toISOString(),
                 principal: {
                     agentId: principal.agentId, sessionId: principal.sessionId, chain: principal.chain,
@@ -284,12 +314,18 @@ async function runCall(
                 durationMs: Date.now() - started,
                 ...(approval ? { approval } : {}),
                 ...(tool.meta ? { meta: tool.meta } : {}),
-            });
+            };
+            const attributed = who.ok ? who.identity : gov.identities.peek(opts.name);
+            const attributedEvent: AuditEvent = { ...event, ...(attributed ? { agentIdentity: attributed } : { agentIdentityMissing: true as const }) };
+            await gov.sinks.write(await signedEvent(opts, gov, attributedEvent, attributed, identityContext));
         }
         return outcome === 'ok'
             ? { content: [{ type: 'text', text }] }
             : { content: [{ type: 'text', text }], isError: true };
     };
+
+    // 0. Identity: no identity for the server, or no one to act for, and nothing runs.
+    if (!who.ok) return finish('denied', `Tool "${tool.name}" denied: ${who.reason}`, who.reason);
 
     // 1. Authorization — before anything else runs.
     if (opts.authorize) {
@@ -367,6 +403,16 @@ async function runCall(
         if (timer) clearTimeout(timer);
         extra.signal.removeEventListener('abort', onClientAbort);
         timedOut.catch(() => undefined);
+    }
+}
+
+/** The event signed by the identity of the server (SPEC-0044 F2), or marked unsigned when it cannot sign: the record is never lost. */
+async function signedEvent(opts: ToolServerOptions, gov: Governance, event: AuditEvent, identity: AgentIdentity | undefined, context: AgentIdentityContext): Promise<AuditEvent> {
+    if (opts.signAuditEvents === false || !identity || !gov.identities.canSign) return event;
+    try {
+        return { ...event, agentSignature: await gov.identities.sign(opts.name, context, eventSigningMessage(event)) };
+    } catch {
+        return { ...event, agentSignatureFailed: true };
     }
 }
 

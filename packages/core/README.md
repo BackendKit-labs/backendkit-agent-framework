@@ -22,6 +22,7 @@ The foundation engine for the BackendKit Labs agent framework. Provides everythi
 - [Flows — declarative and durable](#flows--declarative-and-durable)
 - [Advanced memory system](#advanced-memory-system)
 - [Observability](#observability)
+- [Identity: who the agent is, and external identity services](#identity-who-the-agent-is-and-external-identity-services)
 - [Skills and slash commands](#skills-and-slash-commands)
 - [Checkpoints](#checkpoints)
 - [Workspaces](#workspaces)
@@ -54,6 +55,7 @@ import {
   defineTool,
   z,
   StdoutTransport,
+  selfAssertedIdentities,
 } from '@backendkit-labs/agent-core';
 
 // 1. Define a tool
@@ -93,10 +95,14 @@ const engine = new AgentEngine({
   transport:       new StdoutTransport(),
   maxIterations:   10,
   iterationMode:   'auto',
+  agentIdentity:   selfAssertedIdentities(),   // who the agent is
+  identity:        { userId: 'me' },           // on whose behalf it acts
 });
 
 await engine.run("What's the weather in London?");
 ```
+
+An agent that acts needs an identity and a person to act for, or the engine denies every tool call and says how to fix it. [Identity and external identity services](#identity-who-the-agent-is-and-external-identity-services) explains how to plug in a real identity provider.
 
 ---
 
@@ -670,13 +676,16 @@ await mcp.reconnectFailed();   // retry the servers marked 'failed'
 Each call gets: validation against the tool's schema before anything runs (the SDK answers invalid arguments with `isError` and a `-32602` message), an optional `authorize` gate, an `ExecutionContext` whose `signal` aborts on client cancellation or `timeoutMs`, an output cap, and an `audit` record. Tools from `defineTool` are registered with their own Zod schema, so what the client validates against is exactly what `execute` validates against; a hand-written `ToolDefinition` goes through `z.fromJSONSchema`, which fails loudly on constructs it cannot express.
 
 ```typescript
-import { createToolServer, startToolServerHttp, runToolServer } from '@backendkit-labs/agent-core';
+import { createToolServer, startToolServerHttp, runToolServer, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 // also available from '@backendkit-labs/agent-core/mcp'
 
 const options = {
   name:    'ledger',
   version: '1.0.0',
   tools:   [balancesTool, payTool],
+  // Who executes the calls, and for whom: required, like in the engine (see "Identity" below).
+  agentIdentity: selfAssertedIdentities(),
+  identity: { userId: 'svc-ledger' },
   // Required because payTool is destructive: a direct tool skips the engine's allowedTools, gates and budget.
   authorize: async ({ tool, args, sessionId }) =>
     !tool.destructive || approvals.isValid(args.approvalId as string),
@@ -696,6 +705,8 @@ const running = await startToolServerHttp(options, { port: 3100, authToken: proc
 // 3. The usual command line: stdio by default, `--http --port 3100 --host 0.0.0.0 --token <t>`, `--help`.
 await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });
 ```
+
+**Identity.** A direct tool is another way to run a tool, so it needs the same two things as the engine: the server has a digital identity (`agentIdentity`, a provider of identities, here named after the server) and says for whom it acts (`identity.userId`). Without them **every call is denied**, before `authorize` or the policy are even asked, and the reason says how to fix it. Every audit event is attributed to that identity and signed by it when the provider can sign; `requireAgentIdentity: false` is for tests only. A provider that fails or does not answer in time denies the call.
 
 **Error contract.** `isError: true` means the call did not run to completion: denied by `authorize`, timed out, threw (message only, no stack), or returned more than `maxOutputChars`. Whatever the tool *returned* is payload, even a JSON `{ ok: false }` that encodes a business failure. The `audit` hook receives one record per call, including denied and failed ones, with a SHA-256 of the arguments rather than the arguments themselves; if the hook throws, the failure goes to stderr and the result does not change (the tool has already run).
 
@@ -1173,6 +1184,63 @@ const engine = createBaseEngine({ ...opts, hooks: [review], maxHookContinues: 3 
 - **Errors.** A hook that throws fails the turn, and the error names the hook and the point.
 
 ---
+
+## Identity: who the agent is, and external identity services
+
+Since 0.49 an agent that acts carries two things, and the engine refuses every tool call without them: a **digital identity** (who the agent is) and **on whose behalf it acts** (`identity.userId`). The denial says how to fix it.
+
+```ts
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
+
+createBaseEngine({
+  /* ... */
+  agentIdentity: selfAssertedIdentities(),   // who the agent is
+  identity: { userId: 'u-42' },              // on whose behalf it acts
+});
+```
+
+With **no identity service at all**, `selfAssertedIdentities()` (or `staticAgentIdentities({...})`, or `ed25519AgentIdentities({...})` if you want signed events) satisfies the requirement. The identity is marked `assurance: 'self-asserted'` in every audit event, so a reader can tell it from one that someone vouched for. In tests, `testIdentity()` from `@backendkit-labs/agent-testkit`, or `requireAgentIdentity: false` (not for regulated environments).
+
+### Plugging in an external identity service (DALION, a corporate IAM, a wallet...)
+
+`agent-core` is tied to **no** identity provider, credential format or legal framework. A service of that kind reaches the engine through two contracts, and nothing else in your agent changes when you swap one for another:
+
+| What the service gives you | Contract in `agent-core` | What `core` does with it |
+|---|---|---|
+| **Who the agent is**, and its key | `AgentIdentityProvider`: `resolve(agentId, context)` and, optionally, `sign(agentId, message)` | Attributes every audit event to that identity, passes it to the policies (`principal.agentIdentity`), and signs each event with it. A provider that fails or is slow **denies the call**: it never means "no identity needed". |
+| **For whom it works, what it may do, up to how much** (a power-of-representation credential) | `MandateVerifier`: turns the service's credential into a `Mandate`, or refuses | `mandatePolicy` decides with the facts of the call: inside the mandate the agent acts alone, outside it asks, with none it does nothing. |
+
+```ts
+import { createBaseEngine, mandatePolicy, type AgentIdentityProvider } from '@backendkit-labs/agent-core';
+
+// 1. WHO the agent is: an adapter of the service. (idp stands for the SDK or API of YOUR service.)
+const identities: AgentIdentityProvider = {
+  async resolve(agentId) {
+    const agent = await idp.agentOf(agentId);
+    return agent && { id: agent.did, kid: agent.keyId, issuer: idp.url, assurance: agent.assurance };
+  },
+  async sign(agentId, message) {                      // the key may sit in the service's custody
+    const s = await idp.sign(agentId, message);
+    return { kid: s.keyId, signature: s.signature, format: s.format };
+  },
+};
+
+// 2. FOR WHOM and up to how much: another adapter, from its credential to a Mandate.
+const verifier = myServiceMandateVerifier({ trustedIssuers: { [idp.url]: idp.publicKey }, credentialFor: (req) => wallet.credentialOf(req.principal.agentId) });
+
+createBaseEngine({
+  /* ... */
+  agentIdentity: identities,
+  identity: { userId: 'u-42' },                       // the application's own id for the person
+  policy: mandatePolicy({ verifier, amountOf: (args) => ({ value: Number(args.amount), currency: String(args.currency) }) }),
+});
+```
+
+- **Writing the adapter.** [`@backendkit-labs/agent-mandates`](https://www.npmjs.com/package/@backendkit-labs/agent-mandates) has the pieces so you do not start from zero: the SD-JWT container (RFC 9901), and the rules every adapter applies the same way (well-formed powers, the person's consent, assurance level, and **refusing a restriction it cannot enforce**, because ignoring it would grant more than the issuer meant). A provider whose credential has another format (a W3C VC as a JWT, ISO mdoc, a table of your own) is a different adapter to the **same** `Mandate`.
+- **What `core` does not know.** Which issuers to trust, how your application's user ids map to the service's person ids, which proof formats you accept: all of that is operator wiring in the adapter, never a decision of the agent.
+- **The proof of a signed event is opaque.** `core` checks Ed25519 itself; any other format (a JWS, a qualified electronic seal, a timestamp) is checked by the verifier **you** register in `verifyAuditChain(path, { agentSignatures: { formats } })`, and a format with no verifier does not pass as verified. What legal value a signature has is for the provider and the operator.
+- **Reference adapters.** `examples/mandate-agent` builds, with the real engine and tests, an adapter for a DALION-like credential (an SD-JWT VC), another for a W3C VC-JWT and a conformance suite that runs the same scenarios against both. **The DALION payload is an assumption**: its real format is not public, so there is no official DALION adapter yet.
+- **What it does not do yet.** A mandate is not yet bound to the identity of the agent that presents it, so `core` does not refuse a credential issued for one agent when another presents it: adapters compare it themselves (SPEC-0044 F3). The identity of a direct tool server (`createToolServer`) is that of the server, one per server, not one per MCP client.
 
 ## Learning from experience
 

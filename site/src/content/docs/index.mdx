@@ -87,6 +87,8 @@ const engine = createBaseEngine({
   providers: { main: provider }, defaultProvider: 'main',
   agents: [treasurer], defaultAgent: 'treasurer', tools: [pay],
   transport, workingDir: process.cwd(),
+  agentIdentity: selfAssertedIdentities(),             // who the agent is
+  identity: { userId: 'u-42' },                        // for whom it acts
   policy: rules,                                       // who may do what
   approvals: new FileApprovalStore('./approvals'),     // asks wait for a person, even across processes
   audit: new HashChainAuditSink('./audit.log'),        // one tamper-evident record per call

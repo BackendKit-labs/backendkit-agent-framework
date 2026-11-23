@@ -98,6 +98,19 @@ export interface AgentMCPServerOptions {
     /** Who the server acts for; part of the principal policies and audit events see. */
     identity?: ToolServerOptions['identity'];
     /**
+     * The digital identity of the server for its direct tools (SPEC-0044): required by default, like in the engine. Without `agentIdentity` and
+     * `identity.userId`, every direct call is denied and the reason says how to fix it. See `selfAssertedIdentities()` of agent-core.
+     */
+    agentIdentity?: ToolServerOptions['agentIdentity'];
+    /** Default `true`. `false` lets direct tools run with no identity, for tests only. */
+    requireAgentIdentity?: boolean;
+    /** How long the identity provider has to answer before a direct call is denied. Default 5000. */
+    agentIdentityTimeoutMs?: number;
+    /** How long an answer of the provider is reused. Default 5000; `0` asks on every call. */
+    agentIdentityCacheMs?: number;
+    /** Default `true`: the audit events of direct calls are signed by the identity of the server when its provider can sign. */
+    signAuditEvents?: boolean;
+    /**
      * One record per direct-tool call (arguments as a hash).
      * @deprecated Use `auditSink`, which receives the engine's `AuditEvent`.
      */
@@ -166,6 +179,11 @@ export class AgentMCPServer {
                 policy: opts.policy,
                 approver: opts.approver,
                 identity: opts.identity,
+                ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
+                ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
+                ...(opts.agentIdentityTimeoutMs !== undefined ? { agentIdentityTimeoutMs: opts.agentIdentityTimeoutMs } : {}),
+                ...(opts.agentIdentityCacheMs !== undefined ? { agentIdentityCacheMs: opts.agentIdentityCacheMs } : {}),
+                ...(opts.signAuditEvents !== undefined ? { signAuditEvents: opts.signAuditEvents } : {}),
                 audit: opts.audit,
                 auditSink: opts.auditSink,
                 context: opts.context,

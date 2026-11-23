@@ -51,10 +51,10 @@ export const assistant: AgentProfile = {
 
 ## 3. An engine, with a scripted model
 
-`createBaseEngine` assembles the engine from a flat options object. The scripted provider plays a fixed conversation: first the model asks for the tool, then it answers.
+`createBaseEngine` assembles the engine from a flat options object. An agent that acts needs an **identity** (who it is) and a **person to act for**; with neither, the engine denies every tool call and says how to fix it. The two lines at the end give it both. The scripted provider plays a fixed conversation: first the model asks for the tool, then it answers.
 
 ```ts
-import { createBaseEngine } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { weather } from './tool';
 import { assistant } from './agent';
@@ -74,6 +74,8 @@ const engine = createBaseEngine({
   workingDir: process.cwd(),
   iterationMode: 'auto',
   maxIterations: 8,
+  agentIdentity: selfAssertedIdentities(),   // who the agent is
+  identity: { userId: 'me' },                // on whose behalf it acts
 });
 
 const result = await engine.run("What's the weather in London?");
@@ -88,7 +90,7 @@ Run it with `npx tsx index.ts`. `result.toolCalls` is the list of tools the mode
 Replace the provider and the transport. A transport is where the engine sends what happens (tokens, tool calls); `StdoutTransport` prints it.
 
 ```ts
-import { createBaseEngine, StdoutTransport } from '@backendkit-labs/agent-core';
+import { createBaseEngine, selfAssertedIdentities, StdoutTransport } from '@backendkit-labs/agent-core';
 import { DeepSeekProvider } from '@backendkit-labs/agent-providers';
 
 const engine = createBaseEngine({
@@ -101,6 +103,8 @@ const engine = createBaseEngine({
   workingDir: process.cwd(),
   iterationMode: 'auto',
   maxIterations: 8,
+  agentIdentity: selfAssertedIdentities(),
+  identity: { userId: 'me' },
 });
 
 await engine.run("What's the weather in London?");

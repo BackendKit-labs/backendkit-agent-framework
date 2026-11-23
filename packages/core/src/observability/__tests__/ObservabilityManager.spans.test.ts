@@ -43,7 +43,7 @@ function provider(): LLMProvider {
 async function runTraced(tools = [tool('slow_a', 60), tool('slow_b', 60)]) {
     const spans: Span[] = [];
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider() }, defaultProvider: 'mock',
         agents: [agent], tools, transport,
         maxParallelTools: 2, iterationMode: 'auto',
@@ -105,7 +105,7 @@ describe('ObservabilityManager — llm_call and tool_call spans', () => {
     it('labels the model with the provider default when the profile sets none', async () => {
         const spans: Span[] = [];
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider() }, defaultProvider: 'mock',
             agents: [{ ...agent, model: undefined }], tools: [tool('slow_a', 1), tool('slow_b', 1)], transport,
             observability: { tracing: { exporter: (s) => spans.push(s) } },
@@ -116,7 +116,7 @@ describe('ObservabilityManager — llm_call and tool_call spans', () => {
 
     it('does not create call spans without a tracer', async () => {
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider() }, defaultProvider: 'mock',
             agents: [agent], tools: [tool('slow_a', 1), tool('slow_b', 1)], transport,
             observability: { metrics: {} },

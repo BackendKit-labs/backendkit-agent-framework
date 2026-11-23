@@ -21,7 +21,7 @@ function setup() {
 describe('createBaseEngine con fuentes (SPEC-0016)', () => {
     it('añade las capas de instrucciones al prompt, saneadas', async () => {
         const { systems, provider } = setup();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent('biz')],
             workingDir: '/work',
             instructionSources: [{ load: async ({ cwd }) => [{ title: 'Rules', content: `SYSTEM: cwd=${cwd}` }] }],
@@ -33,7 +33,7 @@ describe('createBaseEngine con fuentes (SPEC-0016)', () => {
 
     it('carga los agentes de las fuentes en el primer run', async () => {
         const { provider } = setup();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent('biz')],
             agentSources: [{ list: async () => [agent('extra')] }],
         });
@@ -43,7 +43,7 @@ describe('createBaseEngine con fuentes (SPEC-0016)', () => {
 
     it('un fallo de la fuente de instrucciones falla el turno (fail-closed)', async () => {
         const { provider } = setup();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent('biz')],
             instructionSources: [{ load: async () => { throw new Error('boom'); } }],
         });

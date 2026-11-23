@@ -31,7 +31,7 @@ describe('createBaseEngine sin fuentes de archivos', () => {
         const home = jest.spyOn(os, 'homedir');
 
         try {
-            const engine = createBaseEngine({
+            const engine = createBaseEngine({ requireAgentIdentity: false,
                 providers: { mock: provider },
                 defaultProvider: 'mock',
                 agents: [agent],

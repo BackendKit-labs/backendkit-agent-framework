@@ -215,7 +215,7 @@ describe('record → replay (SPEC-0007 A.4)', () => {
 
     function engineWith(provider: LLMProvider, historyPath: string) {
         const t = mockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { p: provider }, defaultProvider: 'p', agents: [agent], defaultAgent: 'a', tools: [readTool],
             transport: t.transport, workingDir: dir, iterationMode: 'auto', historyPath,
         });
@@ -253,7 +253,7 @@ describe('record → replay (SPEC-0007 A.4)', () => {
             status: 400, code: 'invalid_request_error',
         } } } } });
         const t = mockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { p: replay }, defaultProvider: 'p', agents: [{ ...agent, allowedTools: [] }], defaultAgent: 'a',
             transport: t.transport, workingDir: dir, iterationMode: 'auto',
             context: { maxTokens: 1_000_000, strategy: 'drop', keepRecentTurns: 1 },

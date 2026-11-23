@@ -41,7 +41,7 @@ function build(opts: { secrets: AgentProfile['secrets']; script: Parameters<type
         execute: async (_a, ctx) => { seen.push(ctx.secrets); return `ok ${JSON.stringify(ctx.secrets ?? {})}`; },
     }));
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers, defaultProvider: 'mock', transport,
         defaultAgentId: 'test-agent', secretResolver: opts.resolver,
         ...(opts.guard ? { guardrails: [secretLeakGuardrail()] } : {}),

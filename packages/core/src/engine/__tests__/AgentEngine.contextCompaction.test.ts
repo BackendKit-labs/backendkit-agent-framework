@@ -16,7 +16,7 @@ function build(opts: { summarizer?: LLMProvider; mainSeen: LLMMessage[][]; failS
     const { agents, tools, providers } = buildRegistries(main);
     if (opts.summarizer) providers.register('cheap', opts.summarizer);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' },
         agents, tools, providers,
         defaultProvider: 'mock',
@@ -79,7 +79,7 @@ describe('AgentEngine — token-aware context compaction', () => {
         };
         const { agents, tools, providers } = buildRegistries(main);
         const { transport } = createMockTransport();
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
             defaultProvider: 'mock', transport, defaultAgentId: 'test-agent',
         });

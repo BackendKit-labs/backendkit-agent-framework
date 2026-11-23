@@ -79,7 +79,7 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
             commitAllowed: false,
         };
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -115,7 +115,7 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
         const { agents, tools, providers } = buildRegistries(provider);
         const { transport } = createMockTransport();
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',
@@ -152,7 +152,7 @@ describe('AgentEngine — orchestration brief in system prompt', () => {
             commitAllowed: true,
         };
 
-        const engine = new AgentEngine({
+        const engine = new AgentEngine({ requireAgentIdentity: false,
             model: { provider: 'mock', id: 'mock' },
             agents, tools, providers,
             defaultProvider: 'mock',

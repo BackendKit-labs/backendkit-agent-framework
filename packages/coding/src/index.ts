@@ -381,6 +381,12 @@ export interface CodingEngineOptions {
      * Default: none. Needs @backendkit-labs/agent-core >= 0.28.
      */
     guardrails?: import('@backendkit-labs/agent-core').Guardrail[];
+    /** Gives each agent its digital identity (SPEC-0044). Required by default: with none, every tool call is denied. See `selfAssertedIdentities()` of agent-core. */
+    agentIdentity?: import('@backendkit-labs/agent-core').AgentIdentityProvider;
+    /** Whom the agents act for: `{ userId }` is required by default, together with an identity. */
+    identity?: import('@backendkit-labs/agent-core').Identity;
+    /** `false` lets agents act without identity, for tests only. */
+    requireAgentIdentity?: boolean;
     /** `after` (default) or `buffer`; see agent-core BaseEngineOptions.guardrailOutputMode. */
     guardrailOutputMode?: 'after' | 'buffer';
     /**
@@ -689,6 +695,9 @@ export function createCodingEngine(opts: CodingEngineOptions): ReturnType<typeof
         ...(opts.toolTimeoutGraceMs !== undefined ? { toolTimeoutGraceMs: opts.toolTimeoutGraceMs } : {}),
         ...(opts.context ? { context: opts.context } : {}),
         ...(opts.guardrails?.length ? { guardrails: opts.guardrails } : {}),
+        ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
+        ...(opts.identity ? { identity: opts.identity } : {}),
+        ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
         ...(opts.guardrailOutputMode ? { guardrailOutputMode: opts.guardrailOutputMode } : {}),
         ...(memorySystem ? { memorySystem } : {}),
         ...(historyPath ? { historyPath } : {}),

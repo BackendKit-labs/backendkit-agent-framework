@@ -1,5 +1,16 @@
 # Changelog
 
+## Sin publicar
+
+**Ruptura en `agent-core`: un agente lleva identidad digital y dice a nombre de quién actúa (SPEC-0044 F1).** Sin las dos cosas, cada llamada a una tool se deniega con un motivo que dice cómo arreglarlo. No hay periodo de transición (decisión del autor): el framework está en desarrollo y se usa la última versión.
+
+- **`agentIdentity`** (opción del motor): un `AgentIdentityProvider` da a cada agente su identidad. `core` no conoce ningún proveedor ni formato. Referencias: `staticAgentIdentities({...})` y `selfAssertedIdentities()`, ambas marcan la identidad `assurance: 'self-asserted'` para que la auditoría distinga una identidad respaldada de una escrita por el desarrollador.
+- **A nombre de quién:** `identity.userId` pasa a ser obligatorio.
+- **Fallar cerrado:** un proveedor que lanza una excepción o no contesta en `agentIdentityTimeoutMs` (5 s) deniega la llamada, también con el opt-out. Una respuesta se reutiliza `agentIdentityCacheMs` (5 s; `0` consulta en cada llamada), y un fallo no se recuerda.
+- **Auditoría:** `AuditEvent.agentIdentity` (con `assurance`) o `agentIdentityMissing: true`; el `Principal` que ven las políticas lleva `agentIdentity`. Cada agente de una delegación actúa con su propia identidad.
+- **Opt-out para pruebas:** `requireAgentIdentity: false` (no apto para entornos regulados; avisa una vez por agente). `@backendkit-labs/agent-testkit` trae `testIdentity()`. `agent-enterprise` y `agent-coding` reenvían `agentIdentity`, `identity` y `requireAgentIdentity`.
+- **Pendiente de F2:** la firma de cada evento por la identidad. Pendiente de F4: plantillas, ejemplos, documentación y `agent-mandates` (el barrido de rangos de `agent-core` 0.49.0 va en el PR de bump).
+
 ## v0.49.18 (2026-11-23)
 
 Cierre de los pendientes de la auditoría que sí se podían cerrar. Ninguno cambia una API: llegan como parche.

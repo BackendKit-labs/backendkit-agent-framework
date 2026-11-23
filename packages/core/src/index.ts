@@ -107,6 +107,8 @@ export type { AnchorRecord, AnchorVerification, TimestampAnchor } from './govern
 export type { BundleManifest, BundleVerification } from './governance/audit-bundle';
 export { defaultToolPolicy, declaredAskPolicy, combineDecisions, evaluatePolicies, agentCouldPerform } from './governance/policy';
 export { approverFromCallback, approvalProblem, approverAuthority } from './governance/approval';
+export { staticAgentIdentities, selfAssertedIdentities, SELF_ASSERTED, IdentityResolver } from './governance/agent-identity';
+export type { AgentIdentity, AgentIdentityProvider, AgentIdentityContext, IdentityCheck } from './governance/agent-identity';
 export { mandatePolicy, mandateCovers, auditMandate } from './governance/mandate';
 export type { Mandate, MandateRequest, MandateVerification, MandateVerifier, MandatePolicyOptions } from './governance/mandate';
 export type { CallbackApprover } from './governance/approval';

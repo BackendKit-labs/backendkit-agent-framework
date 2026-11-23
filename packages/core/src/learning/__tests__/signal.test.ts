@@ -208,7 +208,7 @@ describe('the engine puts the class of the error in the audit event', () => {
     it('has the code or the name, never the message', async () => {
         const sink = new MemoryAuditSink();
         const { transport } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider([
                 { tool_calls: [{ id: '1', name: 'coded', args: {} }, { id: '2', name: 'plain', args: {} }, { id: '3', name: 'typed', args: {} }] },
                 { content: 'done' },

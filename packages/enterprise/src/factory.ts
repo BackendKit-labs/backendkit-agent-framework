@@ -37,6 +37,12 @@ export interface EnterpriseSetupOptions {
     embedder?: Embedder;
     /** Pre-configured ProviderRegistry with at least one LLM provider. */
     providers: ProviderRegistry;
+    /** Gives each agent its digital identity (SPEC-0044). Required by default: with none, every tool call is denied. See `selfAssertedIdentities()` of agent-core. */
+    agentIdentity?: import('@backendkit-labs/agent-core').AgentIdentityProvider;
+    /** Whom the agents act for: `{ userId }` is required by default, together with an identity. */
+    identity?: import('@backendkit-labs/agent-core').Identity;
+    /** `false` lets agents act without identity, for tests only. */
+    requireAgentIdentity?: boolean;
     /** Default provider ID to use when no per-agent override is set. */
     defaultProvider: string;
     /** Directory for per-session memory files. Default: ~/.bk-agent/sessions/ */
@@ -223,6 +229,9 @@ export function createEnterpriseSetup(opts: EnterpriseSetupOptions): EnterpriseS
             ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
             ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
             ...(opts.context ? { context: opts.context } : {}),
+            ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
+            ...(opts.identity ? { identity: opts.identity } : {}),
+            ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),
         });
         // createBaseEngine defaults to 'interactive' — enterprise sessions run unattended per WS turn.
         engine.setIterationMode('auto');

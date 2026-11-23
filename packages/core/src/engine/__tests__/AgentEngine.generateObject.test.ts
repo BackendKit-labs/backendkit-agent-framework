@@ -12,7 +12,7 @@ function build(provider: LLMProvider, extraAgents: AgentProfile[] = []) {
     const { agents, tools, providers } = buildRegistries(provider);
     for (const a of extraAgents) agents.upsert(a);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
         defaultProvider: 'mock', transport, defaultAgentId: testAgent.id,
         iterationMode: 'auto', maxIterations: 3,

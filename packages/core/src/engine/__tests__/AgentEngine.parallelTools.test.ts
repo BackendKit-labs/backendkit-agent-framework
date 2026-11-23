@@ -28,7 +28,7 @@ function run(names: string[], tools: ToolDefinition[], opts: Record<string, unkn
     const { agents, tools: reg, providers } = buildRegistries(provider, { ...testAgent, allowedTools: agentTools });
     tools.forEach(t => reg.register(t));
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools: reg, providers,
         defaultProvider: 'mock', transport, defaultAgentId: testAgent.id,
         iterationMode: 'auto', maxIterations: 10, ...opts,

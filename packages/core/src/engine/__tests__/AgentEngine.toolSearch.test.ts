@@ -32,7 +32,7 @@ function build(script: Turn[], opts: { agent?: Partial<AgentProfile>; tools?: To
     const { provider, lists } = recording(script);
     const { transport, events } = createMockTransport();
     const tools = opts.tools ?? [plain, ...crmTools(executed)];
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider }, defaultProvider: 'mock',
         agents: [{ ...testAgent, allowedTools: tools.map(t => t.name), delegatesTo: [], ...opts.agent }], defaultAgent: testAgent.id,
         tools, transport, workingDir: process.cwd(), ...opts.extra,

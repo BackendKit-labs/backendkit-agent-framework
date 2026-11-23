@@ -23,7 +23,7 @@ function build(script: Turn[], extra: Record<string, unknown> = {}, tool?: Parti
         { name: 'pay', description: '', parameters: { type: 'object' }, execute: async (a) => { paid.push(a); return 'paid'; }, ...tool },
     ];
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [main], defaultAgent: 'main',
         tools, transport, workingDir: process.cwd(), iterationMode: 'auto', audit, policy: askAlways, ...extra,
     } as never);

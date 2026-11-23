@@ -8,7 +8,7 @@ const read = (out: string): ToolDefinition => ({ name: 'read', description: 'rea
 
 function build(script: Turn[]) {
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id,
         tools: [read('original')], transport, workingDir: process.cwd(), iterationMode: 'auto',
     });

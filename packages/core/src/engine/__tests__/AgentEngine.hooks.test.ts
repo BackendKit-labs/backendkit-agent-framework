@@ -35,7 +35,7 @@ function build(script: Turn[], hooks: EngineHooks[], extra: Partial<BaseEngineOp
     const ran: string[] = [];
     const write: ToolDefinition = { name: 'write', description: '', parameters: { type: 'object' }, execute: async () => { ran.push('write'); return 'written'; } };
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider }, defaultProvider: 'mock',
         agents: [orchestrator, helper, qaEngineer], defaultAgent: 'general', tools: [write],
         transport, workingDir: process.cwd(), iterationMode: 'auto', hooks, ...extra,

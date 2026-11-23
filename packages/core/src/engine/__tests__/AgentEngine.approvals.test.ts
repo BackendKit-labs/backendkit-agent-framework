@@ -20,7 +20,7 @@ function build(script: Turn[], opts: { approvals?: ApprovalStore; approver?: App
         { name: 'erase', description: '', parameters: { type: 'object' }, destructive: true, execute: async () => { ran.push('erase'); return 'erased'; } },
     ];
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock',
         agents: [main, supervisor], defaultAgent: 'main', tools,
         transport, workingDir: process.cwd(), iterationMode: 'auto', audit, ...opts,

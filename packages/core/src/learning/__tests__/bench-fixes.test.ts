@@ -97,7 +97,7 @@ describe('malformed arguments are an error with a code, not a success', () => {
         } } as LLMProvider;
         const { transport, events } = createMockTransport();
         const sink = new MemoryAuditSink();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: provider }, defaultProvider: 'mock', agents: [agent], defaultAgent: agent.id, tools: [tool],
             transport, workingDir: process.cwd(), iterationMode: 'auto', audit: sink, ...extra,
         });

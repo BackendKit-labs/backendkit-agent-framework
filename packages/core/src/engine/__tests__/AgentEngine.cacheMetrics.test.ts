@@ -22,7 +22,7 @@ function providerWithUsage(usage?: { cacheReadTokens?: number; cacheWriteTokens?
 function build(provider: LLMProvider) {
     const { agents, tools, providers } = buildRegistries(provider);
     const { transport, events } = createMockTransport();
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
         defaultProvider: 'mock', transport, defaultAgentId: testAgent.id,
         iterationMode: 'auto', maxIterations: 3,
@@ -51,7 +51,7 @@ describe('metrics event with cache usage', () => {
     it('feeds cache tokens into the cost tracker through createBaseEngine', async () => {
         const { transport } = createMockTransport();
         let runCost = -1;
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: providerWithUsage({ cacheReadTokens: 1_000_000 }) },
             defaultProvider: 'mock', agents: [testAgent], defaultAgent: testAgent.id, tools: [], transport,
             workingDir: process.cwd(), iterationMode: 'auto',

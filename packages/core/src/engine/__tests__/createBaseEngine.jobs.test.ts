@@ -26,7 +26,7 @@ function jobStarter(state: { release?: () => void; signalAborted?: boolean }): T
 
 function build(provider: LLMProvider, extra: Partial<BaseEngineOptions>, tools: ToolDefinition[] = []) {
     const { transport, events } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: provider }, defaultProvider: 'mock',
         agents: [jobAgent], defaultAgent: jobAgent.id, tools, transport,
         workingDir: process.cwd(), ...extra,

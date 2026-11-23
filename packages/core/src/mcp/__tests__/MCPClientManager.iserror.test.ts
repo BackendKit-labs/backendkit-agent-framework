@@ -55,7 +55,7 @@ describe('a tool of an MCP server whose answer is isError: true fails (it used t
         answer.value = { content: [{ type: 'text', text: 'the period is closed' }], isError: true };
         const { mcp } = await weatherTool();
         const { transport, events } = createMockTransport();
-        const engine = createBaseEngine({
+        const engine = createBaseEngine({ requireAgentIdentity: false,
             providers: { mock: createScriptedProvider([{ tool_calls: [{ id: 'c1', name: 'mcp__weather__get_weather', args: { city: 'London' } }] }, { content: 'done' }]) },
             defaultProvider: 'mock', agents: [{ ...testAgent, id: 'a', allowedTools: ['mcp__weather__get_weather'], delegatesTo: [] }], defaultAgent: 'a',
             tools: mcp.getTools().map(t => ({ ...t, readOnly: true })), transport, workingDir: process.cwd(), iterationMode: 'auto',

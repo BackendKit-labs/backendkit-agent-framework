@@ -34,7 +34,7 @@ function build(script: Turn[], extra: Partial<BaseEngineOptions> = {}, identity:
         { name: 'pay', description: '', parameters: { type: 'object' }, execute: async (a) => { paid.push(Number((a as { amount: number }).amount)); return 'paid'; } },
     ];
     const { transport } = createMockTransport();
-    const engine = createBaseEngine({
+    const engine = createBaseEngine({ requireAgentIdentity: false,
         providers: { mock: createScriptedProvider(script) }, defaultProvider: 'mock', agents: [main], defaultAgent: 'main',
         tools, transport, workingDir: process.cwd(), iterationMode: 'auto', audit, policy: payments, approverDirectory: directory,
         ...(identity ? { identity } : {}), ...extra,

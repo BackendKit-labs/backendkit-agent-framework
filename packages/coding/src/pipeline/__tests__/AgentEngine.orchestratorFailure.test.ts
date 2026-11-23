@@ -18,7 +18,7 @@ function build(mode?: 'closed' | 'open') {
     const providers = new ProviderRegistry(); providers.register('mock', provider);
     const events: AgentEvent[] = [];
     const transport: Transport = { emit: (e) => { events.push(e); }, onInput: () => () => undefined, close: () => undefined };
-    const engine = new AgentEngine({
+    const engine = new AgentEngine({ requireAgentIdentity: false,
         model: { provider: 'mock', id: 'mock' }, agents, tools: new ToolRegistry(), providers, defaultProvider: 'mock', transport,
         defaultAgentId: agent.id, iterationMode: 'auto', maxIterations: 2,
         hooks: [codingPipelineHooks({ orchestrator: failing, failureMode: mode })],

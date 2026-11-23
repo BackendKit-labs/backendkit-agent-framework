@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.50.3 (2026-11-23)
+
+Corrección en `agent-core` 0.49.2: **un worker que reanuda una aprobación guardada actúa a nombre de quien la pidió.** Con la identidad obligatoria (0.49.0), un motor sin `identity.userId` propio, como el worker que corre `runApproved` más tarde (SPEC-0041 F2), se denegaba con «no dice a nombre de quién actúa», aunque la petición guardada ya registra quién la hizo. Ahora usa ese `requestedBy` y la auditoría lo anota. Sigue exigiendo que el agente tenga identidad: la aprobación no la sustituye. No lo cazaron las pruebas porque casi todas se pasaron a `requireAgentIdentity: false`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.2 | el worker de una aprobación guardada actúa a nombre de quien la pidió |
+
+Se publica uno. Tag: `agent-core@0.49.2`.
+
 ## v0.50.2 (2026-11-23)
 
 **Cada evento de auditoría lo firma la identidad que ejecutó la llamada (SPEC-0044 F2).** Es aditivo: sin un proveedor que firme, nada cambia.

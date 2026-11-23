@@ -7,6 +7,10 @@ import { MemoryAuditSink } from '../../governance/audit';
 import { selfAssertedIdentities, staticAgentIdentities, type AgentIdentity, type AgentIdentityProvider } from '../../governance/agent-identity';
 import type { ToolDefinition, ToolPolicy } from '../../index';
 import type { AgentProfile } from '../../types';
+import { FileApprovalStore } from '../../governance/approval-store';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createMockTransport, createScriptedProvider, testAgent, type Turn } from '../../__tests__/helpers';
 
 const agent: AgentProfile = { ...testAgent, allowedTools: ['read_file', 'write_file'], delegatesTo: ['helper'] };
@@ -170,6 +174,36 @@ describe('a delegation: each agent acts under its own identity', () => {
         await second.engine.run('go');
         expect(second.ran).toEqual([]);
         expect(second.sink.events.find(e => e.principal.agentId === 'helper')).toMatchObject({ decision: 'deny', agentIdentityMissing: true });
+    });
+});
+
+describe('a stored approval resumed by a worker (SPEC-0041 F2 with SPEC-0044)', () => {
+    let dir: string;
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'identity-approvals-')); });
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    async function pending() {
+        const asker = build([calls(['write_file', {}]), { content: 'asked' }], { agentIdentity: selfAssertedIdentities(), identity: alice, approvals: new FileApprovalStore(dir) });
+        await asker.engine.run('go');
+        const [item] = await new FileApprovalStore(dir).list({ status: 'pending' });
+        await new FileApprovalStore(dir).resolve(item!.id, { decision: 'approve', by: { kind: 'human', id: 'ana' }, at: new Date().toISOString() });
+        return item!.id;
+    }
+
+    it('a worker with an identity but no identity.userId of its own acts for whoever asked, and the audit says so', async () => {
+        const id = await pending();
+        const worker = build([], { agentIdentity: selfAssertedIdentities(), approvals: new FileApprovalStore(dir) });
+        expect(await worker.engine.runApproved(id)).toBe('written');
+        expect(worker.ran).toEqual(['write_file']);
+        expect(worker.sink.events[0]).toMatchObject({ decision: 'allow', principal: { userId: 'alice' }, agentIdentity: { id: `urn:agent:${agent.id}` } });
+    });
+
+    it('but a worker with no identity at all still does not run it: the approval does not replace the identity of the agent', async () => {
+        const id = await pending();
+        const worker = build([], { identity: { userId: 'carlos' }, approvals: new FileApprovalStore(dir) });
+        const out = await worker.engine.runApproved(id);
+        expect(out).toMatch(/no digital identity/);
+        expect(worker.ran).toEqual([]);
     });
 });
 

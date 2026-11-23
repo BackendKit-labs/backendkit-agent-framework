@@ -13,7 +13,10 @@
  *     about who the agent is would be circular. A credential's own claim about the agent is COMPARED with the provider's identity.
  *   - Every action is attributed to that identity in the audit, and signed by it.
  *   - A mandate is bound to the identity, and when the credential is tied to a key, the agent proves it holds that key.
- *   - `require` (SPEC-0044 D8): an agent with no identity is denied, by default from the first version (no transition period). Switch-off is an explicit opt-out for tests.
+ *   - `require` (SPEC-0044 D8, D11): an agent with no identity, or that does not say on whose behalf it acts, is denied, by default from the first
+ *     version (no transition period). Switch-off is an explicit opt-out for tests.
+ *   - The proof is OPAQUE (D12): `sign` says its `format` and the framework records it. Ed25519 is checked here; any other format (a qualified seal,
+ *     a trusted timestamp...) is checked by a verifier the operator registers. Nothing in this file knows any legal framework.
  */
 import { createHash, createPublicKey, verify as edVerify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -32,7 +35,7 @@ export interface AgentIdentityProvider {
     /** The identity of this agent (its profile id), or `undefined` if the provider has none for it. */
     resolve(agentId: string): Promise<AgentIdentity | undefined>;
     /** Signs for the identity of this agent. Asynchronous on purpose. `signature` is base64url. */
-    sign(agentId: string, message: Uint8Array): Promise<{ kid: string; signature: string }>;
+    sign(agentId: string, message: Uint8Array): Promise<{ kid: string; signature: string; /** What kind of proof this is. `core` records it and does not interpret it. Default `ed25519`. */ format?: string }>;
 }
 
 /**
@@ -52,7 +55,7 @@ export type IdentityMandate = Mandate & { agentIdentity?: string; holderBinding?
 export interface Represented { id: string; kind: 'person' | 'legal-entity'; assurance?: string; consent: 'verified' | 'none' }
 
 /** What the layer leaves in the audit, next to the event (CORE: `AuditEvent.agentIdentity`, `AuditMandate.agentIdentity/holderBinding`, D4). */
-export interface AgentSignature { kid: string; signature: string }
+export interface AgentSignature { kid: string; signature: string; format?: string }
 export type IdentityAuditEvent = AuditEvent & {
     agentIdentity?: AgentIdentity;
     /** Present when the agent had no identity: the log says so instead of staying silent (SPEC-0044 F4). */
@@ -146,6 +149,8 @@ export function identityLayer(options: IdentityLayerOptions): IdentityLayer {
                         const { identity, error } = await resolveSafe(principal.agentId);
                         if (error) return { effect: 'deny', reason: error };
                         if (!identity) return { effect: 'deny', reason: `the agent "${principal.agentId}" has no digital identity` };
+                        // The other half of an accountable agent: FOR WHOM it acts. An agent acting for nobody is refused (D11).
+                        if (!principal.userId) return { effect: 'deny', reason: `the engine does not say who the agent acts for: an agent must carry the party it acts on behalf of (identity.userId)` };
                     } else if (!warned.has(principal.agentId)) {
                         const { identity } = await resolveSafe(principal.agentId);
                         if (!identity) { warned.add(principal.agentId); options.warn?.(`the agent "${principal.agentId}" runs with no digital identity; it will be refused once identity is required`); }
@@ -172,11 +177,11 @@ export function identityLayer(options: IdentityLayerOptions): IdentityLayer {
                     const attributed: IdentityAuditEvent = { ...event, agentIdentity: identity };
                     // What the identity signs: the whole attributed event, canonically. CORE: signed by `core` itself (SPEC-0044 D4).
                     const message = Buffer.from(sha256(canonicalJson(attributed)), 'hex');
-                    let signed: { kid: string; signature: string } | undefined;
+                    let signed: { kid: string; signature: string; format?: string } | undefined;
                     try { signed = await provider.sign(agentId, message); } catch { signed = undefined; }
                     // The action already happened. If the identity cannot sign, the event is still written, marked as unsigned: the trail is not
                     // lost, and `verifyAgentSignatures` reports it so it cannot pass for a signed one.
-                    await inner.write((signed ? { ...attributed, agentSignature: signed } : { ...attributed, agentSignatureFailed: true }) as IdentityAuditEvent);
+                    await inner.write((signed ? { ...attributed, agentSignature: { kid: signed.kid, signature: signed.signature, format: signed.format ?? 'ed25519' } } : { ...attributed, agentSignatureFailed: true }) as IdentityAuditEvent);
                 },
             };
         },
@@ -190,7 +195,10 @@ export interface SignatureCheck { ok: boolean; checked: number; failures: Array<
  * operator's trust list). CORE: `verifyAuditChain` does this (SPEC-0044 F2). This is independent of the hash chain: an event edited and
  * re-chained still fails here, because the signature covers the content.
  */
-export function verifyAgentSignatures(logPath: string, keyOf: (kid: string) => KeyObject | undefined): SignatureCheck {
+/** Checks a proof of a format `core` does not know. Registered by the operator. `message` is what was signed. */
+export type FormatVerifier = (message: Buffer, proof: AgentSignature) => boolean;
+
+export function verifyAgentSignatures(logPath: string, keyOf: (kid: string) => KeyObject | undefined, formats: Record<string, FormatVerifier> = {}): SignatureCheck {
     const failures: SignatureCheck['failures'] = [];
     let checked = 0;
     const lines = readFileSync(logPath, 'utf8').split('\n').filter(Boolean);
@@ -208,9 +216,18 @@ export function verifyAgentSignatures(logPath: string, keyOf: (kid: string) => K
             failures.push({ seq: entry.seq, reason: 'signed by a key that is not the one of the identity it names' });
             continue;
         }
+        const message = Buffer.from(sha256(canonicalJson(rest)), 'hex');
+        const format = agentSignature.format ?? 'ed25519';
+        if (format !== 'ed25519') {
+            const verifyFormat = Object.prototype.hasOwnProperty.call(formats, format) ? formats[format] : undefined;
+            if (!verifyFormat) { failures.push({ seq: entry.seq, reason: `no verifier is registered for the proof format "${format}"` }); continue; }
+            let good = false;
+            try { good = verifyFormat(message, agentSignature); } catch { good = false; }
+            if (!good) failures.push({ seq: entry.seq, reason: 'the signature does not verify' });
+            continue;
+        }
         const key = keyOf(agentSignature.kid);
         if (!key) { failures.push({ seq: entry.seq, reason: `no public key for "${agentSignature.kid}"` }); continue; }
-        const message = Buffer.from(sha256(canonicalJson(rest)), 'hex');
         let ok = false;
         try { ok = edVerify(null, message, key.type === 'private' ? createPublicKey(key) : key, Buffer.from(agentSignature.signature, 'base64url')); } catch { ok = false; }
         if (!ok) failures.push({ seq: entry.seq, reason: 'the signature does not verify' });

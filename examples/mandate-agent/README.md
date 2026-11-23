@@ -16,6 +16,22 @@ Este ejemplo lo demuestra, no solo lo afirma:
 
 Cambiar de proveedor, o sumar uno, es **cableado del operador**, no una decisión del agente.
 
+### Sumar un proveedor con otro formato: un adaptador y pasar la batería
+
+El framework no cambia cuando llega un proveedor nuevo, aunque su credencial tenga **otro formato**. Hay tres formatos en el ejemplo, y los tres traducen a la **misma** forma neutra (una lista de poderes: verbo, objeto, importe; la persona; el consentimiento) y a la **misma** `Mandate`:
+
+| Formato | Contenedor | Vocabulario | Revocación |
+|---|---|---|---|
+| `dalion-assumed.ts` | SD-JWT VC (RFC 9901) | `represents`, `powers`, `cnf` | `status.status_list` |
+| `vc-jwt-assumed.ts` | W3C Verifiable Credential como JWT | `credentialSubject.actingFor`, `authorizations` con `permission`, `target`, `ceiling` | `credentialStatus` (bitstring) |
+| perfil de referencia de `agent-mandates` | JWT propio | `actions` (nombres de herramienta), `resources`, `limits` | gancho `isRevoked` |
+
+Lo común vive en `providers/common.ts` (poderes bien formados, elección del poder de una llamada, garantía, consentimiento); cada adaptador solo traduce su formato. **Las reglas las impone `common.ts`, no cada adaptador.**
+
+**La batería de conformidad** (`src/__tests__/conformance.test.ts`) ejecuta los mismos escenarios contra los tres formatos y comprueba **resultados** (¿compró solo?, ¿preguntó a una persona?, ¿se rechazó sin preguntar?), nunca el texto de un mensaje, que es propio de cada formato. Un proveedor nuevo es: escribir su adaptador, escribir su arnés en esa prueba y pasarla. Los escenarios que un formato no puede expresar (el perfil de referencia no tiene consentimiento ni vinculación de identidad) se **saltan**, no se dan por buenos.
+
+**Un fallo que esto destapó:** el adaptador de DALION aceptaba un poder con restricciones que no conocía (`maxPerDay`, `validBetween`) e **ignoraba esas restricciones**, es decir, concedía más de lo que el emisor quiso. Con otro proveedor que tenga restricciones propias eso es una escalada de privilegios silenciosa. Ahora **un poder con un campo que el framework no sabe hacer cumplir se rechaza** (`common.ts`), también dentro de `max`.
+
 > **Qué se deduce y qué se supone del formato de DALION.** El formato real de DALION no se conoce (SPEC-0043 §6; la F3 está bloqueada por eso). Pero DALION se describe como **compatible con eIDAS 2**, y los formatos de atestación de ese ecosistema son públicos, así que el **contenedor** se deduce de ahí y no se inventa: un **SD-JWT VC** (RFC 9901 y el borrador SD-JWT VC; el otro formato de la cartera europea es ISO mdoc), con divulgación selectiva, vinculación de clave por `cnf` y un **Key Binding JWT**, y revocación por referencia a una **Token Status List**. Lo que **no** se puede deducir es el **contenido** de una atestación de poder de representación: no se encontró un esquema público (el ARF define a una persona natural que representa a una jurídica y planea el "poder digital" como caso de uso de las carteras de empresa, sin campos). Por eso los campos `represents`, `powers` y el consentimiento siguen siendo **supuestos**. **Nada de esto demuestra compatibilidad con DALION**; los tests de `src/__tests__/` son el contrato que el adaptador real tiene que seguir cumpliendo.
 
 ## La identidad digital del agente (maqueta de SPEC-0044)
@@ -37,6 +53,8 @@ proveedor de identidad  ──resolve(agentId)──▶  { id, issuer, kid }   l
 - **Cada evento queda atribuido y firmado** por la identidad que lo ejecutó (también los denegados y los de solo lectura). `verifyAgentSignatures` lo comprueba evento a evento, **independientemente** de la cadena de hashes: un evento editado y re-encadenado sigue fallando, porque la firma cubre el contenido.
 - **Prueba de posesión.** Una credencial atada a la clave del agente (`cnf`) solo sirve a quien tiene esa clave: el agente firma un reto nuevo y se comprueba contra la clave de la credencial. Hay un test del caso que antes pasaba: **el mismo nombre de identidad con otra clave**, que ahora se rechaza. Una credencial al portador (sin clave) se acepta por defecto y la auditoría la marca `holderBinding: none`, para no aparentar una posesión que nadie probó; un despliegue puede exigir la prueba (`requireHolderBinding`).
 - **Obligatoria (SPEC-0044 D8).** Con `require: true` un agente sin identidad se deniega, también en una consulta de solo lectura, y la auditoría dice `agentIdentityMissing`. Con `false` (el opt-out explícito, solo para pruebas y no apto para entornos regulados) funciona, avisa **una vez** y deja constancia en el registro. SPEC-0044 ya no prevé un periodo de transición: la obligatoriedad entra por defecto desde F1 (el aviso de la maqueta es un diagnóstico, no una fase).
+- **También es obligatorio decir a nombre de quién se actúa** (SPEC-0044 D11): un agente con identidad que no declara la parte para la que trabaja se deniega. Puede ser una persona, una organización o el propio sistema, pero tiene que declararse.
+- **La prueba es opaca** (D12): el proveedor dice el `format` de su firma y el framework lo registra sin interpretarlo. Ed25519 se verifica en el propio módulo; cualquier otro formato (un sello, un sello de tiempo...) lo verifica el verificador que el operador registre, y un formato sin verificador **no pasa por verificado**. Nada del módulo conoce un marco legal.
 - **Un proveedor que falla es un rechazo, no un permiso.** Y una **custodia que no puede firmar no pierde el registro**: el evento se escribe marcado `agentSignatureFailed`, y la verificación lo señala para que no pase por firmado. Un registro perdido es peor que uno sin firma.
 
 Los tests de la identidad están en `src/__tests__/identity.test.ts` (21 casos); cada pieza se defiende por sí sola (el adaptador, la capa del verificador y la política no se apoyan unas en otras).

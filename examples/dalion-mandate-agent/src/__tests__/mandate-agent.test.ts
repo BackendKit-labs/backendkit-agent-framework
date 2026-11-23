@@ -144,8 +144,8 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
             expect(a.contracts).toHaveLength(0);
         });
 
-        it('a tool the operator did not map to a verb is never covered', async () => {
-            const a = setup(() => power(), { approver: human('reject'), capabilities: {} }, [buyCall(10), { content: 'x' }]);
+        it('a tool that declares no verb is never covered', async () => {
+            const a = setup(() => power(), { approver: human('reject'), buyVerb: null }, [buyCall(10), { content: 'x' }]);
             await a.engine.run('buy');
             expect(a.approvals).toHaveLength(1);
             expect(a.purchases).toHaveLength(0);
@@ -196,26 +196,26 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
     });
 
     describe('the credential and the agent are decoupled', () => {
-        it('a credential that names a TOOL grants nothing: powers are verbs of the domain, mapped by the operator', async () => {
+        it('a credential that names a TOOL grants nothing: powers are verbs of the domain, declared by the tool', async () => {
             const byToolName = power({ powers: [{ action: 'buy_supplies', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
             const a = setup(() => byToolName, { approver: human('reject') });
             await a.engine.run('buy');
             expect(a.purchases).toHaveLength(0);
             expect(a.approvals).toHaveLength(1);
-            // not even when the operator has mapped nothing at all
-            const b = setup(() => byToolName, { approver: human('reject'), capabilities: {} });
+            // not even when the tool declares no verb at all
+            const b = setup(() => byToolName, { approver: human('reject'), buyVerb: null });
             await b.engine.run('buy');
             expect(b.purchases).toHaveLength(0);
         });
 
-        it('the operator maps the agent\'s tool to the credential\'s verb: another vocabulary, same agent, no change to the code', async () => {
+        it('the tool declares the verb it performs: another vocabulary, same agent, no change to the credential\'s shape', async () => {
             const cred = power({ powers: [{ action: 'purchase', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
             const withDefault = setup(() => cred, { approver: human('reject') });
             await withDefault.engine.run('buy');
             expect(withDefault.purchases).toHaveLength(0);                // "buy" is not "purchase": asked, rejected
-            const mapped = setup(() => cred, { capabilities: { buy_supplies: 'purchase' } });
+            const mapped = setup(() => cred, { buyVerb: 'purchase' });
             await mapped.engine.run('buy');
-            expect(mapped.purchases).toHaveLength(1);                     // the operator said buy_supplies performs "purchase"
+            expect(mapped.purchases).toHaveLength(1);                     // buy_supplies now declares that it performs "purchase"
         });
     });
 

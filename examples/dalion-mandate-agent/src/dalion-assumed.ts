@@ -12,8 +12,9 @@
  *   - ON WHAT (a television),
  *   - up to HOW MUCH (at most 1000 EUR).
  * The credential does NOT say which tools the agent may run. It speaks the language of the DOMAIN (a verb, an object, an amount), not
- * the language of a particular agent's code. Which tool of this agent performs "buy" is a decision of whoever deploys the agent, and
- * it lives here, in the operator's configuration (`capabilityOf`, `objectOf`), never in the credential.
+ * the language of a particular agent's code. Which tool of this agent performs "buy" is declared by the TOOL itself, in the metadata the
+ * framework reserves for governance clients (`ToolDefinition.meta`, key `capability`), and what a call is about is read by the operator
+ * (`objectOf`). Neither lives in the credential.
  *
  * WHAT IS ASSUMED (the container, since the real one is unknown): an SD-JWT-VC-shaped JWT signed by DALION (`iss`), type `dc+sd-jwt`:
  *   - `sub`: the identity of the AGENT (a non-human identity, e.g. `did:dalion:agent:buyer-01`), not of the person;
@@ -29,11 +30,14 @@
  * refused; the credential is current; the revocation hook, if it fails, counts as revoked.
  *
  * It answers PER CALL: it takes the verb the called tool performs, finds the power for that verb (and the object the call is about),
- * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool the operator
- * did not map to a verb is never covered.
+ * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool that
+ * declares no capability is never covered.
  */
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
+
+/** The key of `ToolDefinition.meta` where a tool declares the verb it performs, in the credential's vocabulary (`buy`, `sign`). */
+export const CAPABILITY_META_KEY = 'capability';
 
 /** Names the assumed format. Not DALION's. */
 export const DALION_ASSUMED_VCT = 'urn:dalion:agent-power-of-representation:assumed:1';
@@ -57,11 +61,6 @@ export interface DalionAdapterOptions {
      * `undefined`: the agent has none registered, and that is a refusal.
      */
     agentIdentityOf(agentId: string): string | undefined;
-    /**
-     * What a tool of THIS agent does, in the credential's vocabulary (`buy_supplies` → `buy`). `undefined`: the operator did not say, and
-     * the tool is never covered by a mandate. This is where the agent's code meets the credential; the credential never names a tool.
-     */
-    capabilityOf(toolName: string): string | undefined;
     /** What a call acts on, read from its arguments (`args.item` → `television`). Needed for powers that name an object. */
     objectOf?(args: Record<string, unknown>): string | undefined;
     /** Is the credential revoked? Where to look is yours. A hook that throws counts as revoked. */
@@ -140,11 +139,12 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
                 granted.push(p as DalionPower);
             }
 
-            // The mandate for THIS call. The verb comes from the operator's mapping of the tool, never from the credential. The power
+            // The mandate for THIS call. The verb is what the TOOL declares, never what the credential says about tools. The power
             // is the one for that verb and the object the call is about; with none for the object, the verb's first power is used so
             // the policy refuses with the right reason ("does not cover <object>") instead of a vague one.
             const tool = request.call.tool.name;
-            const verb = options.capabilityOf(tool);
+            const declared = request.call.tool.meta?.[CAPABILITY_META_KEY];
+            const verb = typeof declared === 'string' && declared.length > 0 ? declared : undefined;
             const forVerb = verb === undefined ? [] : granted.filter(p => p.action === verb);
             const object = options.objectOf?.(request.call.args);
             const power = forVerb.find(p => p.object !== undefined && p.object === object)

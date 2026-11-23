@@ -7,14 +7,14 @@
  * nothing in this file knows how a credential looks.
  *
  * The credential says WHAT may be done (`buy`), ON WHAT (`television`) and up to HOW MUCH, never which tool runs it. The link between the
- * two is made HERE, by whoever deploys the agent: `capabilities` says which tool performs which verb, and `objectOf` reads what a call is about.
+ * two is made HERE: each tool declares the verb it performs in its own `meta.capability`, and `objectOf` reads what a call is about.
  */
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import {
-    createBaseEngine, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, z,
+    createBaseEngine, defaultToolPolicy, defineTool, ed25519Signer, HashChainAuditSink, mandatePolicy, z,
     type AgentProfile, type Approver, type ToolPolicy, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateRequest, type Transport,
 } from '@backendkit-labs/agent-core';
-import { dalionMandateVerifier } from './dalion-assumed';
+import { CAPABILITY_META_KEY, dalionMandateVerifier } from './dalion-assumed';
 
 export const AGENT_ID = 'buyer';
 /** The non-human identity DALION gave this agent (assumed shape). */
@@ -35,10 +35,10 @@ export interface BuyerAgentOptions {
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
     approver?: Approver;
     /**
-     * What each of THIS agent's tools does, in the credential's vocabulary. A tool that is not here is never covered by a mandate.
-     * Default: `buy_supplies` buys and `sign_contract` signs. Renaming a tool changes this map, never the credential.
+     * The verb `buy_supplies` declares in its metadata, in the credential's vocabulary. Default `buy`. `null`: the tool declares none and is
+     * never covered by a mandate. Renaming the tool or changing its verb never touches the credential.
      */
-    capabilities?: Record<string, string>;
+    buyVerb?: string | null;
     auditLogPath: string;
     checkpointsPath: string;
     now?: () => Date;
@@ -55,8 +55,6 @@ const buyerProfile: AgentProfile = {
 
 /** What a call is about: the object a power may name (`television`). `undefined` when the call does not say. */
 const objectOf = (args: Record<string, unknown>) => (typeof args.item === 'string' && args.item.length > 0 ? args.item : undefined);
-
-const DEFAULT_CAPABILITIES: Record<string, string> = { buy_supplies: 'buy', sign_contract: 'sign' };
 
 /** What a call spends, read from its arguments. `undefined` when the call does not say: the policy then refuses to treat it as covered. */
 const amountOf = (args: Record<string, unknown>) =>
@@ -77,6 +75,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         name: 'buy_supplies',
         description: 'Buy an item. Irreversible',
         destructive: true,
+        meta: options.buyVerb === null ? {} : { [CAPABILITY_META_KEY]: options.buyVerb ?? 'buy' },
         input: z.object({ item: z.string(), amount: z.number(), currency: z.string() }),
         execute: async ({ item, amount, currency }) => { purchases.push({ item, amount, currency }); return `bought ${item} for ${amount} ${currency}`; },
     });
@@ -84,6 +83,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         name: 'sign_contract',
         description: 'Sign a contract in the name of the person. Irreversible',
         destructive: true,
+        meta: { [CAPABILITY_META_KEY]: 'sign' },
         input: z.object({ contract: z.string() }),
         execute: async ({ contract }) => { contracts.push(contract); return `signed ${contract}`; },
     });
@@ -103,21 +103,21 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         request: async (req) => { approvals.push(req); return approver.request(req); },
     };
 
-    const capabilities = options.capabilities ?? DEFAULT_CAPABILITIES;
     const verifier = dalionMandateVerifier({
         trustedIssuers: options.trustedIssuers,
         credentialFor: (_: MandateRequest) => options.credential(),
         agentIdentityOf: (agentId) => (agentId === AGENT_ID ? AGENT_DALION_IDENTITY : undefined),
-        capabilityOf: (tool) => Object.prototype.hasOwnProperty.call(capabilities, tool) ? capabilities[tool] : undefined,
         objectOf,
         ...(options.isRevoked ? { isRevoked: options.isRevoked } : {}),
         ...(options.now ? { now: options.now } : {}),
     });
 
     const governed = mandatePolicy({ verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
-    // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate.
+    // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate. The framework's own
+    // rule for read-only tools decides those. `defaultToolPolicy` cannot be listed next to `mandatePolicy` (it asks for every destructive
+    // tool, and an `ask` beats an `allow`, which would cancel the mandate), so the split is by the tool's declared `readOnly`.
     const policy: ToolPolicy = {
-        decide: (principal, call) => (call.tool.readOnly ? { effect: 'allow', reason: 'read-only tool' } : governed.decide(principal, call)),
+        decide: (principal, call) => (call.tool.readOnly ? defaultToolPolicy.decide(principal, call) : governed.decide(principal, call)),
     };
 
     const engine = createBaseEngine({

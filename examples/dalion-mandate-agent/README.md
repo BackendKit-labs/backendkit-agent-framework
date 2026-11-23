@@ -6,17 +6,19 @@ Un agente de compras que actúa **bajo un apoderamiento**. La credencial dice **
 
 ## La idea central: la credencial habla del dominio, no del código
 
-La credencial **no dice qué herramientas puede ejecutar el agente**. Dice un **verbo** (`buy`), un **objeto** (`television`) y un **importe**. Qué herramienta de *este* agente realiza "comprar" lo decide quien lo despliega, y vive en su configuración, nunca en la credencial:
+La credencial **no dice qué herramientas puede ejecutar el agente**. Dice un **verbo** (`buy`), un **objeto** (`television`) y un **importe**. Qué herramienta de *este* agente realiza "comprar" lo declara **la propia herramienta**, en el campo de metadatos que el framework reserva para los clientes de gobernanza (`ToolDefinition.meta`), nunca la credencial:
 
 ```ts
-buildBuyerAgent({
+defineTool({
+  name: 'buy_supplies',
+  destructive: true,
+  meta: { capability: 'buy' },        // el verbo que realiza, en el vocabulario de la credencial
   // ...
-  capabilities: { buy_supplies: 'buy', sign_contract: 'sign' },   // qué hace cada herramienta, en el vocabulario de la credencial
 });
-// y objectOf: (args) => args.item                                   // sobre qué actúa una llamada
+// y objectOf: (args) => args.item     // sobre qué actúa una llamada, lo lee quien despliega el agente
 ```
 
-Así, renombrar una herramienta cambia ese mapa y no la credencial; y una herramienta sin verbo asignado **nunca** queda cubierta.
+Así, renombrar una herramienta no toca la credencial, y una herramienta que no declara ningún verbo **nunca** queda cubierta.
 
 ## Qué se supone del contenedor
 
@@ -37,7 +39,7 @@ Un poder sin `object` cubre cualquier objeto (con su propio límite); uno con `o
 
 Algoritmo y `typ` en lista blanca (`none` y los simétricos, fuera); emisor que el operador confía, con su clave; firma válida; la identidad del agente en `sub` es la que el operador registró para ese agente; vigencia; poderes bien formados, **sin comodín (ni de verbo ni de objeto) y sin (verbo, objeto) repetido**; un límite sin moneda se rechaza; y si la consulta de revocación falla, cuenta como revocado.
 
-Responde **por llamada**: toma el verbo que realiza la herramienta llamada, busca el poder de ese verbo y de ese objeto, y devuelve un `Mandate` que cubre esa herramienta con el objeto y el límite de ese poder. La política (`mandatePolicy` de `agent-core`) no cambia. Una herramienta **de solo lectura** (consultar un precio) no necesita mandato: no cambia nada.
+Responde **por llamada**: toma el verbo que realiza la herramienta llamada, busca el poder de ese verbo y de ese objeto, y devuelve un `Mandate` que cubre esa herramienta con el objeto y el límite de ese poder. La política (`mandatePolicy` de `agent-core`) no cambia. Una herramienta **de solo lectura** (consultar un precio) no necesita mandato: la decide la regla del propio framework (`defaultToolPolicy`). No se puede listar `defaultToolPolicy` junto a `mandatePolicy` (pide aprobación para toda herramienta destructiva y un `ask` gana a un `allow`, lo que anularía el mandato), así que el reparto se hace por el `readOnly` que declara la herramienta.
 
 ## Piezas
 
@@ -54,14 +56,14 @@ npm test
 ## Qué demuestran los tests
 
 - **Dentro** (comprar una televisión, hasta 1000 €): compra sin preguntar, la auditoría nombra el mandato (id, emisor, persona, hash de la credencial) y la credencial **no** aparece en el registro. Exactamente 1000 entra. Consultar un precio no necesita mandato. La credencial no contiene ningún nombre de herramienta.
-- **Fuera** → **pregunta**: 1200 €, **otro objeto** (un portátil no es una televisión), una llamada que no dice qué compra, **otro verbo** (puede comprar, no firmar), una herramienta que el operador no asoció a ningún verbo, otra moneda, un importe negativo, o un mandato de otra persona. Aprobado, compra; rechazado o sin aprobador, no.
+- **Fuera** → **pregunta**: 1200 €, **otro objeto** (un portátil no es una televisión), una llamada que no dice qué compra, **otro verbo** (puede comprar, no firmar), una herramienta que no declara ningún verbo, otra moneda, un importe negativo, o un mandato de otra persona. Aprobado, compra; rechazado o sin aprobador, no.
 - **Varios poderes**: cada objeto tiene su límite (portátil hasta 2500, televisión hasta 1000), y un poder sin objeto cubre el resto con el suyo.
-- **Desacople**: otro vocabulario con el mismo agente solo cambia el mapa del operador; una credencial que **nombra una herramienta** no concede nada.
+- **Desacople**: otro vocabulario con el mismo agente solo cambia el verbo que declara la herramienta; una credencial que **nombra una herramienta** no concede nada.
 - **Sin mandato válido** → **denegado, y el aprobador ni se consulta**. Cada caso se comprueba por **su motivo**: sin credencial, firmada por otro, emisor no confiable, caducada, aún no vigente, sin `exp`, emitida a otro agente, sin poderes, comodín de verbo u objeto, poder repetido, límite sin moneda o no numérico, objeto inválido, sin persona representada, otro tipo, divulgaciones selectivas, basura, payload editado, `alg: none`, confusión de algoritmo (HMAC firmado con la clave **pública**), origen que lanza, revocación que no responde y credencial revocada.
 - **Revocación a mitad de camino**: revocada entre dos compras, la segunda no pasa.
 - **Auditoría**: la cadena verifica, su cabeza está firmada, y editarla después se detecta.
 
-Se comprobó que los tests tienen dientes: ocho debilitaciones deliberadas del adaptador (sin comprobar la identidad del agente, sin firma, ignorando el objeto, aceptando un nombre de herramienta como verbo, que el poder genérico gane al específico, comodín de objeto, revocación que falla abierta, sujeto tomado del que llama) rompen cada una al menos un test.
+Se comprobó que los tests tienen dientes: debilitaciones deliberadas del adaptador y de la política (sin comprobar la identidad del agente, sin firma, ignorando el objeto, usar el nombre de la herramienta como verbo, que el poder genérico gane al específico, comodín de objeto, revocación que falla abierta, sujeto tomado del que llama, exigir mandato también a las herramientas de solo lectura, o ignorar el mandato) rompen cada una al menos un test.
 
 ## Lo que NO hace (a propósito)
 

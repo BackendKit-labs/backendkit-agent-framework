@@ -275,7 +275,11 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         });
         it('a credential that does not say for whom the agent works', async () => { await denied(() => power({ payload: { represents: {} } }), /does not say who the agent works for/); });
         it('a credential that is not the assumed type', async () => { await denied(() => power({ payload: { vct: 'urn:something:else' } }), /is not a ".*" credential/); });
-        it('a credential with selective disclosures, which are not supported', async () => { await denied(() => `${power()}~WyJzYWx0Il0~`, /selective disclosures/); });
+        it('a credential with a Disclosure that no digest of the credential points to (RFC 9901)', async () => {
+            const stray = Buffer.from(JSON.stringify(['salt', 'extra', 1])).toString('base64url');
+            await denied(() => `${power()}${stray}~`, /Disclosures of the credential are not valid: a Disclosure is not referenced/);
+        });
+        it('a presentation that already carries a key binding proof cannot be reused', async () => { await denied(() => `${power()}a.b.c`, /already carries a key binding proof/); });
         it('garbage', async () => { await denied(() => 'not-a-jwt', /malformed/); });
 
         it('a credential whose payload was edited after signing (the limit raised)', async () => {

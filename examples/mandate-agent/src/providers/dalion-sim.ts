@@ -9,6 +9,7 @@ import { createHash, generateKeyPairSync, sign as edSign, type KeyObject } from 
 import { signJws } from '@backendkit-labs/agent-mandates';
 import { DALION_ASSUMED_VCT, type DalionPower } from './dalion-assumed';
 import { canonicalJson, type AgentIdentity, type AgentIdentityProvider } from '../identity/prototype';
+import { hideClaims } from '../standards/sd-jwt';
 
 /** The non-human identity the simulator gives to the example's buyer agent (assumed shape). */
 export const AGENT_DALION_IDENTITY = 'did:dalion:agent:buyer-01';
@@ -34,6 +35,10 @@ export interface IssueOptions {
     expiresAt: number;
     /** Tie the credential to the key of this agent (by its profile id): only whoever holds that key can use it. */
     bindToKeyOf?: string;
+    /** Top-level claims to hide behind Disclosures (RFC 9901): the credential then travels as `<jwt>~<disclosure>~...~`. */
+    disclose?: string[];
+    /** Digests nobody can open, as an issuer adds to hide how many claims there are. */
+    decoys?: number;
     /** Override anything in the payload, to build a malformed credential on purpose. */
     payload?: Record<string, unknown>;
 }
@@ -55,7 +60,7 @@ export class DalionSim {
     private readonly humans = new Map<string, Human>();
     private n = 0;
 
-    constructor(issuer = 'did:dalion:issuer:sim') {
+    constructor(issuer = 'https://issuer.dalion.example') {
         this.issuer = issuer;
         const pair = generateKeyPairSync('ed25519');
         this.publicKey = pair.publicKey;
@@ -122,7 +127,7 @@ export class DalionSim {
             vct: DALION_ASSUMED_VCT,
             represents: { id: o.represents, kind: o.kind ?? 'person', ...(o.assurance !== undefined ? { assurance: o.assurance } : {}) },
             powers: o.powers,
-            status: { id: `status-${id}` },
+            status: { status_list: { idx: ++this.n, uri: 'https://status.dalion.example/lists/1' } },
             ...(bound ? { cnf: { kid: bound.identity.kid, jwk: bound.publicKey.export({ format: 'jwk' }) } } : {}),
             ...(o.payload ?? {}),
         };
@@ -133,7 +138,9 @@ export class DalionSim {
             const signature = edSign(null, consentMessage({ jti: payload.jti, sub: payload.sub, exp: payload.exp, represents: { id: rep.id, kind: rep.kind }, powers: payload.powers }), signer.privateKey).toString('base64url');
             (payload.represents as Record<string, unknown>).consent = { kid: signer.kid, signature };
         }
-        return signJws(signedBy, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, payload);
+        // An SD-JWT travels as `<jwt>~<disclosure>~...~`. The consent above covers the real values, whatever is hidden.
+        const { payload: shown, disclosures } = hideClaims(payload, o.disclose ?? [], o.decoys ?? 0);
+        return `${signJws(signedBy, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, shown)}~${disclosures.map(d => `${d}~`).join('')}`;
     }
 
     /**
@@ -143,7 +150,7 @@ export class DalionSim {
     reissueWith(credential: string, edit: (payload: Record<string, unknown>) => void): string {
         const payload = JSON.parse(Buffer.from(credential.split('.')[1]!, 'base64url').toString()) as Record<string, unknown>;
         edit(payload);
-        return signJws(this.privateKey, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, payload);
+        return `${signJws(this.privateKey, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, payload)}~`;
     }
 
     revoke(credentialId: string): void { this.revoked.add(credentialId); }

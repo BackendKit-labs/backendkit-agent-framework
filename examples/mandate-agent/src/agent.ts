@@ -123,7 +123,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         tools: [checkPrice, buy, sign], transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
         identity: { userId: options.userId },
         ...(options.agentIdentity ? options.agentIdentity.engine : { agentIdentity: selfAssertedIdentities() }),
-        audit: options.agentIdentity ? options.agentIdentity.audit(audit) : audit,
+        audit,
         policy,
         approver: recordingApprover,
     });

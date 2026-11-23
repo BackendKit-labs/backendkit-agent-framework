@@ -8,20 +8,37 @@
  *   - an agent with no identity is refused when identity is required (SPEC-0044 D8), and warned about when it is not;
  *   - a provider that fails is a refusal, never a permission.
  */
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyAuditChain, type MandateVerifier } from '@backendkit-labs/agent-core';
+import { HashChainAuditSink, verifyAuditChain, type MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { issueMandate, jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
 import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
 import { dalionMandateVerifier, type DalionPower } from '../providers/dalion-assumed';
 import { CorporateIdentity } from '../identity/corporate-identity';
-import { identityLayer, verifyAgentSignatures, type AgentIdentityProvider, type IdentityAuditEvent } from '../identity/prototype';
+import { identityLayer, type AgentIdentityProvider, type IdentityAuditEvent } from '../identity/prototype';
 
 const nowS = () => Math.floor(Date.now() / 1000);
+
+/** What an attacker who can rewrite the whole log does: the same events, one changed, with a VALID hash chain built around them. */
+function rewriteChained(from: string, to: string, change: (event: Record<string, any>) => void): void {
+    const sink = new HashChainAuditSink(to);
+    for (const line of readFileSync(from, 'utf8').split('\n').filter(Boolean)) {
+        const { event } = JSON.parse(line);
+        change(event);
+        sink.write(event);
+    }
+}
+
+/** The signatures are checked by `agent-core` itself (SPEC-0044 F2); this only reshapes its answer for the assertions below. */
+function verifyAgentSignatures(path: string, keyOf: (kid: string) => KeyObject | undefined, formats?: Record<string, (message: Buffer, proof: { kid: string; signature: string; format?: string }) => boolean>) {
+    const native = formats ? Object.fromEntries(Object.entries(formats).map(([k, v]) => [k, ({ message, proof }: { message: Buffer; proof: { kid: string; signature: string; format?: string } }) => v(message, proof)])) : undefined;
+    const r = verifyAuditChain(path, { agentSignatures: { keyOf, ...(native ? { formats: native } : {}) } });
+    return r.ok ? { ok: true as const, checked: r.signedEvents ?? 0, failures: [] as Array<{ seq: number; reason: string }> } : { ok: false as const, checked: 0, failures: [{ seq: r.brokenAt, reason: r.reason }] };
+}
 const buyCall = (amount: number, id = 'c1') => ({ tool_calls: [{ id, name: 'buy_supplies', args: { item: 'television', amount, currency: 'EUR' } }] });
 const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } };
 
@@ -90,10 +107,10 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
         it('an event edited after the fact fails its signature, even if the chain is rebuilt around it', async () => {
             const a = agent({ verifier: dalionVerifier(() => credential()), provider: dalion.identityProvider() });
             await a.engine.run('buy a television');
-            const lines = readFileSync(log(), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
-            lines[0].event.argsHash = '0'.repeat(64);          // change what was bought; the chain is not even rebuilt here: the signature is the one that catches it
-            writeFileSync(log(), `${lines.map(l => JSON.stringify(l)).join('\n')}\n`);
-            const check = verifyAgentSignatures(log(), kid => dalion.publicKeyOfKid(kid));
+            const forged = join(dir, 'forged.ndjson');
+            rewriteChained(log(), forged, e => { e.argsHash = '0'.repeat(64); });   // change what was bought, rebuild the chain around it
+            expect(verifyAuditChain(forged).ok).toBe(true);                         // the chain alone is fooled: the signature catches it
+            const check = verifyAgentSignatures(forged, kid => dalion.publicKeyOfKid(kid));
             expect(check.ok).toBe(false);
             expect(check.failures[0].reason).toMatch(/does not verify/);
         });
@@ -103,10 +120,9 @@ describe('the digital identity of the agent (SPEC-0044, prototype)', () => {
             acme.register(AGENT_ID);
             const a = agent({ verifier: dalionVerifier(() => credential()), provider: dalion.identityProvider() });
             await a.engine.run('buy a television');
-            const lines = readFileSync(log(), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
-            lines[0].event.agentSignature.kid = `acme-kms/${AGENT_ID}/v1`;       // claims the company's key signed it
-            writeFileSync(log(), `${lines.map(l => JSON.stringify(l)).join('\n')}\n`);
-            const check = verifyAgentSignatures(log(), kid => acme.publicKeyOfKid(kid) ?? dalion.publicKeyOfKid(kid));
+            const forged = join(dir, 'forged.ndjson');
+            rewriteChained(log(), forged, e => { e.agentSignature.kid = `acme-kms/${AGENT_ID}/v1`; });   // claims the company's key signed it
+            const check = verifyAgentSignatures(forged, kid => acme.publicKeyOfKid(kid) ?? dalion.publicKeyOfKid(kid));
             expect(check.ok).toBe(false);
             expect(check.failures[0].reason).toMatch(/not the one of the identity it names/);
         });

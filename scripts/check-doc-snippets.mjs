@@ -26,6 +26,17 @@ const PAGES = [
         files: ['tool.ts', 'agent.ts', 'index.ts', 'real-model.ts'],
         run: [{ file: 'index.ts', expect: ['sunny in London', 'get_weather:true'] }],   // the tool ran: a denied call would still print the scripted answer
     },
+    {
+        page: 'site/src/content/docs/start/learning-path.md',
+        files: ['treasury.ts', 'rules.ts', 'check.ts', 'team.ts', 'memory.ts', 'audit.ts'],
+        run: [
+            { file: 'rules.ts', expect: ["500 [ 'pay_invoice:true' ]", "25000 [ 'pay_invoice:false' ]"] },
+            { file: 'check.ts', expect: 'ok: small payments run' },
+            { file: 'team.ts', expect: ['Invoice INV-7 comes to 1,250.00 EUR.', 'invoice_total:true'] },
+            { file: 'memory.ts', expect: 'the model was given the stored fact: true' },
+            { file: 'audit.ts', expect: 'acted for ana, as urn:agent:treasurer (self-asserted)' },
+        ],
+    },
 ];
 
 const CONSTRUCTORS = /\b(createBaseEngine|new AgentEngine|createCodingEngine|createEnterpriseSetup)\(/;

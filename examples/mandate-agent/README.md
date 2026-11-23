@@ -18,6 +18,29 @@ Cambiar de proveedor, o sumar uno, es **cableado del operador**, no una decisió
 
 > **El formato de la credencial de DALION es SUPUESTO.** Todavía no se conoce el real (SPEC-0043 §6; la F3 está bloqueada por eso). `src/providers/dalion-assumed.ts` fija una forma inventada a partir de lo que se sabe del producto, para poder construir y probar ya el agente, la política, la auditoría y los casos de fallo. **No demuestra compatibilidad con DALION.** Cuando llegue el formato real, lo único que cambia es ese adaptador; los tests de `src/__tests__/mandate-agent.test.ts` son el contrato que el nuevo adaptador tiene que seguir cumpliendo.
 
+## La identidad digital del agente (maqueta de SPEC-0044)
+
+Una credencial de apoderamiento dice qué puede hacer un agente; no dice **quién es** el agente que la presenta. [SPEC-0044](../../docs/specs/SPEC-0044-identidad-digital-del-agente.md) propone que todo agente lleve una identidad digital, y este ejemplo **prueba el diseño antes de tocar `agent-core`**, en `src/identity/prototype.ts`. Es una maqueta: cada apaño está marcado `CORE:` con el cambio del framework que lo hará desaparecer. **No es una API del framework.**
+
+```
+proveedor de identidad  ──resolve(agentId)──▶  { id, issuer, kid }   la identidad la da el PROVEEDOR, nunca la credencial
+        │                                            │
+        └──sign(agentId, mensaje)──▶  firma          ▼
+                                       Principal.agentIdentity ──▶ verificador (compara con el sub de la credencial)
+                                                     │                      + prueba de posesión de la clave
+                                                     ▼
+                                      evento de auditoría: agentIdentity + agentSignature (firmado por esa identidad)
+```
+
+- **Dos proveedores distintos detrás del mismo contrato** (`AgentIdentityProvider`): DALION (supuesto, DID, clave en custodia) y un IAM de empresa (URN, clave en un KMS). Ambos firman de forma **asíncrona**.
+- **La identidad sale del proveedor, no de la credencial.** La credencial la presenta el propio agente: fiarse de lo que dice de sí misma sería circular. Su `sub` se **compara** con lo que dice el proveedor.
+- **Cada evento queda atribuido y firmado** por la identidad que lo ejecutó (también los denegados y los de solo lectura). `verifyAgentSignatures` lo comprueba evento a evento, **independientemente** de la cadena de hashes: un evento editado y re-encadenado sigue fallando, porque la firma cubre el contenido.
+- **Prueba de posesión.** Una credencial atada a la clave del agente (`cnf`) solo sirve a quien tiene esa clave: el agente firma un reto nuevo y se comprueba contra la clave de la credencial. Hay un test del caso que antes pasaba: **el mismo nombre de identidad con otra clave**, que ahora se rechaza. Una credencial al portador (sin clave) se acepta por defecto y la auditoría la marca `holderBinding: none`, para no aparentar una posesión que nadie probó; un despliegue puede exigir la prueba (`requireHolderBinding`).
+- **Obligatoria (SPEC-0044 D8).** Con `require: true` un agente sin identidad se deniega, también en una consulta de solo lectura, y la auditoría dice `agentIdentityMissing`. Con `false` (la transición) funciona, avisa **una vez** y deja constancia en el registro.
+- **Un proveedor que falla es un rechazo, no un permiso.** Y una **custodia que no puede firmar no pierde el registro**: el evento se escribe marcado `agentSignatureFailed`, y la verificación lo señala para que no pase por firmado. Un registro perdido es peor que uno sin firma.
+
+Los tests de la identidad están en `src/__tests__/identity.test.ts` (21 casos); cada pieza se defiende por sí sola (el adaptador, la capa del verificador y la política no se apoyan unas en otras).
+
 ## La credencial habla del dominio, no del código
 
 La credencial de DALION **no dice qué herramientas puede ejecutar el agente**. Dice un **verbo** (`buy`), un **objeto** (`television`) y un **importe**. Qué herramienta de *este* agente realiza "comprar" lo declara **la propia herramienta**, en el campo de metadatos que el framework reserva para los clientes de gobernanza (`ToolDefinition.meta`), nunca la credencial:
@@ -62,8 +85,11 @@ Responde **por llamada**: toma el verbo que declara la herramienta llamada, busc
 - `src/providers/dalion-assumed.ts`: el adaptador de DALION (supuesto).
 - `src/providers/dalion-sim.ts`: un DALION de mentira que emite credenciales en ese formato y lleva una lista de revocados.
 - `src/providers/router.ts`: varios proveedores detrás de un verificador.
+- `src/identity/prototype.ts`: la maqueta de SPEC-0044 (la capa de identidad, la firma de la auditoría y su verificación).
+- `src/identity/corporate-identity.ts`: un segundo proveedor de identidad (IAM de empresa con KMS).
 - `src/__tests__/mandate-agent.test.ts`: 48 casos de extremo a extremo bajo DALION (el contrato del adaptador).
 - `src/__tests__/providers.test.ts`: 14 casos de neutralidad: el mismo agente bajo tres proveedores y bajo varios a la vez.
+- `src/__tests__/identity.test.ts`: 21 casos de la identidad del agente (atribución, firma, prueba de posesión, obligatoriedad).
 
 ```bash
 npm install

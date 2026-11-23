@@ -16,6 +16,7 @@ import type { Approver, MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { issueMandate, jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
+import { identityLayer } from '../identity/prototype';
 import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
 import { dalionMandateVerifier } from '../providers/dalion-assumed';
 import { routeByIssuer } from '../providers/router';
@@ -35,17 +36,19 @@ describe('the agent knows no identity provider', () => {
 
     /** The same agent, whatever verifier it is given. */
     const agentWith = (verifier: MandateVerifier, amount: number, approver?: Approver) => buildBuyerAgent({
-        provider: scriptedProvider([buyCall(amount), { content: 'done' }] as never), transport: mockTransport().transport, userId: 'carlos',
+        provider: scriptedProvider([buyCall(amount), { content: 'done' }] as never), transport: mockTransport().transport, userId: 'carlos', agentIdentity: layer(),
         verifier, ...(approver ? { approver } : {}),
         auditLogPath: join(dir, `audit-${Math.random().toString(36).slice(2)}.ndjson`), checkpointsPath: join(dir, `cp-${Math.random().toString(36).slice(2)}.ndjson`),
     });
 
     // ── provider A: DALION (assumed) ────────────────────────────────────────────────────────────────────────────
     const dalion = new DalionSim();
+    dalion.registerAgent(AGENT_ID, AGENT_DALION_IDENTITY);
+    const layer = () => identityLayer({ provider: dalion.identityProvider(), require: true });
     const dalionCredential = () => dalion.issue({ agent: AGENT_DALION_IDENTITY, represents: 'carlos', expiresAt: nowS() + 3600, powers: [{ action: 'buy', object: 'television', max: { value: 1000, currency: 'EUR' } }] });
     const dalionVerifier = (credential: () => string | undefined) => dalionMandateVerifier({
         trustedIssuers: { [dalion.issuer]: dalion.publicKey }, credentialFor: () => credential(),
-        agentIdentityOf: (id) => (id === AGENT_ID ? AGENT_DALION_IDENTITY : undefined), objectOf,
+        objectOf,
     });
 
     // ── provider B: the reference profile of agent-mandates (names tools, not verbs) ────────────────────────────
@@ -120,7 +123,7 @@ describe('the agent knows no identity provider', () => {
         const issuers: string[] = [];
         for (const [verifier, file] of [[dalionVerifier(dalionCredential), 'a'], [referenceVerifier(() => referenceCredential()), 'b'], [tableVerifier({ carlos: { max: 1000 } }), 'c']] as const) {
             const auditLogPath = join(dir, `audit-${file}.ndjson`);
-            const a = buildBuyerAgent({ provider: scriptedProvider([buyCall(100), { content: 'done' }] as never), transport: mockTransport().transport, userId: 'carlos', verifier, auditLogPath, checkpointsPath: join(dir, `cp-${file}.ndjson`) });
+            const a = buildBuyerAgent({ provider: scriptedProvider([buyCall(100), { content: 'done' }] as never), transport: mockTransport().transport, userId: 'carlos', agentIdentity: layer(), verifier, auditLogPath, checkpointsPath: join(dir, `cp-${file}.ndjson`) });
             await a.engine.run('buy');
             const ev = readFileSync(auditLogPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l).event).find(e => e.tool === 'buy_supplies');
             issuers.push(ev.mandate.issuer);
@@ -154,7 +157,7 @@ describe('the agent knows no identity provider', () => {
 
         const deniedBy = async (credential: string | undefined, why: RegExp) => {
             const auditLogPath = join(dir, `audit-d-${Math.random().toString(36).slice(2)}.ndjson`);
-            const a = buildBuyerAgent({ provider: scriptedProvider([buyCall(10), { content: 'x' }] as never), transport: mockTransport().transport, userId: 'carlos', verifier: verifierFor(() => credential), approver: human('approve'), auditLogPath, checkpointsPath: join(dir, `cp-d-${Math.random().toString(36).slice(2)}.ndjson`) });
+            const a = buildBuyerAgent({ provider: scriptedProvider([buyCall(10), { content: 'x' }] as never), transport: mockTransport().transport, userId: 'carlos', agentIdentity: layer(), verifier: verifierFor(() => credential), approver: human('approve'), auditLogPath, checkpointsPath: join(dir, `cp-d-${Math.random().toString(36).slice(2)}.ndjson`) });
             await a.engine.run('buy');
             expect(a.purchases).toHaveLength(0);
             expect(a.approvals).toHaveLength(0);

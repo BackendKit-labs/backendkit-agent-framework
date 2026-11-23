@@ -16,7 +16,8 @@ import { join } from 'node:path';
 import { readCheckpoints, verifyAuditChain, type Approver, type MandateVerifier } from '@backendkit-labs/agent-core';
 import { scriptedProvider, mockTransport } from '@backendkit-labs/agent-testkit';
 import { signJws } from '@backendkit-labs/agent-mandates';
-import { AGENT_ID, buildBuyerAgent, objectOf } from '../agent';
+import { buildBuyerAgent, objectOf } from '../agent';
+import { identityLayer } from '../identity/prototype';
 import { AGENT_DALION_IDENTITY, DalionSim } from '../providers/dalion-sim';
 import { DALION_ASSUMED_VCT, dalionMandateVerifier, type DalionPower } from '../providers/dalion-assumed';
 import type { KeyObject } from 'node:crypto';
@@ -28,7 +29,7 @@ const TV_1000: DalionPower = { action: 'buy', object: 'television', max: { value
 describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR', () => {
     let dir: string;
     let dalion: DalionSim;
-    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); dalion = new DalionSim(); });
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'mandate-agent-')); dalion = new DalionSim(); dalion.registerAgent('buyer', AGENT_DALION_IDENTITY); });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
     const human = (decision: 'approve' | 'reject'): Approver => ({
@@ -49,7 +50,6 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         return dalionMandateVerifier({
             trustedIssuers: extra.trustedIssuers ?? { [dalion.issuer]: dalion.publicKey },
             credentialFor: () => credential(),
-            agentIdentityOf: (id) => (id === AGENT_ID ? AGENT_DALION_IDENTITY : undefined),
             objectOf,
             isRevoked: extra.isRevoked ?? dalion.isRevoked,
         });
@@ -59,6 +59,7 @@ describe('a purchasing agent under a mandate: buy a television, at most 1000 EUR
         return buildBuyerAgent({
             provider: scriptedProvider(script as never), transport: mockTransport().transport, userId: 'carlos',
             verifier: dalionVerifier(credential, extra),
+            agentIdentity: identityLayer({ provider: dalion.identityProvider(), require: true }),
             ...(extra.approver ? { approver: extra.approver } : {}),
             ...(extra.buyVerb !== undefined ? { buyVerb: extra.buyVerb } : {}),
             auditLogPath: join(dir, 'audit.ndjson'), checkpointsPath: join(dir, 'checkpoints.ndjson'),

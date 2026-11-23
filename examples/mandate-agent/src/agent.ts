@@ -17,6 +17,7 @@ import {
     type AgentProfile, type Approver, type ApprovalOutcome, type ApprovalRequest, type LLMProvider, type MandateVerifier, type ToolPolicy, type Transport,
 } from '@backendkit-labs/agent-core';
 import { CAPABILITY_META_KEY } from './capability';
+import type { IdentityLayer } from './identity/prototype';
 
 export const AGENT_ID = 'buyer';
 
@@ -31,6 +32,11 @@ export interface BuyerAgentOptions {
     userId: string;
     /** Turns the credential this agent holds into a verified `Mandate`. From any identity provider, or several behind a router. */
     verifier: MandateVerifier;
+    /**
+     * The digital identity of the agent (SPEC-0044, prototyped in `identity/`). Whoever provides it (any identity system) is behind
+     * `AgentIdentityProvider`; this file only knows the layer. CORE: this becomes the engine option `agentIdentity`.
+     */
+    agentIdentity?: IdentityLayer;
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
     approver?: Approver;
     /**
@@ -102,19 +108,20 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         request: async (req) => { approvals.push(req); return approver.request(req); },
     };
 
-    const governed = mandatePolicy({ verifier: options.verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
+    const governed = mandatePolicy({ verifier: options.agentIdentity ? options.agentIdentity.verifier(options.verifier) : options.verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
     // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate. The framework's own
     // rule for read-only tools decides those. `defaultToolPolicy` cannot be listed next to `mandatePolicy` (it asks for every destructive
     // tool, and an `ask` beats an `allow`, which would cancel the mandate), so the split is by the tool's declared `readOnly`.
-    const policy: ToolPolicy = {
+    const mandated: ToolPolicy = {
         decide: (principal, call) => (call.tool.readOnly ? defaultToolPolicy.decide(principal, call) : governed.decide(principal, call)),
     };
+    const policy: ToolPolicy = options.agentIdentity ? options.agentIdentity.policy(mandated) : mandated;
 
     const engine = createBaseEngine({
         providers: { mock: options.provider }, defaultProvider: 'mock', agents: [buyerProfile], defaultAgent: AGENT_ID,
         tools: [checkPrice, buy, sign], transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
         identity: { userId: options.userId },
-        audit,
+        audit: options.agentIdentity ? options.agentIdentity.audit(audit) : audit,
         policy,
         approver: recordingApprover,
     });

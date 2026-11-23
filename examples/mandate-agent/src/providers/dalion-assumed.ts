@@ -33,8 +33,10 @@
  * and returns a `Mandate` that covers THAT tool with THAT power's object and limit. `mandatePolicy` stays unchanged. A tool that
  * declares no capability is never covered.
  */
+import { createPublicKey, randomBytes, verify as edVerify } from 'node:crypto';
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
-import type { Mandate, MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
+import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
+import type { IdentityMandate, IdentityRequest } from '../identity/prototype';
 import { CAPABILITY_META_KEY } from '../capability';
 
 /** Names the assumed format. Not DALION's. */
@@ -55,10 +57,10 @@ export interface DalionAdapterOptions {
     /** The credential this agent holds for this call. `undefined`: there is none, and that is a refusal. */
     credentialFor(request: MandateRequest): string | undefined | Promise<string | undefined>;
     /**
-     * The non-human identity DALION gave to the engine's agent (its profile id). The credential must be issued to THIS identity.
-     * `undefined`: the agent has none registered, and that is a refusal.
+     * Refuse a credential that is not tied to the agent's key (a bearer credential: whoever holds the string can use it). Default false: it is
+     * accepted, and the mandate says `holderBinding: 'none'` so the audit does not pretend a possession was proven.
      */
-    agentIdentityOf(agentId: string): string | undefined;
+    requireHolderBinding?: boolean;
     /** What a call acts on, read from its arguments (`args.item` → `television`). Needed for powers that name an object. */
     objectOf?(args: Record<string, unknown>): string | undefined;
     /** Is the credential revoked? Where to look is yours. A hook that throws counts as revoked. */
@@ -101,9 +103,11 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
 
             // Signed by who it says. Now: is it for THIS agent, is it current, and is what it says a well formed power.
             if (payload.vct !== DALION_ASSUMED_VCT) return deny(`the credential is not a "${DALION_ASSUMED_VCT}" credential`);
-            const expected = options.agentIdentityOf(request.principal.agentId);
-            if (!nonEmpty(expected)) return deny(`the agent "${request.principal.agentId}" has no DALION identity registered`);
-            if (payload.sub !== expected) return deny('the credential was issued to another agent identity');
+            // The identity of the agent comes from the ENGINE (its identity provider), never from this credential: the credential is presented by
+            // the agent, so what it says about who the agent is can only be COMPARED with what the provider says.
+            const identity = (request as IdentityRequest).principal.agentIdentity;
+            if (!identity) return deny('the engine gives this agent no digital identity, so the credential cannot be matched to it');
+            if (payload.sub !== identity.id) return deny('the credential was issued to another agent identity');
 
             const { jti, nbf, exp, represents, powers, status } = payload;
             if (!nonEmpty(jti)) return deny('the credential has no id (jti)');
@@ -149,11 +153,34 @@ export function dalionMandateVerifier(options: DalionAdapterOptions): MandateVer
                 ?? forVerb.find(p => p.object === undefined)
                 ?? forVerb[0];
 
-            const mandate: Mandate = {
+            // Proof of possession. A credential tied to a key (`cnf`) is only good in the hands of whoever holds that key: the agent signs a fresh
+            // challenge through the engine's identity provider and the signature is checked against the key IN the credential.
+            let holderBinding: 'proven' | 'none' = 'none';
+            const cnf = payload.cnf as { kid?: unknown; jwk?: unknown } | undefined;
+            if (cnf !== undefined) {
+                const prove = (request as IdentityRequest).prove;
+                if (!prove) return deny('the credential is tied to a key and the engine offers no proof of possession');
+                let key;
+                try { key = createPublicKey({ key: cnf.jwk as never, format: 'jwk' }); } catch { return deny('the key the credential is tied to is not readable'); }
+                const challenge = Buffer.concat([Buffer.from(`${jti}:`), randomBytes(32)]);
+                let proof: { kid: string; signature: string };
+                try { proof = await prove(challenge); } catch (err) { return deny(`the agent could not prove possession of the key: ${err instanceof Error ? err.message : String(err)}`); }
+                if (typeof cnf.kid === 'string' && proof.kid !== cnf.kid) return deny('the proof was signed by a key other than the one the credential is tied to');
+                let signed = false;
+                try { signed = edVerify(null, challenge, key, Buffer.from(proof.signature, 'base64url')); } catch { signed = false; }
+                if (!signed) return deny('the agent could not prove possession of the key the credential is tied to');
+                holderBinding = 'proven';
+            } else if (options.requireHolderBinding) {
+                return deny('the credential is not tied to a key (a bearer credential) and this deployment requires proof of possession');
+            }
+
+            const mandate: IdentityMandate = {
                 id: jti,
                 issuer,
                 subject: (represents as { id: string }).id,
                 agent: request.principal.agentId,
+                agentIdentity: payload.sub as string,   // what the CREDENTIAL says; the layer compares it with what the provider says
+                holderBinding,
                 actions: power ? [tool] : [],
                 ...(power?.object !== undefined ? { resources: [power.object] } : {}),
                 ...(power?.max ? { limits: { amount: { max: power.max.value, currency: power.max.currency } } } : {}),

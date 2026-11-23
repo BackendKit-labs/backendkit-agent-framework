@@ -107,6 +107,17 @@ export function auditMandate(m: Mandate): AuditMandate {
     };
 }
 
+/**
+ * A mandate that names an agent identity is a power of THAT agent: for any other it is not a power at all, so it is not "out of scope" (a person
+ * could approve it) but a refusal. `undefined`: the mandate names no identity, or names this one.
+ */
+function identityBindingProblem(m: Mandate, principal: Principal): string | undefined {
+    if (m.agentIdentity === undefined) return undefined;
+    if (!principal.agentIdentity) return 'the mandate is bound to an agent identity and this agent has none';
+    if (m.agentIdentity !== principal.agentIdentity.id) return 'the mandate is bound to another agent identity';
+    return undefined;
+}
+
 /** Does the mandate cover this call? The reason is the first thing that does not. */
 export function mandateCovers(
     m: Mandate, principal: Principal, call: ToolCall, options: Pick<MandatePolicyOptions, 'amountOf' | 'resourceOf' | 'requireSubject' | 'now'> = {},
@@ -115,10 +126,8 @@ export function mandateCovers(
     if (m.validFrom !== undefined && !(Date.parse(m.validFrom) <= now)) return { ok: false, reason: 'the mandate is not valid yet, or its start cannot be read' };
     if (m.validUntil !== undefined && !(now <= Date.parse(m.validUntil))) return { ok: false, reason: 'the mandate has expired, or its end cannot be read' };
     if (m.agent !== undefined && m.agent !== principal.agentId) return { ok: false, reason: `the mandate is for agent "${m.agent}", not "${principal.agentId}"` };
-    if (m.agentIdentity !== undefined) {
-        if (!principal.agentIdentity) return { ok: false, reason: 'the mandate is bound to an agent identity and this agent has none' };
-        if (m.agentIdentity !== principal.agentIdentity.id) return { ok: false, reason: 'the mandate is bound to another agent identity' };
-    }
+    const bound = identityBindingProblem(m, principal);
+    if (bound) return { ok: false, reason: bound };
     if (options.requireSubject !== false) {
         if (principal.userId === undefined) return { ok: false, reason: 'the engine does not say who the agent acts for (identity.userId), so the mandate cannot be matched to a person' };
         if (m.subject !== principal.userId) return { ok: false, reason: 'the mandate empowers another person than the one the agent acts for' };
@@ -166,6 +175,8 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
                 const why = verdict && typeof verdict === 'object' && 'reason' in verdict ? String(verdict.reason) : 'no answer';
                 return { effect: 'deny', reason: `no valid mandate: ${why}` };
             }
+            const notHers = identityBindingProblem(verdict.mandate, principal);
+            if (notHers) return { effect: 'deny', reason: `no valid mandate: ${notHers}` };
             if (options.requireHolderBinding && verdict.mandate.holderBinding !== 'proven') {
                 return { effect: 'deny', reason: 'no valid mandate: the credential is not tied to the key of the agent (a bearer credential) and this deployment requires proof of possession' };
             }

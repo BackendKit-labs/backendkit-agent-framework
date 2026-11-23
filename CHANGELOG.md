@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.50.8 (2026-11-23)
+
+**Un apoderamiento atado a otra identidad de agente se deniega; ya no «pide a una persona».** En 0.49.5, `mandatePolicy` trataba un apoderamiento que nombra otra identidad como «fuera de alcance», y el valor por defecto de «fuera de alcance» es pedir aprobación: una persona podía aprobar con un apoderamiento que no era de ese agente. Ahora es un rechazo (`no valid mandate: the mandate is bound to another agent identity`), igual que sin credencial. Lo encontró la refactorización del ejemplo `mandate-agent` al pasar a lo nativo.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.6 | `mandatePolicy` deniega un apoderamiento de otra identidad (o de un agente sin identidad) |
+
+Se publica uno. Tag: `agent-core@0.49.6`.
+
 ## v0.50.6 (2026-11-23)
 
 **F3 de SPEC-0044: el apoderamiento queda atado a la identidad del agente, y la posesión de la clave se prueba en cada llamada.** Hasta ahora un apoderamiento era una cadena que servía a quien la tuviera. Ahora puede nombrar la identidad del agente al que se emitió y estar atado a su clave: sin la clave, no vale.

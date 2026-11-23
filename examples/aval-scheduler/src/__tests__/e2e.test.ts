@@ -53,7 +53,7 @@ describe('aval-scheduler — de punta a punta', () => {
         const t = mockTransport();
         const agent = buildSchedulerAgent({
             providers: { mock: provider }, defaultProvider: 'mock',
-            avalUrl: aval.url, avalKey: KEY,
+            avalUrl: aval.url, avalKey: KEY, actsFor: 'test-operator',
             transport: t.transport,
             paymentsSourcePath: sourcePath, paymentsServerEntry: SERVER,
         });
@@ -94,7 +94,7 @@ describe('aval-scheduler — de punta a punta', () => {
         writeFileSync(sourcePath, JSON.stringify({ schedule: [], outcomes: {} }));
         const agent = buildSchedulerAgent({
             providers: { mock: scriptedProvider([{ content: 'nada que hacer' }]) }, defaultProvider: 'mock',
-            avalUrl: aval.url, avalKey: KEY, transport: mockTransport().transport,
+            avalUrl: aval.url, avalKey: KEY, actsFor: 'test-operator', transport: mockTransport().transport,
             paymentsSourcePath: sourcePath, paymentsServerEntry: SERVER,
             // El cron es una dependencia opcional del framework: si falta, start() falla aquí.
             triggers: [{ type: 'schedule', cron: '0 9 * * *', task: 'Ejecuta la corrida de pagos programados de hoy.' }],

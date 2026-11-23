@@ -1,5 +1,5 @@
-import { createAutonomousAgent } from '@backendkit-labs/agent-core';
-import type { AutonomousAgent, AutonomousAgentOptions } from '@backendkit-labs/agent-core';
+import { createAutonomousAgent, selfAssertedIdentities } from '@backendkit-labs/agent-core';
+import type { AgentIdentityProvider, AutonomousAgent, AutonomousAgentOptions } from '@backendkit-labs/agent-core';
 import { createAvalTools } from '@backendkit-labs/aval-tools';
 import { buildProfile } from './profile';
 
@@ -10,6 +10,10 @@ export interface SchedulerAgentOptions {
     /** Dónde vive AVAL y la clave de ESTE agente (nunca la de consola). */
     avalUrl: string;
     avalKey: string;
+    /** Por cuenta de quién paga este agente (la persona u organización responsable). `agent-core` exige decirlo: sin esto no ejecuta ninguna tool. */
+    actsFor: string;
+    /** La identidad digital del agente. Por defecto autoafirmada (la auditoría lo marca); en producción, la de tu proveedor de identidad. */
+    agentIdentity?: AgentIdentityProvider;
     /** Qué dispara una corrida: cron, webhook, evento. Sin triggers, solo se corre a mano con `agent.engine.run`. */
     triggers?: AutonomousAgentOptions['triggers'];
     transport?: AutonomousAgentOptions['transport'];
@@ -42,6 +46,8 @@ export function buildSchedulerAgent(opts: SchedulerAgentOptions): AutonomousAgen
         defaultProvider: opts.defaultProvider,
         agents: [buildProfile(opts.avalKey)],
         tools: [...avalTools],
+        identity: { userId: opts.actsFor },
+        agentIdentity: opts.agentIdentity ?? selfAssertedIdentities(),
         ...(opts.transport ? { transport: opts.transport } : {}),
         goal: 'Ejecutar pagos programados a través de AVAL, reconciliando lo pendiente antes de procesar lo nuevo.',
 

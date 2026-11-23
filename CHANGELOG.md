@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.50.1 (2026-11-23)
+
+Los agentes del repositorio llevan identidad y persona (SPEC-0044 F4). `createCodingEngineFromConfig`, la vía sin configuración del agente de código, da por defecto una identidad autoafirmada y actúa a nombre de quien lo ejecuta (`BK_AGENT_USER`, si no el usuario del sistema); lo que se pase como opción manda. `createCodingEngine` sigue exigiendo que se diga.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-coding` | 0.32.13 | identidad por defecto en `createCodingEngineFromConfig`; prueba que guarda el reenvío de las opciones de identidad |
+
+Se publica uno. Tag: `agent-coding@0.32.13`. Los ejemplos (`aval-scheduler`, `git-agent`, `git-analyst`, `vault-pilot`) pasan a `agent-core` 0.49 con identidad y persona.
+
 ## v0.50.0 (2026-11-23)
 
 **Ruptura en `agent-core`: un agente lleva identidad digital y dice a nombre de quién actúa (SPEC-0044 F1).** Sin las dos cosas, cada llamada a una tool se deniega con un motivo que dice cómo arreglarlo. No hay periodo de transición (decisión del autor): el framework está en desarrollo y se usa la última versión.

@@ -130,6 +130,8 @@ async function main(): Promise<void> {
     await checkAval(avalUrl, avalKey);
 
     const agent = buildSchedulerAgent({
+        // Por cuenta de quién paga: la persona u organización responsable de los pagos programados.
+        actsFor: process.env.SCHEDULER_OWNER ?? 'operator',
         providers: { deepseek: new DeepSeekProvider({ apiKey: llmKey }) },
         defaultProvider: 'deepseek',
         avalUrl,

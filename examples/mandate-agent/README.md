@@ -26,11 +26,11 @@ El framework no cambia cuando llega un proveedor nuevo, aunque su credencial ten
 | `vc-jwt-assumed.ts` | W3C Verifiable Credential como JWT | `credentialSubject.actingFor`, `authorizations` con `permission`, `target`, `ceiling` | `credentialStatus` (bitstring) |
 | perfil de referencia de `agent-mandates` | JWT propio | `actions` (nombres de herramienta), `resources`, `limits` | gancho `isRevoked` |
 
-Lo común vive en `providers/common.ts` (poderes bien formados, elección del poder de una llamada, garantía, consentimiento); cada adaptador solo traduce su formato. **Las reglas las impone `common.ts`, no cada adaptador.**
+Lo común vive en `@backendkit-labs/agent-mandates` (desde 0.1.1: `checkPowers`, `selectPower`, `checkAssurance`, `consentMessage`, `checkConsent`, y el contenedor SD-JWT); cada adaptador solo traduce su formato. **Las reglas las impone ese paquete, no cada adaptador.**
 
 **La batería de conformidad** (`src/__tests__/conformance.test.ts`) ejecuta los mismos escenarios contra los tres formatos y comprueba **resultados** (¿compró solo?, ¿preguntó a una persona?, ¿se rechazó sin preguntar?), nunca el texto de un mensaje, que es propio de cada formato. Un proveedor nuevo es: escribir su adaptador, escribir su arnés en esa prueba y pasarla. Los escenarios que un formato no puede expresar (el perfil de referencia no tiene consentimiento ni vinculación de identidad) se **saltan**, no se dan por buenos.
 
-**Un fallo que esto destapó:** el adaptador de DALION aceptaba un poder con restricciones que no conocía (`maxPerDay`, `validBetween`) e **ignoraba esas restricciones**, es decir, concedía más de lo que el emisor quiso. Con otro proveedor que tenga restricciones propias eso es una escalada de privilegios silenciosa. Ahora **un poder con un campo que el framework no sabe hacer cumplir se rechaza** (`common.ts`), también dentro de `max`.
+**Un fallo que esto destapó:** el adaptador de DALION aceptaba un poder con restricciones que no conocía (`maxPerDay`, `validBetween`) e **ignoraba esas restricciones**, es decir, concedía más de lo que el emisor quiso. Con otro proveedor que tenga restricciones propias eso es una escalada de privilegios silenciosa. Ahora **un poder con un campo que el framework no sabe hacer cumplir se rechaza** (`checkPowers`), también dentro de `max`.
 
 > **Qué se deduce y qué se supone del formato de DALION.** El formato real de DALION no se conoce (SPEC-0043 §6; la F3 está bloqueada por eso). Pero DALION se describe como **compatible con eIDAS 2**, y los formatos de atestación de ese ecosistema son públicos, así que el **contenedor** se deduce de ahí y no se inventa: un **SD-JWT VC** (RFC 9901 y el borrador SD-JWT VC; el otro formato de la cartera europea es ISO mdoc), con divulgación selectiva, vinculación de clave por `cnf` y un **Key Binding JWT**, y revocación por referencia a una **Token Status List**. Lo que **no** se puede deducir es el **contenido** de una atestación de poder de representación: no se encontró un esquema público (el ARF define a una persona natural que representa a una jurídica y planea el "poder digital" como caso de uso de las carteras de empresa, sin campos). Por eso los campos `represents`, `powers` y el consentimiento siguen siendo **supuestos**. **Nada de esto demuestra compatibilidad con DALION**; los tests de `src/__tests__/` son el contrato que el adaptador real tiene que seguir cumpliendo.
 
@@ -96,8 +96,8 @@ Así, renombrar una herramienta no toca la credencial, y una herramienta que no 
 | Aspecto | Qué dice el estándar | Dónde está en el ejemplo |
 |---|---|---|
 | Formato | SD-JWT VC, `typ` `dc+sd-jwt` (se acepta también `vc+sd-jwt`), `vct` como nombre del tipo | `dalion-assumed.ts` |
-| Divulgación selectiva | Las Disclosures `[sal, nombre, valor]` y los resúmenes en `_sd`; se rechazan la duplicada, la no referenciada, la que pisa otro claim, `_sd`/`...` como nombre y un algoritmo distinto de SHA-256 | `standards/sd-jwt.ts` |
-| Vinculación de clave | `cnf` en la credencial y un **KB-JWT** (`typ` `kb+jwt`) con `iat`, `aud`, `nonce` y `sd_hash` sobre `<jwt>~<disclosures>~`, firmado con esa clave | `standards/sd-jwt.ts`, `dalion-assumed.ts` |
+| Divulgación selectiva | Las Disclosures `[sal, nombre, valor]` y los resúmenes en `_sd`; se rechazan la duplicada, la no referenciada, la que pisa otro claim, `_sd`/`...` como nombre y un algoritmo distinto de SHA-256 | `agent-mandates` (`sd-jwt`) |
+| Vinculación de clave | `cnf` en la credencial y un **KB-JWT** (`typ` `kb+jwt`) con `iat`, `aud`, `nonce` y `sd_hash` sobre `<jwt>~<disclosures>~`, firmado con esa clave | `agent-mandates` (`sd-jwt`), `dalion-assumed.ts` |
 | Revocación | Referencia a una **Token Status List**: `status.status_list.{idx, uri}` | `dalion-assumed.ts` (el operador aporta la consulta) |
 | Confianza en el emisor | En un relying party real: `x5c` y listas de confianza | **No se implementa**: el operador lista las claves de emisor |
 
@@ -133,8 +133,7 @@ Responde **por llamada**: toma el verbo que declara la herramienta llamada, busc
 - `src/__tests__/providers.test.ts`: 14 casos de neutralidad: el mismo agente bajo tres proveedores y bajo varios a la vez.
 - `src/__tests__/identity.test.ts`: 21 casos de la identidad del agente (atribución, firma, prueba de posesión, obligatoriedad).
 - `src/__tests__/human.test.ts`: 16 casos del humano de la credencial (mapeo, tipo y garantía, consentimiento, credencial de otra persona).
-- `src/standards/sd-jwt.ts`: el contenedor SD-JWT (RFC 9901), **neutral al proveedor**: Disclosures, KB-JWT y su verificación.
-- `src/__tests__/sd-jwt.test.ts`: 24 casos del contenedor, con los rechazos que el RFC exige a un verificador.
+- El contenedor SD-JWT (RFC 9901), neutral al proveedor, vive en `@backendkit-labs/agent-mandates`, con sus 24 casos de prueba.
 - `src/__tests__/eidas.test.ts`: 11 casos de la credencial como la llevaría una cartera eIDAS 2 (divulgación selectiva, KB-JWT, Token Status List).
 
 ```bash

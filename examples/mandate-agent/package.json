@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@backendkit-labs/agent-core": "^0.48.10",
-    "@backendkit-labs/agent-mandates": "^0.1.0",
+    "@backendkit-labs/agent-mandates": "^0.1.1",
     "zod": "^4.6.6"
   },
   "devDependencies": {

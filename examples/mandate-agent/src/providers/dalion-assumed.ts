@@ -40,11 +40,11 @@
  * declares no capability is never covered.
  */
 import { createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
-import { kbSigningInput, resolveDisclosures, splitSdJwt, verifyKbJwt } from '../standards/sd-jwt';
+import { kbSigningInput, resolveDisclosures, splitSdJwt, verifyKbJwt } from '@backendkit-labs/agent-mandates';
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
 import type { IdentityMandate, IdentityRequest, Represented } from '../identity/prototype';
-import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from './common';
+import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from '@backendkit-labs/agent-mandates';
 import { CAPABILITY_META_KEY } from '../capability';
 
 /** Names the assumed format. Not DALION's. */

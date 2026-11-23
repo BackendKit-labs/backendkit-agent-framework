@@ -20,6 +20,7 @@
  */
 import { createHash, createPublicKey, verify as edVerify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { canonicalJson } from '@backendkit-labs/agent-mandates';
 import type { AuditEvent, AuditSink, Mandate, MandateRequest, MandateVerification, MandateVerifier, PolicyDecision, ToolCall, ToolPolicy } from '@backendkit-labs/agent-core';
 
 /** SPEC-0044 D1. `id` is opaque to the framework: a DID, a URN, an internal id. */
@@ -83,14 +84,6 @@ export interface IdentityLayer {
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
-
-/** Stable JSON: sorted keys, no `undefined`. What is signed has to be the same bytes when it is checked. */
-export function canonicalJson(value: unknown): string {
-    if (value === null || typeof value !== 'object') return JSON.stringify(value);
-    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-    const o = value as Record<string, unknown>;
-    return `{${Object.keys(o).filter(k => o[k] !== undefined).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(',')}}`;
-}
 
 const deny = (reason: string): MandateVerification => ({ ok: false, reason });
 

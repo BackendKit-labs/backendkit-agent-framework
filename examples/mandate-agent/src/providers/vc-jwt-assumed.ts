@@ -13,7 +13,7 @@ import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } fro
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
 import { CAPABILITY_META_KEY } from '../capability';
 import type { IdentityMandate, IdentityRequest, Represented } from '../identity/prototype';
-import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from './common';
+import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from '@backendkit-labs/agent-mandates';
 import type { KeyObject } from 'node:crypto';
 
 export const VC_JWT_TYPE = 'AgentAuthorizationCredential';

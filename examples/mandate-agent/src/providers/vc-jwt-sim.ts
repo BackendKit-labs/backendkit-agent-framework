@@ -3,7 +3,7 @@
  */
 import { generateKeyPairSync, sign as edSign, type KeyObject } from 'node:crypto';
 import { signJws } from '@backendkit-labs/agent-mandates';
-import { consentMessage, type Power } from './common';
+import { consentMessage, type Power } from '@backendkit-labs/agent-mandates';
 import { VC_JWT_TYPE } from './vc-jwt-assumed';
 
 export interface VcIssueOptions {

@@ -162,6 +162,37 @@ describe('extractDocument', () => {
     });
 });
 
+describe('a ZIP that lies about its sizes', () => {
+    /** Same archive, with the uncompressed size of every central-directory entry overwritten. */
+    function lie(zip: Uint8Array, declared: number): Uint8Array {
+        const out = Uint8Array.from(zip);
+        const view = new DataView(out.buffer);
+        for (let i = 0; i + 46 <= out.length; i++) {
+            if (view.getUint32(i, true) === 0x02014b50) view.setUint32(i + 24, declared, true);
+        }
+        return out;
+    }
+
+    it('is refused by what it really expands to, not by what its directory says', async () => {
+        const bomb = lie(zipSync({ 'word/document.xml': new Uint8Array(5 * 1024 * 1024) }), 10);
+        const limits = { maxUncompressedBytes: 1024 * 1024 };
+        expect(await codeOf(extractDocument(bomb, { limits }))).toBe('ARCHIVE_TOO_LARGE');
+    });
+
+    it('still reads an honest archive of the same shape', async () => {
+        const honest = zipSync({ 'word/document.xml': strToU8('<w:document/>'), 'a.txt': strToU8('x') });
+        // not a real docx body, so the library may fail: what matters is that the size check let it through
+        expect(await codeOf(extractDocument(honest, { limits: { maxUncompressedBytes: 1024 * 1024 } }))).not.toBe('ARCHIVE_TOO_LARGE');
+    });
+
+    it('refuses a compression method it cannot measure', async () => {
+        const zip = Uint8Array.from(zipSync({ 'word/document.xml': strToU8('x') }));
+        const view = new DataView(zip.buffer);
+        for (let i = 0; i + 46 <= zip.length; i++) if (view.getUint32(i, true) === 0x02014b50) view.setUint16(i + 10, 14, true);
+        expect(await codeOf(extractDocument(zip))).toBe('UNSUPPORTED_FORMAT');
+    });
+});
+
 describe('read_document tool', () => {
     let dir: string;
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'docx-')); });

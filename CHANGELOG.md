@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.49.18 (2026-11-23)
+
+Cierre de los pendientes de la auditoría que sí se podían cerrar. Ninguno cambia una API: llegan como parche.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-sandbox` | 0.1.22 | imagen Docker fijada por digest; en Windows el contenedor ya no corre como root |
+| `document-extract` | 0.1.14 | un ZIP que miente en su cabecera se rechaza por lo que realmente se descomprime |
+
+Se publican dos. Tags: `agent-sandbox@0.1.22`, `document-extract@0.1.14`.
+
+- **`agent-sandbox`, imagen fijada:** la imagen por defecto era `node:22`, una etiqueta que se mueve. Ahora es `DEFAULT_DOCKER_IMAGE` (`node:22` con el digest del índice multiplataforma, que sirve en amd64 y arm64). Una imagen que pases tú se usa tal cual. Para subir el digest: `docker buildx imagetools inspect node:22`.
+- **`agent-sandbox`, Windows:** sin uid que prestar, el contenedor corría con el usuario de la imagen (root en la mayoría). Ahora usa `1000:1000`, que no necesita entrada en la base de usuarios de la imagen. Con cualquier usuario fijado, `HOME` es `/tmp` (un uid sin carpeta personal dejaba a npm sin dónde escribir). `user: false` conserva el usuario de la imagen. Probado con un contenedor real: no es root, escribe en el workspace y `npm --version` funciona.
+- **`document-extract`, ZIP que miente:** solo se sumaban los tamaños que declara el directorio, y un archivo que declaraba pocos bytes y se expandía a gigabytes llegaba a `mammoth` o `read-excel-file`. Ahora cada parte se descomprime con un tope de salida igual a lo que queda de `maxUncompressedBytes`, antes de abrirla. Cuesta una descompresión extra, acotada por ese límite. Una parte comprimida con un método que no sea almacenado o deflate se rechaza (`UNSUPPORTED_FORMAT`).
+
+No son del SDK y no cambian paquetes: la guía [controles para un agente que actúa por personas](/guides/controls-for-an-agent-without-steward/) (SPEC-0043 F4, **borrador sin revisar contra ninguna norma**) y el arnés de calidad del diseñador (SPEC-0040 F2, sin medición real todavía).
+
 ## v0.49.17 (2026-11-23)
 
 Mismo arreglo que `aval-tools` y `document-extract`, ahora para `agent-enterprise`. No cambia ninguna API: llega como parche.

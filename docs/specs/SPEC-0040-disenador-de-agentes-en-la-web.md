@@ -1,7 +1,7 @@
 # SPEC-0040: diseñador de agentes en la web (de una tarea al diseño y a los pasos para construirlo)
 
 **Fecha:** 2026-11-19
-**Estado:** Borrador. **F0 hecha** y **F1 implementada (2026-11-21), con su criterio de hecho sin cumplir:** falta la prueba en vivo (§3-ter). F2 y F3 sin hacer.
+**Estado:** Borrador. **F0 hecha** y **F1 implementada (2026-11-21), con su criterio de hecho sin cumplir:** falta la prueba en vivo (§3-ter). **F2: arnés hecho (2026-11-23), medición real sin hacer.** F3 es decisión del autor.
 **Origen:** idea del autor (2026-11-19): que un visitante de la web escriba una tarea cualquiera ("diseña un agente que haga esto") y reciba el **diseño** del agente y **cómo construirlo con el framework**, con opción de descargarlo. No entrega el agente creado.
 **Depende de:** la web (`site/`, Astro + Starlight en Vercel, estática), los esquemas con zod del framework y las guías ya escritas (`site/src/content/docs`).
 **Tipo de cambio:** una herramienta de la web. Sin cambios en `agent-core`. Si el esquema de la especificación se quiere reutilizar fuera de la web, se estudia en la F3 (§6).
@@ -92,6 +92,14 @@ Si el modelo devuelve algo inválido, se le devuelve el error una vez; si falla 
 **La interfaz, comprobada en un navegador** (compilada y servida en local, con la respuesta del proveedor **simulada**: no salió ninguna petición): el botón solo se activa con tarea y clave; una petición a `https://api.deepseek.com/chat/completions` con la clave en la cabecera y no en la URL; el diseño se muestra con sus secciones, los avisos y el apéndice con los cinco archivos; las dos descargas dan `agent-design.md` (con el esqueleto) y `agent-design.json`; un 401 se muestra en claro y deja volver a intentarlo.
 
 **Lo que falta, y por qué no es "hecha":** el criterio de la F1 pide que, **con un proveedor real, 5 tareas distintas den un diseño válido**. No se pudo: la prueba en vivo (`DESIGNER_LIVE=1 node --test site/designer/live.test.ts`, 5 tareas y una que intenta tomar el control del modelo) llegó a DeepSeek, que aceptó la clave pero respondió **402, sin saldo**. Eso confirma dos cosas (la petición llega y la clave se acepta, y el 402 se cuenta en claro) pero **no dice nada de si el modelo devuelve diseños válidos**. Tampoco se ha comprobado la petición real **desde un navegador** (CORS de la respuesta): la de Node no pasa por CORS. Hasta recargar el saldo y ejecutar esa prueba, **no se sabe** qué proporción de diseños pasa a la primera, cuántos necesitan la corrección ni cuánto cuesta cada uno. El prompt puede necesitar ajustes cuando se vea.
+## 3-quater. Resultado de la F2 (2026-11-23)
+
+**Hecho (sin modelo):** `site/designer/quality.ts` define las propiedades que debe tener un diseño según el tipo de tarea (una herramienta `destructive`, que ninguna herramienta irreversible tenga un `allow` sin condición, que alguna regla pida aprobación, `fourEyes`, roles de aprobador, solo lectura, sin aprobaciones en una consulta pura) y seis casos con su expectativa. `quality.test.ts` prueba **las comprobaciones mismas**: los diseños escritos a mano las cumplen, y diseños alterados a propósito (sin herramienta destructiva, con un `allow` incondicional, con aprobación en una consulta, sin `fourEyes`) las incumplen. 8 pruebas, en CI.
+
+**Lo que falta, y por qué no es "hecha":** la medición con un proveedor real. Hay una prueba lista (`DESIGNER_LIVE=1 DEEPSEEK_API_KEY=... node --test site/designer/quality.test.ts`) que manda las seis tareas, comprueba cada diseño contra su expectativa e imprime **una línea de resumen**: diseños válidos, aciertos a la primera, propiedades cumplidas y tokens. No afirma un porcentaje mínimo: el número es el resultado, y va al informe. No se ha ejecutado: DeepSeek respondía 402 (sin saldo) y la clave está pendiente de rotar.
+
+**"Más proveedores":** no se añadieron. Un proveedor entra en `PRESETS` cuando se ha comprobado con una petición real desde un navegador (CORS de la respuesta y de streaming), y eso no se ha hecho para ninguno; añadirlos sin verificar sería prometer algo que no se sabe.
+
 ## 4. Riesgos y cómo se tratan
 
 - **Diseño que no compila:** el esqueleto de código sale de plantillas. En CI se compila cada plantilla contra los paquetes publicados, de modo que un cambio de API rompe la compilación y no al visitante.
@@ -106,7 +114,7 @@ Si el modelo devuelve algo inválido, se le devuelve el error una vez; si falla 
 |---|---|---|
 | **F0** | **Hecha.** Esquema de la especificación, validaciones y plantillas (documento y esqueleto), probados con especificaciones escritas a mano, **sin modelo**. Averiguar qué proveedores aceptan llamadas directas desde el navegador (CORS). | Las plantillas compilan en CI contra los paquetes publicados. Hay una lista verificada de proveedores utilizables desde el navegador. Ver §3-bis: las plantillas compilan en CI y sus pruebas pasan con el motor real; la lista de CORS es de la verificación previa, no de la petición real. |
 | **F1** | **Implementada, sin cumplir el criterio.** Página en la web: descripción de la tarea, clave del usuario, un proveedor, validación con un reintento, vista del diseño y descarga (Markdown y JSON). | Con un proveedor real, 5 tareas distintas dan un diseño válido. Sin clave, la página lo explica. Ver §3-ter: falta la prueba con un modelo real (DeepSeek respondió 402, sin saldo). |
-| **F2** | Calidad: casos con propiedades esperadas (una tarea con pagos produce una tool `destructive` y una aprobación; una consulta pura no pide aprobación) y medición con el proveedor real. Más proveedores. | Los casos pasan de forma repetible, y el informe dice con qué modelos se midió. |
+| **F2** | **Arnés hecho, sin cumplir el criterio.** Calidad: casos con propiedades esperadas (una tarea con pagos produce una tool `destructive` y una aprobación; una consulta pura no pide aprobación) y medición con el proveedor real. Más proveedores. | Los casos pasan de forma repetible, y el informe dice con qué modelos se midió. Ver §3-quater: los casos y las comprobaciones existen y pasan en CI contra diseños escritos a mano; falta medir con un modelo real y añadir proveedores. |
 | **F3** | Decisión: versión alojada con clave del proyecto y límites, y si la especificación se publica como parte de `agent-core` o de un paquete. | Lo decide el autor con datos de uso de la F1 y F2. No se crea ningún paquete sin consulta. |
 
 ## 6. Decisiones abiertas

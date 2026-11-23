@@ -1,7 +1,7 @@
 # SPEC-0043: apoderamiento de agentes (poder delegado, verificable y con límites)
 
 **Fecha:** 2026-11-22
-**Estado:** F1 y F2 implementadas (2026-11-22), ver §7; F3 (adaptador de DALION) bloqueada hasta tener el formato de la credencial (§6). El paquete no está publicado.
+**Estado:** F1 y F2 implementadas (2026-11-22), ver §7; **F4 escrita como borrador sin revisar** (2026-11-23); F3 (adaptador de DALION) **bloqueada** hasta tener el formato de la credencial (§6). El paquete `agent-mandates` 0.1.0 está publicado en npm.
 **Origen:** una nota del equipo de Identidad (2026-11-22) sobre DALION, su solución de identidad digital compatible con eIDAS 2: los agentes trabajan con una identidad digital propia y una **credencial de apoderamiento** que dice para quién trabajan (el humano), qué pueden hacer, sobre qué y hasta qué importe, sin ir a pedir permiso al humano cada vez. El autor quiere que los agentes del framework sean compatibles con los estándares de la industria, también cuando no se usa Steward.
 **Depende de:** `Principal` y la política (`governance/policy.ts`, `governance/types.ts`), el directorio de aprobadores y el cuatro ojos (SPEC-0041), el broker de credenciales y la evidencia verificable (SPEC-0042).
 **Tipo de cambio:** aditivo en `core` (una interfaz y un ayudante de política) y **un paquete opcional nuevo**, decidido por el autor (2026-11-22). Nada se publica sin consulta.
@@ -93,4 +93,6 @@ Normas a mapear, sin afirmar nada todavía: ISO/IEC 42001 (gestión de sistemas 
 
 **Decisiones de §6 ya tomadas para el verificador por defecto:** el límite es **por operación** (el acumulado queda abierto), una moneda distinta es **fuera de alcance**, "fuera de alcance" **pide aprobación** por defecto y es configurable, y el agente se identifica por `agent` (el `id` del perfil). El resto sigue abierto hasta tener el formato de DALION.
 
-**Pendiente:** F3 (adaptador de DALION, bloqueada) y F4 (guía de cumplimiento en la web). Publicar el paquete requiere consulta.
+**F4 escrita (2026-11-23), sin cumplir su criterio:** la guía está en la web (`guides/controls-for-an-agent-without-steward`), con el mapa de controles de §5 y cada control enlazado a su pieza; verificados en el código los nombres de API que cita. Lleva un aviso visible de que es un **borrador no revisado contra ninguna norma** y no afirma cumplimiento. El criterio de la fase pide que **quien conozca las normas revise el mapa**: eso no se ha hecho, así que la fase no está cerrada. No se verificaron las fechas ni los actos de ejecución de eIDAS 2 y la guía lo dice.
+
+**Pendiente:** F3 (adaptador de DALION): **no se puede hacer** sin el formato real de la credencial; inventar uno sería una suposición presentada como compatibilidad. La revisión de la guía de F4 por quien conozca las normas.

@@ -89,7 +89,8 @@ const engine = createCodingEngine({
 - The preset replaces the engine's built-in list of tools that ask. **If a tool needs approval and no `onToolApproval` is set, it is refused** (`SANDBOX_DENIED`): an unattended flow, trigger or fleet agent can never run what nobody approved.
 - Every decision is a `sandbox` event on the transport and a line in the engine's audit log.
 - File tools (`write_file`, `edit_file`) still enforce the workspace with their own path check; moving them behind the service is the next delivery.
-- Containers run as your uid:gid on Linux and macOS (not root), so the files they create are yours.
+- Containers run as your uid:gid on Linux and macOS (not root), so the files they create are yours. On Windows there is no uid, so they run as `1000:1000` (also not root, and it needs no entry in the image). When a user is set, `HOME` is `/tmp` so npm and other tools have somewhere to write. Pass `user: false` to use the image's own user.
+- The default image is `node:22` **pinned by digest** (`DEFAULT_DOCKER_IMAGE`), so a tag that moves cannot change what runs. A tag you pass in `image` is used as you write it; pin yours the same way if that matters to you. `docker buildx imagetools inspect node:22` shows the current digest to bump to.
 
 ## Observability
 

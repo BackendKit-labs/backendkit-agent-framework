@@ -10,7 +10,7 @@ export { realPathOf, isInside as isInsideDir } from './paths';
 export { scrubEnv } from './env';
 export type { EnvPolicy } from './env';
 export { NoneBackend } from './backends/none';
-export { DockerBackend, buildDockerArgs } from './backends/docker';
+export { DockerBackend, buildDockerArgs, DEFAULT_DOCKER_IMAGE } from './backends/docker';
 export type { DockerBackendOptions } from './backends/docker';
 export type { SandboxBackend, BackendExecRequest } from './backends/types';
 export { runProcess, killProcessTree, DEFAULT_MAX_OUTPUT_CHARS } from './process';

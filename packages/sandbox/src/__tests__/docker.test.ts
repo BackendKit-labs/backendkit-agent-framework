@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildDockerArgs, createSandboxPolicy, createSandboxService, DockerBackend, type SandboxService } from '../index';
+import { buildDockerArgs, createSandboxPolicy, createSandboxService, DEFAULT_DOCKER_IMAGE, DockerBackend, type SandboxService } from '../index';
 
 const caller = { agentId: 'coder', sessionId: 's1' };
 
@@ -36,6 +36,10 @@ describe('buildDockerArgs', () => {
         const base = { command: 'x', cwd: '/w', workspace: '/w', mode: 'workspace-write' as const, network: 'none' as const };
         expect(flag(buildDockerArgs('c', base, { ...opts, user: '1001:1002' }), '--user')).toBe('1001:1002');
         expect(buildDockerArgs('c', base, opts)).not.toContain('--user');
+        // a bare uid has no home directory: caches (npm...) go to a writable one
+        const withUser = buildDockerArgs('c', base, { ...opts, user: '1001:1002' });
+        expect(withUser[withUser.indexOf('-e') + 1]).toBe('HOME=/tmp');
+        expect(buildDockerArgs('c', base, opts)).not.toContain('HOME=/tmp');
     });
 
     it('closes the network unless the policy allows it', () => {
@@ -58,8 +62,14 @@ describe('DockerBackend — what it claims and when it is available', () => {
         expect(d.supports('danger-full-access', 'allow')).toBe(false);
     });
 
+    it('runs a digest-pinned image by default', () => {
+        expect(DEFAULT_DOCKER_IMAGE).toMatch(/^node:22@sha256:[0-9a-f]{64}$/);
+        expect((new DockerBackend() as unknown as { image: string }).image).toBe(DEFAULT_DOCKER_IMAGE);
+        expect((new DockerBackend({ image: 'alpine:3.20' }) as unknown as { image: string }).image).toBe('alpine:3.20');
+    });
+
     it('chooses the user: host uid:gid on POSIX, explicit value, or none', () => {
-        const hostUser = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid!()}` : undefined;
+        const hostUser = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid!()}` : '1000:1000'; // Windows: a fixed unprivileged uid
         expect((new DockerBackend() as unknown as { user?: string }).user).toBe(hostUser);
         expect((new DockerBackend({ user: '5:6' }) as unknown as { user?: string }).user).toBe('5:6');
         expect((new DockerBackend({ user: false }) as unknown as { user?: string }).user).toBeUndefined();
@@ -123,6 +133,20 @@ if (process.env.CI && !dockerUp) {
     beforeAll(() => { execFileSync('docker', ['pull', '-q', IMAGE], { stdio: 'ignore', timeout: 240_000 }); }, 260_000);
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'bk-dkr-')); });
     afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    it('the default (digest-pinned) image runs as a non-root user that can write the workspace and has a usable HOME', async () => {
+        execFileSync('docker', ['pull', '-q', DEFAULT_DOCKER_IMAGE], { stdio: 'ignore', timeout: 600_000 });
+        svc = createSandboxService({ policy: createSandboxPolicy({ preset: 'ask' }), backends: [new DockerBackend()] });
+        const out = await run('id -u && echo "$HOME" && touch "$HOME/probe" && echo ok > inside.txt && npm --version');
+        expect(out).toMatchObject({ ok: true, backend: 'docker' });
+        if (out.ok) {
+            expect(out.result.exitCode).toBe(0);
+            const lines = out.result.output.trim().split(/\r?\n/);
+            expect(lines[0]).not.toBe('0');         // not root
+            expect(lines[1]).toBe('/tmp');          // HOME is writable
+        }
+        expect(existsSync(join(dir, 'inside.txt'))).toBe(true);
+    }, 700_000);
 
     it('workspace-write: can write inside the workspace and the file shows up on the host', async () => {
         setup('ask');

@@ -4,10 +4,25 @@ import type { SandboxMode, SandboxNetwork } from '@backendkit-labs/agent-core';
 import { killProcessTree, runProcess } from '../process';
 import type { BackendExecRequest, SandboxBackend } from './types';
 
+/**
+ * `node:22` pinned by the digest of its multi-platform index (linux/amd64 and arm64 both resolve from it). Bump it deliberately:
+ * `docker buildx imagetools inspect node:22` shows the current one.
+ */
+export const DEFAULT_DOCKER_IMAGE = 'node:22@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb';
+
+/** Where a command run as a user with no home directory (a bare uid) keeps its caches: npm and others write under HOME. */
+const CONTAINER_HOME = '/tmp';
+
+/** No uid to borrow on Windows: a fixed unprivileged one. */
+const DEFAULT_WINDOWS_USER = '1000:1000';
+
 export interface DockerBackendOptions {
     /** Docker CLI to call. Default `docker`. */
     bin?: string;
-    /** Image the command runs in; it must ship the tools the command needs. Default `node:22`. */
+    /**
+     * Image the command runs in; it must ship the tools the command needs. Default `DEFAULT_DOCKER_IMAGE`: `node:22` pinned by
+     * digest, so a tag that moves cannot change what the sandbox runs. A tag you pass is used as you give it.
+     */
     image?: string;
     /** Memory limit. Default `2g`. */
     memory?: string;
@@ -16,8 +31,9 @@ export interface DockerBackendOptions {
     /**
      * User the command runs as inside the container (`uid:gid`). Default on POSIX: the uid and gid of this process,
      * so the command is not root and the files it creates belong to you. With all capabilities dropped, a root
-     * container cannot touch host files owned by another user, which is the usual case on Linux. Pass `false`
-     * to leave the image's default user. On Windows there is no uid and nothing is passed.
+     * container cannot touch host files owned by another user, which is the usual case on Linux. On Windows there is
+     * no uid: the default is `1000:1000` (not root, and it needs no entry in the image's user database). Pass `false`
+     * to leave the image's default user (root in most images).
      */
     user?: string | false;
     /** Replace the availability probe (tests, or an already known state). */
@@ -57,7 +73,7 @@ export function buildDockerArgs(
         '--security-opt', 'no-new-privileges',
         '--memory', opts.memory,
         '--pids-limit', String(opts.pidsLimit),
-        ...(opts.user ? ['--user', opts.user] : []),
+        ...(opts.user ? ['--user', opts.user, '-e', `HOME=${CONTAINER_HOME}`] : []),
         ...(readOnly ? ['--read-only', '--tmpfs', '/tmp'] : []),
         '-v', `${req.workspace}:/workspace${readOnly ? ':ro' : ''}`,
         '-w', rel ? `/workspace/${rel}` : '/workspace',
@@ -85,11 +101,11 @@ export class DockerBackend implements SandboxBackend {
 
     constructor(opts: DockerBackendOptions = {}) {
         this.bin = opts.bin ?? 'docker';
-        this.image = opts.image ?? 'node:22';
+        this.image = opts.image ?? DEFAULT_DOCKER_IMAGE;
         this.memory = opts.memory ?? '2g';
         this.pidsLimit = opts.pidsLimit ?? 512;
         this.user = opts.user === false ? undefined
-            : opts.user ?? (typeof process.getuid === 'function' && typeof process.getgid === 'function' ? `${process.getuid()}:${process.getgid()}` : undefined);
+            : opts.user ?? (typeof process.getuid === 'function' && typeof process.getgid === 'function' ? `${process.getuid()}:${process.getgid()}` : DEFAULT_WINDOWS_USER);
         this.probe = opts.probe ?? (() => defaultProbe(this.bin));
         this.negativeTtlMs = opts.negativeTtlMs ?? 5000;
     }

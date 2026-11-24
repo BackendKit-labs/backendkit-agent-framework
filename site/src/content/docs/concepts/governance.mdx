@@ -189,6 +189,12 @@ createBaseEngine({
 
 The framework knows no identity provider, credential format or legal framework: an `AgentIdentityProvider` gives each agent its identity, and every audit event carries it (`agentIdentity`, with its `assurance`). Policies see it in `principal.agentIdentity`. With no provider at all, `selfAssertedIdentities()` satisfies the requirement and says so in the audit. A provider that fails or is slow denies the call: it never means "no identity needed".
 
+### With no identity service: you hear it once
+
+An agent does not have to subscribe to any identity service. `selfAssertedIdentities()` gives every agent the identity `urn:agent:<id>`, and it works: the calls run and the audit attributes each one to its agent. What changes is the **assurance**: the audit marks it `self-asserted`, because nobody outside vouches for who the agent is, and a third party who reads the log cannot rely on it to know who acted. The same holds for an identity with keys you hold (`ed25519AgentIdentities`): the events are signed, so you can show that nobody changed the log, but the identity is still yours.
+
+Whoever starts the agent is told too: the **first call** of an engine or a server with a self-asserted identity writes one warning (in the engine, a `system` event of level `warn` in the transport; in a tool server or a capability server, one line on stderr), once per engine and not per call or per agent. Under a test runner (`NODE_ENV=test`) it stays silent. An identity that someone vouches for (another assurance level) does not warn.
+
 ### Signed by the identity that acted
 
 If the identity provider can sign (`sign`, asynchronous: the key may sit in a KMS or an HSM), the engine signs **every audit event** with the identity that executed the call, and waits for the signature. Anyone with the public keys can then check the log, even if somebody rewrote the whole chain: the signature covers the content.

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.50.12 (2026-11-24)
+
+**Una advertencia al arrancar cuando la identidad del agente es autoafirmada.** Un agente sin proveedor de identidad funciona (`selfAssertedIdentities()`) y la auditoría ya lo marca `assurance: 'self-asserted'`, pero quien arrancaba el agente no se enteraba salvo leyendo el registro.
+
+- **agent-core 0.49.10:** la **primera llamada** de un motor, un servidor de herramientas o un servidor de capacidades con una identidad autoafirmada escribe un aviso: «runs with a self-asserted identity (nobody vouches for who it is): enough to develop, not for a regulated environment or to prove to a third party who acted». Una vez por motor o servidor, no por llamada ni por agente. En el motor es un evento `system` de nivel `warn` del transporte; en los servidores, una línea en stderr. También salta con una identidad firmada con claves propias (`ed25519AgentIdentities`), que sigue sin estar respaldada por nadie, y con `requireAgentIdentity: false` si hay identidad. No salta si la identidad tiene otro nivel de garantía, ni cuando la llamada se rechaza de todos modos, ni **bajo un ejecutor de pruebas (`NODE_ENV=test`)**, donde sería ruido en cada ejecución.
+- **Efecto visible:** quien ejecute un agente con `selfAssertedIdentities()` fuera de pruebas verá una línea de aviso. Es lo esperado y no cambia lo que corre.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.10 | aviso de identidad autoafirmada |
+
+Se publica uno. Tag: `agent-core@0.49.10`.
+
 ## v0.50.11 (2026-11-24)
 
 **La misma regla de aprobación en todos los caminos: roles, cuatro ojos y registro.** Hasta ahora solo el motor imponía `approverRoles` y `forbidSelfApproval`. Se comprobó ejecutando que **un flujo, el manejador de decisiones y el servidor de herramientas directas aceptaban a un becario y a quien había hecho la petición**, aunque la política pidiera un rol: la comprobación estaba copiada tres veces y se había desalineado. Lo encontró el ejemplo `portfolio-advisor`.

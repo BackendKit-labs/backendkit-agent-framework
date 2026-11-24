@@ -7,6 +7,7 @@ It runs with **no key and no network**: a scripted model plays the LLM, so the t
 ```bash
 npm install
 npm test          # 60 tests, offline (servers on loopback, nothing else)
+npm run demo      # a session you can watch: six scenes and the proof of the audit
 ```
 
 The domain (what the agents are *about*) follows the design of a finance portfolio system: the decision matrix (§6), the default weights (§8.3) and the conflict rules (§8.5) of its `design.md`. Nothing in the numbers is invented.

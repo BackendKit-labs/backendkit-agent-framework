@@ -87,6 +87,8 @@ const output = await client.runAndWait('long-report', { month: '2026-10' });   /
 
 Other calls: `health()`, `poll(taskId)`, `cancel(taskId)`, `listRuns()`, `audit(query)`, `listFlows()`, `startFlow(name, input)`, `flowRun(id)`, `steerFlow(id, 'pause' | 'resume' | 'cancel')`, `getCircuitState()`.
 
+**Who a run is for.** The shared `apiKey` only says "a caller we know". If the gate of the server derives the person from a personal token (as `capabilityIdentityGate` advises), send it as a header: `new AgentClient({ url, apiKey, headers: { 'x-user-token': token } })` for every call, or `client.run('rebalance', {}, { headers: { 'x-user-token': token } })` for one call (a client serves many people), and `startFlow(name, input, context, headers)`. A header of one call replaces the one of the client for that call only. `Authorization` and `Content-Type` are the client's own: a `headers` that sets them is refused (use `apiKey`).
+
 `run(capability, input, { idempotent: true })` marks a run as safe to repeat. Without it, after a 5xx, a timeout or a dropped connection the first attempt may already have run (a payment, an email), so the call is not repeated and the error reaches you. A 429 is always retried, because the request was refused, not run.
 
 ## Control surface (protocol 1.1)

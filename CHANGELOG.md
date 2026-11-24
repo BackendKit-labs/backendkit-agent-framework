@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.50.16 (2026-11-24)
+
+**`AgentClient` puede llevar el token personal que lee la puerta del servidor.** Hallazgo del ejemplo `portfolio-advisor`: `capabilityIdentityGate` dice que la persona de una ejecución debe salir de algo que el servidor verificó (un token), y el servidor lee cualquier cabecera, pero el cliente solo sabía enviar `apiKey` y `tenantId`: no había forma de mandar ese token con el cliente del propio paquete.
+
+- **`AgentClientOptions.headers`:** cabeceras que viajan en cada llamada.
+- **`RunOptions.headers`** (`run`, `runAndWait`) y el cuarto parámetro de **`startFlow`**: cabeceras de una sola llamada, que reemplazan a las del cliente solo en esa llamada (un cliente sirve a muchas personas: su token viaja con su llamada, sin filtrarse a la siguiente).
+- **Lo que es del cliente no se reemplaza:** `Authorization` (lo pone `apiKey`), `Content-Type`, `Content-Length` y `Host`, en cualquier capitalización, se **rechazan** (al construir el cliente o al llamar), antes de enviar nada. Una cabecera que pisara la clave del protocolo sería un fallo silencioso.
+- 5 pruebas nuevas (98 en el paquete) y cuatro mutaciones que las rompen. Cambio compatible: nada cambia si no se usa `headers`.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-protocol` | 0.7.3 | `headers` en el cliente, en `run`/`runAndWait` y en `startFlow` |
+
+Se publica uno. Tag: `agent-protocol@0.7.3`.
+
 ## v0.50.15 (2026-11-24)
 
 **SPEC-0045 F2: las medidas viajan en una credencial.** El tipo `Mandate` ya sabía de `limits.measures` (0.49.11), pero ninguna credencial podía llevarlas: el verificador de referencia rechazaba lo que no conocía.

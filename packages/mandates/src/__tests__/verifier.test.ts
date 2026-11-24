@@ -98,6 +98,18 @@ describe('forged or wrong credentials are refused, each for its own reason', () 
         expect(await reason(bad({ actions: ['buy'], limits: { amount: { max: 'lots' } } }))).toMatch(/limits/);
         expect(await reason(bad({ actions: ['buy'], limits: { amount: { max: -1 } } }))).toMatch(/limits/);
     });
+    it('a restriction this verifier does not know is refused, not dropped: the mandate would grant more than the issuer meant', async () => {
+        const bad = (mandate: unknown) => signJws(company.privateKey, { alg: 'EdDSA', typ: 'dc+sd-jwt' }, { iss: 'did:example:company', sub: 'carlos', jti: 'x', exp: nowS + 60, vct: MANDATE_VCT, mandate });
+        // in the mandate claim: a time window, a daily cap, a counterparty list
+        expect(await reason(bad({ actions: ['buy'], validBetween: ['09:00', '18:00'] }))).toMatch(/restriction this verifier cannot enforce.*validBetween/);
+        expect(await reason(bad({ actions: ['buy'], maxPerDay: 3 }))).toMatch(/maxPerDay/);
+        // in the limits: a quantity other than an amount
+        expect(await reason(bad({ actions: ['buy'], limits: { amount: { max: 10, currency: 'EUR' }, rows: { max: 5 } } }))).toMatch(/limits.*rows/);
+        // inside the amount: a period
+        expect(await reason(bad({ actions: ['buy'], limits: { amount: { max: 10, currency: 'EUR', per: 'day' } } }))).toMatch(/amount limit.*per/);
+        // and the credential that carries only what the profile knows still passes
+        expect(await reason(bad({ actions: ['buy'], limits: { amount: { max: 10, currency: 'EUR' } } }))).toBe('OK');
+    });
     it('selective disclosures and key binding are refused, not half read', async () => {
         expect(await reason(`${credential()}~WyJzYWx0IiwiYSIsMV0~`)).toMatch(/selective disclosures/);
     });

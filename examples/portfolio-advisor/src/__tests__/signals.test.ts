@@ -102,9 +102,14 @@ describe('only the analyst has the tool, and only with the credential of the ser
     });
 
     it('with the wrong token nobody connects, and the analyst has no signals: the advisor does not invent them', async () => {
-        const t = connected({ script: read }, { trust: true, token: 'not-the-token' });
-        await t.run();
-        expect(t.events().find(e => e.tool === SIGNAL)).toMatchObject({ principal: { agentId: ANALYST }, decision: 'not_found' });   // the tool is not there: the server never connected
+        // The client warns that it could not connect: that is what this test provokes, so the warning is checked here and does not clutter the output.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+            const t = connected({ script: read }, { trust: true, token: 'not-the-token' });
+            await t.run();
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Failed to connect to "signals"'));
+            expect(t.events().find(e => e.tool === SIGNAL)).toMatchObject({ principal: { agentId: ANALYST }, decision: 'not_found' });   // the tool is not there: the server never connected
+        } finally { warn.mockRestore(); }
         expect(serverAudit.events).toHaveLength(0);
     });
 });

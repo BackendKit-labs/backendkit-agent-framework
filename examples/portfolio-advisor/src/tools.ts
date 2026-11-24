@@ -5,7 +5,7 @@ import { CURRENCY, SIGNALS, fuse, planRebalance, recommend, type SimulatedBroker
  * The tools of the advisor. Each one DECLARES what it is (`readOnly`, `destructive`) and the framework decides what to do with that: a read runs,
  * an order is checked against the mandate and, outside it, asked to a person. None of them checks a limit or a role: that is not the tool's job.
  */
-export function buildTools(broker: SimulatedBroker, targets: Targets): ToolDefinition[] {
+export function buildTools(broker: SimulatedBroker, targets: Targets, options: { signalsFromServer?: boolean } = {}): ToolDefinition[] {
     const getPortfolio = defineTool({
         name: 'get_portfolio',
         description: 'The cash, the holdings and the share of each one in the total value',
@@ -43,5 +43,6 @@ export function buildTools(broker: SimulatedBroker, targets: Targets): ToolDefin
         execute: async (order) => { broker.place(order); return `${order.side} ${order.quantity} ${order.symbol} for ${order.amount} ${order.currency}: done`; },
     });
 
-    return [getPortfolio, getSignal, planRebalanceTool, placeOrder];
+    // With the signals server (signals-server.ts) the analyst reads them there, and this local copy is not offered.
+    return [getPortfolio, ...(options.signalsFromServer ? [] : [getSignal]), planRebalanceTool, placeOrder];
 }

@@ -1,11 +1,12 @@
 import type { KeyObject } from 'node:crypto';
 import {
     HashChainAuditSink, createBaseEngine, mandatePolicy,
-    type AgentIdentityProvider, type AgentProfile, type Approver, type ApproverDirectory, type LLMProvider, type Transport,
+    type AgentIdentityProvider, type AgentProfile, type Approver, type ApproverDirectory, type LLMProvider, type MCPServerConfig, type Transport,
 } from '@backendkit-labs/agent-core';
 import { jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
-import { ORCHESTRATOR, profiles } from './agents';
+import { ANALYST, ORCHESTRATOR, profiles } from './agents';
 import { CURRENCY, type SimulatedBroker, type Targets } from './domain';
+import { SIGNALS_SERVER } from './signals-server';
 import { buildTools } from './tools';
 
 export interface AdvisorOptions {
@@ -28,6 +29,11 @@ export interface AdvisorOptions {
     auditLogPath: string;
     /** Default true: a credential not tied to the key of the agent (a bearer one) is refused. */
     requireHolderBinding?: boolean;
+    /**
+     * The signals server (`startSignalsServer`): the analyst reads the signals THERE instead of from a tool of its own. `trust` says whether the
+     * client believes the server when it declares a tool read-only (`trustAnnotations`); by default it does not, and a call to it asks a person.
+     */
+    signals?: { url: string; token?: string; trust?: boolean };
     /** Replace the agents (tests add one that should not be able to trade). */
     agents?: AgentProfile[];
 }
@@ -61,7 +67,8 @@ export function createAdvisor(options: AdvisorOptions) {
     const engine = createBaseEngine({
         providers: { mock: options.provider }, defaultProvider: 'mock',
         agents: options.agents ?? profiles, defaultAgent: ORCHESTRATOR,
-        tools: buildTools(options.broker, options.targets),
+        tools: buildTools(options.broker, options.targets, { signalsFromServer: options.signals !== undefined }),
+        ...(options.signals ? { mcpServers: [signalsServer(options.signals)] } : {}),
         transport: options.transport, workingDir: process.cwd(), iterationMode: 'auto',
         agentIdentity: options.identities, identity: { userId: options.userId },
         audit, policy,
@@ -69,4 +76,13 @@ export function createAdvisor(options: AdvisorOptions) {
     });
 
     return { engine, audit };
+}
+
+/** The signals server as the engine connects to it: its tool goes to the analyst only, and the others never see it. */
+function signalsServer(signals: NonNullable<AdvisorOptions['signals']>): MCPServerConfig {
+    return {
+        name: SIGNALS_SERVER, url: signals.url, remoteTransport: 'streamable-http', mode: 'tools', assignTo: [ANALYST],
+        ...(signals.token ? { headers: { Authorization: `Bearer ${signals.token}` } } : {}),
+        ...(signals.trust ? { trustAnnotations: true } : {}),
+    };
 }

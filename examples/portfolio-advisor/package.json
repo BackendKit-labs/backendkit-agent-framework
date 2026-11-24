@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@backendkit-labs/agent-core": "^0.49.11",
-    "@backendkit-labs/agent-mandates": "^0.1.5"
+    "@backendkit-labs/agent-mandates": "^0.1.5",
+    "@backendkit-labs/agent-protocol": "^0.7.2"
   },
   "devDependencies": {
     "@backendkit-labs/agent-testkit": "^0.1.21",

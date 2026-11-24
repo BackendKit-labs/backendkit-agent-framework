@@ -5,3 +5,4 @@ export * from './operator';
 export * from './advisor';
 export * from './flow';
 export * from './signals-server';
+export * from './service';

@@ -1,12 +1,31 @@
 # Changelog
 
+## v0.50.11 (2026-11-24)
+
+**La misma regla de aprobación en todos los caminos: roles, cuatro ojos y registro.** Hasta ahora solo el motor imponía `approverRoles` y `forbidSelfApproval`. Se comprobó ejecutando que **un flujo, el manejador de decisiones y el servidor de herramientas directas aceptaban a un becario y a quien había hecho la petición**, aunque la política pidiera un rol: la comprobación estaba copiada tres veces y se había desalineado. Lo encontró el ejemplo `portfolio-advisor`.
+
+- **`checkApproval` (agent-core 0.49.9):** una sola función (tipo de aprobador, nadie se aprueba a sí mismo, cuatro ojos y rol contra el directorio) que usan el motor (en proceso y con aprobación guardada), el flujo, `createApprovalHandler` y `createToolServer`. Está exportada.
+- **Opciones nuevas:** `approverDirectory` y `forbidSelfApproval` en `approvals` de `runFlow`, en `createApprovalHandler` y en `createToolServer` (y en `directTools` de `AgentMCPServer`, mcp-server 0.19.14, que las reenvía). La solicitud de un paso de flujo y la del servidor llevan ahora los `approverRoles` del `ask`.
+- **El flujo comprueba otra vez al continuar:** una decisión tomada en otro proceso (un supervisor, un script que escribe en el almacén) se valida contra los roles de la política de ahora y el directorio de ahora. Antes bastaba con que alguien dijera que sí.
+- **`approval.reason` en el evento:** el motivo que dio quien aprobó (SPEC-0014 §6.2 regla 4 lo pedía y no se guardaba), en el motor, con aprobación guardada y en el servidor de herramientas. El servidor registra además `authority`, `reason` y `exceeded`, como el motor.
+- **Prueba de conformidad:** los mismos cinco escenarios (finanzas aprueba; un becario, el solicitante, un desconocido y la ausencia de directorio, no) pasan por los cinco caminos. Quitando la comprobación de un camino a la vez, falla ese camino.
+
+**Ruptura, por la misma razón que antes (no hay usuarios externos; decisión del autor):** un `ask` con `approverRoles` en un flujo, un manejador o un servidor de herramientas **sin directorio** pasa a **denegarse** (antes se aprobaba sin comprobar). Con `forbidSelfApproval` y sin `identity.userId`, el flujo, el manejador y el servidor **rechazan** (antes la regla no hacía nada). Una aprobación pendiente decidida antes de actualizar por alguien sin el rol se rechaza al continuar el flujo. El motor mantiene lo documentado: con `forbidSelfApproval` y sin `userId` la regla no hace nada, porque el motor ya exige `identity.userId` por defecto.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.9 | `checkApproval`; `approverDirectory` y `forbidSelfApproval` en flujo, manejador y servidor de herramientas; `approval.reason` |
+| `mcp-server` | 0.19.14 | reenvía las dos opciones en `directTools`; depende de `agent-core` ^0.49.9 |
+
+Se publican dos. Orden: `agent-core`, `mcp-server`. **`agent-core` 0.49.8 no hace falta publicarla** (0.49.9 la incluye). Tags: `agent-core@0.49.9`, `mcp-server@0.19.14`.
+
 ## v0.50.10 (2026-11-24)
 
 **El registro de una llamada aprobada dice por qué se pidió a una persona y, si fue por salirse de un apoderamiento, de cuál.** Hasta ahora el evento de una orden aprobada llevaba quién aprobó y con qué rol, pero ni el motivo (`reason`) ni el apoderamiento: quien lo leyera no podía ver que la orden **superaba el límite** de ese poder. Lo encontró el ejemplo `portfolio-advisor`.
 
 - **`reason` en el evento aprobado (agent-core 0.49.8):** el motivo del `ask` (por ejemplo «outside the mandate: the amount 6000 is above the 5000 the mandate allows») ya no se pierde cuando alguien aprueba. Vale para cualquier política, no solo para apoderamientos.
 - **`exceeded` en el evento:** el apoderamiento que la llamada **no** cubría (mismos campos que `mandate`, con el hash de la credencial). `mandatePolicy` lo pone en el `ask` (`exceeds`) y `combineDecisions` lo conserva. **No va en `mandate`**: ese campo dice «actuó cubierto por este poder» y sería falso. Está bajo la firma del agente.
-- **Límite conocido:** el servidor de tools directas (`createToolServer`) tiene su propio camino de aprobación y no lo registra todavía.
+- **Límite que se corrige en 0.49.9:** el servidor de tools directas (`createToolServer`) no registraba esto, y tampoco **imponía** roles ni cuatro ojos (ver v0.50.11).
 
 | Paquete | Versión | |
 |---|---|---|

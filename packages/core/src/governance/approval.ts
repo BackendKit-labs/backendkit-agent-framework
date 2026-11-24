@@ -75,6 +75,44 @@ export async function approvalProblem(
     return undefined;
 }
 
+/** What `checkApproval` needs besides the answer and the request. */
+export interface ApprovalCheckDeps {
+    /** Can this agent approver do the action itself? (SPEC-0014 §6.2 rule 3.) */
+    canAgentAct: (approver: ApproverRef) => Promise<boolean>;
+    /** Who the approvers are and what roles they hold. Without it, an `ask` that names roles cannot be approved. */
+    approverDirectory?: ApproverDirectory;
+    /** Four eyes: the person the agent acts for (`principal.userId`) does not approve it either. */
+    forbidSelfApproval?: boolean;
+    /**
+     * With four eyes on, refuse an approval of a request that does not say who asked (`principal.userId`): nobody can be told apart from the requester,
+     * and "on, but it does nothing" is a silent failure. The engine does not ask for it because it already requires `identity.userId` by default (SPEC-0044)
+     * and, when that is switched off for tests, keeps its documented behaviour (the rule does nothing). A flow, a handler and a tool server do ask for it.
+     */
+    requireRequester?: boolean;
+}
+
+/**
+ * THE check of an approval, for every way an approval is given: the engine (in process or a stored one), a flow, the handler a supervisor decides
+ * through, and the direct tool server. It is the rules of SPEC-0014 §6.2 (kind accepted, nobody approves their own request, an agent only what it could
+ * do) plus four eyes (SPEC-0041 F2) plus the roles the `ask` asked for, checked against the directory (SPEC-0041). `problem` is the reason it is
+ * not valid; when it is, `authority` says what was recognized of the approver, for the audit. Having ONE function is the point: a path that checked
+ * less than the others is a way around them, and three copies had drifted.
+ */
+export async function checkApproval(
+    outcome: ApprovalOutcome,
+    request: { principal: Principal; accepts?: ApproverKind[]; approverRoles?: string[] },
+    deps: ApprovalCheckDeps,
+): Promise<{ problem: string } | { authority?: ApproverAuthority }> {
+    // Four eyes needs to know who asked. With no `userId` there is nobody to compare the approver with, and "on, but it does nothing" is the silent
+    // failure this function exists to end: it is refused, and the reason says how to fix it.
+    if (deps.forbidSelfApproval && deps.requireRequester && request.principal.userId === undefined) {
+        return { problem: 'four eyes (forbidSelfApproval) is on and the request does not say who asked for it (principal.userId): nobody can be told apart from the requester' };
+    }
+    const problem = await approvalProblem(outcome, { ...request, ...(deps.forbidSelfApproval ? { forbidSelfApproval: true } : {}) }, deps.canAgentAct);
+    if (problem) return { problem };
+    return approverAuthority(outcome.by, request, deps.approverDirectory);
+}
+
 /** What a person is shown of the arguments: long enough for a real call, and it says so when it cuts (a cut hides what follows). */
 export const APPROVAL_PREVIEW_CHARS = 4000;
 export function previewArgs(json: string, max: number = APPROVAL_PREVIEW_CHARS): { text: string; truncated: boolean } {

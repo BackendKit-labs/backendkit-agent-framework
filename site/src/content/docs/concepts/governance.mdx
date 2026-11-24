@@ -92,7 +92,16 @@ createBaseEngine({
 
 The user the agent acts for (`identity.userId`) cannot approve what it asked for, whatever the kind of approver, and neither can a person in the delegation chain. Another person with the role can. For a stored approval, who asked is what the stored request recorded, so a worker that runs it later with no identity of its own still refuses it.
 
-It is **off by default**, because it changes what is allowed today. It needs `identity.userId`: with none, there is nobody to compare with and the rule does nothing.
+It is **off by default**, because it changes what is allowed today. In the engine it needs `identity.userId` (which the engine requires anyway): with none, there is nobody to compare with.
+
+### The same rule on every way of approving
+
+A role and four eyes are checked by **one function** (`checkApproval`), whichever way the approval arrives: the engine (an approver in process, or a stored approval run later), a **flow** (`approvals: { policy, approverDirectory, forbidSelfApproval }`), the **handler** a supervisor decides through (`createApprovalHandler(store, { approverDirectory, forbidSelfApproval })`) and the **direct tool server** (`createToolServer` and the `directTools` of `AgentMCPServer`, with the same two options). In all of them:
+
+- an `ask` with `approverRoles` and **no directory** cannot be approved at all: roles that cannot be checked are not roles;
+- a flow, a handler and a tool server **refuse** four eyes when the request does not say who asked (`identity.userId`), instead of running it with a rule that does nothing;
+- a flow checks a decision **again when it goes on**, against the roles of the policy of now and the directory of now, so a decision written by another process that checked nothing does not move it;
+- the audit event keeps the approver, their authority (the role that matched) and **the reason they gave** (`approval.reason`), next to why a person was asked (`reason`).
 
 ## When nobody can answer now: durable approvals
 

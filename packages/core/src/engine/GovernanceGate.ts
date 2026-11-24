@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { agentCouldPerform, combineDecisions, evaluatePolicies } from '../governance/policy';
-import { approvalProblem, approverAuthority, previewArgs } from '../governance/approval';
+import { checkApproval, previewArgs } from '../governance/approval';
 import type {
     ApprovalRequest,
     ApprovalStore,
@@ -34,7 +34,7 @@ import type { Transport } from '../transport/Transport';
 /** What the policy path decided about one call, before it runs (SPEC-0014 F2). */
 export type GovernedVerdict =
     | {
-        run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; mandate?: AuditMandate;
+        run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string }; mandate?: AuditMandate;
         /** Why a person was asked, and the mandate the call went beyond, when that was the reason: they go to the audit event of the approved call. */
         asked?: { reason: string; exceeds?: AuditMandate };
     }
@@ -114,7 +114,7 @@ export class GovernanceGate {
                 const reason = 'the policy requires a sandbox and none is configured';
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" denied by policy: ${reason}` };
             }
-            return { run: true, ...(d.mode ? { mode: d.mode } : {}), ...(approved ? { approval: { id: approved.approvalId, by: approved.by } } : {}), ...(d.mandate ? { mandate: d.mandate } : {}) };
+            return { run: true, ...(d.mode ? { mode: d.mode } : {}), ...(approved ? { approval: { id: approved.approvalId, by: approved.by, ...(approved.reason ? { reason: approved.reason } : {}) } } : {}), ...(d.mandate ? { mandate: d.mandate } : {}) };
         }
         const ask = d as Extract<PolicyDecision, { effect: 'ask' }>;
         if (approved) {
@@ -124,28 +124,23 @@ export class GovernanceGate {
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
             }
             // A stored approval satisfies the ask, but only if its approver is one this ask accepts (§6.2).
-            const problem = await approvalProblem(
+            // Who asked is what the stored request recorded, not the identity of whoever runs it now (SPEC-0041 F2). Who may approve is checked now,
+            // against the policy of now (its roles) and the directory of now (SPEC-0041), not against what was stored.
+            const authority = await checkApproval(
                 { decision: 'approve', by: approved.by, at: new Date().toISOString() },
-                // Who asked is what the stored request recorded, not the identity of whoever runs it now (SPEC-0041 F2).
                 {
                     principal: approved.requestedBy !== undefined ? { ...principal, userId: approved.requestedBy } : principal,
                     ...(ask.accepts ? { accepts: ask.accepts } : {}),
-                    ...(this.deps.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
+                    ...(ask.approverRoles ? { approverRoles: ask.approverRoles } : {}),
                 },
-                (by) => this.agentCanPerform(by, call),
+                this.checkDeps(call),
             );
-            if (problem) {
-                const reason = `invalid approval: ${problem}`;
-                return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
-            }
-            // Who may approve is checked now, against the policy of now and the directory of now (SPEC-0041).
-            const authority = await approverAuthority(approved.by, { principal, ...(ask.approverRoles ? { approverRoles: ask.approverRoles } : {}) }, this.deps.approverDirectory);
             if ('problem' in authority) {
                 const reason = `invalid approval: ${authority.problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
             }
             return {
-                run: true, approval: { id: approved.approvalId, by: approved.by, ...(authority.authority ? { authority: authority.authority } : {}) },
+                run: true, approval: { id: approved.approvalId, by: approved.by, ...(authority.authority ? { authority: authority.authority } : {}), ...(approved.reason ? { reason: approved.reason } : {}) },
                 asked: { reason: ask.reason, ...(ask.exceeds ? { exceeds: ask.exceeds } : {}) },
             };
         }
@@ -250,20 +245,13 @@ export class GovernanceGate {
                     message: `Tool call "${name}" was rejected by the approver.`,
                 };
             }
-            const problem = await approvalProblem(
-                answer, { ...request, ...(this.deps.forbidSelfApproval ? { forbidSelfApproval: true } : {}) }, (by) => this.agentCanPerform(by, call),
-            );
-            if (problem) {
-                const reason = `invalid approval: ${problem}`;
-                return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
-            }
-            const authority = await approverAuthority(answer.by, request, this.deps.approverDirectory);
+            const authority = await checkApproval(answer, request, this.checkDeps(call));
             if ('problem' in authority) {
                 const reason = `invalid approval: ${authority.problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
             }
             return {
-                run: true, approval: { id: request.id, by: answer.by, ...(authority.authority ? { authority: authority.authority } : {}) },
+                run: true, approval: { id: request.id, by: answer.by, ...(authority.authority ? { authority: authority.authority } : {}), ...(answer.reason ? { reason: answer.reason } : {}) },
                 asked: { reason: d.reason, ...(d.exceeds ? { exceeds: d.exceeds } : {}) },
             };
         }
@@ -280,6 +268,15 @@ export class GovernanceGate {
         if (sandboxAsk) return this.deps.noApproverForSandbox(name, principal.agentId, sandboxDecisions);
         const reason = `needs approval (${d.reason}) and no approver is configured`;
         return { run: false, decision: 'deny', reason, message: `Tool call "${name}" refused: ${reason}.` };
+    }
+
+    /** What the shared check of an approval needs from this engine. */
+    private checkDeps(call: ToolCall) {
+        return {
+            canAgentAct: (by: ApproverRef) => this.agentCanPerform(by, call),
+            ...(this.deps.approverDirectory ? { approverDirectory: this.deps.approverDirectory } : {}),
+            ...(this.deps.forbidSelfApproval ? { forbidSelfApproval: true } : {}),
+        };
     }
 
     /**

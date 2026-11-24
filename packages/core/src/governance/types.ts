@@ -51,7 +51,7 @@ export interface ToolCall {
      * Someone already approved exactly this call (resubmission, SPEC-0014 §6). Only whoever holds the approval
      * sets it when executing it; the engine never derives it from what the model sent.
      */
-    approved?: { by: ApproverRef; approvalId: string; /** Who asked, as the stored request recorded it (`principal.userId`). */ requestedBy?: string; /** When the stored request expires (ISO). */ expiresAt?: string };
+    approved?: { by: ApproverRef; approvalId: string; /** The reason the approver gave, as the stored decision recorded it. */ reason?: string; /** Who asked, as the stored request recorded it (`principal.userId`). */ requestedBy?: string; /** When the stored request expires (ISO). */ expiresAt?: string };
 }
 
 export type PolicyDecision =
@@ -287,8 +287,12 @@ export interface AuditEvent {
      */
     errorCode?: string;
     durationMs: number;
-    /** Who approved the call, when it needed approval. */
-    approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority };
+    /**
+     * Who approved the call, when it needed approval, with what authority (their roles, when the `ask` asked for roles) and the reason THEY gave
+     * (SPEC-0014 §6.2 rule 4: every approval is audited with its approver and its motive). Not to be confused with the event's `reason`, which is why
+     * a person was asked.
+     */
+    approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string };
     /** The credentials leased for the call (SPEC-0042 F4): which, never their values. */
     credentials?: AuditCredential[];
     /** The mandate the call was covered by (SPEC-0043): who issued it, for whom, until when, and the hash of the credential; never the credential. */

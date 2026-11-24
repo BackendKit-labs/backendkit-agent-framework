@@ -1,7 +1,7 @@
 # SPEC-0045: límites generales del apoderamiento (más allá del importe)
 
 **Fecha:** 2026-11-24
-**Estado:** **Borrador, sin revisar.** No se toca ningún tipo publicado hasta que el autor lo apruebe.
+**Estado:** **Borrador, revisado en parte (2026-11-24).** El autor aprobó el principio (el apoderamiento es para lo crítico) y respondió las preguntas 1 a 4 y 6. **Quedan abiertas la 5 (depende del equipo de Identidad) y la 7.** No se toca ningún tipo publicado hasta que el autor apruebe la implementación.
 **Origen:** observación del autor (2026-11-24): «hablas solo si la lógica fuera dinero; el agente puede tener diferentes usos, lógicas de negocio». Es cierta: el apoderamiento expresa **qué acciones** y **sobre qué** para cualquier negocio, pero su «hasta cuánto» (`limits`) solo sabe medir **un importe con moneda**.
 **Depende de:** SPEC-0043 (apoderamiento), SPEC-0044 (identidad), `packages/core/src/governance/mandate.ts`, `packages/mandates` (verificador de referencia y kit de adaptadores).
 **Tipo de cambio:** aditivo en `core` (`Mandate.limits` y una opción de `mandatePolicy`) y una versión nueva del perfil de la credencial en `agent-mandates`.
@@ -60,10 +60,10 @@ Verificado el 2026-11-24:
 
 ## 5. Preguntas abiertas
 
-1. ¿`measures` como lista (`[{ name, max }]`) o como objeto (`{ rows: { max } }`)? Propuesta: **lista**, porque conserva el orden y permite duplicados detectables; el objeto es más corto de escribir.
-2. ¿Una ventana de horario entra en esta especificación o va con los contadores? Es sin estado, pero necesita zona horaria y calendario.
-3. ¿Un `UsageStore` para contadores por periodo? Es una decisión de arquitectura (¿quién guarda el estado: el motor, el operador, el proveedor de identidad?) y merece su propia especificación.
-4. ¿Debe el evento de auditoría copiar las medidas que se aplicaron? Ayuda a leer el registro sin la credencial, pero engorda cada evento.
+1. ~~¿`measures` como lista o como objeto?~~ **Respondida (2026-11-24, el autor): lista** (`[{ name, max, unit? }]`). *Por qué:* en un poder firmado lo ambiguo debe fallar con ruido: con una lista un nombre repetido se detecta y se rechaza con un motivo claro; con un objeto se perdería al parsear sin que nadie lo viera. Escribir menos no compensa.
+2. ~~¿Una ventana de horario entra aquí?~~ **Respondida (2026-11-24, el autor): no.** Queda fuera de esta especificación: `validFrom` y `validUntil` ya cubren un rango absoluto, y una ventana recurrente («de 9 a 18») obliga a decidir zona horaria, festivos y el cambio de hora, que es calendario y no medida. Es lógica de negocio del operador (el principio de arriba). Se especifica aparte si aparece un caso real.
+3. ~~¿Un `UsageStore` para los contadores por periodo?~~ **Respondida (2026-11-24, el autor): especificación propia, no aquí.** La pregunta de fondo es quién guarda el estado (el motor, el operador o el proveedor de identidad), con consecuencias distintas en concurrencia, varios procesos y reinicios. Mientras tanto, el contador lo resuelve la política del operador en código (el principio de arriba).
+4. ~~¿Debe el evento de auditoría copiar las medidas aplicadas?~~ **Respondida (2026-11-24, el autor): no de entrada.** La credencial ya está identificada por su hash en el evento y quien la tenga puede comprobar contra qué se midió; copiar las medidas engordaría cada evento. Se revisa si en la práctica hace falta leer el registro sin la credencial.
 5. ¿Qué dice el equipo de Identidad? Si su credencial real ya trae restricciones propias (A3 del cuestionario), el diseño de las medidas debe poder traducirlas sin pérdida; si no, esta generalización puede ir sola.
 6. ~~¿Una marca `critical` tipada en la herramienta?~~ **Respondida (2026-11-24, el autor):** no por ahora. Decide el predicado del operador (D11, D12) y se documenta la convención `meta: { critical: true }`. Se **añade la marca tipada solo si** las bibliotecas de herramientas acaban repitiendo la misma lista en cada operador, y entonces como campo opcional, sin romper nada. *Por qué:* la marca es la opinión del autor de la herramienta, no del negocio; un tercer hecho declarado se confunde con `destructive`; no viaja a MCP; y olvidarla no es peligroso (la herramienta cae en `otherwise`, que por defecto pregunta por todo lo que no es de solo lectura: molesta, pero nunca permisiva). Eso solo deja de ser cierto si el operador pone en `otherwise` una política que permite todo, y entonces es decisión suya.
 7. ¿Debe un cambio futuro de versión mayor hacer que `appliesTo` por defecto sea «lo destructivo» en vez de «todo»? Hoy no: aflojaría lo desplegado.
@@ -73,3 +73,4 @@ Verificado el 2026-11-24:
 - **2026-11-24, principio del autor: el apoderamiento solo para lo crítico.** Se añaden D11 a D13, las preguntas 6 y 7 y la lista de lo que hay que actualizar al implementar. Se comprobó que no contradice a SPEC-0043 más que en su objetivo y en D3 (el límite viene solo del poder; sin poder, deny), que se leen ahora «para las llamadas a las que se aplica»; por defecto se sigue aplicando a todas.
 - **2026-11-24, borrador.** Escrita tras comprobar que el verificador de referencia ignoraba en silencio las restricciones desconocidas (corregido en `agent-mandates` 0.1.4) y que el tipo `Mandate` solo sabe medir un importe.
 - **2026-11-24, pregunta 6 respondida por el autor:** sin marca `critical` tipada; predicado del operador y convención `meta: { critical: true }`.
+- **2026-11-24, preguntas 1 a 4 aprobadas por el autor con las propuestas:** medidas como lista; sin ventanas de horario; contadores en una especificación propia (`UsageStore`); el evento no copia las medidas. Decisiones D1, D5 y D8 confirmadas sin cambios.

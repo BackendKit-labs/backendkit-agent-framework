@@ -6,53 +6,15 @@ import { generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyAuditChain, type ApprovalRequest, type Approver, type AuditEvent } from '@backendkit-labs/agent-core';
-import { mockTransport, scriptedProvider, type Turn } from '@backendkit-labs/agent-testkit';
-import { ANALYST, EXECUTOR, REBALANCER, createAdvisor, buildOperator, identityOf, profiles, SimulatedBroker, type AdvisorOptions } from '../index';
+import { verifyAuditChain, type ApprovalRequest } from '@backendkit-labs/agent-core';
+import { ANALYST, EXECUTOR, REBALANCER, buildOperator, identityOf, profiles, type AdvisorOptions } from '../index';
+import { answerAs, ask, call, large, nobody, say, setup as build, small, tradeScript, type Setup } from './harness';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'advisor-')); });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
+const setup = (s: Setup) => build(s, dir);
 
-// ── scripts: what the scripted model says, in the order the agents speak ──────────────────────────────────────
-
-const ask = (agent: string, question: string): Turn => ({ tool_calls: [{ id: `a-${agent}`, name: 'ask_agent', args: { agent_id: agent, question } }] });
-const call = (name: string, args: Record<string, unknown> = {}): Turn => ({ tool_calls: [{ id: `c-${name}`, name, args }] });
-const say = (content: string): Turn => ({ content });
-
-/** The orchestrator sends an order through the executor: the three turns of the executor are the call and its answer. */
-const tradeScript = (order: Record<string, unknown>): Turn[] => [
-    ask(EXECUTOR, 'send this order'), call('place_order', order), say('the executor answered'), say('finished'),
-];
-const small = { symbol: 'BBB', side: 'buy', quantity: 20, amount: 1_000, currency: 'EUR' };         // within the 5,000 EUR the executor may do alone
-const large = { symbol: 'AAA', side: 'sell', quantity: 60, amount: 6_000, currency: 'EUR' };        // above it
-
-/** An approver that answers as `id` and remembers what it was asked. */
-function answerAs(id: string, asked: ApprovalRequest[] = []): Approver {
-    return {
-        ref: { kind: 'human', id },
-        request: async (req) => { asked.push(req); return { decision: 'approve', by: { kind: 'human', id }, at: new Date().toISOString() }; },
-    };
-}
-const nobody: Approver = { ref: { kind: 'human', id: 'nobody' }, request: async () => ({ decision: 'reject', by: { kind: 'human', id: 'nobody' }, at: new Date().toISOString() }) };
-
-interface Setup { script: Turn[]; /** The file of the audit log; one per advisor when a test builds two. */ audit?: string; approver?: Approver; userId?: string; mutate?: (o: AdvisorOptions, op: ReturnType<typeof buildOperator>) => void }
-
-function setup(s: Setup) {
-    const op = buildOperator({ userId: s.userId ?? 'carlos' });
-    const broker = new SimulatedBroker({ cash: 10_000, holdings: { AAA: 60, BBB: 20 } });
-    const auditLogPath = join(dir, s.audit ?? 'audit.ndjson');
-    const options: AdvisorOptions = {
-        provider: scriptedProvider(s.script), transport: mockTransport().transport, userId: op.userId, broker, targets: { AAA: 0.2, BBB: 0.4 },
-        identities: op.identities, credentials: op.credentials(), trustedIssuers: op.trustedIssuers, directory: op.directory,
-        approver: s.approver ?? nobody, auditLogPath,
-    };
-    s.mutate?.(options, op);
-    const advisor = createAdvisor(options);
-    const events = (): AuditEvent[] => readFileSync(auditLogPath, 'utf8').split('\n').filter(Boolean).map(l => (JSON.parse(l) as { event: AuditEvent }).event);
-    const order = () => events().find(e => e.tool === 'place_order');
-    return { advisor, broker, op, auditLogPath, events, order, run: () => advisor.engine.run('rebalance my portfolio') };
-}
 
 describe('an order inside the power of the executor', () => {
     it('runs with nobody asked, and the audit says who, under which power and that possession of the key was proven', async () => {
@@ -88,14 +50,14 @@ describe('an order inside the power of the executor', () => {
 });
 
 describe('an order above the limit asks a person, who must not be the one who asked', () => {
-    it('a person of finance approves and the order runs; the audit keeps who approved', async () => {
+    it('a person of finance approves and the order runs; the audit keeps who approved and with which role', async () => {
         const asked: ApprovalRequest[] = [];
         const t = setup({ script: tradeScript(large), approver: answerAs('ana', asked) });
         await t.run();
         expect(asked).toHaveLength(1);
         expect(asked[0]).toMatchObject({ principal: { agentId: EXECUTOR, userId: 'carlos' } });
         expect(t.broker.executed).toEqual([large]);
-        expect(t.order()).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' } } });
+        expect(t.order()).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' }, authority: { roles: ['finance'], matched: 'finance' } } });
     });
 
     it('carlos, who asked for the rebalance, cannot approve it himself (four eyes), even though he is a person', async () => {
@@ -110,10 +72,7 @@ describe('an order above the limit asks a person, who must not be the one who as
         expect(t.broker.executed).toHaveLength(0);
     });
 
-    // FINDING 1 (see the README). This is the behaviour we want and today it FAILS, so it is written with `it.failing`: the suite is green while the
-    // gap exists and goes red the day the framework closes it, which is the signal to change `it.failing` into `it`. The `ask` that `mandatePolicy`
-    // returns for an order outside the mandate carries no `approverRoles`, so the engine accepts any person who is not the requester.
-    it.failing('a person with no authority over this (an intern) cannot approve it either', async () => {
+it('a person with no authority over this (an intern) cannot approve it either', async () => {
         const t = setup({ script: tradeScript(large), approver: answerAs('intern') });
         await t.run();
         expect(t.broker.executed).toHaveLength(0);

@@ -6,7 +6,7 @@ It runs with **no key and no network**: a scripted model plays the LLM, so the t
 
 ```bash
 npm install
-npm test          # 53 tests, offline (servers on loopback, nothing else)
+npm test          # 54 tests, offline (servers on loopback, nothing else)
 ```
 
 The domain (what the agents are *about*) follows the design of a finance portfolio system: the decision matrix (§6), the default weights (§8.3) and the conflict rules (§8.5) of its `design.md`. Nothing in the numbers is invented.
@@ -76,8 +76,7 @@ All three were found by a test written against what we wanted, and closed in the
 2. `CLOSED, agent-core 0.49.8` **The record of an order approved outside the mandate said who approved but not why a person was asked, nor which power it went beyond.** Now the event carries `reason` and `exceeded` (the mandate, never recorded as `mandate`, which means "covered"), and the test checks it.
 3. `CLOSED, agent-core 0.49.9` **A flow gate, the approval handler and the direct tool server did not enforce roles or four eyes**: an intern, or the person who asked, could approve the plan. The check lived in three copies and had drifted; it is now one function (`checkApproval`) used by the engine, the flow, the handler and the tool server, with a conformance test that runs the same five scenarios through all of them. The event also keeps the reason the approver gave (`approval.reason`).
 4. `CLOSED, SPEC-0045` **A mandate was asked for on every call, even to read and to delegate**, so the analyst, the rebalancer and the orchestrator needed one only to exist, and the default policy could not stand next to the mandate (it asks for every destructive tool, and an `ask` beats an `allow`). `appliesTo` and `otherwise` (agent-core 0.49.11) say what the mandate is for; the three agents lost their credentials.
-
-5. `OPEN` **The client of the protocol cannot carry a personal token.** `capabilityIdentityGate` says "derive the person from something you verified (a validated token)", and the server reads any header, but `AgentClientOptions` has only `apiKey` and `tenantId`: there is no way to send an `x-user-token`. The example calls with `fetch` and uses the client only to wait (`poll`). A `headers` option (or a per-call one) in `AgentClient` would close it; it changes a published package, so it waits for a decision.
+5. `CLOSED, agent-protocol 0.7.3` **The client of the protocol could not carry a personal token.** `capabilityIdentityGate` says "derive the person from something you verified (a validated token)", and the server reads any header, but `AgentClient` only sent `apiKey` and `tenantId`. It now takes `headers` (on the client, on `run`/`runAndWait`, on `startFlow`) and refuses to replace `Authorization` or `Content-Type`; the example sends `x-user-token` with it.
 
 ## Where this goes next
 

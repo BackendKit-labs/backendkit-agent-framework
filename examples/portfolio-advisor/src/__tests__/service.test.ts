@@ -49,7 +49,7 @@ async function start(script: Turn[] = tradeScript(small)) {
     });
     await server.start();
     const url = `http://127.0.0.1:${port}`;
-    // The client of the protocol cannot carry a personal token (it has no `headers` option), so the calls go with fetch and only the wait uses the client.
+    // The client carries the personal token of each call (`headers`, agent-protocol 0.7.3); `post` is the raw request, for what the client would not send (no key, no token).
     const client = new AgentClient({ url, apiKey: API_KEY });
     const post = async (capability: string, headers: Record<string, string> = {}, key: string | null = API_KEY) => {
         const res = await fetch(`${url}/v1/agent/run`, {
@@ -58,18 +58,8 @@ async function start(script: Turn[] = tradeScript(small)) {
         return { status: res.status, body: (await res.json()) as { data?: unknown; error?: { code?: string; message?: string } } };
     };
     /** Runs a capability for the person of the token and waits for its answer. */
-    const runFor = async (token: string, capability: string): Promise<unknown> => {
-        const r = await post(capability, { [USER_TOKEN_HEADER]: token });
-        const data = r.body.data as { status: string; taskId?: string; output?: unknown };
-        if (!data.taskId) return data.output;
-        for (let i = 0; i < 100; i++) {
-            const task = await client.poll(data.taskId);
-            if (task.status !== 'pending' && task.status !== 'running') return task.output;
-            await new Promise(r => setTimeout(r, 25));
-        }
-        throw new Error('the task did not finish');
-    };
-    return { broker, audit, post, runFor, serviceAudit: (): AuditEvent[] => audit.events, serviceKey };
+    const runFor = (token: string, capability: string): Promise<unknown> => client.runAndWait(capability, {}, { headers: { [USER_TOKEN_HEADER]: token }, pollInterval: 25 });
+    return { broker, audit, post, runFor, client, serviceAudit: (): AuditEvent[] => audit.events, serviceKey };
 }
 
 describe('what is refused before anything runs', () => {
@@ -87,6 +77,13 @@ describe('what is refused before anything runs', () => {
         const r = await s.post('rebalance', { 'x-tenant-id': 'carlos', 'x-user-id': 'carlos' });
         expect(r.status).toBe(403);
         expect(s.broker.executed).toHaveLength(0);
+    });
+
+    it('the client of the protocol sends the token of each call, and with none the refusal reaches the caller as an error', async () => {
+        const s = await start();
+        await expect(s.client.run('plan_rebalance', {})).rejects.toMatchObject({ status: 403 });
+        await expect(s.client.run('plan_rebalance', {}, { headers: { [USER_TOKEN_HEADER]: 'token-of-carlos' } })).resolves.toMatchObject({ status: 'done' });
+        expect(s.serviceAudit().map(e => e.decision)).toEqual(['deny', 'allow']);
     });
 
     it('a token nobody issued is refused the same way', async () => {

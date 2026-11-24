@@ -26,6 +26,12 @@ export interface AgentClientOptions {
     /** Key for control calls (`control`, `listRuns`, `audit`). Never falls back to `apiKey`. */
     controlApiKey?:  string;
     tenantId?:       string;
+    /**
+     * Extra headers sent on every call, for what the server's gate reads (a personal token, for example: who a run is FOR is the gate's to say, and
+     * a server derives it from something it verified, not from `X-Tenant-ID`). `apiKey` is the only way to set `Authorization`: a header that
+     * would replace it, or the body's `Content-Type`, is refused when the client is built.
+     */
+    headers?:        Record<string, string>;
     /** Per-request timeout in ms. Default: 30 000 */
     timeout?:        number;
     /** Max retries on transient errors (5xx, 429, network). Default: 3 */
@@ -40,6 +46,8 @@ export interface AgentClientOptions {
 }
 
 export interface RunOptions {
+    /** Extra headers for this call only (a client serves many people: their token travels with their call). Same limits as `AgentClientOptions.headers`. */
+    headers?:        Record<string, string>;
     async?:          boolean;
     /**
      * Whether running the capability twice is harmless (a lookup, a report). Default: false.
@@ -53,11 +61,24 @@ export interface RunOptions {
     maxWait?:        number;
 }
 
+/** Headers that belong to the client itself: the key of the protocol and the framing of the body. */
+const RESERVED_HEADERS = new Set(['authorization', 'content-type', 'content-length', 'host']);
+
+function checkHeaders(headers: Record<string, string> | undefined): Record<string, string> {
+    for (const name of Object.keys(headers ?? {})) {
+        if (RESERVED_HEADERS.has(name.toLowerCase())) {
+            throw new Error('AgentClient: the header "' + name + '" is set by the client itself (apiKey sets Authorization); it cannot be replaced through headers');
+        }
+    }
+    return { ...(headers ?? {}) };
+}
+
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export class AgentClient {
     readonly baseUrl:                  string;
     private readonly baseHeaders:      Record<string, string>;
+    private readonly extraHeaders:     Record<string, string>;
     private readonly timeout:          number;
     private readonly controlApiKey?:   string;
     private readonly cb:               CircuitBreaker | null;
@@ -67,10 +88,12 @@ export class AgentClient {
         this.baseUrl = opts.url.replace(/\/$/, '');
         this.timeout = opts.timeout ?? 30_000;
         this.controlApiKey = opts.controlApiKey;
+        this.extraHeaders = checkHeaders(opts.headers);
         this.baseHeaders = {
             'Content-Type': 'application/json',
             ...(opts.apiKey   ? { Authorization:  `Bearer ${opts.apiKey}` } : {}),
             ...(opts.tenantId ? { 'X-Tenant-ID':  opts.tenantId           } : {}),
+            ...this.extraHeaders,
         };
 
         // ── Circuit breaker ────────────────────────────────────────────────
@@ -211,7 +234,7 @@ export class AgentClient {
         const body: RunRequest = { capability, input, ...(opts.async !== undefined ? { async: opts.async } : {}) };
         const res = await this.request<RunResponse>(
             '/v1/agent/run',
-            { method: 'POST', body: JSON.stringify(body) },
+            { method: 'POST', body: JSON.stringify(body), headers: checkHeaders(opts.headers) },
             opts.context,
             opts.idempotent ? undefined : { retryIf: e => e.status === 429 },
         );
@@ -319,7 +342,8 @@ export class AgentClient {
      * Starts a flow; the answer is the id to follow it by. Sent exactly once, with the run key: a retry after a lost answer
      * would start a second run of a business flow. (`run()` repeats only a refused 429 unless the caller says it is idempotent; this never repeats.)
      */
-    async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext): Promise<{ flowRunId: string }> {
+    async startFlow(flow: string, input: Record<string, unknown> = {}, context?: AgentContext, headers?: Record<string, string>): Promise<{ flowRunId: string }> {
+        const extra = checkHeaders(headers);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.timeout);
         try {
@@ -331,6 +355,7 @@ export class AgentClient {
                     ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
                     ...(context?.traceId   ? { 'X-Trace-ID':   context.traceId   } : {}),
                     ...(context?.requestId ? { 'X-Request-ID': context.requestId } : {}),
+                    ...extra,
                 },
                 signal: controller.signal,
             });

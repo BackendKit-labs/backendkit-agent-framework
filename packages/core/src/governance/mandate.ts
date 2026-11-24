@@ -11,6 +11,8 @@
  * of that person; that the person is who they claim to be is for whoever issued the credential.
  */
 import { createHash } from 'node:crypto';
+import type { ToolDefinition } from '../types';
+import { defaultToolPolicy } from './policy';
 import type { ApproverKind, AuditMandate, PolicyDecision, Principal, ToolCall, ToolPolicy } from './types';
 
 /** What an agent is empowered to do, in terms that do not depend on the format of the credential. */
@@ -28,7 +30,15 @@ export interface Mandate {
     /** What it may be done on (ids, paths, accounts). Absent: no limit on that. Needs `resourceOf` in the policy. */
     resources?: string[];
     /** Hard limits. Each one needs the matching extractor in the policy, or the call is out of scope. */
-    limits?: { amount?: { max: number; currency?: string } };
+    limits?: {
+        amount?: { max: number; currency?: string };
+        /**
+         * Other quantities of a call that the mandate caps, one maximum PER OPERATION each (SPEC-0045): the rows a call deletes, the recipients it
+         * writes to, the size of what it publishes. The policy says how to measure each one (`measureOf`); the framework knows no magnitude.
+         * A measure the policy cannot read leaves the call outside the mandate, like an amount it cannot read.
+         */
+        measures?: Array<{ name: string; max: number; unit?: string }>;
+    };
     /** ISO times. Absent `validUntil`: no expiry (the verifier may have decided otherwise). */
     validFrom?: string;
     validUntil?: string;
@@ -74,6 +84,24 @@ export interface MandatePolicyOptions {
     amountOf?: (args: Record<string, unknown>) => { value: number; currency?: string } | undefined;
     /** What a call acts on, read from its arguments. Without it, a mandate that limits resources covers nothing. */
     resourceOf?: (args: Record<string, unknown>) => string | undefined;
+    /**
+     * How to measure each quantity a mandate may cap (`limits.measures`), by its name: `{ rows: (args) => ({ value: args.ids.length }) }`. Return
+     * `undefined` when the call does not say. A mandate that caps a measure with no entry here, or that the call does not say, covers nothing.
+     */
+    measureOf?: Record<string, (args: Record<string, unknown>) => { value: number; unit?: string } | undefined>;
+    /**
+     * The tools this policy requires a mandate for (SPEC-0045 D11). The others are decided by `otherwise` and the verifier is not even asked.
+     * Without it the mandate is required for EVERY call, as before. A mandate is for what is critical (money, deleting data, restarting, granting
+     * access, publishing); what to count and when to allow are the business logic of the operator. Which tools are critical is the operator's
+     * decision: by name, by `destructive`, or by `meta: { critical: true }` if the tools declare it. A predicate that throws denies the call.
+     */
+    appliesTo?: (tool: ToolDefinition) => boolean;
+    /**
+     * Who decides the tools `appliesTo` leaves out. Default `defaultToolPolicy`: a read-only tool runs, a destructive one asks a person, one that
+     * declares nothing asks. Forgetting to include a critical tool in `appliesTo` is therefore annoying (it asks), never permissive. A policy here
+     * that allows everything is the operator's own decision.
+     */
+    otherwise?: ToolPolicy;
     /** What happens to a call with a valid mandate that does not cover it. Default `ask` (a person decides). */
     outOfScope?: 'ask' | 'deny';
     /**
@@ -127,9 +155,12 @@ function identityBindingProblem(m: Mandate, principal: Principal): string | unde
     return undefined;
 }
 
+/** The name of a measure: short, stable, lower case (SPEC-0045 D7). `amount` is the amount limit and cannot be a measure. */
+const MEASURE_NAME = /^[a-z][a-z0-9_]{0,31}$/;
+
 /** Does the mandate cover this call? The reason is the first thing that does not. */
 export function mandateCovers(
-    m: Mandate, principal: Principal, call: ToolCall, options: Pick<MandatePolicyOptions, 'amountOf' | 'resourceOf' | 'requireSubject' | 'now'> = {},
+    m: Mandate, principal: Principal, call: ToolCall, options: Pick<MandatePolicyOptions, 'amountOf' | 'resourceOf' | 'measureOf' | 'requireSubject' | 'now'> = {},
 ): { ok: true } | { ok: false; reason: string } {
     const now = (options.now?.() ?? new Date()).getTime();
     if (m.validFrom !== undefined && !(Date.parse(m.validFrom) <= now)) return { ok: false, reason: 'the mandate is not valid yet, or its start cannot be read' };
@@ -157,6 +188,30 @@ export function mandateCovers(
         if (limit.currency !== undefined && spent.currency !== limit.currency) return { ok: false, reason: `the mandate is in ${limit.currency} and the call in ${spent.currency ?? 'no currency'}` };
         if (spent.value > limit.max) return { ok: false, reason: `the amount ${spent.value} is above the ${limit.max} the mandate allows` };
     }
+
+    const measures = m.limits?.measures;
+    if (measures !== undefined) {
+        if (!Array.isArray(measures)) return { ok: false, reason: 'the measures of the mandate are not a list' };
+        const seen = new Set<string>();
+        for (const measure of measures) {
+            const name = measure?.name;
+            // A cap that cannot be read well is not a cap: the mandate covers nothing rather than less than it says.
+            if (typeof name !== 'string' || !MEASURE_NAME.test(name) || name === 'amount') return { ok: false, reason: `a measure of the mandate has no valid name (${String(name)})` };
+            if (seen.has(name)) return { ok: false, reason: `the measure "${name}" appears more than once in the mandate: its cap would be ambiguous` };
+            seen.add(name);
+            if (typeof measure.max !== 'number' || !Number.isFinite(measure.max) || measure.max < 0) return { ok: false, reason: `the cap of "${name}" in the mandate is not a valid number` };
+            if (measure.unit !== undefined && (typeof measure.unit !== 'string' || measure.unit.length === 0)) return { ok: false, reason: `the unit of "${name}" in the mandate is not valid` };
+
+            const measurer = options.measureOf && Object.prototype.hasOwnProperty.call(options.measureOf, name) ? options.measureOf[name] : undefined;
+            if (!measurer) return { ok: false, reason: `the mandate caps "${name}" and this policy does not know how to measure it` };
+            let measured: { value: number; unit?: string } | undefined;
+            try { measured = measurer(call.args); } catch (err) { return { ok: false, reason: `measuring "${name}" failed: ${err instanceof Error ? err.message : String(err)}` }; }
+            if (measured === undefined) return { ok: false, reason: `the mandate caps "${name}" and this call does not say how much it uses` };
+            if (typeof measured.value !== 'number' || !Number.isFinite(measured.value) || measured.value < 0) return { ok: false, reason: `the ${name} of the call is not a valid number` };
+            if (measure.unit !== undefined && measured.unit !== measure.unit) return { ok: false, reason: `the mandate measures "${name}" in ${measure.unit} and the call in ${measured.unit ?? 'no unit'}` };
+            if (measured.value > measure.max) return { ok: false, reason: `the ${name} ${measured.value} is above the ${measure.max} the mandate allows` };
+        }
+    }
     return { ok: true };
 }
 
@@ -168,6 +223,8 @@ export function mandateCovers(
  * with one that asks for what the mandate is meant to cover.
  */
 export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
+    if (options.appliesTo !== undefined && typeof options.appliesTo !== 'function') throw new Error('mandatePolicy: appliesTo has to be a function of the tool');
+    if (options.otherwise !== undefined && typeof options.otherwise?.decide !== 'function') throw new Error('mandatePolicy: otherwise has to be a ToolPolicy');
     const who = options.outOfScopeApprover;
     if (who) {
         // A rule about who approves that is wrong must not turn into "anyone" or "no one" without a word: it fails when the policy is built.
@@ -179,6 +236,14 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
     }
     return {
         async decide(principal: Principal, call: ToolCall): Promise<PolicyDecision> {
+            // The tools this policy does not require a mandate for are somebody else's decision, and the verifier is not asked about them.
+            if (options.appliesTo) {
+                let applies: boolean;
+                try { applies = options.appliesTo(call.tool); } catch (err) {
+                    return { effect: 'deny', reason: `mandatePolicy: appliesTo failed: ${err instanceof Error ? err.message : String(err)}` };
+                }
+                if (!applies) return (options.otherwise ?? defaultToolPolicy).decide(principal, call);
+            }
             let verdict: Awaited<ReturnType<MandateVerifier['verify']>>;
             try {
                 const provider = options.agentIdentity;

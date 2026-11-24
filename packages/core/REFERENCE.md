@@ -1154,7 +1154,7 @@ With **no identity service at all**, `selfAssertedIdentities()` (or `staticAgent
 | What the service gives you | Contract in `agent-core` | What `core` does with it |
 |---|---|---|
 | **Who the agent is**, and its key | `AgentIdentityProvider`: `resolve(agentId, context)` and, optionally, `sign(agentId, message)` | Attributes every audit event to that identity, passes it to the policies (`principal.agentIdentity`), and signs each event with it. A provider that fails or is slow **denies the call**: it never means "no identity needed". |
-| **For whom it works, what it may do, up to how much** (a power-of-representation credential) | `MandateVerifier`: turns the service's credential into a `Mandate`, or refuses | `mandatePolicy` decides with the facts of the call: inside the mandate the agent acts alone, outside it asks, with none it does nothing. |
+| **For whom it works, what it may do, up to how much** (a power-of-representation credential) | `MandateVerifier`: turns the service's credential into a `Mandate`, or refuses | `mandatePolicy` decides with the facts of the call: inside the mandate the agent acts alone, outside it asks; with none, the tools it applies to do nothing (`appliesTo` limits it to what is critical; `limits.measures` and `measureOf` cap quantities that are not money). |
 
 ```ts
 import { createBaseEngine, mandatePolicy, type AgentIdentityProvider } from '@backendkit-labs/agent-core';

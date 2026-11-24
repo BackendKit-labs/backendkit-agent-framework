@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.50.14 (2026-11-24)
+
+**SPEC-0045 F1: el apoderamiento limita cualquier cantidad medible de una llamada crítica, y se exige solo a lo que el operador diga.** Hasta ahora el «hasta cuánto» de un apoderamiento solo sabía medir un importe con moneda, y `mandatePolicy` pedía apoderamiento a **toda** llamada (hasta a leer y a delegar).
+
+- **`limits.measures` y `measureOf` (agent-core 0.49.11):** una lista de `{ name, max, unit? }`, un máximo **por operación** sobre una magnitud que la aplicación sabe leer de la llamada (`measureOf: { rows: (args) => ({ value, unit }) }`). Como el importe: una medida que la política no sabe leer, o que la llamada no dice, deja la llamada **fuera del alcance** (pregunta a una persona, o se deniega con `outOfScope: 'deny'`). Un tope mal escrito (nombre no válido o repetido, `amount` como nombre, un máximo que no es un número, una unidad inválida) no cubre nada.
+- **`appliesTo` y `otherwise`:** `appliesTo: (tool) => boolean` dice a qué herramientas se exige apoderamiento; **las demás las decide `otherwise`** (por defecto la política por defecto del framework: lo de solo lectura corre, lo destructivo pregunta a una persona, lo no declarado pregunta) y **el verificador ni se consulta**. Olvidar una herramienta crítica es molesto, nunca permisivo. Un `appliesTo` que lanza deniega. **Sin `appliesTo` nada cambia: se exige a todas.**
+- **No hay credenciales con medidas todavía:** el verificador de referencia de `agent-mandates` rechaza lo que no conoce (0.1.4). Las medidas viajarán en un perfil nuevo (`vct 2`, F2 de SPEC-0045); hasta entonces solo las produce un verificador o un adaptador propio.
+- **Documentación:** la página de gobernanza explica que el apoderamiento es para lo crítico y cómo se limita.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.11 | `limits.measures`, `measureOf`, `appliesTo`, `otherwise` |
+
+Se publica uno. Tag: `agent-core@0.49.11`.
+
 ## v0.50.13 (2026-11-24)
 
 **El verificador de referencia de `agent-mandates` deja de ignorar en silencio las restricciones que no conoce.** Se comprobó ejecutando: una credencial con `limits: { amount, rows: { max: 5 } }` se aceptaba y el apoderamiento resultante tenía **solo** el importe; la restricción `rows` desaparecía y el agente podía más de lo que el emisor quiso. Lo mismo con cualquier clave desconocida del claim `mandate` (`validBetween`, `maxPerDay`...) o dentro de `amount` (`per: 'day'`). Es lo contrario de lo que ya hace el kit de adaptadores (`checkPowers`): fallar cerrado ante lo que no se sabe aplicar.

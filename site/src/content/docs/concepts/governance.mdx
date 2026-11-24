@@ -188,6 +188,16 @@ mandatePolicy({
 });
 ```
 
+What a mandate says is the same in any business, only the nouns change:
+
+| Agent | `actions` (what) | `resources` (on what) | A cap that is not money (`measures`) |
+|---|---|---|---|
+| Support | `send_email`, `issue_refund` | customers of one region | recipients per message |
+| Code | `edit_file`, `merge` | paths under `src/` | files changed per operation |
+| Operations | `restart_service` | the `staging` environment | instances restarted at once |
+| Data | `delete_rows` | one table | rows deleted per operation |
+| Trading | `place_order` | one portfolio | shares per order, besides the amount |
+
 Forgetting a critical tool in `appliesTo` is annoying, never permissive: it falls to `otherwise` and asks a person. The mandate can cap more than an amount: `limits.measures` is a list of `{ name, max, unit? }`, one maximum **per operation**, and `measureOf` says how to read each one from the call. A cap the policy cannot measure leaves the call outside the mandate. Counters per period and time windows are not in the mandate (they need state, or a calendar): they are yours. [SPEC-0045](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/docs/specs/SPEC-0045-limites-generales-del-apoderamiento.md) has the reasoning.
 
 The credential of an identity provider (a wallet, a corporate directory) is an **adapter** to the same `Mandate`: your agent, the policy and the audit do not change when you swap one for another, which is why `core` is tied to none. An adapter fails closed: a power with a restriction the framework cannot enforce (a daily cap, a time window) is refused, never ignored. The mandate is matched to the person in `identity.userId`, and the audit event names the mandate next to the identity of the agent (next section). What a mandate does **not** do yet: it is not bound to the identity of the agent that presents it, so a credential issued for one agent is not refused by `core` when another presents it (SPEC-0044 F3; the adapters compare it themselves). See the [package page](/packages/mandates/) for the full example and the [guide](/guides/controls-for-an-agent-without-steward/) for where it fits among the other controls.

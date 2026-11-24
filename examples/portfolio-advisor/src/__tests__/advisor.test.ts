@@ -139,27 +139,82 @@ describe('a power that is not valid is no power, each for its own reason', () =>
     });
 });
 
-describe('the agents that only read', () => {
-    it('the analyst reads the portfolio and a signal under its own power, and cannot place an order: it does not list the tool', async () => {
+describe('the agents that only read, plan or hand work over hold no power at all', () => {
+    it('the analyst reads the portfolio and a signal with no credential, and the audit says it was not under a mandate', async () => {
         const t = setup({ script: [ask(ANALYST, 'what do the signals say?'), call('get_portfolio'), call('get_signal', { symbol: 'AAA' }), say('analysis done'), say('finished')] });
+        expect(Object.keys(t.op.credentials())).toEqual([EXECUTOR]);       // only the executor holds a mandate
         await t.run();
-        const tools = t.events().filter(e => e.principal.agentId === ANALYST).map(e => `${e.tool}:${e.decision}`);
-        expect(tools).toEqual(['get_portfolio:allow', 'get_signal:allow']);
+        const analyst = t.events().filter(e => e.principal.agentId === ANALYST);
+        expect(analyst.map(e => `${e.tool}:${e.decision}`)).toEqual(['get_portfolio:allow', 'get_signal:allow']);
+        expect(analyst.every(e => e.mandate === undefined)).toBe(true);
         expect(t.broker.executed).toHaveLength(0);
     });
 
-    it('an agent with no credential is denied even a read: the framework does not guess that reading is fine', async () => {
+    it('delegating needs no power either: the orchestrator hands work over with no credential', async () => {
+        const t = setup({ script: [ask(REBALANCER, 'plan'), call('plan_rebalance'), say('plan ready'), say('finished')] });
+        await t.run();
+        expect(t.events().find(e => e.tool === 'ask_agent')).toMatchObject({ principal: { agentId: 'orchestrator' }, decision: 'allow' });
+        expect(t.events().find(e => e.tool === 'plan_rebalance')).toMatchObject({ decision: 'allow' });
+    });
+
+    it('with no credential for the executor it cannot trade, and the others still read: only what is critical needs a power', async () => {
         const t = setup({
-            script: [ask(ANALYST, 'what do the signals say?'), call('get_signal', { symbol: 'AAA' }), say('analysis done'), say('finished')],
-            mutate: (o) => { delete o.credentials[ANALYST]; },
+            script: [ask(ANALYST, 'signals?'), call('get_signal', { symbol: 'AAA' }), say('analysis done'), ask(EXECUTOR, 'send'), call('place_order', small), say('executor done'), say('finished')],
+            mutate: (o) => { delete o.credentials[EXECUTOR]; },
         });
         await t.run();
-        expect(t.events().find(e => e.tool === 'get_signal')).toMatchObject({ decision: 'deny' });
+        expect(t.events().find(e => e.tool === 'get_signal')).toMatchObject({ decision: 'allow' });
+        expect(t.events().find(e => e.tool === 'place_order')).toMatchObject({ decision: 'deny', reason: expect.stringMatching(/no valid mandate/) });
+        expect(t.broker.executed).toHaveLength(0);
     });
 
     it('the signal of a symbol with no data fails as an error, not as an invented answer', async () => {
         const t = setup({ script: [ask(ANALYST, 'x'), call('get_signal', { symbol: 'ZZZ' }), say('done'), say('finished')] });
         await t.run();
         expect(t.events().find(e => e.tool === 'get_signal')).toMatchObject({ decision: 'allow', outcome: 'error' });
+    });
+});
+
+// A cap that is not money (SPEC-0045): the mandate of the executor also caps the shares one order moves. The order of 150 shares costs 3,000 EUR, which is
+// inside the 5,000 EUR it may send alone: only the cap on shares is what stops it, and the framework knows nothing about shares.
+describe('a cap that is not money: the shares of an order', () => {
+    const manyShares = { symbol: 'CCC', side: 'buy', quantity: 150, amount: 3_000, currency: 'EUR' };
+    const fewShares = { symbol: 'CCC', side: 'buy', quantity: 60, amount: 1_200, currency: 'EUR' };
+
+    it('inside the cap on shares and on money it runs alone, under a mandate of the second profile', async () => {
+        const t = setup({ script: tradeScript(fewShares) });
+        await t.run();
+        expect(t.broker.executed).toEqual([fewShares]);
+        expect(t.order()).toMatchObject({ decision: 'allow', mandate: { subject: 'carlos', holderBinding: 'proven' } });
+    });
+
+    it('above the cap on shares, though inside the money, it asks a person, and the audit says which cap it went beyond', async () => {
+        const asked: ApprovalRequest[] = [];
+        const t = setup({ script: tradeScript(manyShares), approver: answerAs('ana', asked) });
+        await t.run();
+        expect(asked).toHaveLength(1);
+        expect(asked[0]!.reason).toMatch(/the shares 150 is above the 100/);
+        expect(t.broker.executed).toEqual([manyShares]);
+        expect(t.order()).toMatchObject({ decision: 'allow', approval: { by: { id: 'ana' }, authority: { matched: 'finance' } } });
+        expect(t.order()?.exceeded).toMatchObject({ agentIdentity: identityOf(EXECUTOR) });
+        expect(t.order()?.mandate).toBeUndefined();
+    });
+
+    it('the same approval rules apply: an intern does not approve it, and with nobody to answer it does not run', async () => {
+        const intern = setup({ script: tradeScript(manyShares), approver: answerAs('intern') });
+        await intern.run();
+        expect(intern.broker.executed).toHaveLength(0);
+        const nobodyAnswers = setup({ script: tradeScript(manyShares), audit: 'nobody.ndjson' });
+        await nobodyAnswers.run();
+        expect(nobodyAnswers.broker.executed).toHaveLength(0);
+    });
+
+    it('a mandate with no cap on shares lets the same order through alone: the cap is the mandate, not the code', async () => {
+        const t = setup({
+            script: tradeScript(manyShares),
+            mutate: (o, op) => { o.credentials[EXECUTOR] = op.credentialFor(EXECUTOR, { maxShares: 1_000 }); },
+        });
+        await t.run();
+        expect(t.broker.executed).toEqual([manyShares]);
     });
 });

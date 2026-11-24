@@ -92,14 +92,28 @@ export default defineConfig({
           label: 'Examples',
           items: [
             { slug: 'examples/overview' },
-            { slug: 'examples/starters' },
             {
-              label: 'Deep dives',
+              label: 'Start here',
+              items: [
+                { slug: 'examples/flows' },
+                { slug: 'examples/git-agent' },
+                { slug: 'examples/git-analyst' },
+                { slug: 'examples/vault-pilot' },
+              ],
+            },
+            {
+              label: 'Governance and autonomy',
+              items: [
+                { slug: 'examples/portfolio-advisor' },
+                { slug: 'examples/aval-scheduler' },
+              ],
+            },
+            {
+              label: 'Flows and teams',
               items: [
                 { slug: 'examples/research-desk' },
                 { slug: 'examples/release-captain' },
                 { slug: 'examples/audit-desk' },
-                { slug: 'examples/aval-scheduler' },
               ],
             },
           ],

@@ -1,57 +1,71 @@
 ---
 title: Examples
-description: Seven working agents chosen for what they teach, in the order to read them. All run on the current framework.
+description: Working agents grouped by what they teach, with the code that shows how each one works. All run on the current framework and have a check that does not trust a model.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Eight examples, chosen because each teaches one thing the others do not. All of them run on the current framework (**agent-core 0.48**), and each one has a script that checks it.
+Every example here runs on the current framework, shows **the code that makes it work** (not only how to start it) and has a way to check it **without trusting a model**. They are grouped by what they teach; inside each group, read them in order.
 
-## Read them in this order
+## Start here: small and offline
 
-Each step adds one idea to the previous one.
+Four small examples in the `examples/` folder of the monorepo. Each adds one idea to the previous one.
 
-| Step | Example | What it teaches | You need |
-|---|---|---|---|
-| 1 | [`flows`](../starters/#flows) | A process as data: a journal, an approval, a resume. No model, so you see the engine alone | Node |
-| 2 | [`git-agent`](../starters/#git-agent) | A real agent in a terminal: your own tools, a team with delegation, a read-only switch, a typed result, a budget | A model key |
-| 3 | [`git-analyst`](../starters/#git-analyst) | An agent **served over MCP** that other programs call | A model key |
-| 4 | [`vault-pilot`](../starters/#vault-pilot) | **Knowledge agents**: department agents answering from a shared vault, each limited to its own folders | A model key |
-| 5 | [`aval-scheduler`](../aval-scheduler/) | An **autonomous agent that spends money**: cron, webhook and an MCP data source, paying only through AVAL, and a test that proves it pays once | Node (a model key to run it for real) |
-| 6 | [`research-desk`](../research-desk/) | Several agents as a flow: parallel analysts, a decision, an approved action, **memory and learning** | A model key |
-| 7 | [`release-captain`](../release-captain/) | A **model that supervises flows**: several at once, and it cannot approve its own report | A model key |
-| 8 | [`audit-desk`](../audit-desk/) | Flows **across processes** against a real Redis, surviving a hard kill | Docker (for the Redis part) |
+| Example | What it teaches | You need |
+|---|---|---|
+| [`flows`](../flows/) | A process as data: a journal, an approval, a resume. No model, so you see the engine alone | Node |
+| [`git-agent`](../git-agent/) | A real agent in a terminal: your own safe tools, a team with delegation, a read-only switch, a typed result, a budget | A model key (the checks need none) |
+| [`git-analyst`](../git-analyst/) | An agent **served over MCP** that other programs call | A model key |
+| [`vault-pilot`](../vault-pilot/) | **Knowledge agents**: department agents answering from a shared vault, each limited to its own folders | A model key (the checks need none) |
 
-Steps 1 to 5 are [starter examples](../starters/): small, in the monorepo. Steps 6 to 8 are the deep dives: larger programs, in the `agent-framework-examples` repository.
+## Governance and autonomy: agents that act on real things
+
+The two examples where an agent can **spend or move something that cannot be undone**, and the framework is what keeps it inside its limits.
+
+| Example | What it teaches | You need |
+|---|---|---|
+| [`portfolio-advisor`](../portfolio-advisor/) | The reference: identity, a **signed power** with limits, approval by role and four eyes, a signed audit, a durable flow, MCP, the agent protocol and evaluations, all from the framework | Node |
+| [`aval-scheduler`](../aval-scheduler/) | An **autonomous agent that pays**: cron, webhook and an MCP data source, paying only through AVAL, and a test that proves it pays once | Node (a model key to run it for real) |
+
+## Flows and teams: the deep dives
+
+Larger programs, in the `agent-framework-examples` repository. Each one found real problems in the framework, and they were fixed there.
+
+| Example | What it teaches | You need |
+|---|---|---|
+| [`research-desk`](../research-desk/) | Several agents as a flow: parallel analysts, a decision, an approved action, **memory and learning** | A model key |
+| [`release-captain`](../release-captain/) | A **model that supervises flows**: several at once, and it cannot approve its own report | A model key |
+| [`audit-desk`](../audit-desk/) | Flows **across processes** against a real Redis, surviving a hard kill | Docker (for the Redis part) |
 
 ## What to read for what
 
 | I want to learn | Read |
 |---|---|
 | Tools and the engine | `git-agent` |
-| Serving an agent to others | `git-analyst` |
+| Serving an agent to others | `git-analyst`, then `portfolio-advisor` (the agent protocol) |
 | Agents over your own documents | `vault-pilot` |
-| An autonomous agent that pays, tested end to end | `aval-scheduler` |
+| An agent that may act alone, within limits | `portfolio-advisor`, then `aval-scheduler` |
+| Who approves what: roles and four eyes | `portfolio-advisor`, then [Govern a payment tool](../../guides/govern-a-payment-tool/) |
 | Durable flows | `flows`, then `audit-desk` |
-| Governance and approvals | [Govern a payment tool](../../guides/govern-a-payment-tool/), then `release-captain` |
 | Memory and learning | `research-desk` |
 | A model supervising work | `release-captain` |
-| Testing | [Test an agent](../../guides/test-an-agent/), and the `smoke` script of each example |
+| Testing without a model | [Test an agent](../../guides/test-an-agent/), and the checks of each example |
 
 ## What they have in common
 
-Every example has a way to check it **without trusting a model**: `git-agent` has 8 offline checks, the deep dives have offline suites (deterministic, or with a scripted model), and the ones that use a real model have a capped live script. That is the pattern to copy in your own agents.
+Every example has a check that does not need a model: `git-agent` has 8 offline checks, `vault-pilot` 7, `portfolio-advisor` 60 tests, `aval-scheduler` an end-to-end test with a scripted model, and the deep dives have offline suites. The monorepo's CI **installs each small example from its lockfile and runs it** on every pull request, so an example that stops matching the published packages fails there. That is the pattern to copy in your own agents.
 
-<Aside type="note" title="Why only these seven">
-There are more programs in the repositories, but an example is listed here only if it runs on the current framework and teaches something the others do not. When a new one qualifies, it joins the list.
+<Aside type="note" title="Why only these">
+There are more programs in the repositories, but an example is listed here only if it runs on the current framework and teaches something the others do not. `mandate-agent` (an adapter for an identity provider's credential, over an assumed format) is in the repository too, and waits for that provider's real format before it is written up.
 </Aside>
 
 ## How the deep dives improved the framework
 
-Writing a real program is the best test of a library. The three deep dives found real problems, and each was **fixed in the framework**, not worked around in the example:
+Writing a real program is the best test of a library. The examples found real problems, and each was **fixed in the framework**, not worked around in the example:
 
-- the desk showed a flow claim that was not renewed on a long run, and no way to skip a step conditionally (`when`);
+- the research desk showed a flow claim that was not renewed on a long run, and no way to skip a step conditionally (`when`);
 - the audit desk showed a queue that could lose the completion of an instant step, and a file journal that failed under a wide fan-out;
-- the release captain showed that a hosted flow with a human gate ended `failed` instead of waiting, and that a supervising model had no way to wait without polling (`flow_wait`).
+- the release captain showed that a hosted flow with a human gate ended `failed` instead of waiting, and that a supervising model had no way to wait without polling (`flow_wait`);
+- the portfolio advisor showed that the record of an approval had no reason, that flows and the tool server did not enforce roles and four eyes the way the engine did, and that a mandate was asked for even to read.
 
 If you build something with the framework and hit a wall, that is useful: the answer is usually a change in the framework, not a trick in your code.

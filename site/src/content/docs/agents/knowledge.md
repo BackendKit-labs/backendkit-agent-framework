@@ -95,6 +95,6 @@ The pieces compose into a service: `createEnterpriseSetup` for the agents and th
 
 The `enterprise` architecture of `create-bk-agent` scaffolds it with a local LLM and a vault.
 
-**Try it:** the [`vault-pilot` example](../../examples/starters/#vault-pilot) runs these agents over a sample vault, with offline checks of what each department can see.
+**Try it:** the [`vault-pilot` example](../../examples/vault-pilot/) runs these agents over a sample vault, with offline checks of what each department can see.
 
 Reference: the [`agent-enterprise` page](../../packages/enterprise/).

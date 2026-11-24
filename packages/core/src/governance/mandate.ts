@@ -11,7 +11,7 @@
  * of that person; that the person is who they claim to be is for whoever issued the credential.
  */
 import { createHash } from 'node:crypto';
-import type { AuditMandate, PolicyDecision, Principal, ToolCall, ToolPolicy } from './types';
+import type { ApproverKind, AuditMandate, PolicyDecision, Principal, ToolCall, ToolPolicy } from './types';
 
 /** What an agent is empowered to do, in terms that do not depend on the format of the credential. */
 export interface Mandate {
@@ -76,6 +76,15 @@ export interface MandatePolicyOptions {
     resourceOf?: (args: Record<string, unknown>) => string | undefined;
     /** What happens to a call with a valid mandate that does not cover it. Default `ask` (a person decides). */
     outOfScope?: 'ask' | 'deny';
+    /**
+     * Who may decide what the mandate does not cover, when `outOfScope` asks (it has no effect with `'deny'`). Without it ANY person may, except the one who
+     * asked when the engine runs with `forbidSelfApproval`: an order above the limit of a mandate could be approved by an intern.
+     * - `approverRoles`: the roles one of which the approver must hold. The engine checks them against its `approverDirectory`, never against what the
+     *   caller says; without a directory, or with a person nobody knows, the approval is not accepted. At least one role, and none of them empty.
+     * - `accepts`: the kinds of approver accepted. Default `['human']`.
+     * - `ttlSeconds`: how long the request stays valid.
+     */
+    outOfScopeApprover?: { approverRoles?: string[]; accepts?: ApproverKind[]; ttlSeconds?: number };
     /**
      * The identity provider of the engine. With it, a verifier can ask the agent to prove it holds the key a credential is tied to
      * (`request.prove`). Without it no proof can be made and a credential tied to a key is refused by the verifiers that require one.
@@ -159,6 +168,15 @@ export function mandateCovers(
  * with one that asks for what the mandate is meant to cover.
  */
 export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
+    const who = options.outOfScopeApprover;
+    if (who) {
+        // A rule about who approves that is wrong must not turn into "anyone" or "no one" without a word: it fails when the policy is built.
+        if (who.approverRoles !== undefined && (!Array.isArray(who.approverRoles) || who.approverRoles.length === 0 || who.approverRoles.some(r => typeof r !== 'string' || r.length === 0))) {
+            throw new Error('mandatePolicy: outOfScopeApprover.approverRoles has to be a list of at least one role, none of them empty');
+        }
+        if (who.accepts !== undefined && (!Array.isArray(who.accepts) || who.accepts.length === 0)) throw new Error('mandatePolicy: outOfScopeApprover.accepts has to name at least one kind of approver');
+        if (who.ttlSeconds !== undefined && !(Number.isFinite(who.ttlSeconds) && who.ttlSeconds > 0)) throw new Error('mandatePolicy: outOfScopeApprover.ttlSeconds has to be a positive number');
+    }
     return {
         async decide(principal: Principal, call: ToolCall): Promise<PolicyDecision> {
             let verdict: Awaited<ReturnType<MandateVerifier['verify']>>;
@@ -184,7 +202,11 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
             if (covered.ok) return { effect: 'allow', reason: `covered by mandate ${verdict.mandate.id}`, mandate: auditMandate(verdict.mandate) };
             return options.outOfScope === 'deny'
                 ? { effect: 'deny', reason: `outside the mandate: ${covered.reason}` }
-                : { effect: 'ask', reason: `outside the mandate: ${covered.reason}`, accepts: ['human'] };
+                : {
+                    effect: 'ask', reason: `outside the mandate: ${covered.reason}`, accepts: who?.accepts ? [...who.accepts] : ['human'],
+                    ...(who?.approverRoles ? { approverRoles: [...who.approverRoles] } : {}),
+                    ...(who?.ttlSeconds !== undefined ? { ttlSeconds: who.ttlSeconds } : {}),
+                };
         },
     };
 }

@@ -198,3 +198,60 @@ describe('a mandate for another agent identity is a refusal, not "out of scope" 
         expect(await p.decide({ ...principal, agentIdentity: { id: 'did:ex:buyer' } }, call(args))).toMatchObject({ effect: 'allow' });
     });
 });
+
+describe('who may decide what the mandate does not cover (outOfScopeApprover)', () => {
+    const args = { amount: 5000, currency: 'EUR' };   // above the 1000 of the mandate
+
+    describe('the ask it returns', () => {
+        it('by default asks any human, with no role: nothing changes for who does not configure it', async () => {
+            expect(await policy(mandate()).decide(principal, call(args))).toEqual({ effect: 'ask', reason: expect.stringContaining('outside the mandate'), accepts: ['human'] });
+        });
+        it('carries the roles, the kinds and the time limit that were configured', async () => {
+            const d = await policy(mandate(), { outOfScopeApprover: { approverRoles: ['finance'], accepts: ['human'], ttlSeconds: 600 } }).decide(principal, call(args));
+            expect(d).toMatchObject({ effect: 'ask', accepts: ['human'], approverRoles: ['finance'], ttlSeconds: 600 });
+        });
+        it('a mandate that covers the call is not asked: the roles are only for what is outside it', async () => {
+            expect(await policy(mandate(), { outOfScopeApprover: { approverRoles: ['finance'] } }).decide(principal, call({ amount: 5, currency: 'EUR' }))).toMatchObject({ effect: 'allow' });
+        });
+        it('with outOfScope deny it is a deny, whatever it says about approvers', async () => {
+            expect(await policy(mandate(), { outOfScope: 'deny', outOfScopeApprover: { approverRoles: ['finance'] } }).decide(principal, call(args))).toMatchObject({ effect: 'deny' });
+        });
+        it('a rule about who approves that is wrong fails when the policy is built, not "anyone" or "no one" at the first call', () => {
+            const build = (outOfScopeApprover: unknown) => () => policy(mandate(), { outOfScopeApprover });
+            expect(build({ approverRoles: [] })).toThrow(/at least one role/);
+            expect(build({ approverRoles: [''] })).toThrow(/none of them empty/);
+            expect(build({ approverRoles: 'finance' })).toThrow(/list/);
+            expect(build({ accepts: [] })).toThrow(/at least one kind/);
+            expect(build({ ttlSeconds: 0 })).toThrow(/positive/);
+            expect(build({ ttlSeconds: Number.NaN })).toThrow(/positive/);
+        });
+    });
+
+    describe('in the engine, with a directory of people and four eyes', () => {
+        const people: Record<string, { roles: string[] }> = { ana: { roles: ['finance'] }, carlos: { roles: ['finance'] }, intern: { roles: ['intern'] } };
+        const agent: AgentProfile = { ...testAgent, id: 'buyer', allowedTools: ['buy'], delegatesTo: [] };
+
+        async function bought(approverId: string, over: Record<string, unknown> = {}) {
+            const done: unknown[] = [];
+            const tool: ToolDefinition = { ...buy, execute: async (a) => { done.push(a); return 'bought'; } };
+            const { transport } = createMockTransport();
+            const engine = createBaseEngine({
+                requireAgentIdentity: false,
+                providers: { mock: createScriptedProvider([{ tool_calls: [{ id: 'c', name: 'buy', args }] }, { content: 'done' }]) }, defaultProvider: 'mock',
+                agents: [agent], defaultAgent: 'buyer', tools: [tool], transport, workingDir: process.cwd(), iterationMode: 'auto',
+                policy: policy(mandate(), { outOfScopeApprover: { approverRoles: ['finance'] } }), identity: { userId: 'carlos' },
+                approverDirectory: { describe: (by: { id: string }) => people[by.id] }, forbidSelfApproval: true,
+                approver: { ref: { kind: 'human', id: approverId }, request: async () => ({ decision: 'approve', by: { kind: 'human', id: approverId }, at: new Date().toISOString() }) },
+                ...over,
+            } as never);
+            await engine.run('buy a tv');
+            return done;
+        }
+
+        it('a person with the role approves and the order runs', async () => expect(await bought('ana')).toHaveLength(1));
+        it('a person without the role does not, even though they are a person and not the requester', async () => expect(await bought('intern')).toHaveLength(0));
+        it('the requester does not, even with the role (four eyes)', async () => expect(await bought('carlos')).toHaveLength(0));
+        it('a person the directory does not know does not', async () => expect(await bought('stranger')).toHaveLength(0));
+        it('with no directory nobody can: roles that cannot be checked are not roles', async () => expect(await bought('ana', { approverDirectory: undefined })).toHaveLength(0));
+    });
+});

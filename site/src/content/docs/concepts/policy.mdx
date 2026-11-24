@@ -1,0 +1,63 @@
+---
+title: Policy
+description: The rule that decides, for every tool call and outside the model, whether it runs, asks a person or is refused - in plain words.
+---
+
+## What it is
+
+A **policy** is a function that sees each tool call before it runs and answers one of three things: **allow**, **ask** (a person has to approve first) or **deny**.
+
+## Why you need it on top of what you already have
+
+You could write the rule in the prompt: "never pay more than 10,000 without asking". A model can be talked out of it, can misread it, can forget it after a long conversation. A rule in the prompt is a request; a rule in a policy is a lock.
+
+The policy sits **outside the model**, between what the model asks for and what actually runs. The model proposes `pay_invoice(amount: 25000)`; the policy sees the real arguments, and the call either runs or does not, whatever the model says or is told. It also sees **who** is asking (agent, delegation chain, person), so the same tool can be allowed for one agent and refused for another.
+
+## How it works here
+
+1. The model asks for a tool call.
+2. The engine builds the **principal** (the agent and its identity, the chain of delegation, the tenant, the user) and the **call** (the tool, with what it declares about itself, and the arguments).
+3. Your policy's `decide(principal, call)` returns an effect:
+
+| Effect | Meaning |
+|---|---|
+| `allow` | Run it. It can carry a mode: `dry_run` (the tool simulates and writes nothing) or `sandboxed`. |
+| `ask` | Someone has to approve first. It can say who may: a kind (`accepts: ['human']`) and a role (`approverRoles: ['finance']`). |
+| `deny` | Do not run it. The model is told why. |
+
+4. Several policies **combine**: deny beats ask beats allow. A policy that throws **denies**.
+
+```ts
+const rules: ToolPolicy = {
+  decide(principal, call) {
+    if (call.tool.name === 'pay_invoice' && (call.args.amount as number) > 10_000) {
+      return { effect: 'ask', reason: 'payment above 10k', accepts: ['human'], approverRoles: ['finance'] };
+    }
+    return { effect: 'allow' };
+  },
+};
+```
+
+## Where it applies
+
+On every way a tool can run: the engine, a stored approval run later (`runApproved`, checked again with the policy of that moment), a flow step, and tools served directly (`createToolServer` takes the same `ToolPolicy`).
+
+## Details that matter
+
+- **What a tool declares counts.** `readOnly` and `destructive` are facts the tool states about itself, and policies read them. A tool that declares nothing is treated as "not known to be safe".
+- **The default.** With no policy of your own but with someone to ask: read-only tools run, destructive tools ask a person, anything that declares nothing asks.
+- **A mandate is a policy.** `mandatePolicy(...)` plugs into the same slot and combines with yours (see [Mandates](/concepts/mandates/)).
+- **Every decision is audited**, allowed or not, with the reason.
+- **Why an `ask` can still end in no.** The approval is checked before it counts (see [Approval](/concepts/approval/)).
+
+## What it does not do
+
+- It does **not** make the tool safe inside: a tool that does the wrong thing when allowed still does it. The policy decides whether it runs, not what it does.
+- It does **not** verify arguments semantically (that an IBAN is the company's). It sees them; your rule has to know what to look for.
+- It does **not** keep state: "no more than 10 refunds today" needs a counter of yours.
+
+## In one line
+
+A policy is **the lock between what the model asks and what runs**: it sees the real call and the real caller, and answers allow, ask or deny.
+
+Options and examples: [Governance reference](/concepts/governance/#the-decision-for-every-call). Build one: [govern a payment tool](/guides/govern-a-payment-tool/).

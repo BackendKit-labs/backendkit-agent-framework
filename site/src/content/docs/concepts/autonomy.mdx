@@ -1,0 +1,52 @@
+---
+title: How much autonomy
+description: From asking a person for everything to acting alone - the steps in between, what stays on at every step, and what changes when you give an agent total autonomy.
+---
+
+## What it is
+
+**Autonomy** is how much an agent may do **without a person in the loop**. The framework does not have one switch for it: it is the combination of the [policy](/concepts/policy/), the [mandate](/concepts/mandates/) and who answers an [approval](/concepts/approval/). You move along the scale by changing those, never by turning off the controls around them.
+
+## Why you need to think about it separately
+
+"Autonomous or not" is the wrong question. A support agent may answer tickets alone, refund up to 50 EUR alone and ask for anything above. A trading agent may read alone, plan alone and ask for every order. Each tool, each limit and each kind of risk can sit at a different step. Treating it as one setting either makes the agent useless (asks all the time) or dangerous (asks never).
+
+## The steps
+
+| Step | What the agent does alone | What asks a person | You get it with |
+|---|---|---|---|
+| **1. Ask for everything** | nothing that is not read-only | every action | no policy of your own and an approver: reads run; destructive and unknown tools ask |
+| **2. Reads alone** | reads, planning, handing work over | every action that changes something | a policy that allows `readOnly`, asks the rest |
+| **3. Critical things inside a mandate** | the critical actions **inside the signed limits**, and everything non-critical | what goes beyond the limits | `mandatePolicy({ appliesTo, outOfScope: 'ask' })` |
+| **4. A wide mandate** | the same, with limits large enough that the exceptions are rare | only the extreme | the same, with bigger `limits` |
+| **5. Total autonomy** | everything | nothing | a policy that allows every call |
+
+Most useful agents live at step 2 or 3. Step 5 exists because sometimes it is the right answer (a sandbox, a batch job on disposable data, a test).
+
+## What stays on at every step, including the last
+
+Total autonomy removes the **questions**, not the **record or the identity**:
+
+- **The agent still needs an identity and a person to act for** (`requireAgentIdentity` is on by default). Without them nothing runs, even with `allow` everywhere.
+- **Every call is still audited**, with who, for whom and why it was allowed. Autonomy without an audit is not autonomy, it is a blind spot.
+- **A tool that declares `alwaysAsk` still asks** (the engine keeps the tool's own checks when you add a policy).
+- **Credentials are still leased per call**, after authorization, if the tool declares them.
+- **Budgets, timeouts and the guardrails of the engine are still in force**: they are not approvals.
+
+## What changes when you give total autonomy
+
+1. **Nobody stops the call before it runs.** The only thing left between a wrong decision of the model and its effect is the tool itself. Choose tools that cannot do what you cannot undo, or give the agent copies of the data.
+2. **The audit becomes the control.** You find out afterwards. Anchor it (see [Audit](/concepts/audit/)) and watch it.
+3. **The mandate has no work.** With nothing to ask, the signed power adds nothing, so total autonomy and mandates are different choices: with a mandate you have already chosen step 3 or 4.
+
+## What it does not do
+
+- Autonomy is **not** an identity: an agent that may do everything still needs to say who it is.
+- It is **not** a promise about the model: it only decides what happens when the model asks.
+- A higher step **never** hides a call from the audit.
+
+## In one line
+
+Autonomy is **how many calls skip the question**; the identity, the audit and the tool's own checks stay on at every step.
+
+See it working end to end: the [portfolio advisor example](https://github.com/BackendKit-labs/backendkit-agent-framework/tree/master/examples/portfolio-advisor) reads and plans alone (step 2), sends small orders alone inside a mandate (step 3) and asks a person of finance above it.

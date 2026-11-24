@@ -1,0 +1,55 @@
+---
+title: Audit
+description: The record of every tool call, accepted or refused, and how far a third party can trust it - in plain words.
+---
+
+## What it is
+
+Every tool call, **accepted or refused**, writes one **audit event**: who acted, for whom, which tool, a hash of the arguments, what was decided and why, and how it ended.
+
+## Why you need it on top of what you already have
+
+A log answers "what happened?". An **audit** answers "what happened, and can I rely on this record?". Those are not the same. A plain log can be edited by whoever has access to the file; if the question comes from an auditor, a customer or a regulator, "trust our log" is not an answer.
+
+The audit also records what a log usually forgets: the calls that did **not** run, and **under which authority** each one did. "The order was sent" matters less than "the order was sent under the mandate of the finance department, for Carlos" or "it went beyond the mandate and Ana, of finance, took the responsibility, because the client asked".
+
+## How it works here
+
+1. After each decision and each execution the engine writes an event to the **audit sink** you configured.
+2. **The arguments are stored as a hash** (SHA-256), never as values, so the log holds no sensitive data. The same hash is what a credential broker and an approval see, so the three can be matched.
+3. **What an event says about authority:**
+   - a call a mandate covered carries `mandate` (who issued it, for whom, the hash of the credential);
+   - a call that needed a person carries `approval` (who, with which role, and the reason they gave) and `reason` (why they were asked);
+   - a call that went beyond a mandate carries `exceeded` with that mandate, **never** `mandate`: the mandate did not cover it. A reader can tell an agent that acted inside its power from a person who took the responsibility of going past it.
+4. There are **levels of trust** in the record, and each one stops a different attacker:
+
+| You use | It protects against | It does not stop |
+|---|---|---|
+| `NdjsonAuditSink` (a file of lines) | nothing: it is a log | anyone with the file |
+| `HashChainAuditSink` | editing or removing a line in the middle (each entry hashes the previous one) | someone who rewrites the whole file recomputing every hash |
+| + **signed events** (the agent's identity signs each one) | rewriting events: the signature covers the content | whoever holds the key |
+| + **signed checkpoints** and an **export** | a third party checks it offline with only your public key | cutting off the entries after the last checkpoint |
+| + an **anchor** outside the operator's reach | even whoever holds the key and rewrote everything | what happened after the last anchor |
+
+## Where it applies
+
+On every way of running a tool: the engine, a flow step, a tool served directly, a capability served over the protocol. A tool served directly writes the same event with the same fields.
+
+## Details that matter
+
+- **What counts is where the anchor lives, not this code.** A file the operator can edit anchors nothing: it is a record.
+- **Each entry is flushed to disk before the call returns**, so a machine crash does not lose what was recorded. `fsync: false` trades that for throughput; keep it on for anything that answers to an auditor.
+- **A refused call is evidence too.** A denied call, an expired approval and a credential refusal are all events.
+- **The auditor needs your public keys separately.** The keys inside the bundle show consistency, not who owns them.
+
+## What it does not do
+
+- It is **tamper-evident**, not tamper-proof: it makes changes detectable. It is not a legal guarantee, and no standard is claimed to be met.
+- It does **not** store arguments or results: only the hash. If you must keep them, that is another store of yours, kept as sensitive data.
+- It does **not** explain the model's reasoning; it records the tool calls.
+
+## In one line
+
+The audit is **the evidence of what ran, under which authority**; how far a stranger can trust it depends on how many of the levels above you turn on.
+
+Options and code: [Governance reference](/concepts/governance/#audit).

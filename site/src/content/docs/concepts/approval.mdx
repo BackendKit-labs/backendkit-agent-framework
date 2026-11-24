@@ -1,0 +1,54 @@
+---
+title: Approval, roles and four eyes
+description: "What happens when a policy says ask: who may answer, why the person who asked cannot, and what to do when nobody can answer now."
+---
+
+## What it is
+
+When a policy answers **ask**, a person (or another agent) has to **approve** before the call runs. The framework checks that approval **before it counts**: who answered, with what authority, and that it is not the same person who asked.
+
+## Why you need it on top of what you already have
+
+"A human approved it" is not enough. Imagine the payment of 25,000 EUR: **any** person who clicks "approve" would satisfy a bare check, including the intern. So there are two more questions:
+
+1. **May this person approve this?** A **role** answers: payments over 10k are approved by someone in finance, not by whoever is online.
+2. **Is it theirs to approve?** The **four eyes** answer: if Carlos asked for the payment and Carlos is in finance, his role says he *can* approve, but he should not approve his own request.
+
+The role says who is *able*; four eyes say whether it is *theirs to decide*. Neither replaces the other.
+
+## How it works here
+
+1. The policy returns `ask`, optionally with `accepts: ['human']` (the kind) and `approverRoles: ['finance']` (the role).
+2. An **approver** answers: a person at a terminal, another agent, a UI, a service.
+3. The engine checks the answer, in this order:
+   - the **kind** is one the ask accepts (an agent cannot satisfy `accepts: ['human']`);
+   - **nobody approves a request of their own delegation chain**;
+   - with **`forbidSelfApproval: true`**, the person the agent acts for (`identity.userId`) does not approve it either;
+   - the approver holds **at least one** of the roles. Roles are not taken from what the caller says: the engine asks **your** user system through an `approverDirectory`;
+   - an agent only approves what it could do itself.
+4. Only then does the call run. The audit event records who approved, **with which role** (`approval.authority`) and **the reason they gave** (`approval.reason`), next to why they were asked (`reason`).
+
+## Where it applies: the same rule on every way of approving
+
+One function (`checkApproval`) enforces roles and four eyes for: the engine (an approver in process, or a stored approval run later), a **flow** (`approvals: { ... }`), the **handler** a supervisor decides through (`createApprovalHandler`) and the **direct tool server**. A way of approving that skipped it would be the way around it, so there is none.
+
+## Details that matter
+
+- **Fail closed.** No directory, an id the directory does not know, a directory that throws, an approver of another tenant, no role in common: the approval is refused and the call does not run. Roles that cannot be checked are not roles.
+- **Four eyes needs to know who asked.** In the engine, `identity.userId` is already required. A flow, a handler or a tool server **refuse** four eyes when the request does not say who asked, instead of running with a rule that does nothing.
+- **When nobody can answer now**, give the engine an **approval store**: the ask is saved as pending, the call does not run, and whoever decides later (a UI, a CLI, another process) resolves it; then it runs **once**. Every check is repeated at that moment, with the policy and the directory of that moment.
+- **Approvals expire** when you say so (`approvalTtlSeconds`, or `ttlSeconds` in the ask). Without it, a Monday approval still authorizes the payment on Friday.
+- **An approver that never answers** can hold the queue: set `approverTimeoutMs` for approvers that should answer quickly, and use stored approvals for people who may take hours.
+- **What the person sees matters.** Show the arguments, or at least the fields the decision depends on.
+
+## What it does not do
+
+- It does **not** authenticate anyone. `by.id` must come from something your application verified; the directory says what a verified person may do, never whether the id is who it claims.
+- It does **not** prevent collusion: two people who agree to approve each other's requests satisfy four eyes.
+- It does **not** replace the role: four eyes without roles lets any other person approve.
+
+## In one line
+
+An approval counts only if it comes from **someone able** (the role) **who is not the one who asked** (four eyes), and nobody can skip that check by choosing another way to approve.
+
+Setup and options: [Governance reference](/concepts/governance/#who-answers-an-ask). Build a durable flow with approval: [guide](/guides/durable-flow-with-approval/).

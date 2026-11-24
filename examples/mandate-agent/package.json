@@ -10,8 +10,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.49.1",
-    "@backendkit-labs/agent-mandates": "^0.1.2",
+    "@backendkit-labs/agent-core": "^0.49.6",
+    "@backendkit-labs/agent-mandates": "^0.1.3",
     "zod": "^4.6.6"
   },
   "devDependencies": {

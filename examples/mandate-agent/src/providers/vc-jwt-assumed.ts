@@ -12,7 +12,7 @@
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
 import { CAPABILITY_META_KEY } from '../capability';
-import type { IdentityMandate, IdentityRequest, Represented } from '../identity/prototype';
+import type { IdentityMandate, Represented } from '../identity/prototype';
 import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from '@backendkit-labs/agent-mandates';
 import type { KeyObject } from 'node:crypto';
 
@@ -65,7 +65,7 @@ export function vcJwtMandateVerifier(options: VcJwtAdapterOptions): MandateVerif
             if (!isObject(subject)) return deny('the credential has no credentialSubject');
 
             // The agent's identity comes from the ENGINE; the credential's own claim is only compared.
-            const identity = (request as IdentityRequest).principal.agentIdentity;
+            const identity = request.principal.agentIdentity;
             if (!identity) return deny('the engine gives this agent no digital identity, so the credential cannot be matched to it');
             if (subject.id !== identity.id) return deny('the credential was issued to another agent identity');
 

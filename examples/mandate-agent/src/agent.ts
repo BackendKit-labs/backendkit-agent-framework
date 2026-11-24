@@ -33,9 +33,10 @@ export interface BuyerAgentOptions {
     /** Turns the credential this agent holds into a verified `Mandate`. From any identity provider, or several behind a router. */
     verifier: MandateVerifier;
     /**
-     * What is still a prototype of SPEC-0044 (`identity/`): the binding of a mandate to the identity of the agent, the proof of possession and the
-     * signature of every audit event. The identity itself is native: the layer hands its provider to the engine's `agentIdentity` option. Without a
-     * layer the agent still has an identity (self-asserted, marked as such in the audit) and its calls are neither bound nor signed.
+     * The identity of the agent (SPEC-0044). The identity, the signature of every audit event, the binding of a mandate to it and the proof of
+     * possession are native in `agent-core`: the layer hands its provider to the engine (`agentIdentity`) and to the policy (`mandatePolicy({ agentIdentity })`,
+     * which signs the proof). What the layer still adds is who the agent represents in the audit (`identity/`). Without a layer the agent still has an
+     * identity (self-asserted, marked as such in the audit), its calls are not signed, and a credential tied to a key is refused: nothing can prove it.
      */
     agentIdentity?: IdentityLayer;
     /** Who answers when the mandate does not cover a call. Default: nobody (rejects everything). */
@@ -109,7 +110,7 @@ export function buildBuyerAgent(options: BuyerAgentOptions) {
         request: async (req) => { approvals.push(req); return approver.request(req); },
     };
 
-    const governed = mandatePolicy({ verifier: options.agentIdentity ? options.agentIdentity.verifier(options.verifier) : options.verifier, amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
+    const governed = mandatePolicy({ verifier: options.agentIdentity ? options.agentIdentity.verifier(options.verifier) : options.verifier, ...(options.agentIdentity ? { agentIdentity: options.agentIdentity.provider } : {}), amountOf, resourceOf: objectOf, outOfScope: 'ask', ...(options.now ? { now: options.now } : {}) });
     // Looking something up changes nothing and is not something a person empowers: only what acts needs a mandate. The framework's own
     // rule for read-only tools decides those. `defaultToolPolicy` cannot be listed next to `mandatePolicy` (it asks for every destructive
     // tool, and an `ask` beats an `allow`, which would cancel the mandate), so the split is by the tool's declared `readOnly`.

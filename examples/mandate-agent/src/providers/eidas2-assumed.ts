@@ -43,7 +43,7 @@ import { createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
 import { kbSigningInput, resolveDisclosures, splitSdJwt, verifyKbJwt } from '@backendkit-labs/agent-mandates';
 import { parseJws, verifyJws, ALGORITHMS, type JwsAlgorithm, type KeyInput } from '@backendkit-labs/agent-mandates';
 import type { MandateRequest, MandateVerification, MandateVerifier } from '@backendkit-labs/agent-core';
-import type { IdentityMandate, IdentityRequest, Represented } from '../identity/prototype';
+import type { IdentityMandate, Represented } from '../identity/prototype';
 import { checkAssurance, checkConsent, checkPowers, consentMessage, selectPower } from '@backendkit-labs/agent-mandates';
 import { CAPABILITY_META_KEY } from '../capability';
 
@@ -140,7 +140,7 @@ export function eidas2MandateVerifier(options: Eidas2AdapterOptions): MandateVer
             if (claims.vct !== EIDAS2_ASSUMED_VCT) return deny(`the credential is not a "${EIDAS2_ASSUMED_VCT}" credential`);
             // The identity of the agent comes from the ENGINE (its identity provider), never from this credential: the credential is presented by
             // the agent, so what it says about who the agent is can only be COMPARED with what the provider says.
-            const identity = (request as IdentityRequest).principal.agentIdentity;
+            const identity = request.principal.agentIdentity;
             if (!identity) return deny('the engine gives this agent no digital identity, so the credential cannot be matched to it');
             if (claims.sub !== identity.id) return deny('the credential was issued to another agent identity');
 
@@ -210,7 +210,7 @@ export function eidas2MandateVerifier(options: Eidas2AdapterOptions): MandateVer
             let holderBinding: 'proven' | 'none' = 'none';
             const cnf = payload.cnf as { kid?: unknown; jwk?: unknown } | undefined;
             if (cnf !== undefined) {
-                const prove = (request as IdentityRequest).prove;
+                const prove = request.prove;
                 if (!prove) return deny('the credential is tied to a key and the engine offers no proof of possession');
                 let key;
                 try { key = createPublicKey({ key: cnf.jwk as never, format: 'jwk' }); } catch { return deny('the key the credential is tied to is not readable'); }
@@ -234,7 +234,7 @@ export function eidas2MandateVerifier(options: Eidas2AdapterOptions): MandateVer
                 subject: userId,   // the application's id for the person: what the framework compares with `principal.userId`
                 agent: request.principal.agentId,
                 represents: { id: rep.id, kind: rep.kind, ...(typeof rep.assurance === 'string' ? { assurance: rep.assurance } : {}), consent } as Represented,
-                agentIdentity: claims.sub as string,   // what the CREDENTIAL says; the layer compares it with what the provider says
+                agentIdentity: claims.sub as string,   // what the CREDENTIAL says; `mandateCovers` (core) compares it with what the provider says
                 holderBinding,
                 actions: power ? [tool] : [],
                 ...(power?.object !== undefined ? { resources: [power.object] } : {}),

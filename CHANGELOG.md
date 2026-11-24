@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.50.9 (2026-11-23)
+
+**Una orden fuera del apoderamiento puede exigir un rol de quien la aprueba.** El `ask` de `mandatePolicy` para lo que el apoderamiento no cubre no llevaba `approverRoles`, así que el motor aceptaba a **cualquier persona que no fuera quien la pidió**: un becario podía aprobar una orden por encima del límite. Lo encontró el ejemplo `portfolio-advisor` (con una prueba que lo demostraba).
+
+- **`outOfScopeApprover` (agent-core 0.49.7):** `mandatePolicy({ outOfScopeApprover: { approverRoles, accepts, ttlSeconds } })` copia esos campos al `ask`. El motor comprueba los roles en el `approverDirectory`, nunca en lo que diga quien llama; sin directorio, o con una persona que nadie conoce, no se acepta la aprobación. Sin la opción nada cambia. Una regla mal escrita (sin roles, un rol vacío, un tiempo no positivo) falla al construir la política, no se convierte en «cualquiera» ni en «nadie» en silencio. Con `outOfScope: 'deny'` no tiene efecto.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.7 | `outOfScopeApprover` en `mandatePolicy` |
+
+Se publica uno. Tag: `agent-core@0.49.7`.
+
 ## v0.50.8 (2026-11-23)
 
 **Un apoderamiento atado a otra identidad de agente se deniega; ya no «pide a una persona».** En 0.49.5, `mandatePolicy` trataba un apoderamiento que nombra otra identidad como «fuera de alcance», y el valor por defecto de «fuera de alcance» es pedir aprobación: una persona podía aprobar con un apoderamiento que no era de ese agente. Ahora es un rechazo (`no valid mandate: the mandate is bound to another agent identity`), igual que sin credencial. Lo encontró la refactorización del ejemplo `mandate-agent` al pasar a lo nativo.

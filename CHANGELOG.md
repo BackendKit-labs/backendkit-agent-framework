@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.50.17 (2026-11-24)
+
+**`FileApprovalStore.list` da siempre el mismo orden.** Ordenaba por `createdAt` (precisión de milisegundo) y, ante un empate, el orden lo daba `readdir`, que no tiene ninguno propio: dos solicitudes creadas en el mismo milisegundo salían en un orden que dependía del sistema de ficheros. Quien tomaba «la última de la lista» como «la que acabo de crear» leía a veces la otra. Lo notamos por una prueba intermitente del CI (`approval-expiry`).
+
+- **Desempate por `id`:** más antigua primero, y a igual `createdAt` por `id`. El orden es el mismo en cada llamada y en cualquier sistema de ficheros.
+- **Documentado en el contrato** (`ApprovalStore.list`): el orden entre solicitudes del mismo milisegundo es estable pero **no cronológico**; para saber cuál has creado, compara los `id` que ya conocías. `MemoryApprovalStore` ya devolvía el orden de inserción.
+- Una prueba nueva fuerza el empate y un `readdir` al revés, y una mutación (quitar el desempate) la rompe.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.12 | `FileApprovalStore.list` con orden estable |
+
+Se publica uno. Tag: `agent-core@0.49.12`.
+
 ## v0.50.16 (2026-11-24)
 
 **`AgentClient` puede llevar el token personal que lee la puerta del servidor.** Hallazgo del ejemplo `portfolio-advisor`: `capabilityIdentityGate` dice que la persona de una ejecución debe salir de algo que el servidor verificó (un token), y el servidor lee cualquier cabecera, pero el cliente solo sabía enviar `apiKey` y `tenantId`: no había forma de mandar ese token con el cliente del propio paquete.

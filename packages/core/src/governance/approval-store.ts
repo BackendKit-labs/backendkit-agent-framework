@@ -73,7 +73,9 @@ export class FileApprovalStore implements ApprovalStore {
             if (filter.agentId && item.principal.agentId !== filter.agentId) continue;
             out.push(item);
         }
-        return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        // Oldest first. `createdAt` has millisecond precision, so two requests made in the same millisecond tie: the id breaks the tie, so the order
+        // is the same on every call and on every file system (`readdir` gives no order of its own).
+        return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
     }
 
     // ── internals ────────────────────────────────────────────────────────────

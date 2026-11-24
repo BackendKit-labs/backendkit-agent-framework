@@ -45,6 +45,10 @@ export function createAdvisor(options: AdvisorOptions) {
             trustedIssuers: options.trustedIssuers,
             credentialFor: (request) => options.credentials[request.principal.agentId],
         }),
+        // The mandate is for what is critical: an order. Reading, planning and delegating are decided by the framework's own policy (a read runs).
+        appliesTo: (tool) => tool.destructive === true,
+        // A cap that is not money: how many shares an order moves, read from the call.
+        measureOf: { shares: (args) => (typeof args.quantity === 'number' ? { value: args.quantity, unit: 'shares' } : undefined) },
         // What an order spends is read from its arguments. A tool that does not say it spends nothing is never limited by the amount.
         amountOf: (args) => (typeof args.amount === 'number' ? { value: args.amount, currency: typeof args.currency === 'string' ? args.currency : CURRENCY } : undefined),
         agentIdentity: options.identities,

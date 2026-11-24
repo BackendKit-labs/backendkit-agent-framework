@@ -91,6 +91,7 @@ export class IdentityResolver {
     private readonly cacheMs: number;
     private readonly cache = new Map<string, { at: number; answer: { identity?: AgentIdentity; error?: string } }>();
     private readonly warned = new Set<string>();
+    private warnedSelfAsserted = false;
 
     constructor(private readonly options: IdentityResolverOptions) {
         this.require = options.require ?? true;
@@ -157,6 +158,16 @@ export class IdentityResolver {
     /** True when the provider can sign. */
     get canSign(): boolean { return typeof this.options.provider?.sign === 'function'; }
 
+    /**
+     * An identity nobody vouches for works, and the audit says so (`assurance: 'self-asserted'`), but whoever starts the agent should hear it too: once per
+     * resolver (an engine, a server), not per call and not per agent. Silent under a test runner (`NODE_ENV=test`), where it would be noise on every run.
+     */
+    private warnIfSelfAsserted(agentId: string, identity: AgentIdentity): void {
+        if (this.warnedSelfAsserted || identity.assurance !== SELF_ASSERTED || process.env.NODE_ENV === 'test') return;
+        this.warnedSelfAsserted = true;
+        this.options.warn?.(`the agent "${agentId}" runs with a self-asserted identity (nobody vouches for who it is): enough to develop, not for a regulated environment or to prove to a third party who acted. Give it an identity provider to change that`);
+    }
+
     /** The identity of this agent, and whether the call may go on. */
     async check(agentId: string, context: AgentIdentityContext): Promise<IdentityCheck> {
         const { identity, error } = await this.ask(agentId, context);
@@ -166,6 +177,7 @@ export class IdentityResolver {
                 this.warned.add(agentId);
                 this.options.warn?.(`the agent "${agentId}" runs with no digital identity (requireAgentIdentity is off): not suitable for regulated environments`);
             }
+            if (identity) this.warnIfSelfAsserted(agentId, identity);
             return { ok: true, ...(identity ? { identity } : {}) };
         }
         if (!identity) {
@@ -179,6 +191,7 @@ export class IdentityResolver {
         if (!context.userId) {
             return { ok: false, reason: `the agent "${agentId}" does not say on whose behalf it acts: set \`identity.userId\`` };
         }
+        this.warnIfSelfAsserted(agentId, identity);
         return { ok: true, identity };
     }
 }

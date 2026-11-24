@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.50.15 (2026-11-24)
+
+**SPEC-0045 F2: las medidas viajan en una credencial.** El tipo `Mandate` ya sabía de `limits.measures` (0.49.11), pero ninguna credencial podía llevarlas: el verificador de referencia rechazaba lo que no conocía.
+
+- **Perfil `vct` 2 (agent-mandates 0.1.5):** `urn:backendkit:mandate:2` = el primero más `limits.measures` (`[{ name, max, unit? }]`). El verificador acepta **los dos perfiles por defecto** y lee las medidas solo bajo el segundo. Valida cada medida: nombre (`^[a-z][a-z0-9_]{0,31}$`, no `amount`, sin repetir), máximo (número, no negativo), unidad (texto no vacío) y rechaza cualquier clave que no conozca dentro de una medida.
+- **Una medida nunca se acepta y se descarta:** una credencial del perfil 1 con `measures` se **rechaza** (y el motivo dice que necesita el perfil 2); un verificador que solo conoce el perfil 1 **rechaza** una credencial del perfil 2 (ya comprueba el `vct`); y `issueMandate` emite el perfil 2 por sí solo si hay medidas, y **lanza** si se le pide el perfil 1 con medidas.
+- **Kit de adaptadores:** `Power.measures` se valida en `checkPowers` (la misma validación). Un adaptador que quiera usarlas las traduce; una restricción que no traduce se sigue rechazando.
+- **Ruptura de rango:** `agent-mandates` 0.1.5 exige `agent-core` >= 0.49.11 (antes >= 0.49.5). Con un core anterior las medidas se ignorarían al comprobar cada llamada, que es exactamente lo que este diseño no permite.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-mandates` | 0.1.5 | perfil `vct` 2 con `limits.measures`; depende de `agent-core` >= 0.49.11 |
+
+Se publica uno. Tag: `agent-mandates@0.1.5`.
+
 ## v0.50.14 (2026-11-24)
 
 **SPEC-0045 F1: el apoderamiento limita cualquier cantidad medible de una llamada crítica, y se exige solo a lo que el operador diga.** Hasta ahora el «hasta cuánto» de un apoderamiento solo sabía medir un importe con moneda, y `mandatePolicy` pedía apoderamiento a **toda** llamada (hasta a leer y a delegar).

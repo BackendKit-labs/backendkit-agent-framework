@@ -5,12 +5,15 @@
  */
 import { createHash, verify as edVerify, type KeyObject } from 'node:crypto';
 import { canonicalJson } from './canonical';
+import { readMeasures } from './verifier';
 
 /** A power in the neutral vocabulary: a verb, optionally an object, optionally an amount limit. */
 export interface Power {
     action: string;
     object?: string;
     max?: { value: number; currency: string };
+    /** Other caps per operation (SPEC-0045): the rows a call deletes, the recipients it writes to. The adapter that translates them opts in to this. */
+    measures?: Array<{ name: string; max: number; unit?: string }>;
 }
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -40,6 +43,10 @@ export function checkPowers(entries: Array<{ power: unknown; extraKeys: string[]
             const max = p.max as { value?: unknown; currency?: unknown };
             if (typeof max.value !== 'number' || !Number.isFinite(max.value) || max.value < 0) return { ok: false, reason: `the limit of "${p.action}" is not valid` };
             if (!nonEmpty(max.currency)) return { ok: false, reason: `the limit of "${p.action}" has no currency` };
+        }
+        if (p.measures !== undefined) {
+            const checked = readMeasures(p.measures);
+            if (typeof checked === 'string') return { ok: false, reason: `the measures of "${p.action}": ${checked}` };
         }
         powers.push(p as Power);
     }

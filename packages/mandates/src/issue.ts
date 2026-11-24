@@ -5,7 +5,7 @@
 import { createPublicKey, type KeyObject } from 'node:crypto';
 import type { Mandate } from '@backendkit-labs/agent-core';
 import { signJws, type JwsAlgorithm, type KeyInput } from './jws';
-import { MANDATE_VCT } from './verifier';
+import { MANDATE_VCT, MANDATE_VCT_V2 } from './verifier';
 
 export interface IssueMandateOptions {
     privateKey: KeyInput;
@@ -32,6 +32,10 @@ export interface IssueMandateOptions {
     notBefore?: number;
     /** Seconds since the epoch. Required: a mandate has an end. */
     expiresAt: number;
+    /**
+     * The credential type. Default: the first profile, or the second when the limits carry `measures` (they cannot travel in the first: a verifier
+     * that does not know them would drop them). Asking for the first profile with measures is an error.
+     */
     vct?: string;
 }
 
@@ -42,6 +46,8 @@ function publicJwk(key: KeyObject | string) {
 }
 
 export function issueMandate(o: IssueMandateOptions): string {
+    const hasMeasures = (o.limits?.measures?.length ?? 0) > 0;
+    if (hasMeasures && o.vct === MANDATE_VCT) throw new Error(`issueMandate: measures need the profile "${MANDATE_VCT_V2}"`);
     const payload: Record<string, unknown> = {
         iss: o.issuer,
         sub: o.subject,
@@ -50,7 +56,7 @@ export function issueMandate(o: IssueMandateOptions): string {
         nbf: o.notBefore ?? Math.floor(Date.now() / 1000),
         exp: o.expiresAt,
         ...(o.holderKey !== undefined ? { cnf: { jwk: publicJwk(o.holderKey) } } : {}),
-        vct: o.vct ?? MANDATE_VCT,
+        vct: o.vct ?? (hasMeasures ? MANDATE_VCT_V2 : MANDATE_VCT),
         mandate: {
             ...(o.agent !== undefined ? { agent: o.agent } : {}),
             ...(o.agentIdentity !== undefined ? { agentIdentity: o.agentIdentity } : {}),

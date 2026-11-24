@@ -20,6 +20,8 @@ import { kbSigningInput, verifyKbJwt } from './sd-jwt';
 
 /** The credential type this profile defines. */
 export const MANDATE_VCT = 'urn:backendkit:mandate:1';
+/** The second profile (SPEC-0045): the first plus `limits.measures`, one maximum per operation on any quantity the operator can measure. */
+export const MANDATE_VCT_V2 = 'urn:backendkit:mandate:2';
 
 export interface JwtMandateVerifierOptions {
     /** The issuers you trust and their public keys (PEM or `KeyObject`). A list covers key rotation. Nothing is trusted by default. */
@@ -32,8 +34,12 @@ export interface JwtMandateVerifierOptions {
     algorithms?: JwsAlgorithm[];
     /** Accepted header `typ`. Default `dc+sd-jwt`, `vc+sd-jwt` and `mandate+jwt`. */
     types?: string[];
-    /** The `vct` of the credential. Default {@link MANDATE_VCT}. */
-    vct?: string;
+    /**
+     * The `vct` (credential types) accepted. Default both profiles: {@link MANDATE_VCT} (amount limit only) and {@link MANDATE_VCT_V2} (also
+     * `limits.measures`, SPEC-0045). Measures are read only under the second one: a credential of the first with a `measures` key is refused, and a
+     * verifier that only knows the first refuses a credential of the second, so neither can accept a credential and drop the caps it carries.
+     */
+    vct?: string | string[];
     /**
      * This verifier's identifier, put in the `aud` of the proof of possession: a proof made for another verifier is not valid here. Only used for
      * credentials tied to a key (`cnf`). Default `urn:agent-framework:verifier`.
@@ -49,13 +55,39 @@ const DEFAULT_AUDIENCE = 'urn:agent-framework:verifier';
 /** The keys of the `mandate` claim of this profile. Any other is a restriction, and a restriction that is not understood is refused. */
 const MANDATE_KEYS = ['agent', 'agentIdentity', 'actions', 'resources', 'limits'];
 const deny = (reason: string): MandateVerification => ({ ok: false, reason });
+
+/** The name of a measure: short, stable, lower case (SPEC-0045 D7). `amount` is the amount limit and cannot be a measure. */
+export const MEASURE_NAME = /^[a-z][a-z0-9_]{0,31}$/;
+
+/**
+ * The measures of a credential of the second profile, or the reason they are not valid. Anything it does not understand is refused (a key of a
+ * measure it does not know would be a restriction that vanishes), and so is a name that is repeated: a cap that is ambiguous must not be accepted.
+ */
+export function readMeasures(raw: unknown): Array<{ name: string; max: number; unit?: string }> | string {
+    if (!Array.isArray(raw) || raw.length === 0) return 'the measures of the mandate are not a list with at least one measure';
+    const out: Array<{ name: string; max: number; unit?: string }> = [];
+    const seen = new Set<string>();
+    for (const item of raw) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return 'a measure of the mandate is not an object';
+        const { name, max, unit, ...rest } = item as Record<string, unknown>;
+        const unknownKeys = Object.keys(rest);
+        if (unknownKeys.length > 0) return `a measure of the mandate carries a restriction this verifier cannot enforce (${unknownKeys.slice(0, 3).join(', ')}): ignoring it would grant more than was meant`;
+        if (typeof name !== 'string' || !MEASURE_NAME.test(name) || name === 'amount') return `a measure of the mandate has no valid name (${String(name)})`;
+        if (seen.has(name)) return `the measure "${name}" appears more than once in the mandate: its cap would be ambiguous`;
+        seen.add(name);
+        if (typeof max !== 'number' || !Number.isFinite(max) || max < 0) return `the cap of "${name}" in the mandate is not a valid number`;
+        if (unit !== undefined && (typeof unit !== 'string' || unit.length === 0)) return `the unit of "${name}" in the mandate is not valid`;
+        out.push({ name, max, ...(unit !== undefined ? { unit } : {}) });
+    }
+    return out;
+}
 const iso = (seconds: number): string => new Date(seconds * 1000).toISOString();
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x.length > 0);
 
 export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateVerifier {
     const algorithms = options.algorithms ?? [...ALGORITHMS];
     const types = options.types ?? ['dc+sd-jwt', 'vc+sd-jwt', 'mandate+jwt'];
-    const vct = options.vct ?? MANDATE_VCT;
+    const accepted = options.vct === undefined ? [MANDATE_VCT, MANDATE_VCT_V2] : Array.isArray(options.vct) ? options.vct : [options.vct];
     const leeway = options.leewaySeconds ?? 0;
 
     return {
@@ -82,7 +114,8 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
             if (!keys.some(k => verifyJws(parsed.jws, k, algorithms))) return deny('the signature does not verify with the keys of that issuer');
 
             // From here on the signer is who it says it is; what it signed still has to be a mandate.
-            if (payload.vct !== vct) return deny(`the credential is not a "${vct}" credential`);
+            if (typeof payload.vct !== 'string' || !accepted.includes(payload.vct)) return deny(`the credential is not a "${accepted.join('" or "')}" credential`);
+            const withMeasures = payload.vct === MANDATE_VCT_V2;
             const { jti, sub, nbf, exp, mandate: claim } = payload;
             if (typeof jti !== 'string' || jti.length === 0) return deny('the credential has no id (jti)');
             if (typeof sub !== 'string' || sub.length === 0) return deny('the credential does not say who empowers (sub)');
@@ -107,7 +140,8 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
             if (m.limits !== undefined) {
                 const limitsObject = m.limits as Record<string, unknown> | null;
                 if (limitsObject && typeof limitsObject === 'object' && !Array.isArray(limitsObject)) {
-                    const unknownLimits = Object.keys(limitsObject).filter(k => k !== 'amount');
+                    const unknownLimits = Object.keys(limitsObject).filter(k => k !== 'amount' && !(withMeasures && k === 'measures'));
+                    if (unknownLimits.includes('measures')) return deny(`the limits carry measures and the credential is of the profile "${String(payload.vct)}": measures need "${MANDATE_VCT_V2}", and are refused rather than ignored`);
                     if (unknownLimits.length > 0) return deny(`the limits of the mandate carry a restriction this verifier cannot enforce (${unknownLimits.slice(0, 3).join(', ')}): ignoring it would grant more than was meant`);
                     const rawAmount = limitsObject.amount;
                     if (rawAmount && typeof rawAmount === 'object' && !Array.isArray(rawAmount)) {
@@ -121,6 +155,12 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
                     return deny('the limits of the mandate are not valid');
                 }
                 limits = amount ? { amount: { max: amount.max as number, ...(amount.currency !== undefined ? { currency: amount.currency as string } : {}) } } : {};
+                const rawMeasures = (m.limits as { measures?: unknown }).measures;
+                if (rawMeasures !== undefined) {
+                    const checked = readMeasures(rawMeasures);
+                    if (typeof checked === 'string') return deny(checked);
+                    limits = { ...limits, measures: checked };
+                }
             }
 
             // Proof of possession, when the credential is tied to a key. `cnf` is read from the signed payload.

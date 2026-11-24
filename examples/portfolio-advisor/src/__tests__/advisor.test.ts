@@ -58,6 +58,10 @@ describe('an order above the limit asks a person, who must not be the one who as
         expect(asked[0]).toMatchObject({ principal: { agentId: EXECUTOR, userId: 'carlos' } });
         expect(t.broker.executed).toEqual([large]);
         expect(t.order()).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' }, authority: { roles: ['finance'], matched: 'finance' } } });
+        // and the record says why a person was asked and which power the order went beyond: it is NOT recorded as covered by it
+        expect(t.order()?.reason).toMatch(/outside the mandate.*above the 5000/);
+        expect(t.order()?.exceeded).toMatchObject({ subject: 'carlos', agentIdentity: identityOf(EXECUTOR) });
+        expect(t.order()?.mandate).toBeUndefined();
     });
 
     it('carlos, who asked for the rebalance, cannot approve it himself (four eyes), even though he is a person', async () => {

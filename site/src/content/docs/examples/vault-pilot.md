@@ -44,7 +44,11 @@ await engine.run('How long is parental leave for the birth parent?');
 **3. The General agent does not see HR or Finance by default.** What it retrieves goes to the default provider, which may be remote, while HR and Finance use a local model. The operator can open it, knowing what that means:
 
 ```ts
-createEnterpriseSetup({ /* ... */ globalExcludeFolders: [] });     // let General search the whole vault
+createEnterpriseSetup({
+  ...ws, providers, defaultProvider: 'main',
+  agentIdentity: selfAssertedIdentities(), identity: { userId: 'me' },
+  globalExcludeFolders: [],        // let General search the whole vault
+});
 ```
 
 **4. The checks use a scripted model**, so they test what the framework guarantees, not what a model happens to say. A scripted turn calls one search tool with one query, and the check reads what came back:

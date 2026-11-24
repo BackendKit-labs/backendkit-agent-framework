@@ -86,7 +86,11 @@ const policy = mandatePolicy({
     outOfScope: 'ask',
     outOfScopeApprover: { approverRoles: ['finance'] },
 });
+```
 
+The engine gets that policy, the audit, the approver and the directory of people. The roles come from **your** directory, never from what the caller says:
+
+```ts
 const engine = createBaseEngine({
     /* providers, agents, tools ... */
     agentIdentity: identities, identity: { userId: 'carlos' },

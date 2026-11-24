@@ -5,6 +5,18 @@ description: Ask a model for typed data instead of text, with validation and a r
 
 Sometimes you do not want a conversation, you want **data**: an invoice read from an email, a ticket classified, a plan as a list of steps. `generateObject` asks a model for an object that matches a [zod](https://zod.dev) schema and returns it already typed. It is one call, with no agent loop and no tools.
 
+## In plain words
+
+**What it is.** `generateObject` asks a model for **data** instead of text: it returns an object already typed and validated against a schema. It is one call, with no tools and no agent loop.
+
+**Why you need it.** Models answer in prose, in a Markdown fence, or in JSON that is almost right. Anything that reads an invoice, classifies a ticket or plans steps needs a value the rest of the program can trust, not a string to parse and hope.
+
+**How it works here.** You pass a schema. The framework sends it with the prompt (or lets the provider enforce it), reads the JSON out of whatever the model wrapped it in, and validates it. If it is invalid it asks again, once by default, telling the model exactly what was wrong (`total: expected number, received string`).
+
+**What it does not do.** It does not make the content true: it guarantees the **shape**, not that the invoice number exists. It does not loop forever either: when the retries are used up it fails with an error you handle. And it is not an agent: if you need tools or several steps, use an agent.
+
+**In one line.** Structured output is **a typed answer with a retry that explains what was wrong**.
+
 ## A complete example
 
 One file. It runs **offline**: a scripted model plays two answers, the first one invalid, so you see the retry. Save it as `invoice.ts` and run it with `npx tsx invoice.ts`.

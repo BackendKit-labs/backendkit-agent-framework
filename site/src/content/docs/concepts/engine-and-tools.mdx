@@ -4,6 +4,18 @@ description: What the engine does in a turn, and how tools declare what they do 
 ---
 import ToolPaths from '../../../components/ToolPaths.astro';
 
+## In plain words
+
+**What it is.** The **engine** is the loop that lets a model use tools: it asks the model, checks every tool the model asks for, runs it, gives the result back and repeats until the model answers. A **tool** is a function with a name, a typed input and some facts about itself (does it only read? can it be undone?).
+
+**Why you need it.** A model only writes text; it cannot do anything. Tools are how its text becomes an action, and the engine is the only place between the two where the action can be checked. Without it you would run whatever the model wrote.
+
+**How it works here.** You describe tools with `defineTool` and give each agent the list it may use. In a turn the engine sends the conversation to the model; if the model asks for a tool it checks the call (allowed tools, argument guardrails, [policy](../governance/)), runs it and feeds the result back. The facts a tool declares (`readOnly`, `destructive`) are what the policy reads: a read runs, a destructive tool asks a person, a tool that declares nothing asks too. The same tool can also be called by your own code with no model.
+
+**What it does not do.** It does not make the model right. It checks the **calls**, not the judgment behind them, and a model can say "order placed" without placing anything: assert on `toolCalls`, not on its words. It also does not decide for you which tool is safe: that is what you declare.
+
+**In one line.** The engine is **the checkpoint between what a model says and what actually runs**; tools are what it can run.
+
 ## One tool, two ways to run it
 
 A tool is a plain definition (`defineTool`). **Who decides to call it** is a separate choice, and the framework supports both:

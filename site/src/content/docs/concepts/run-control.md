@@ -8,6 +8,18 @@ Two kinds of control, for two different people:
 - **Limits and steps** decide how many iterations one run may take and who is asked to continue. They are options of the engine and are for whoever builds the agent.
 - **Control from outside** lets a supervisor (an operator, a fleet manager) read and change a running engine: its sandbox policy, its jobs, its audit trail. It is for whoever operates the agent.
 
+## In plain words
+
+**What it is.** Two kinds of control for two different people: **limits and steps** (how long one run may loop, and who is asked to continue) for whoever builds the agent, and **control from outside** (read and change a running engine) for whoever operates it.
+
+**Why you need it.** A confused model can loop for a long time and spend money, and an operator needs to be able to narrow what a running agent may do without redeploying it.
+
+**How it works here.** The run is a loop of iterations and `iterationMode` bounds it: `interactive` (asks at a limit), `auto` (unattended, up to a hard cap of 1000) or `step-by-step` (a callback after each iteration). From outside, a supervisor can change the sandbox policy, see the jobs and read the audit trail; narrowing a policy is free, widening it needs a person.
+
+**What it does not do.** An iteration limit is **not a cost budget**: it counts passes, not money (budgets are in [Observability and cost](../observability-and-cost/)). And control from outside is not authentication: it is only as safe as the way you expose it.
+
+**In one line.** Run control is **a bound on the loop and a handle for the operator**.
+
 ## Limits and steps
 
 One run of the engine is a loop: the model answers, asks for tools, the tools run, the model answers again. Each pass is an **iteration**. Left alone, a confused model can loop for a long time and spend money, so the loop is bounded. There are three modes, set with `iterationMode`:

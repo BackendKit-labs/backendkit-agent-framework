@@ -11,6 +11,18 @@ An engine is built from code: the `agents` and `skills` you pass, and the system
 | `skillSources` | `{ list(): Promise<Skill[]> }` | More skills, merged with `skills` and `loadSkills` |
 | `instructionSources` | `{ load({ cwd }): Promise<InstructionLayer[]> }` | Blocks of text appended to the system prompt |
 
+## In plain words
+
+**What it is.** A **source** lets an engine take more agents, skills and prompt instructions from somewhere else (files, a database, a service) through three small contracts, without the engine knowing where they come from.
+
+**Why you need it.** Hard-coding every agent in the program means a change in an instruction is a redeploy. With sources the same engine can read `AGENT.md` from a project, agents from a registry or skills from a folder, and the code does not change.
+
+**How it works here.** `agentSources`, `skillSources` and `instructionSources` each have one method (`list` or `load`). What they return is merged with what you passed in code. Reading a file or a remote registry is an **adapter** your app (or a package such as `agent-coding`) provides.
+
+**What it does not do.** The engine reads nothing from disk by itself. And text that comes from disk is **data, not instructions**: it is sanitized before it reaches the prompt (chat markers and role tags are removed, so it cannot pass as the system speaking). That reduces the risk and does not remove it: a file can still contain plain-language instructions, so decide which folders you trust.
+
+**In one line.** Sources are **how an engine gets more than its own code, through contracts, never by guessing where to look**.
+
 ## A complete example
 
 Three sources written inline, an engine that uses them, and a check of what the model received. It runs **offline**. Save it as `sources.ts` and run it with `npx tsx sources.ts`.

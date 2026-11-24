@@ -8,6 +8,18 @@ The **Model Context Protocol** lets programs share tools. The framework speaks i
 
 <McpDirections />
 
+## In plain words
+
+**What it is.** The **Model Context Protocol** lets programs share tools. The framework speaks it both ways: it can **use** the tools of an MCP server, and it can **serve** its own tools to any MCP client, with or without a model in between.
+
+**Why you need it.** Without a shared protocol each integration is an adapter you write. With it, someone else's tools show up in your engine next to yours, and yours become available to scripts, jobs and other agents that never heard of your framework.
+
+**How it works here.** As a client you give the engine `mcpServers`; their tools appear with a prefix (`mcp__<server>__<tool>`) and go through the same checks as any tool. As a server `createToolServer` exposes your tools so that the arguments the client sends are the ones `execute` receives, with no model.
+
+**What it does not do.** A tool that comes from outside is **not trusted** by default: the client does not believe a server that says a tool is read-only unless you set `trustAnnotations`, so an unknown tool asks a person. A directly served destructive tool will not start without an `authorize` function or a policy. And MCP authenticates nobody: who the caller is stays yours to verify.
+
+**In one line.** MCP is **how tools cross the boundary of a program**, and the framework checks them on both sides of it.
+
 ## As a client: use someone else's tools
 
 Give the engine MCP servers and their tools appear next to yours. The client can watch the connection and report when a server drops.

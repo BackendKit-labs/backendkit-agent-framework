@@ -36,6 +36,18 @@ createBaseEngine({
 
 An agent can also override only the `model` while keeping the provider: a light agent on a cheap model, a reasoning agent on a stronger one.
 
+## In plain words
+
+**What it is.** A **provider** is the object that talks to one model. The engine only knows a tiny interface (`chat`, streaming), so any model fits behind it.
+
+**Why you need it.** Models change faster than your agents do. If the engine talked to one vendor directly, switching or mixing (a cheap model for triage, a strong one for analysis) would mean rewriting the agent.
+
+**How it works here.** You give the engine providers by name and each agent picks one (and optionally a model). The shipped providers retry on 429, 5xx and network errors with backoff, cut a stream that goes quiet, and say so when an answer was cut by the output limit. Failures arrive as events, not as exceptions.
+
+**What it does not do.** It does not pick the best model for a task, and it does not repeat an answer that already reached you: once content was delivered there is no retry, so a half answer is never replayed. A provider does not govern anything either: policy and identity are the engine's.
+
+**In one line.** A provider is **a replaceable adapter to one model**, with the retries and cut-offs you would otherwise write yourself.
+
 ## Behaviour you can rely on
 
 - **Retries** on 429, 5xx and network errors, with exponential backoff. `maxAttempts` counts total attempts, the first included.

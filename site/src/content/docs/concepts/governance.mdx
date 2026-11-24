@@ -173,6 +173,23 @@ createBaseEngine({
 
 Outside the mandate the agent **asks a person**, and by default any person may answer except the one who asked (with `forbidSelfApproval`). To say who: `mandatePolicy({ ..., outOfScopeApprover: { approverRoles: ['finance'] } })`. The engine checks the roles in your `approverDirectory`, never in what the caller says, so an intern cannot approve an order above the limit. A rule that is wrong (no roles, an empty one) fails when the policy is built.
 
+### A mandate is for what is critical
+
+A mandate is a power signed by someone with authority, so it is worth keeping for what **cannot be undone**: moving money, deleting data, restarting or reconfiguring, granting access, publishing, signing for the person. How many emails a day, in which hours, what is read: that is the **business logic** of the agent and the operator, not delegated authority.
+
+By default `mandatePolicy` asks for a mandate on every call. To keep it for what matters, say which tools it applies to; the verifier is not even asked about the others, and `otherwise` decides them (by default the framework's own policy: a read-only tool runs, a destructive one asks a person, one that declares nothing asks):
+
+```ts
+mandatePolicy({
+  verifier,
+  appliesTo: (tool) => tool.destructive === true || tool.meta?.critical === true,   // yours to decide: by name, by destructive, by what the tool declares
+  amountOf: (args) => ({ value: Number(args.amount), currency: String(args.currency) }),
+  measureOf: { rows: (args) => ({ value: (args.ids as string[]).length, unit: 'rows' }) },   // a cap that is not money
+});
+```
+
+Forgetting a critical tool in `appliesTo` is annoying, never permissive: it falls to `otherwise` and asks a person. The mandate can cap more than an amount: `limits.measures` is a list of `{ name, max, unit? }`, one maximum **per operation**, and `measureOf` says how to read each one from the call. A cap the policy cannot measure leaves the call outside the mandate. Counters per period and time windows are not in the mandate (they need state, or a calendar): they are yours. [SPEC-0045](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/docs/specs/SPEC-0045-limites-generales-del-apoderamiento.md) has the reasoning.
+
 The credential of an identity provider (a wallet, a corporate directory) is an **adapter** to the same `Mandate`: your agent, the policy and the audit do not change when you swap one for another, which is why `core` is tied to none. An adapter fails closed: a power with a restriction the framework cannot enforce (a daily cap, a time window) is refused, never ignored. The mandate is matched to the person in `identity.userId`, and the audit event names the mandate next to the identity of the agent (next section). What a mandate does **not** do yet: it is not bound to the identity of the agent that presents it, so a credential issued for one agent is not refused by `core` when another presents it (SPEC-0044 F3; the adapters compare it themselves). See the [package page](/packages/mandates/) for the full example and the [guide](/guides/controls-for-an-agent-without-steward/) for where it fits among the other controls.
 
 ## Who the agent is, and for whom it acts
@@ -217,7 +234,7 @@ The proof is **opaque**: `core` verifies Ed25519 and records the `format` of any
 | The service gives you | In `agent-core` | `core` does |
 |---|---|---|
 | **Who the agent is**, and its key | `AgentIdentityProvider` (`resolve`, and optionally `sign`) | attributes and signs every audit event; a provider that fails or is slow denies the call |
-| **For whom it works, what it may do, up to how much** | `MandateVerifier`, with `mandatePolicy` | inside the mandate the agent acts alone, outside it asks, with none it does nothing |
+| **For whom it works, what it may do, up to how much** | `MandateVerifier`, with `mandatePolicy` | inside the mandate the agent acts alone, outside it asks; with none, **the tools the policy applies to** do nothing |
 
 You write one adapter per service: its identity API to an `AgentIdentityProvider`, and its credential to a `Mandate`. [`agent-mandates`](/packages/mandates/) brings the pieces (SD-JWT and the rules every adapter applies, including refusing a restriction it cannot enforce). Which issuers to trust, how your user ids map to the service's person ids and which proof formats you accept are operator wiring, never the agent's decision. The [`agent-core` reference](/packages/core-reference/#identity-who-the-agent-is-and-external-identity-services) has the full shape with code. **No official el sistema compatible con eIDAS 2 adapter exists yet**: its format is not public, and the repository's reference adapter is built on an assumption.
 

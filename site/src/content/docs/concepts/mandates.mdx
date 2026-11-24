@@ -1,0 +1,61 @@
+---
+title: Mandates
+description: A signed power that lets an agent act alone inside limits - in plain words, why it exists next to roles and policies, what it covers and what it leaves to your own code.
+---
+
+## What it is
+
+A **mandate** is a power of representation, signed by someone with authority, that says **who the agent works for, what it may do, on what, and up to how much**. Inside it the agent acts alone; outside it, it asks a person.
+
+## Why you need it on top of what you already have
+
+A policy that asks a person every time makes the agent useless: it is a very slow form. A blanket permission makes it dangerous. And a rule written in your code ("up to 5,000 EUR") has no author: nobody signed it, nobody can show later who granted it or when it changed.
+
+A mandate is the middle ground **with a signature**. Say the finance department grants the executor agent: *"place orders for Carlos, in one portfolio, up to 5,000 EUR and 100 shares each"*. The executor sends a 1,000 EUR order alone. A 6,000 EUR order stops and asks a person of finance. An agent with no mandate sends nothing. And the audit shows **which power** covered each order, who issued it and for whom.
+
+A role says who may **approve**. A mandate says what the agent may **do alone**. They answer different questions and work together.
+
+## How it works here
+
+1. **An issuer** (your finance department, an identity service) signs a credential for the agent: actions, resources, limits, expiry.
+2. **Before a call the mandate applies to**, the policy asks a **verifier** to turn the credential into a `Mandate`, or refuse it (unknown issuer, expired, revoked, bad signature).
+3. **The policy compares the call with the mandate**: is the action listed, the resource covered, the amount and every other cap within its maximum, is the credential for this agent and this person?
+4. **Inside** → the call runs and the audit event carries `mandate`. **Outside** → it asks a person (`outOfScope: 'ask'`, optionally restricted to a role with `outOfScopeApprover`) or is denied. **No valid mandate** → nothing runs.
+
+## Where it applies: only to what is critical
+
+A mandate is worth keeping for what **cannot be undone**: moving money, deleting data, restarting or reconfiguring a system, granting access, publishing, signing for the person. Reading, planning and handing work over do not need a signed power.
+
+`mandatePolicy({ appliesTo: tool => tool.destructive === true })` says which tools it governs; the rest go to the framework's own policy (a read runs). Forgetting a critical tool there is annoying, never permissive: it falls to that policy and asks.
+
+What a mandate says is the same in any business; only the nouns change:
+
+| Agent | What it may do | On what | A cap that is not money |
+|---|---|---|---|
+| Support | `send_email`, `issue_refund` | customers of one region | recipients per message |
+| Code | `edit_file`, `merge` | paths under `src/` | files changed per operation |
+| Operations | `restart_service` | the `staging` environment | instances restarted at once |
+| Data | `delete_rows` | one table | rows deleted per operation |
+| Trading | `place_order` | one portfolio | shares per order, besides the amount |
+
+## Details that matter
+
+- **The maximum is per operation.** `limits.measures` caps **one call**: rows per delete, recipients per message. A cap the policy cannot measure leaves the call outside the mandate (fail closed).
+- **Counters and calendars are yours.** "Up to 50 emails a day" or "only on weekdays" need state or a clock; they belong to your agent's business logic, not to a signed power.
+- **The credential can be tied to the agent's key** (`holderBinding`). A copy of the credential in another agent's hands is useless without the key. Say you require it with `requireHolderBinding: true`; it is off by default, because it needs credentials issued that way.
+- **Fail closed everywhere.** A restriction the framework cannot enforce is refused, never ignored: a credential that says something the verifier does not understand does not become "no limit".
+- **Who may take the responsibility of going past it** is the [approval](/concepts/approval/) rule: a role of the directory, never the person who asked.
+- **The format is replaceable.** `agent-core` knows only the contract; [`agent-mandates`](/packages/mandates/) brings a reference verifier, and you can write an adapter for another provider. Your agent, the policy and the audit do not change when you swap it.
+
+## What it does not do
+
+- It does **not** decide who the agent is: that is the [identity](/concepts/agent-identity/).
+- It does **not** count over time or schedule anything (see above).
+- It does **not** replace approval: outside the mandate someone still answers.
+- The reference credential is a profile of our own; an official format from an identity service is still to be adapted.
+
+## In one line
+
+A mandate is **a signed limit on what the agent may do alone**, kept for what is critical; everything beyond it asks a person.
+
+Code and options: [Governance reference](/concepts/governance/#acting-alone-inside-a-signed-power-mandates), [`agent-mandates`](/packages/mandates/).

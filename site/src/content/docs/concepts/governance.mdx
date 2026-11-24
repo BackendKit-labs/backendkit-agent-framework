@@ -1,8 +1,19 @@
 ---
 title: Governance
-description: Policy, approvers, durable approvals and audit - the layer that decides which tool calls may run, outside the model.
+description: Reference for the governance layer - policy, approvers, durable approvals, mandates, identity and audit - the code and options behind the concepts.
 ---
 import PolicyDecision from '../../../components/PolicyDecision.astro';
+
+**Start with the concepts** if you want to understand each piece in plain words (what it is, why you need it, how it works, what it does not do); this page is the **reference** with the code and the options.
+
+| Question | Concept |
+|---|---|
+| Who is acting, and for whom? | [Identity of the agent](/concepts/agent-identity/) |
+| May this call run? | [Policy](/concepts/policy/) |
+| What may the agent do alone? | [Mandates](/concepts/mandates/) |
+| Who answers when it asks, and why not the person who asked? | [Approval, roles and four eyes](/concepts/approval/) |
+| What can I prove afterwards? | [Audit](/concepts/audit/) |
+| How much can I let it do without asking? | [How much autonomy](/concepts/autonomy/) |
 
 An agent that can act on real systems needs a layer that is **not** the model deciding what is allowed. In this framework that layer is configuration of the engine: an identity for the agent and for whom it acts, a policy, an approver, an approval store and an audit sink.
 
@@ -246,7 +257,7 @@ The proof is **opaque**: `core` verifies Ed25519 and records the `format` of any
 | **Who the agent is**, and its key | `AgentIdentityProvider` (`resolve`, and optionally `sign`) | attributes and signs every audit event; a provider that fails or is slow denies the call |
 | **For whom it works, what it may do, up to how much** | `MandateVerifier`, with `mandatePolicy` | inside the mandate the agent acts alone, outside it asks; with none, **the tools the policy applies to** do nothing |
 
-You write one adapter per service: its identity API to an `AgentIdentityProvider`, and its credential to a `Mandate`. [`agent-mandates`](/packages/mandates/) brings the pieces (SD-JWT and the rules every adapter applies, including refusing a restriction it cannot enforce). Which issuers to trust, how your user ids map to the service's person ids and which proof formats you accept are operator wiring, never the agent's decision. The [`agent-core` reference](/packages/core-reference/#identity-who-the-agent-is-and-external-identity-services) has the full shape with code. **No official el sistema compatible con eIDAS 2 adapter exists yet**: its format is not public, and the repository's reference adapter is built on an assumption.
+You write one adapter per service: its identity API to an `AgentIdentityProvider`, and its credential to a `Mandate`. [`agent-mandates`](/packages/mandates/) brings the pieces (SD-JWT and the rules every adapter applies, including refusing a restriction it cannot enforce). Which issuers to trust, how your user ids map to the service's person ids and which proof formats you accept are operator wiring, never the agent's decision. The [`agent-core` reference](/packages/core-reference/#identity-who-the-agent-is-and-external-identity-services) has the full shape with code. **No official adapter for an eIDAS 2-compatible system exists yet**: its format is not public, and the repository's reference adapter is built on an assumption.
 
 ## Audit
 

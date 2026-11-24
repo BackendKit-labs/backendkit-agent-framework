@@ -1,0 +1,56 @@
+---
+title: Identity of the agent
+description: Who the agent is and for whom it acts, in plain words - why every tool call needs both, the three levels of trust, and what happens when you set up none.
+---
+
+## What it is
+
+Two answers that go with **every tool call**: *who is acting* (the agent's digital identity) and *for whom* (the person or team it works for, `identity.userId`).
+
+## Why you need it on top of what you already have
+
+A name in a log (`agent: buyer`) is a label anyone could have written. The moment an agent can move money, send email or delete data, someone will ask "who did this, on whose behalf, and can you prove it?". If the answer is a string the agent itself made up, you have a diary, not evidence.
+
+Take an agent that pays invoices. The audit says `pay_invoice, 4,800 EUR`. Without identity you cannot say **which** agent paid (there may be five instances), **for whom** (Carlos in finance, or the intern's test run?) or whether the line was written by the agent or edited afterwards. With identity each call is attributed to one agent, tied to one person, and (if the identity has a key) signed.
+
+That is also why the framework refuses to run without it: an identity added later never covers the calls already made.
+
+## How it works here
+
+1. **You give each agent an identity** through an `AgentIdentityProvider` (`agentIdentity: ...` in `createBaseEngine`), and say **for whom it acts** (`identity: { userId: 'carlos' }`).
+2. **Before each call** the engine asks the provider who the agent is. The answer goes into the decision the policy sees (`principal.agentIdentity`) and into the audit event.
+3. **If the provider can sign**, the engine signs the audit event with the agent's key and waits for the signature.
+4. **If anything fails** (no identity, no person, a provider that errors or is slow) the call is **denied**, with a message that says how to fix it. "No identity" never means "no identity needed".
+
+There are three levels. The tool is the same; what changes is how much someone outside can trust the answer:
+
+| Level | You write | What the audit can say | Who vouches |
+|---|---|---|---|
+| **Self-asserted** | `selfAssertedIdentities()` | "this agent says it is `urn:agent:buyer`" | nobody |
+| **Own keys** | `ed25519AgentIdentities({ buyer: { id, privateKey } })` | the same, plus a **signature** per event: nobody changed the log | you (the identity is still yours) |
+| **External provider** | your own `AgentIdentityProvider` over a corporate directory, a wallet or an eIDAS 2-compatible service | the same, with an assurance level the provider states | a third party |
+
+The default is to **require** an identity (`requireAgentIdentity: true`). `false` exists for tests only.
+
+## Where it applies
+
+Everywhere an agent can act: the engine, a tool served directly (`createToolServer`), a capability served over the agent protocol (`capabilityIdentityGate`), a flow step. Each is "another way to act", so none lets a call through without it.
+
+## Details that matter
+
+- **No identity service? It still works.** `selfAssertedIdentities()` runs everything and the audit attributes each call to its agent. The audit marks it `self-asserted`, and the **first call** of the engine prints one warning so nobody forgets (silent under `NODE_ENV=test`). Nothing is blocked; you are only told that nobody outside vouches for it.
+- **`identity.userId` is required too.** An identity without a person to act for denies the call: "on behalf of whom" is half of the question.
+- **Delegation keeps both.** When an orchestrator hands work to a specialist, the specialist acts under **its own** identity and the chain says who asked.
+- **A mandate is tied to an identity.** A power issued to the agent `executor` is refused when `analyst` presents it (see [Mandates](/concepts/mandates/)).
+
+## What it does not do
+
+- It does **not** authenticate people: `identity.userId` must come from something your application verified (a session, a token).
+- It does **not** decide what the agent may do. That is the [policy](/concepts/policy/) and the [mandate](/concepts/mandates/).
+- A self-asserted or own-key identity does **not** prove the agent is "the real one" to a third party. Only an identity someone outside vouches for does.
+
+## In one line
+
+Every call says **who acted and for whom**; the more outside parties vouch for that, the more the audit is worth.
+
+Setup and options: [Governance reference](/concepts/governance/#who-the-agent-is-and-for-whom-it-acts).

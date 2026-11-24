@@ -23,7 +23,7 @@ Un agente de software actúa en nombre de una persona o de una entidad. El frame
 *Asumido:* `sub` = agente; `represents: { id, kind, assurance }`; `powers: [{ action, object?, max?: { value, currency } }]`.
 
 **A3. ¿Hay restricciones más allá de verbo, objeto e importe?** Horario, contraparte, país, número de operaciones, suma acumulada, condiciones…
-*Por qué:* el framework **rechaza** una credencial con una restricción que no sabe aplicar (ignorarla concedería más de lo que se quiso). Cada restricción nueva necesita un extractor en la aplicación.
+*Por qué:* el framework **rechaza** una credencial con una restricción que no sabe aplicar (ignorarla concedería más de lo que se quiso). Cada restricción nueva necesita un extractor en la aplicación. Ver [SPEC-0045](SPEC-0045-limites-generales-del-apoderamiento.md): propone medidas con nombre y máximo por operación, y deja fuera los contadores y las ventanas.
 
 **A4. ¿Quién firma y cómo se confía en el emisor?** ¿Una clave por emisor, certificado `x5c`, lista de confianza, DID resoluble? ¿Cómo se publica y rota la clave?
 *Asumido:* el operador lista emisores y claves.

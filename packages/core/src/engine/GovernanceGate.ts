@@ -33,7 +33,11 @@ import type { Transport } from '../transport/Transport';
 
 /** What the policy path decided about one call, before it runs (SPEC-0014 F2). */
 export type GovernedVerdict =
-    | { run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; mandate?: AuditMandate }
+    | {
+        run: true; mode?: 'run' | 'sandboxed' | 'dry_run'; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; mandate?: AuditMandate;
+        /** Why a person was asked, and the mandate the call went beyond, when that was the reason: they go to the audit event of the approved call. */
+        asked?: { reason: string; exceeds?: AuditMandate };
+    }
     | { run: false; decision: 'deny' | 'ask' | 'sandbox_denied'; reason: string; message: string };
 
 /** The only things the gate takes from the engine. */
@@ -140,7 +144,10 @@ export class GovernanceGate {
                 const reason = `invalid approval: ${authority.problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${tool.name}" not run: ${reason}` };
             }
-            return { run: true, approval: { id: approved.approvalId, by: approved.by, ...(authority.authority ? { authority: authority.authority } : {}) } };
+            return {
+                run: true, approval: { id: approved.approvalId, by: approved.by, ...(authority.authority ? { authority: authority.authority } : {}) },
+                asked: { reason: ask.reason, ...(ask.exceeds ? { exceeds: ask.exceeds } : {}) },
+            };
         }
         return this.serialize(() => this.resolveAsk(principal, call, ask, sandboxAsk, sandboxDecisions));
     }
@@ -255,7 +262,10 @@ export class GovernanceGate {
                 const reason = `invalid approval: ${authority.problem}`;
                 return { run: false, decision: 'deny', reason, message: `Tool call "${name}" not run: ${reason}` };
             }
-            return { run: true, approval: { id: request.id, by: answer.by, ...(authority.authority ? { authority: authority.authority } : {}) } };
+            return {
+                run: true, approval: { id: request.id, by: answer.by, ...(authority.authority ? { authority: authority.authority } : {}) },
+                asked: { reason: d.reason, ...(d.exceeds ? { exceeds: d.exceeds } : {}) },
+            };
         }
 
         if (this.deps.approvals) {

@@ -204,6 +204,7 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
                 ? { effect: 'deny', reason: `outside the mandate: ${covered.reason}` }
                 : {
                     effect: 'ask', reason: `outside the mandate: ${covered.reason}`, accepts: who?.accepts ? [...who.accepts] : ['human'],
+                    exceeds: auditMandate(verdict.mandate),
                     ...(who?.approverRoles ? { approverRoles: [...who.approverRoles] } : {}),
                     ...(who?.ttlSeconds !== undefined ? { ttlSeconds: who.ttlSeconds } : {}),
                 };

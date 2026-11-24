@@ -85,6 +85,11 @@ export type PolicyDecision =
          * Several policies: the shortest wins. Without it, the engine's `approvalTtlSeconds`, and without that, it does not expire.
          */
         ttlSeconds?: number;
+        /**
+         * The mandate this call goes BEYOND (SPEC-0043): the policy found a valid one that does not cover it, so a person is asked. It goes to the audit
+         * event as `exceeded`, never as `mandate`: the call was not covered by it.
+         */
+        exceeds?: AuditMandate;
     };
 
 export interface ToolPolicy {
@@ -288,6 +293,11 @@ export interface AuditEvent {
     credentials?: AuditCredential[];
     /** The mandate the call was covered by (SPEC-0043): who issued it, for whom, until when, and the hash of the credential; never the credential. */
     mandate?: AuditMandate;
+    /**
+     * The mandate the call went beyond, when it needed a person to approve it for that reason (SPEC-0043). It is NOT a mandate that covered the call: for
+     * that see `mandate`. With `approval` it says who took the responsibility of going past the limit of what the agent was empowered to do.
+     */
+    exceeded?: AuditMandate;
     sandbox?: AuditSandboxDecision[];
     /** The tool's declared `meta`. */
     meta?: Record<string, unknown>;

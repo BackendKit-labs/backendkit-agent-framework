@@ -84,7 +84,6 @@ A role is not enough when the person who asked for the payment is in finance too
 ```ts
 createBaseEngine({
   agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   identity: { userId: 'carlos', tenantId: 'acme' },   // who the agent acts for
   forbidSelfApproval: true,
@@ -154,7 +153,6 @@ import { jwtMandateVerifier } from '@backendkit-labs/agent-mandates';
 
 createBaseEngine({
   agentIdentity: selfAssertedIdentities(),   // who the agent is (SPEC-0044)
-  identity: { userId: 'me' },                // on whose behalf it acts
   /* ... */
   identity: { userId: 'carlos' },                       // the person the mandate must empower
   policy: mandatePolicy({

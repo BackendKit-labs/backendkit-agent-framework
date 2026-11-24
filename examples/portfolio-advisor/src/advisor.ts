@@ -49,7 +49,9 @@ export function createAdvisor(options: AdvisorOptions) {
         amountOf: (args) => (typeof args.amount === 'number' ? { value: args.amount, currency: typeof args.currency === 'string' ? args.currency : CURRENCY } : undefined),
         agentIdentity: options.identities,
         requireHolderBinding: options.requireHolderBinding ?? true,
+        // Above the limit a person decides, and it has to be someone of finance: the engine checks the role in the directory.
         outOfScope: 'ask',
+        outOfScopeApprover: { approverRoles: ['finance'] },
     });
 
     const engine = createBaseEngine({

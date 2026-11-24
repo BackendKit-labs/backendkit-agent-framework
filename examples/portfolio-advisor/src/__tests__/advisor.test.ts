@@ -50,14 +50,14 @@ describe('an order inside the power of the executor', () => {
 });
 
 describe('an order above the limit asks a person, who must not be the one who asked', () => {
-    it('a person of finance approves and the order runs; the audit keeps who approved', async () => {
+    it('a person of finance approves and the order runs; the audit keeps who approved and with which role', async () => {
         const asked: ApprovalRequest[] = [];
         const t = setup({ script: tradeScript(large), approver: answerAs('ana', asked) });
         await t.run();
         expect(asked).toHaveLength(1);
         expect(asked[0]).toMatchObject({ principal: { agentId: EXECUTOR, userId: 'carlos' } });
         expect(t.broker.executed).toEqual([large]);
-        expect(t.order()).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' } } });
+        expect(t.order()).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' }, authority: { roles: ['finance'], matched: 'finance' } } });
     });
 
     it('carlos, who asked for the rebalance, cannot approve it himself (four eyes), even though he is a person', async () => {
@@ -72,10 +72,7 @@ describe('an order above the limit asks a person, who must not be the one who as
         expect(t.broker.executed).toHaveLength(0);
     });
 
-    // FINDING 1 (see the README). This is the behaviour we want and today it FAILS, so it is written with `it.failing`: the suite is green while the
-    // gap exists and goes red the day the framework closes it, which is the signal to change `it.failing` into `it`. The `ask` that `mandatePolicy`
-    // returns for an order outside the mandate carries no `approverRoles`, so the engine accepts any person who is not the requester.
-    it.failing('a person with no authority over this (an intern) cannot approve it either', async () => {
+it('a person with no authority over this (an intern) cannot approve it either', async () => {
         const t = setup({ script: tradeScript(large), approver: answerAs('intern') });
         await t.run();
         expect(t.broker.executed).toHaveLength(0);

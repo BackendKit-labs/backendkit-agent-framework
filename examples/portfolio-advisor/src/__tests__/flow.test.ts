@@ -6,8 +6,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createApprovalHandler, stepApprovalId, verifyAuditChain, type ApproverRef } from '@backendkit-labs/agent-core';
-import { approvalStore, runRebalance } from '../index';
+import { stepApprovalId, verifyAuditChain, type ApproverRef } from '@backendkit-labs/agent-core';
+import { approvalHandler, directory, runRebalance } from '../index';
 import { answerAs, call, large, say, setup, small, type Setup } from './harness';
 
 let dir: string;
@@ -17,9 +17,9 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const RUN = 'rebalance-2026-11';
 const runDir = () => join(dir, 'run');
 const build = (s: Setup) => setup({ audit: 'audit.ndjson', ...s }, dir);
-const start = (advisor: ReturnType<typeof build>) => runRebalance({ engine: advisor.advisor.engine, dir: runDir(), runId: RUN, userId: 'carlos' });
+const start = (advisor: ReturnType<typeof build>, userId = 'carlos') => runRebalance({ engine: advisor.advisor.engine, dir: runDir(), runId: RUN, userId, directory });
 const decide = (decision: 'approve' | 'reject', by: ApproverRef) =>
-    createApprovalHandler(approvalStore(runDir())).decide(stepApprovalId(RUN, 'execute'), { decision, by, reason: 'seen' });
+    approvalHandler(runDir(), directory).decide(stepApprovalId(RUN, 'execute'), { decision, by, reason: 'seen' });
 const human = (id: string): ApproverRef => ({ kind: 'human', id });
 
 const planTurns = [call('plan_rebalance'), say('plan ready')];
@@ -83,19 +83,38 @@ describe('the rebalance flow', () => {
         expect(p2.broker.executed).toHaveLength(0);
     });
 
-    // FINDING 2 (see the README). These two are the behaviour we want and today they FAIL, so they are written with `it.failing`: green while the gap
-    // exists, red the day the framework closes it. A flow gate can say "a human" and nothing more: the approval request of a step does not carry the
-    // roles of the policy's `ask`, and the flow neither consults an `approverDirectory` nor applies `forbidSelfApproval` as the engine does.
+    // Who may approve the plan. A flow gate used to say "a human" and nothing more (agent-core before 0.49.9): an intern, or the person who asked, could
+    // approve. Now the policy names the role and the flow, the handler and the check when it goes on all apply it, with four eyes.
     describe('who may approve the plan', () => {
-        const approvedBy = async (id: string) => {
+        const approvedBy = async (who: string, requester = 'carlos') => {
+            const p1 = build({ script: planTurns, userId: requester });
+            await start(p1, requester);
+            const p2 = build({ script: [call('place_order', small), say('sent')], broker: p1.broker, op: p1.op, userId: requester });
+            const refused = await decide('approve', human(who)).then(() => undefined, (err: { code?: string }) => err.code);
+            await start(p2, requester);
+            return { executed: p2.broker.executed, refused };
+        };
+
+        it('a person of finance approves it and the order is sent', async () => {
+            expect((await approvedBy('ana')).executed).toHaveLength(1);
+        });
+        it('not someone with no authority over it (an intern): the handler refuses and the plan stays open', async () => {
+            const r = await approvedBy('intern');
+            expect(r.refused).toBe('FORBIDDEN');
+            expect(r.executed).toHaveLength(0);
+        });
+        it('not the person who asked for the rebalance, even with the role (four eyes)', async () => {
+            const r = await approvedBy('laura', 'laura');          // laura is in finance and asked for it
+            expect(r.refused).toBe('FORBIDDEN');
+            expect(r.executed).toHaveLength(0);
+        });
+        it('after a refused decision, a person who may decide still can, and the flow goes on', async () => {
             const p1 = build({ script: planTurns });
             await start(p1);
+            await expect(decide('approve', human('intern'))).rejects.toMatchObject({ code: 'FORBIDDEN' });
+            await decide('approve', human('ana'));
             const p2 = build({ script: [call('place_order', small), say('sent')], broker: p1.broker, op: p1.op });
-            await decide('approve', human(id)).catch(() => undefined);
-            await start(p2);
-            return p2.broker.executed;
-        };
-        it.failing('not someone with no authority over it (an intern)', async () => expect(await approvedBy('intern')).toHaveLength(0));
-        it.failing('not the person who asked for the rebalance (four eyes)', async () => expect(await approvedBy('carlos')).toHaveLength(0));
+            expect((await start(p2)).status).toBe('completed');
+        });
     });
 });

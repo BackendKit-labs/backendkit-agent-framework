@@ -6,7 +6,7 @@ It runs with **no key and no network**: a scripted model plays the LLM, so the t
 
 ```bash
 npm install
-npm test          # 31 tests, offline
+npm test          # 33 tests, offline
 ```
 
 The domain (what the agents are *about*) follows the design of a finance portfolio system: the decision matrix (§6), the default weights (§8.3) and the conflict rules (§8.5) of its `design.md`. Nothing in the numbers is invented.
@@ -57,14 +57,17 @@ Two steps: the rebalancer plans, a person looks at the plan, the executor sends.
 - After a restart and the decision it goes on **without planning again** (the plan was computed once), sends the order, and the audit of the two processes is **one chain** where every event verifies with the operator's keys.
 - Approving the plan is **not** approving every order: an order above the executor's limit asks again at the engine.
 - A rejected plan sends nothing and the executor never runs.
+- **Who may approve the plan is a person of finance who did not ask for it**, with the same two primitives as an order: the policy asks for the step (`flow.step:execute`) with `approverRoles: ['finance']`, and `approverDirectory` plus `forbidSelfApproval` on the flow and on the handler a supervisor decides through. An intern and the requester are refused by the handler (`FORBIDDEN`) and the plan stays open for someone who may decide it; and a decision written straight into the store by something that checked nothing is refused by the flow when it goes on.
 
 ## What the example found in the framework
 
 Building it with only framework primitives (and refusing to write around what was missing) showed:
 
-1. `CLOSED, agent-core 0.49.7` **An order above the limit could not require a role.** The `ask` that `mandatePolicy` returned for something outside the mandate carried no `approverRoles`, so the engine accepted **any person who was not the requester**: an intern could approve a 6,000 EUR order. The example found it with a test, the framework got `outOfScopeApprover: { approverRoles }`, and the example now uses it: the intern, the requester and an unknown person are refused, and the audit of an approved order carries the role that matched (`authority: { roles, matched }`).
-2. *Still thin, minor:* the audit event of an order approved outside the mandate does not carry the `mandate` it was outside of, only who approved. Whether it should is a question for the framework, not decided.
-3. **A flow gate cannot require a role or four eyes.** The approval of a step of a flow carries `reason`, `approver` and `accepts` from the policy's `ask` and nothing else: not its `approverRoles`, and the flow neither consults an `approverDirectory` nor applies `forbidSelfApproval` as the engine does. So an intern, or the person who asked for the rebalance, can approve the plan. Two `it.failing` tests state what we want. *Status: open.*
+All three were found by a test written against what we wanted, and closed in the framework; none was worked around in the example.
+
+1. `CLOSED, agent-core 0.49.7` **An order above the limit could not require a role.** The `ask` that `mandatePolicy` returned for something outside the mandate carried no `approverRoles`, so the engine accepted **any person who was not the requester**: an intern could approve a 6,000 EUR order. The framework got `outOfScopeApprover: { approverRoles }`, and the example uses it.
+2. `CLOSED, agent-core 0.49.8` **The record of an order approved outside the mandate said who approved but not why a person was asked, nor which power it went beyond.** Now the event carries `reason` and `exceeded` (the mandate, never recorded as `mandate`, which means "covered"), and the test checks it.
+3. `CLOSED, agent-core 0.49.9` **A flow gate, the approval handler and the direct tool server did not enforce roles or four eyes**: an intern, or the person who asked, could approve the plan. The check lived in three copies and had drifted; it is now one function (`checkApproval`) used by the engine, the flow, the handler and the tool server, with a conformance test that runs the same five scenarios through all of them. The event also keeps the reason the approver gave (`approval.reason`).
 4. *Not a bug, worth knowing:* **delegating is a call like any other**, so the orchestrator needs a power (`ask_agent`) or its delegation is denied and nothing downstream runs. Reads need a power too.
 
 ## Where this goes next

@@ -41,17 +41,21 @@ describe('approval expiry', () => {
     let dir: string;
     let realNow: () => number;
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'approval-expiry-')); realNow = Date.now.bind(Date); });
-    afterEach(() => { jest.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
+    afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
 
     /** Time moves on: `Date.now()` answers as if `seconds` had passed since now. */
     const later = (seconds: number) => { const base = realNow(); jest.spyOn(Date, 'now').mockImplementation(() => base + seconds * 1000); };
 
     async function pending(extra: Partial<BaseEngineOptions>, ttlSeconds?: number) {
         const store = new FileApprovalStore(dir);
+        const known = new Set((await store.list({ status: 'pending' })).map(r => r.id));
         const built = build([pay(15_000), { content: 'pending' }], { approvals: store, ...extra }, ttlSeconds);
         await built.engine.run('pay');
-        const all = await store.list({ status: 'pending' });
-        return { ...built, store, request: all[all.length - 1]! };         // the newest: this call's
+        // The request THIS call made: the one that was not there before. `list` orders by creation time to the millisecond, so two requests made in
+        // the same millisecond tie, and "the last of the list" may be the other one.
+        const made = (await store.list({ status: 'pending' })).filter(r => !known.has(r.id));
+        if (made.length !== 1) throw new Error(`expected this call to leave exactly one pending request, found ${made.length}`);
+        return { ...built, store, request: made[0]! };
     }
 
     it('by default nothing expires: an approval is run a year later, as before', async () => {
@@ -104,12 +108,14 @@ describe('approval expiry', () => {
     });
 
     it('the ask can set its own ttl, and the shorter one wins', async () => {
+        // Two requests in the same directory made in the same millisecond: a tie that used to make this test pick the wrong one half of the time.
+        jest.useFakeTimers({ doNotFake: ['setTimeout', 'setImmediate', 'setInterval', 'nextTick', 'queueMicrotask'] }).setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
         const policyShorter = await pending({ approvalTtlSeconds: 3600 }, 10);
-        const t1 = Date.parse(policyShorter.request.expiresAt!) - realNow();
-        expect(t1).toBeLessThanOrEqual(10_000);
+        // The clock is frozen, so what the request carries is exact: the shorter of the two lifetimes, counted from now.
+        expect(Date.parse(policyShorter.request.expiresAt!) - Date.now()).toBe(10_000);
         const engineShorter = await pending({ approvalTtlSeconds: 5 }, 3600);
-        const t2 = Date.parse(engineShorter.request.expiresAt!) - realNow();
-        expect(t2).toBeLessThanOrEqual(5_000);
+        expect(Date.parse(engineShorter.request.expiresAt!) - Date.now()).toBe(5_000);
+        jest.useRealTimers();
     });
 
     it('a ttl that is not a positive number expires at once: a mistake does not turn into "never expires"', async () => {

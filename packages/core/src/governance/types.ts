@@ -217,6 +217,10 @@ export interface ApprovalStore {
     resolve(id: string, outcome: ApprovalOutcome): Promise<StoredApproval>;
     /** Marks an approved request executed, atomically and at most once; returns false if it already was. */
     markExecuted(id: string): Promise<boolean>;
+    /**
+     * The requests that match, **oldest first**. Requests made in the same millisecond have the same `createdAt`; their relative order is stable
+     * (by id) but not chronological, so do not read "the last one" as "the one just made": compare the ids you knew before.
+     */
     list(filter?: { status?: ApprovalStatus; agentId?: string }): Promise<StoredApproval[]>;
 }
 

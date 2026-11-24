@@ -2,9 +2,16 @@ import { mkdtempSync, readdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { PassThrough } from 'stream';
+import * as fsp from 'node:fs/promises';
 import { FileApprovalStore } from '../approval-store';
 import { agentApprover, consoleApprover } from '../approvers';
 import type { ApprovalRequest } from '../types';
+
+// `readdir` can be told to answer in the opposite order, as some file systems do (the store lists a folder; the folder gives no order of its own).
+jest.mock('node:fs/promises', () => {
+    const real = jest.requireActual('node:fs/promises');
+    return { ...real, readdir: jest.fn((...args: unknown[]) => real.readdir(...args)) };
+});
 
 const request = (id: string, agentId = 'main'): ApprovalRequest => ({
     id,
@@ -27,6 +34,21 @@ describe('FileApprovalStore', () => {
         // The tool travels as data: its name and parameters, not its function.
         expect((item!.subject as { call: { tool: { name: string; execute?: unknown } } }).call.tool).toMatchObject({ name: 'pay' });
         expect((item!.subject as { call: { tool: { execute?: unknown } } }).call.tool.execute).toBeUndefined();
+    });
+
+    it('lists oldest first, and requests made in the same millisecond come in a stable order (by id), whatever order the file system gives', async () => {
+        const store = new FileApprovalStore(dir);
+        const at = '2026-01-01T00:00:00.000Z';
+        for (const id of ['r-c', 'r-a', 'r-b']) await store.put({ ...request(id), createdAt: at });
+        await store.put({ ...request('r-old'), createdAt: '2025-12-31T23:59:59.000Z' });
+        // A file system that lists in the opposite order, as ext4 can: the answer must not depend on it.
+        const real = jest.requireActual('node:fs/promises');
+        const readdir = fsp.readdir as unknown as jest.Mock;
+        readdir.mockImplementation(async (...args: unknown[]) => (await real.readdir(...args)).reverse());
+        try {
+            expect((await store.list()).map(r => r.id)).toEqual(['r-old', 'r-a', 'r-b', 'r-c']);
+            expect((await new FileApprovalStore(dir).list()).map(r => r.id)).toEqual(['r-old', 'r-a', 'r-b', 'r-c']);
+        } finally { readdir.mockImplementation((...args: unknown[]) => real.readdir(...args)); }
     });
 
     it('accepts one decision per request and one execution per approval', async () => {

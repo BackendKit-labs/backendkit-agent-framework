@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.50.10 (2026-11-24)
+
+**El registro de una llamada aprobada dice por qué se pidió a una persona y, si fue por salirse de un apoderamiento, de cuál.** Hasta ahora el evento de una orden aprobada llevaba quién aprobó y con qué rol, pero ni el motivo (`reason`) ni el apoderamiento: quien lo leyera no podía ver que la orden **superaba el límite** de ese poder. Lo encontró el ejemplo `portfolio-advisor`.
+
+- **`reason` en el evento aprobado (agent-core 0.49.8):** el motivo del `ask` (por ejemplo «outside the mandate: the amount 6000 is above the 5000 the mandate allows») ya no se pierde cuando alguien aprueba. Vale para cualquier política, no solo para apoderamientos.
+- **`exceeded` en el evento:** el apoderamiento que la llamada **no** cubría (mismos campos que `mandate`, con el hash de la credencial). `mandatePolicy` lo pone en el `ask` (`exceeds`) y `combineDecisions` lo conserva. **No va en `mandate`**: ese campo dice «actuó cubierto por este poder» y sería falso. Está bajo la firma del agente.
+- **Límite conocido:** el servidor de tools directas (`createToolServer`) tiene su propio camino de aprobación y no lo registra todavía.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.8 | `AuditEvent.exceeded`, `PolicyDecision.ask.exceeds`, `reason` en las llamadas aprobadas |
+
+Se publica uno. Tag: `agent-core@0.49.8`.
+
 ## v0.50.9 (2026-11-23)
 
 **Una orden fuera del apoderamiento puede exigir un rol de quien la aprueba.** El `ask` de `mandatePolicy` para lo que el apoderamiento no cubre no llevaba `approverRoles`, así que el motor aceptaba a **cualquier persona que no fuera quien la pidió**: un becario podía aprobar una orden por encima del límite. Lo encontró el ejemplo `portfolio-advisor` (con una prueba que lo demostraba).

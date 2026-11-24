@@ -1,9 +1,12 @@
 /** Mandates (SPEC-0043 F1): what a verified power of representation covers, and what happens to everything else. */
+import { generateKeyPairSync } from 'node:crypto';
 import { createBaseEngine } from '../../engine/createBaseEngine';
+import { ed25519AgentIdentities } from '../agent-identity';
+import { agentSignatureProblem } from '../agent-signature';
 import { MemoryAuditSink } from '../audit';
 import { mandatePolicy, mandateCovers, auditMandate, type Mandate, type MandateVerifier } from '../mandate';
 import { combineDecisions } from '../policy';
-import type { Principal, ToolCall } from '../types';
+import type { Principal, ToolCall, ToolPolicy } from '../types';
 import type { AgentProfile, ToolDefinition } from '../../types';
 import { createMockTransport, createScriptedProvider, testAgent, type Turn } from '../../__tests__/helpers';
 
@@ -204,7 +207,7 @@ describe('who may decide what the mandate does not cover (outOfScopeApprover)', 
 
     describe('the ask it returns', () => {
         it('by default asks any human, with no role: nothing changes for who does not configure it', async () => {
-            expect(await policy(mandate()).decide(principal, call(args))).toEqual({ effect: 'ask', reason: expect.stringContaining('outside the mandate'), accepts: ['human'] });
+            expect(await policy(mandate()).decide(principal, call(args))).toEqual({ effect: 'ask', reason: expect.stringContaining('outside the mandate'), accepts: ['human'], exceeds: expect.objectContaining({ id: 'm-1' }) });
         });
         it('carries the roles, the kinds and the time limit that were configured', async () => {
             const d = await policy(mandate(), { outOfScopeApprover: { approverRoles: ['finance'], accepts: ['human'], ttlSeconds: 600 } }).decide(principal, call(args));
@@ -253,5 +256,61 @@ describe('who may decide what the mandate does not cover (outOfScopeApprover)', 
         it('the requester does not, even with the role (four eyes)', async () => expect(await bought('carlos')).toHaveLength(0));
         it('a person the directory does not know does not', async () => expect(await bought('stranger')).toHaveLength(0));
         it('with no directory nobody can: roles that cannot be checked are not roles', async () => expect(await bought('ana', { approverDirectory: undefined })).toHaveLength(0));
+    });
+});
+
+describe('the audit of a call approved outside the mandate (exceeded)', () => {
+    const agent: AgentProfile = { ...testAgent, id: 'buyer', allowedTools: ['buy'], delegatesTo: [] };
+
+    async function run(amount: number, over: Record<string, unknown> = {}) {
+        const audit = new MemoryAuditSink();
+        const tool: ToolDefinition = { ...buy, execute: async () => 'bought' };
+        const { transport } = createMockTransport();
+        const engine = createBaseEngine({
+            requireAgentIdentity: false,
+            providers: { mock: createScriptedProvider([{ tool_calls: [{ id: 'c', name: 'buy', args: { amount, currency: 'EUR' } }] }, { content: 'done' }]) }, defaultProvider: 'mock',
+            agents: [agent], defaultAgent: 'buyer', tools: [tool], transport, workingDir: process.cwd(), iterationMode: 'auto',
+            policy: policy(mandate()), audit, identity: { userId: 'carlos' },
+            approver: { ref: { kind: 'human', id: 'ana' }, request: async () => ({ decision: 'approve', by: { kind: 'human', id: 'ana' }, at: new Date().toISOString() }) },
+            ...over,
+        } as never);
+        await engine.run('buy a tv');
+        return audit.events.find(e => e.tool === 'buy')!;
+    }
+
+    it('says why a person was asked and which mandate the call went beyond, and does not say it was covered', async () => {
+        const ev = await run(5000);
+        expect(ev).toMatchObject({ decision: 'allow', outcome: 'ok', approval: { by: { id: 'ana' } }, reason: expect.stringMatching(/outside the mandate.*above the 1000/) });
+        expect(ev.exceeded).toMatchObject({ id: 'm-1', issuer: 'did:example:company', subject: 'carlos' });
+        expect(ev.exceeded?.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
+        expect(ev.mandate).toBeUndefined();          // the mandate did NOT cover this call
+    });
+
+    it('a call the mandate covers carries the mandate and no exceeded', async () => {
+        const ev = await run(500);
+        expect(ev.mandate).toMatchObject({ id: 'm-1' });
+        expect(ev.exceeded).toBeUndefined();
+        expect(ev.approval).toBeUndefined();
+    });
+
+    it('a call approved for another reason says why it asked, and has no exceeded (the reason is for every ask, not only mandates)', async () => {
+        const ev = await run(5000, { policy: { decide: () => ({ effect: 'ask', reason: 'payment above 10k', accepts: ['human'] }) } });
+        expect(ev).toMatchObject({ decision: 'allow', reason: 'payment above 10k', approval: { by: { id: 'ana' } } });
+        expect(ev.exceeded).toBeUndefined();
+    });
+
+    it('combined with another policy that asks, the exceeded mandate is kept', async () => {
+        const other: ToolPolicy = { decide: () => ({ effect: 'ask', reason: 'four eyes', accepts: ['human'] }) };
+        const d = combineDecisions([await policy(mandate()).decide(principal, call({ amount: 5000, currency: 'EUR' })), await other.decide(principal, call({}))]);
+        expect(d).toMatchObject({ effect: 'ask', exceeds: { id: 'm-1' }, reason: expect.stringContaining('four eyes') });
+    });
+
+    it('is under the signature of the agent: editing it afterwards is detected', async () => {
+        const keys = generateKeyPairSync('ed25519');
+        const identities = ed25519AgentIdentities({ buyer: { id: 'did:ex:buyer', privateKey: keys.privateKey } });
+        const ev = await run(5000, { agentIdentity: identities, requireAgentIdentity: undefined });
+        expect(agentSignatureProblem(ev, { keyOf: (kid) => identities.publicKeyOf(kid) })).toBeUndefined();
+        const tampered = { ...ev, exceeded: { ...ev.exceeded!, id: 'm-other' } };
+        expect(agentSignatureProblem(tampered, { keyOf: (kid) => identities.publicKeyOf(kid) })).toBeDefined();
     });
 });

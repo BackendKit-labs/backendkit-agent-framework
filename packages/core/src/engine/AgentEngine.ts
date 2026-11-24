@@ -1736,6 +1736,7 @@ export class AgentEngine {
         let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority } | undefined;
         let credentials: AuditCredential[] | undefined;
         let mandate: AuditMandate | undefined;
+        let exceeded: AuditMandate | undefined;
         const sandboxDecisions: AuditSandboxDecision[] = [];
 
         if (!toolDef) {
@@ -1808,6 +1809,8 @@ export class AgentEngine {
                     ran = true;
                     approval = verdict.approval;
                     mandate = verdict.mandate;
+                    // An approved call says why a person was asked, and which mandate it went beyond: the approval alone does not.
+                    if (verdict.asked) { reason = verdict.asked.reason; exceeded = verdict.asked.exceeds; }
                     const toolHooks = this.hooks.some(h => h.beforeTool || h.afterTool);
                     const hookCall: ToolCall | undefined = toolHooks ? { tool: toolDef, args: this.parseArgs(effective.args) } : undefined;
                     const hookCtx = toolHooks ? this.toolHookContext(principal) : undefined;
@@ -1860,6 +1863,7 @@ export class AgentEngine {
             approval,
             ...(credentials ? { credentials } : {}),
             ...(mandate ? { mandate } : {}),
+            ...(exceeded ? { exceeded } : {}),
             sandbox: sandboxDecisions,
             meta: toolDef?.meta,
         });
@@ -2015,7 +2019,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; /** Whom the call acted for, when the principal of the engine does not say (a stored approval run by a worker). */ userId?: string; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
-        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; mandate?: AuditMandate; meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; mandate?: AuditMandate; exceeded?: AuditMandate; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;
@@ -2046,6 +2050,7 @@ export class AgentEngine {
             ...(c.approval ? { approval: c.approval } : {}),
             ...(c.credentials ? { credentials: c.credentials } : {}),
             ...(c.mandate ? { mandate: c.mandate } : {}),
+            ...(c.exceeded ? { exceeded: c.exceeded } : {}),
             ...(c.sandbox && c.sandbox.length > 0 ? { sandbox: c.sandbox } : {}),
             ...(c.meta ? { meta: c.meta } : {}),
         };

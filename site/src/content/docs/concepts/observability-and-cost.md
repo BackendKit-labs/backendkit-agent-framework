@@ -5,6 +5,18 @@ description: Budgets that stop a run, cost and metrics, traces to OpenTelemetry,
 
 An agent in production needs four answers: *what did it do, what did it cost, how is it behaving, and can I stop it.*
 
+## In plain words
+
+**What it is.** The four answers an agent in production owes you: **what it did, what it cost, how it is behaving, and can I stop it**.
+
+**Why you need it.** An agent that cannot be measured cannot be run: a loop that spends ten euros on a bad prompt looks exactly like one that works until the invoice arrives.
+
+**How it works here.** A cost tracker prices each model call from its token usage, and a **budget** stops the run when it is crossed (`budgetExceeded`). Metrics and traces go to OpenTelemetry, each run has one id that ties events together, and every tool call writes an audit record.
+
+**What it does not do.** Costs are **estimates from the price list you give**, not the invoice. A budget stops a run; it does not undo what already ran. And observability does not govern: the [audit](../audit/) is the evidence, the [policy](../policy/) is the lock.
+
+**In one line.** Observability is **seeing, measuring and stopping**, so a problem shows up in a graph and not in a bill.
+
 ## Cost and a hard stop
 
 The cost tracker prices each model call from its token usage. With a **budget** the engine stops the run when it is crossed.

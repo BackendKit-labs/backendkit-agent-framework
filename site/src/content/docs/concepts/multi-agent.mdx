@@ -8,6 +8,18 @@ Two ways to get several agents working together, for two different needs.
 
 <DelegationVsFlow />
 
+## In plain words
+
+**What it is.** Two ways to make several agents work together: **delegation** (an agent asks another through `ask_agent` and the model decides who and when) and **flows** (you decide the path in advance).
+
+**Why you need it.** One agent that knows every domain and holds every tool does worse and can do more harm than a team of specialists, each with its own tools and its own identity. Splitting also lets you give the dangerous tool to one agent only.
+
+**How it works here.** An agent whose profile lists `delegatesTo` can hand a sub-task to a named agent. The engine runs the other agent and returns its answer. The specialist acts under **its own** identity and permissions, and the chain records who asked. When the order must be the same every time, you write a flow instead.
+
+**What it does not do.** Delegation does not lend power: the orchestrator's permissions are not the specialist's, and the specialist does not inherit the orchestrator's. It is also **not deterministic**: the model chooses who to ask, so if the order matters or something must stop for a person, use a flow.
+
+**In one line.** Delegation is **the model choosing who to ask**; a flow is **you choosing the path**.
+
 ## Delegation: an agent asks another
 
 An agent whose profile has `delegatesTo` can hand a sub-task to a named agent through the `ask_agent` call. The engine runs the other agent and returns its answer.

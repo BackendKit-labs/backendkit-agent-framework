@@ -5,6 +5,18 @@ description: Let a tool start slow work (a build, a server, a report) and return
 
 A tool call normally blocks the agent: it starts, finishes, and only then does the model see the result. For work that takes minutes (a build, a test suite, a dev server, a report) that is the wrong shape. A **background job** lets a tool start the work, return an id **immediately**, and leave the work running. The agent reads the output when it wants, or cancels the job.
 
+## In plain words
+
+**What it is.** A **background job** lets a tool start slow work (a build, a server, a report), return an id at once and leave the work running while the agent keeps going.
+
+**Why you need it.** A normal tool call blocks the turn until it finishes. For work that takes minutes that is the wrong shape: the agent waits, the model times out, and nothing else moves.
+
+**How it works here.** With `jobs: true` the engine adds three tools (`job_output`, `job_list`, `job_kill`) and a registry your own tools can start jobs in. When a job finishes the model is told once, on its next iteration, and reads the output when it wants. Each job has an owner: only that agent reads or cancels it. Running jobs are cancelled when the engine stops.
+
+**What it does not do.** It is not a queue shared between processes and it does not survive a restart: the registry lives in the engine. For work that must outlive a crash or wait for a person, use a [flow](../flows/).
+
+**In one line.** A background job is **work that runs next to the agent instead of in front of it**.
+
 ## Turn it on
 
 ```ts

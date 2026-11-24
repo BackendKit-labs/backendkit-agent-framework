@@ -5,6 +5,18 @@ description: How an agent remembers across sessions, and how repeated failures b
 
 Two different things, often confused. **Memory** is what the agent knows. **Learning** is what the agent changes about itself - and in this framework, nothing it learns applies itself.
 
+## In plain words
+
+**What it is.** **Memory** is what the agent knows across sessions (what happened, what is known, how to do things). **Learning** is what the agent changes about itself. They are often confused; in this framework nothing the agent learns applies itself.
+
+**Why you need it.** Without memory every session starts blank. Without a rule for learning, an agent that rewrites its own instructions after a bad day becomes something nobody reviewed.
+
+**How it works here.** Memory has three layers: episodic (what happened), semantic (what is known) and procedural (how). Learning turns repeated failures into **lessons proposed to a person**, who approves or rejects them; only then do they change anything.
+
+**What it does not do.** Memory is **not verified truth**: it holds what the agent saw or concluded, which can be wrong or out of date. And learning never edits an agent behind your back: an agent cannot approve what it learned.
+
+**In one line.** Memory is **what it knows**; learning is **what it proposes to change, and a person decides**.
+
 ## Memory
 
 Session history is kept for you. For anything that should outlive a session there is a three-layer memory:

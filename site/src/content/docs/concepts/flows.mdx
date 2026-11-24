@@ -9,6 +9,18 @@ A **flow** is a business process as data. You describe the steps and what each w
 
 <FlowDag />
 
+## In plain words
+
+**What it is.** A **flow** is a business process written as data: steps, what each one waits for, and where a person must decide. The engine runs it, writes everything to a journal and can resume after a crash.
+
+**Why you need it.** Some work must follow the same path every time, survive a restart in the middle and stop for a human before the irreversible step. A conversation with a model cannot promise any of that; a flow can, because the path is yours and the progress is on disk.
+
+**How it works here.** You write the steps in YAML (`id`, `agent`, `prompt`, `after`, optional `gate: { approval: human }`). Steps with nothing between them run in parallel. Each event goes to the journal, so a new process can pick up where the old one stopped, and an approval waits in a store until someone decides, with the same role and four-eyes checks as everywhere else.
+
+**What it does not do.** A flow does not let the model improvise the path. It also does not make the steps themselves correct: each step is an agent, and what that agent may do is still decided by its policy and mandate.
+
+**In one line.** A flow is **a durable process with a path you chose and a place for a person to say yes**.
+
 ## The definition
 
 ```yaml

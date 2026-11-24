@@ -6,7 +6,7 @@ It runs with **no key and no network**: a scripted model plays the LLM, so the t
 
 ```bash
 npm install
-npm test          # 38 tests, offline
+npm test          # 46 tests, offline (a server on loopback, nothing else)
 ```
 
 The domain (what the agents are *about*) follows the design of a finance portfolio system: the decision matrix (§6), the default weights (§8.3) and the conflict rules (§8.5) of its `design.md`. Nothing in the numbers is invented.
@@ -39,6 +39,7 @@ The point of the example is that **what governs the agents is framework**. This 
 | The person who asked cannot approve | `forbidSelfApproval` | none |
 | Who the people are and their roles | `approverDirectory` | the table of people (`operator.ts`) |
 | The orchestrator hands work over, and each specialist keeps its own identity | `delegatesTo`, `ask_agent`, `Principal.chain` | none |
+| The signals come from another party, not from the advisor | `startToolServerHttp` on one side (with its own identity and audit), `mcpServers` + `assignTo` + `trustAnnotations` on the other | the tool and the choice to trust the server (`signals-server.ts`, 10 lines in `advisor.ts`) |
 | What a tool is (reads, changes things) | `defineTool({ readOnly, destructive })` | the tools |
 | A process that survives a restart and stops for a person | `parseFlow`, `runFlow`, `NdjsonRunJournal`, `FileApprovalStore`, `createApprovalHandler`, `gate: { approval: human }` | the flow definition (data) and a 10-line `StepExecutor` that runs the agent a step names (`flow.ts`) |
 | The numbers | nothing: it is the domain | `domain.ts` (fusion, matrix, rebalance, broker) |
@@ -77,4 +78,4 @@ All three were found by a test written against what we wanted, and closed in the
 
 ## Where this goes next
 
-Built: the core (analyst, rebalancer, executor, orchestrator, power and approval) and the durable flow. Planned, one PR each: the smart money signals through an **MCP server**; the rebalance as a **capability** of `agent-protocol` behind the identity gate; an **evaluation suite** (`agent-testkit`) of the recommendations against the decision matrix.
+Built: the core (analyst, rebalancer, executor, orchestrator, power and approval), the durable flow and the **signals as an MCP server** (`signals-server.ts`, `signals.test.ts`). What the tests show about a tool that comes from outside: only the agents it is assigned to have it; a client that does not trust the server does **not** believe "read-only" and asks a person (with nobody, the call is denied); the server records and signs every call in **its own** audit, apart from the advisor's; with a wrong token nobody connects and the tool is simply not there (the advisor does not invent signals). Planned, one PR each: the rebalance as a **capability** of `agent-protocol` behind the identity gate; an **evaluation suite** (`agent-testkit`) of the recommendations against the decision matrix.

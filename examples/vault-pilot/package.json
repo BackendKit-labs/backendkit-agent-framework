@@ -9,13 +9,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.49.0",
-    "@backendkit-labs/agent-enterprise": "^0.11.8",
-    "@backendkit-labs/agent-providers": "^0.3.12",
+    "@backendkit-labs/agent-core": "^0.49.11",
+    "@backendkit-labs/agent-enterprise": "^0.11.9",
+    "@backendkit-labs/agent-providers": "^0.3.17",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {
-    "@backendkit-labs/agent-testkit": "^0.1.15",
+    "@backendkit-labs/agent-testkit": "^0.1.21",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

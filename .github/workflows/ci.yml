@@ -183,6 +183,46 @@ jobs:
         run: npm run build
         working-directory: site
 
+  # The examples are standalone projects that install the PUBLISHED packages, as a user would: each one is typed and runs its own offline checks
+  # (no key, no network). A release that breaks what an example teaches shows here on the next pull request, and an example whose lockfile drifts
+  # from the packages (the peer ranges of old versions) fails at `npm ci`. They are not workspaces on purpose: they are the user's point of view.
+  examples:
+    name: Examples (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { dir: aval-scheduler,   run: 'npm run typecheck && npm test' }
+          - { dir: git-agent,        run: 'npm run typecheck && npm run check' }
+          - { dir: git-analyst,      run: 'npm run typecheck' }
+          - { dir: mandate-agent,    run: 'npm run typecheck && npm test' }
+          - { dir: portfolio-advisor, run: 'npm run typecheck && npm test' }
+          - { dir: vault-pilot,      run: 'npm run typecheck && npm run check' }
+    env:
+      # git-agent builds throwaway repositories and commits in them.
+      GIT_AUTHOR_NAME: ci
+      GIT_AUTHOR_EMAIL: ci@example.invalid
+      GIT_COMMITTER_NAME: ci
+      GIT_COMMITTER_EMAIL: ci@example.invalid
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: examples/${{ matrix.dir }}/package-lock.json
+
+      - name: Install (from the lockfile, published packages)
+        run: npm ci --ignore-scripts
+        working-directory: examples/${{ matrix.dir }}
+
+      - name: Typecheck and offline checks
+        run: ${{ matrix.run }}
+        working-directory: examples/${{ matrix.dir }}
+
   # A package version that is not on npm yet has to be written down in the CHANGELOG: a bump pull request that forgets its section fails here.
   release-notes:
     name: Release notes (version in CHANGELOG)

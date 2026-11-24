@@ -11,7 +11,7 @@ import { mockTransport, scriptedProvider } from '@backendkit-labs/agent-testkit'
 import { makeWorkspace, type Workspace } from './vault';
 
 /** A department agent is asked something; the scripted model calls one tool with one query, then answers. */
-async function callTool(ws: Workspace, agent: string, tool: string, query: string) {
+async function callTool(ws: Workspace, agent: string, tool: string, query: string, extra: { globalExcludeFolders?: string[] } = {}) {
   const model = scriptedProvider([
     { tool_calls: [{ id: 'c1', name: tool, args: { query } }] },
     { content: 'done' },
@@ -19,7 +19,7 @@ async function callTool(ws: Workspace, agent: string, tool: string, query: strin
   const providers = new ProviderRegistry();
   providers.register('main', model);
   providers.register('local', model);            // HR and finance are configured to use a local model
-  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main', maxIterations: 4, agentIdentity: selfAssertedIdentities(), identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' } });
+  const setup = createEnterpriseSetup({ ...ws, providers, defaultProvider: 'main', maxIterations: 4, agentIdentity: selfAssertedIdentities(), identity: { userId: process.env.USERNAME ?? process.env.USER ?? 'me' }, ...extra });
   await setup.indexAll();
 
   const t = mockTransport();
@@ -75,10 +75,20 @@ async function main(): Promise<void> {
     assert.doesNotMatch(text, /refund/i);
   });
 
-  await check('the General agent searches the whole vault', async () => {
-    const { text } = await callTool(ws, 'general', ENTERPRISE_TOOLS.SEARCH_GENERAL, 'parental leave');
+  // The General agent answers with the default provider, which may be remote: what it can search is what that provider may see. HR and Finance
+  // (whose agents use a local model) are out of its reach by default, and the operator can say otherwise.
+  await check('the General agent does NOT see HR or Finance by default: what it retrieves goes to the default provider', async () => {
+    const { call, text } = await callTool(ws, 'general', ENTERPRISE_TOOLS.SEARCH_GENERAL, 'parental leave');
+    assert.equal(call.success, true);
+    assert.doesNotMatch(text, /16 weeks/);
+  });
+
+  await check('with globalExcludeFolders: [] the General agent searches the whole vault, as the operator chose', async () => {
+    const { text } = await callTool(ws, 'general', ENTERPRISE_TOOLS.SEARCH_GENERAL, 'parental leave', { globalExcludeFolders: [] });
     assert.match(text, /16 weeks/);
   });
+
+
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

@@ -21,6 +21,23 @@ shard-001 ├─ scanner x N (in parallel, on workers) ─> merge ─> verify �
 | `verify` | Does not trust the scanner: re-reads the raw records and clears the subscriptions. |
 | `report` | Runs only if something was confirmed (`when: matches '^VERIFY: [1-9]\d* CONFIRMED'`) and a person approves. A clean book asks nobody. |
 
+## How the flow is written
+
+The number of shards depends on the data, so the definition is **built**, not typed; it is still a plain flow that `validateFlow` checks. Every shard is scanned at the same time, `verify` does not trust the scanner, and `report` runs only if something was confirmed and a person approves it:
+
+```ts
+steps: [
+    ...ids.map(id => ({ id, agent: 'scanner', prompt: `Scan ${id} of the audit {{payload.audit}}.`, timeoutMs: 120_000 })),   // no `after`: in parallel
+    { id: 'merge',  agent: 'consolidator', prompt: 'Look for what only shows across shards.', after: ids },
+    { id: 'verify', agent: 'verifier',     prompt: 'Confirm or clear every candidate against the records.', after: ['merge'] },
+    {
+        id: 'report', agent: 'writer', prompt: 'Write the audit report.', after: ['verify'],
+        when: { step: 'verify', matches: '^VERIFY: [1-9]\\d* CONFIRMED' },   // a clean book asks nobody
+        gate: { approval: 'human' },
+    },
+],
+```
+
 ## Run it
 
 ```bash

@@ -53,6 +53,19 @@ What a real model did (6 model calls, about 0.008 USD, 16 s): listed the flows, 
 | Cannot cancel a run unless a person confirms | `destructive`, `policy`, `approver` |
 | The run waits for a person as `awaiting_approval`, with one id for the model, the journal and the approval; after the decision it goes on without rebuilding | `flowFromDefinition` + `FlowHost`, `NdjsonRunJournal` |
 
+The rule that matters is a **policy**, outside the model: the captain does its job alone, a cancellation needs a person, and deciding an approval is never allowed, whatever the model says:
+
+```ts
+export const captainPolicy: ToolPolicy = {
+    decide(_principal, call) {
+        const name = call.tool.name;
+        if (name === 'approval_decide') return { effect: 'deny', reason: 'only a person decides an approval' };
+        if (name === 'flow_cancel') return { effect: 'ask', reason: 'cancelling a run cannot be undone', accepts: ['human'] };
+        return { effect: 'allow' };
+    },
+};
+```
+
 How to build one: [let a model supervise flows](../../guides/let-a-model-supervise-flows/).
 
 ## What it found in the framework

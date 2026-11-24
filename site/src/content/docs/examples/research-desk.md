@@ -34,6 +34,30 @@ risk      ┘
 
 `desk:smoke` runs it with a deterministic stand-in for the models and checks the plumbing: parallel steps, context between steps, the approval, resume, a step skipped by a condition. `desk:live` runs it with DeepSeek in every agent: 6 flows, 51 model calls, about 0.018 USD, with the analysts running 3.2 times faster in parallel than in sequence.
 
+### How the flow is written
+
+The desk is a flow in YAML (the same object whether written here, loaded from a file or planned by a model). The three analysts have no `after`, so they run together; the decision waits for the three; the order is skipped unless the decision says to enter, and waits for a person:
+
+```yaml
+steps:
+  - id: technical
+    agent: technical
+    prompt: "Symbol {{payload.symbol}}, bar {{payload.bar}}. Read the indicators and give your technical verdict."
+    timeoutMs: 20000
+  - id: regime        # ... and `exposure`, with the other two analysts
+  - id: decision
+    agent: decider
+    prompt: "Decide with the analysis you were given."
+    after: [technical, regime, exposure]
+  - id: execute
+    agent: executor
+    prompt: "Carry out the decision."
+    after: [decision]
+    when: { step: decision, contains: "DECISION: ENTER" }   # a SKIP never reaches a person
+    gate:
+      approval: human                                       # and the order waits for one to approve it
+```
+
 ## What it found in the framework
 
 Four findings, three fixed:

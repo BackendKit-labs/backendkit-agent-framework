@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.50.13 (2026-11-24)
+
+**El verificador de referencia de `agent-mandates` deja de ignorar en silencio las restricciones que no conoce.** Se comprobó ejecutando: una credencial con `limits: { amount, rows: { max: 5 } }` se aceptaba y el apoderamiento resultante tenía **solo** el importe; la restricción `rows` desaparecía y el agente podía más de lo que el emisor quiso. Lo mismo con cualquier clave desconocida del claim `mandate` (`validBetween`, `maxPerDay`...) o dentro de `amount` (`per: 'day'`). Es lo contrario de lo que ya hace el kit de adaptadores (`checkPowers`): fallar cerrado ante lo que no se sabe aplicar.
+
+- **agent-mandates 0.1.4:** el verificador **rechaza** la credencial si el claim `mandate`, `limits` o `amount` llevan una clave que el perfil no conoce, y el motivo dice cuál. Una credencial con solo lo que el perfil conoce sigue pasando igual.
+- **Ruptura leve, por la misma razón que antes (no hay usuarios externos):** una credencial emitida con claves de más, que antes se aceptaba perdiendo esas restricciones, ahora se rechaza.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-mandates` | 0.1.4 | rechaza restricciones desconocidas en vez de ignorarlas |
+
+Se publica uno. Tag: `agent-mandates@0.1.4`.
+
 ## v0.50.12 (2026-11-24)
 
 **Una advertencia al arrancar cuando la identidad del agente es autoafirmada.** Un agente sin proveedor de identidad funciona (`selfAssertedIdentities()`) y la auditoría ya lo marca `assurance: 'self-asserted'`, pero quien arrancaba el agente no se enteraba salvo leyendo el registro.

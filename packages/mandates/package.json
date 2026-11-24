@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-mandates",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Mandates for @backendkit-labs/agent-core agents: a default verifier of signed power-of-representation credentials (JWT / SD-JWT VC shaped), with trusted issuers, expiry and revocation. The format of a specific provider is an adapter",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

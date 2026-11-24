@@ -46,6 +46,8 @@ export interface JwtMandateVerifierOptions {
 }
 
 const DEFAULT_AUDIENCE = 'urn:agent-framework:verifier';
+/** The keys of the `mandate` claim of this profile. Any other is a restriction, and a restriction that is not understood is refused. */
+const MANDATE_KEYS = ['agent', 'agentIdentity', 'actions', 'resources', 'limits'];
 const deny = (reason: string): MandateVerification => ({ ok: false, reason });
 const iso = (seconds: number): string => new Date(seconds * 1000).toISOString();
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x.length > 0);
@@ -93,12 +95,26 @@ export function jwtMandateVerifier(options: JwtMandateVerifierOptions): MandateV
 
             if (!claim || typeof claim !== 'object' || Array.isArray(claim)) return deny('the credential has no mandate claim');
             const m = claim as Record<string, unknown>;
+            // What this profile does not know is refused, not ignored: a restriction the issuer wrote and this verifier cannot enforce (a daily cap, a time
+            // window, a counterparty) would otherwise vanish and the mandate would grant MORE than was meant. The same rule as the adapter kit.
+            const unknownInMandate = Object.keys(m).filter(k => !MANDATE_KEYS.includes(k));
+            if (unknownInMandate.length > 0) return deny(`the mandate carries a restriction this verifier cannot enforce (${unknownInMandate.slice(0, 3).join(', ')}): ignoring it would grant more than was meant`);
             if (!isStringArray(m.actions)) return deny('the mandate does not list what the agent may do (actions)');
             if (m.agent !== undefined && (typeof m.agent !== 'string' || m.agent.length === 0)) return deny('the agent of the mandate is not valid');
             if (m.agentIdentity !== undefined && (typeof m.agentIdentity !== 'string' || m.agentIdentity.length === 0)) return deny('the agent identity of the mandate is not valid');
             if (m.resources !== undefined && !isStringArray(m.resources)) return deny('the resources of the mandate are not valid');
             let limits: Mandate['limits'];
             if (m.limits !== undefined) {
+                const limitsObject = m.limits as Record<string, unknown> | null;
+                if (limitsObject && typeof limitsObject === 'object' && !Array.isArray(limitsObject)) {
+                    const unknownLimits = Object.keys(limitsObject).filter(k => k !== 'amount');
+                    if (unknownLimits.length > 0) return deny(`the limits of the mandate carry a restriction this verifier cannot enforce (${unknownLimits.slice(0, 3).join(', ')}): ignoring it would grant more than was meant`);
+                    const rawAmount = limitsObject.amount;
+                    if (rawAmount && typeof rawAmount === 'object' && !Array.isArray(rawAmount)) {
+                        const unknownAmount = Object.keys(rawAmount).filter(k => k !== 'max' && k !== 'currency');
+                        if (unknownAmount.length > 0) return deny(`the amount limit of the mandate carries a restriction this verifier cannot enforce (${unknownAmount.slice(0, 3).join(', ')}): ignoring it would grant more than was meant`);
+                    }
+                }
                 const amount = (m.limits as { amount?: { max?: unknown; currency?: unknown } } | null)?.amount;
                 if (!m.limits || typeof m.limits !== 'object' || (amount !== undefined && (typeof amount.max !== 'number' || !Number.isFinite(amount.max) || amount.max < 0
                     || (amount.currency !== undefined && typeof amount.currency !== 'string')))) {

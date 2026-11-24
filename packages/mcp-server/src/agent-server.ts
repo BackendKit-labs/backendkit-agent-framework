@@ -95,6 +95,10 @@ export interface AgentMCPServerOptions {
     policy?: ToolServerOptions['policy'];
     /** Answers an `ask` of the policy right away; its answer is validated before it counts. */
     approver?: ToolServerOptions['approver'];
+    /** Who the approvers are and what roles they hold: a policy that asks with `approverRoles` is approved only by someone who holds one (SPEC-0041). */
+    approverDirectory?: ToolServerOptions['approverDirectory'];
+    /** Four eyes for direct tools: whoever the server acts for (`identity.userId`) does not approve the call either. */
+    forbidSelfApproval?: boolean;
     /** Who the server acts for; part of the principal policies and audit events see. */
     identity?: ToolServerOptions['identity'];
     /**
@@ -178,6 +182,8 @@ export class AgentMCPServer {
                 authorize: opts.authorize,
                 policy: opts.policy,
                 approver: opts.approver,
+                ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
+                ...(opts.forbidSelfApproval !== undefined ? { forbidSelfApproval: opts.forbidSelfApproval } : {}),
                 identity: opts.identity,
                 ...(opts.agentIdentity ? { agentIdentity: opts.agentIdentity } : {}),
                 ...(opts.requireAgentIdentity !== undefined ? { requireAgentIdentity: opts.requireAgentIdentity } : {}),

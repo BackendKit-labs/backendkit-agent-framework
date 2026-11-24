@@ -849,7 +849,7 @@ export class AgentEngine {
         return this.executeToolCall(
             { name: subject.call.tool.name, args: JSON.stringify(subject.call.args) },
             profile, 0, undefined, undefined, item.principal.chain,
-            { by: item.outcome.by, approvalId, ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}), ...(item.expiresAt !== undefined ? { expiresAt: item.expiresAt } : {}) },
+            { by: item.outcome.by, approvalId, ...(item.outcome.reason ? { reason: item.outcome.reason } : {}), ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}), ...(item.expiresAt !== undefined ? { expiresAt: item.expiresAt } : {}) },
         );
     }
 
@@ -1733,7 +1733,7 @@ export class AgentEngine {
         let decision: AuditDecision = 'allow';
         let reason: string | undefined;
         let ran = false;
-        let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority } | undefined;
+        let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string } | undefined;
         let credentials: AuditCredential[] | undefined;
         let mandate: AuditMandate | undefined;
         let exceeded: AuditMandate | undefined;
@@ -2019,7 +2019,7 @@ export class AgentEngine {
     private async recordAudit(c: {
         startedAt: number; agentId: string; chain?: string[]; /** Whom the call acted for, when the principal of the engine does not say (a stored approval run by a worker). */ userId?: string; tool: string; rawArgs: string | Record<string, unknown>;
         decision: AuditDecision; reason?: string; outcome?: AuditOutcome; errorCode?: string; sandbox?: AuditSandboxDecision[];
-        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority }; credentials?: AuditCredential[]; mandate?: AuditMandate; exceeded?: AuditMandate; meta?: Record<string, unknown>;
+        approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string }; credentials?: AuditCredential[]; mandate?: AuditMandate; exceeded?: AuditMandate; meta?: Record<string, unknown>;
     }): Promise<void> {
         if (!this.audit.enabled) return;
         let args: unknown = c.rawArgs;

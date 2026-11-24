@@ -7,11 +7,11 @@ import { createToolContext } from '../tools/createToolContext';
 import { getToolInputSchema, validateToolDefinition } from '../tools/defineTool';
 import { AuditDispatcher } from '../governance/audit';
 import { agentCouldPerform, evaluatePolicies } from '../governance/policy';
-import { approvalProblem } from '../governance/approval';
+import { checkApproval } from '../governance/approval';
 import { IdentityResolver, type AgentIdentity, type AgentIdentityContext, type AgentIdentityProvider } from '../governance/agent-identity';
 import { eventSigningMessage } from '../governance/agent-signature';
 import type {
-    ApprovalRequest, Approver, ApproverRef, AuditDecision, AuditEvent, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
+    ApprovalRequest, Approver, ApproverAuthority, ApproverDirectory, ApproverRef, AuditDecision, AuditEvent, AuditMandate, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
 } from '../governance/types';
 import { randomUUID } from 'node:crypto';
 
@@ -84,8 +84,15 @@ export interface ToolServerOptions {
      * Runs after `authorize`. An `ask` goes to `approver`; without one it is refused. Several combine: deny > ask > allow.
      */
     policy?: ToolPolicy | ToolPolicy[];
-    /** Answers an `ask` now. Its answer is validated (accepted kind, no self-approval) before it counts. */
+    /** Answers an `ask` now. Its answer is validated (accepted kind, no self-approval, the roles the `ask` names) before it counts. */
     approver?: Approver;
+    /**
+     * Who the approvers are and what roles they hold. A policy that asks with `approverRoles` is approved only by someone who holds one, and with no
+     * directory it cannot be approved at all: an approval that cannot be checked is not accepted (SPEC-0041).
+     */
+    approverDirectory?: ApproverDirectory;
+    /** Four eyes: whoever the server acts for (`identity.userId`) does not approve the call either. With no `identity.userId` the call is denied. */
+    forbidSelfApproval?: boolean;
     /** Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off. */
     identity?: Identity;
     /**
@@ -277,7 +284,9 @@ async function runCall(
         sessionId: info.sessionId ?? 'mcp',
         chain: [opts.name],
     };
-    let approval: { id: string; by: ApproverRef } | undefined;
+    let approval: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string } | undefined;
+    // Why a person was asked, and which mandate the call went beyond: they go to the audit event of the approved call.
+    let asked: { reason: string; exceeds?: AuditMandate } | undefined;
     let policyDecision: AuditDecision = 'allow';
     // SPEC-0044: who executes this call, and for whom. Resolved before anything else runs; the audit event is attributed to it.
     const identityContext = { sessionId: principal.sessionId, ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}), ...(principal.userId !== undefined ? { userId: principal.userId } : {}) };
@@ -309,10 +318,11 @@ async function runCall(
                 tool: tool.name,
                 argsHash: hashArgs(args),
                 decision: ran ? 'allow' : policyDecision === 'allow' ? 'deny' : policyDecision,
-                ...(error !== undefined ? { reason: error } : {}),
+                ...(error !== undefined ? { reason: error } : asked ? { reason: asked.reason } : {}),
                 ...(ran ? { outcome: outcome as AuditOutcome } : {}),
                 durationMs: Date.now() - started,
                 ...(approval ? { approval } : {}),
+                ...(asked?.exceeds ? { exceeded: asked.exceeds } : {}),
                 ...(tool.meta ? { meta: tool.meta } : {}),
             };
             const attributed = who.ok ? who.identity : gov.identities.peek(opts.name);
@@ -351,6 +361,7 @@ async function runCall(
                 return finish('denied', `Tool "${tool.name}" denied: ${resolved.reason}`, resolved.reason);
             }
             approval = resolved.approval;
+            asked = { reason: d.reason, ...(d.exceeds ? { exceeds: d.exceeds } : {}) };
         } else {
             mode = d.mode;
         }
@@ -424,11 +435,11 @@ async function signedEvent(opts: ToolServerOptions, gov: Governance, event: Audi
 async function resolveAsk(
     opts: ToolServerOptions, gov: Governance, principal: Principal, tool: ToolDefinition, args: Record<string, unknown>,
     d: Extract<PolicyDecision, { effect: 'ask' }>,
-): Promise<{ ok: true; approval: { id: string; by: ApproverRef } } | { ok: false; reason: string }> {
+): Promise<{ ok: true; approval: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string } } | { ok: false; reason: string }> {
     if (!opts.approver) return { ok: false, reason: `needs approval (${d.reason}) and no approver is configured` };
     const request: ApprovalRequest = {
         id: randomUUID(), principal, subject: { kind: 'tool_call', call: { tool, args } }, reason: d.reason,
-        ...(d.approver ? { approver: d.approver } : {}), ...(d.accepts ? { accepts: d.accepts } : {}),
+        ...(d.approver ? { approver: d.approver } : {}), ...(d.accepts ? { accepts: d.accepts } : {}), ...(d.approverRoles ? { approverRoles: d.approverRoles } : {}),
         createdAt: new Date().toISOString(),
     };
     let answer;
@@ -438,12 +449,16 @@ async function resolveAsk(
         return { ok: false, reason: `the approver failed: ${messageOf(err)}` };
     }
     if (answer.decision !== 'approve') return { ok: false, reason: answer.reason ?? 'rejected by the approver' };
-    const problem = await approvalProblem(answer, request, async (by) => {
-        const asAgent = await evaluatePolicies(gov.policies, { ...principal, agentId: by.id, chain: by.chain ?? [by.id] }, { tool, args });
-        return agentCouldPerform(asAgent);
+    const checked = await checkApproval(answer, request, {
+        canAgentAct: async (by) => {
+            const asAgent = await evaluatePolicies(gov.policies, { ...principal, agentId: by.id, chain: by.chain ?? [by.id] }, { tool, args });
+            return agentCouldPerform(asAgent);
+        },
+        ...(opts.approverDirectory ? { approverDirectory: opts.approverDirectory } : {}),
+        ...(opts.forbidSelfApproval ? { forbidSelfApproval: true, requireRequester: true } : {}),
     });
-    if (problem) return { ok: false, reason: `invalid approval: ${problem}` };
-    return { ok: true, approval: { id: request.id, by: answer.by } };
+    if ('problem' in checked) return { ok: false, reason: `invalid approval: ${checked.problem}` };
+    return { ok: true, approval: { id: request.id, by: answer.by, ...(checked.authority ? { authority: checked.authority } : {}), ...(answer.reason ? { reason: answer.reason } : {}) } };
 }
 
 class ToolTimeout extends Error {

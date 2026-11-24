@@ -151,3 +151,34 @@ describe('AgentMCPServer: prompt and direct tools together', () => {
         expect(payRecords[0].server).toBe('mixed');
     });
 });
+
+describe('AgentMCPServer: who may approve a direct tool is forwarded to the tool server', () => {
+    // The options reach createToolRegistrar through conditional spreads, which TypeScript does not check for a missing one: guard the wiring.
+    const people: Record<string, { roles: string[] }> = { ana: { roles: ['finance'] }, intern: { roles: ['intern'] }, 'u-1': { roles: ['finance'] } };
+    async function paid(who: string, forward: boolean): Promise<{ ran: boolean; reason?: string }> {
+        const sink = new MemoryAuditSink();
+        const srv = new AgentMCPServer({
+            name: 'appr', port: 0, directTools: [pay], identity: { userId: 'u-1' }, agentIdentity: selfAssertedIdentities(), auditSink: sink,
+            policy: { decide: () => ({ effect: 'ask', reason: 'above 10k', accepts: ['human'], approverRoles: ['finance'] }) },
+            approver: { ref: { kind: 'human', id: who }, request: async () => ({ decision: 'approve', by: { kind: 'human', id: who }, reason: 'seen', at: new Date().toISOString() }) },
+            ...(forward ? { approverDirectory: { describe: (by: { id: string }) => people[by.id] }, forbidSelfApproval: true } : {}),
+        });
+        const client = await connect(srv);
+        try { await client.callTool({ name: 'pay', arguments: { invoiceId: 'F-1' } }); } finally { await client.close(); await srv.stop(); }
+        const ev = sink.events[0]!;
+        return { ran: ev.outcome === 'ok', ...(ev.reason ? { reason: ev.reason } : {}) };
+    }
+
+    it('a person with the role approves and the audit says which role covered it', async () => {
+        expect((await paid('ana', true)).ran).toBe(true);
+    });
+    it('a person without the role does not: the directory reached the tool server', async () => {
+        expect((await paid('intern', true)).ran).toBe(false);
+    });
+    it('the person the server acts for does not approve, even with the role: four eyes reached the tool server', async () => {
+        expect((await paid('u-1', true)).ran).toBe(false);
+    });
+    it('with no directory forwarded nobody can approve a role: it is refused, not silently accepted', async () => {
+        expect((await paid('ana', false)).ran).toBe(false);
+    });
+});

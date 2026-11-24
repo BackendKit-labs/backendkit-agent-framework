@@ -1,5 +1,5 @@
-import type { ApprovalOutcome, ApprovalStatus, ApprovalStore, ApproverKind, ApproverRef, StoredApproval } from '../governance/types';
-import { approvalProblem } from '../governance/approval';
+import type { ApprovalOutcome, ApprovalStatus, ApprovalStore, ApproverDirectory, ApproverKind, ApproverRef, StoredApproval } from '../governance/types';
+import { checkApproval } from '../governance/approval';
 
 /**
  * The approvals of an agent as the `approvalHandler` an `AgentServer` takes (`ApprovalHandler` of `@backendkit-labs/agent-protocol`,
@@ -47,6 +47,13 @@ export interface ApprovalHandlerOptions {
      * same `runId`. A throw here does not undo the decision.
      */
     onDecided?: (approval: StoredApproval) => void | Promise<void>;
+    /**
+     * Who the approvers are and what roles they hold. A request that asks for roles (`approverRoles`) is decided only by someone who holds one, and
+     * with no directory it cannot be decided at all: an approval that cannot be checked is not accepted (SPEC-0041).
+     */
+    approverDirectory?: ApproverDirectory;
+    /** Four eyes: the person the request was made for (`principal.userId`) cannot decide it. A request that does not say who asked is refused. */
+    forbidSelfApproval?: boolean;
 }
 
 /** What a reviewer sees. A tool call shows the tool and its arguments, not the whole definition. */
@@ -88,8 +95,12 @@ export function createApprovalHandler(store: ApprovalStore, options: ApprovalHan
             };
             // An answer that breaks the rules (wrong kind of approver, one's own request) is refused, not recorded as a rejection:
             // the approver is told, and the request stays open for someone who may decide it.
-            const problem = await approvalProblem(outcome, request, async by => options.canAgentAct?.(by, request) ?? false);
-            if (problem) throw new ApprovalControlError('FORBIDDEN', problem);
+            const checked = await checkApproval(outcome, request, {
+                canAgentAct: async by => options.canAgentAct?.(by, request) ?? false,
+                ...(options.approverDirectory ? { approverDirectory: options.approverDirectory } : {}),
+                ...(options.forbidSelfApproval ? { forbidSelfApproval: true, requireRequester: true } : {}),
+            });
+            if ('problem' in checked) throw new ApprovalControlError('FORBIDDEN', checked.problem);
             let stored: StoredApproval;
             try {
                 stored = await store.resolve(id, outcome);

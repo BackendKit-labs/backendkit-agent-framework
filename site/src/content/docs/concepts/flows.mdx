@@ -51,6 +51,7 @@ steps:
 | `after` | The steps this one waits for. No `after` means it can start at once. |
 | `gate.approval: human` | The run stops as `awaiting_approval` until a person decides. |
 | `when` | Run only if the output of a step it waits for contains / equals / matches something. Otherwise the step is *skipped* (not failed), and so is what depends on it. |
+| `kind: tool` + `tool` | The step is a **call to a tool** with structured arguments (`tool: { name, args }`, with `{{payload.x}}` resolved) and a structured result, instead of a prompt. The `prompt` stays and only describes the step. The executor you pass validates the arguments and makes the call: the engine knows no tool. |
 | `timeoutMs` | A deadline per step. |
 | `compensation` | Steps to run if another one fails (undo, notify). |
 

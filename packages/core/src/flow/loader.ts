@@ -97,6 +97,8 @@ export function validateFlow(def: FlowDefinition): string[] {
                 try { new RegExp(step.when.matches); } catch { issues.push(`step "${step.id}": when.matches is not a valid regular expression`); }
             }
         }
+        if (step.kind === 'tool' && !step.tool) issues.push(`step "${step.id}": kind "tool" requires a tool ({ name, args? })`);
+        if (step.kind !== 'tool' && step.tool) issues.push(`step "${step.id}": a tool call needs kind "tool" (without it the step would run as a prompt and the call would be ignored)`);
         if (step.gate?.evaluator && step.gate.evaluator === step.agent) {
             issues.push(
                 `step "${step.id}": gate evaluator "${step.gate.evaluator}" must differ from the executing agent (evaluador ≠ ejecutor)`,

@@ -1,7 +1,7 @@
 import type { Transport } from '../transport/Transport';
 import type { FlowDefinition, FlowStep, FlowTransition } from './types';
 import type { ConcurrencyLimiter } from './limiter';
-import { interpolate } from './interpolate';
+import { interpolate, interpolateArgs } from './interpolate';
 import { decideStepApproval } from './approval';
 import { describeCondition, evaluateCondition } from './condition';
 import type { FlowApprovals } from './approval';
@@ -14,7 +14,12 @@ import { JournalConflict } from './journal';
  * concern: that is the `StepExecutor` (one agent, a remote worker, a queue).
  */
 
-export interface StepOutput { content: string; costUsd?: number }
+/**
+ * What a step produced. `content` is the text the next steps and the journal carry. For a `tool` step (SPEC-0046), `data` is the structured result: when the
+ * executor gives `data` and an empty `content`, `content` is `JSON.stringify(data)`, so the text and the data never differ. After a resume only the text survives, and the
+ * data of a `tool` step is read back from it (`JSON.parse`).
+ */
+export interface StepOutput { content: string; costUsd?: number; data?: unknown }
 
 export interface StepInput {
     prompt: string;
@@ -22,6 +27,10 @@ export interface StepInput {
     context?: string;
     /** `runId:stepId:attempt`: a step with an external effect uses it to be safe when run again (at-least-once). */
     idempotencyKey: string;
+    /** For a `kind: 'tool'` step: the call, with `{{payload.x}}` already resolved in its arguments (SPEC-0046). The executor validates the arguments against the schema of the tool. */
+    tool?: { name: string; args: Record<string, unknown> };
+    /** The structured results (`data`) of the steps this one waits for that produced one, by step id (SPEC-0046). */
+    outputs?: Record<string, unknown>;
     signal: AbortSignal;
 }
 
@@ -254,6 +263,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     if (opts.signal?.aborted) controller.abort(); else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     const results: Record<string, FlowStepResult> = {};
+    /** The structured result (`data`) of the steps that gave one, kept for the steps that wait for them (SPEC-0046). */
+    const datas: Record<string, unknown> = {};
     const completed = new Set<string>();
     const failed = new Set<string>();
     /** Steps not run because their condition did not hold, and what waits for them: skipped, but the flow did not fail. */
@@ -284,6 +295,16 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         }
     }
 
+    /** What a completed step produced as data: from this run, or read back from its text after a resume (only a `tool` step is JSON by contract). */
+    const dataOf = (id: string): unknown => {
+        if (id in datas) return datas[id];
+        const r = results[id];
+        if (r?.status !== 'completed' || def.steps.find(s => s.id === id)?.kind !== 'tool') return undefined;
+        try { return JSON.parse(r.content); } catch { return undefined; }
+    };
+    /** A `tool` step that gave data and no text carries the data as its text, so the two never differ. */
+    const normalize = (step: FlowStep, o: StepOutput): StepOutput => (step.kind === 'tool' && o.data !== undefined && o.content === '' ? { ...o, content: JSON.stringify(o.data) } : o);
+
     opts.transport?.emit({ type: 'workflow_start', name: def.flow });
 
     const approvalsWhen = opts.approvals?.when ?? 'before';
@@ -292,10 +313,10 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
      * Asks for approval of a step through the `ApprovalStore`. Returns true to go on. On false the step has been settled here
      * (rejected, denied) or left waiting (`awaiting_approval`, with `output` kept in the journal when the review is after the step).
      */
-    const settleApproval = async (step: FlowStep, prev: Record<string, string>, output?: string): Promise<boolean> => {
+    const settleApproval = async (step: FlowStep, prev: Record<string, string>, output?: string, call?: { name: string; args: Record<string, unknown> }): Promise<boolean> => {
         let verdict;
         try {
-            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output);
+            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output, call, opts.redact);
         } catch (err) {
             verdict = { kind: 'denied' as const, reason: err instanceof Error ? err.message : String(err) };
         }
@@ -323,6 +344,21 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const executeOne = async (step: FlowStep): Promise<void> => {
         const prev: Record<string, string> = {};
         for (const dep of step.after) if (results[dep]?.status === 'completed') prev[dep] = results[dep].content;
+        const outputs: Record<string, unknown> = {};
+        for (const dep of step.after) { const d = dataOf(dep); if (d !== undefined) outputs[dep] = d; }
+
+        // The call of a tool step, resolved once: what the approval is about is what runs.
+        const call = step.kind === 'tool' && step.tool ? { name: step.tool.name, args: interpolateArgs(step.tool.args ?? {}, opts.payload) as Record<string, unknown> } : undefined;
+
+        // A tool step is approved before it runs, never after: by then the call (the payment) would have been made. It fails without running.
+        if (call && opts.approvals && approvalsWhen === 'after') {
+            const reason = `step "${step.id}" calls a tool: with approvals it needs approvals.when: 'before' (an approval after the call would come when it has already been made)`;
+            record(step.id, 'failed', reason);
+            await journal?.step(runId, step.id, { status: 'failed', error: redact(reason), transitions: flush() }).catch(() => undefined);
+            results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'failed', error: reason };
+            failed.add(step.id);
+            return;
+        }
 
         // A condition is checked before anything else, so that no approval is asked for a step that will not run.
         if (step.when) {
@@ -341,7 +377,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         }
 
         if (opts.approvals) {
-            if (approvalsWhen === 'before' && !(await settleApproval(step, prev))) return;
+            if (approvalsWhen === 'before' && !(await settleApproval(step, prev, undefined, call))) return;
         } else if (step.gate?.approval === 'human') {
             opts.transport?.emit({ type: 'workflow_approval_required', step: step.id });
             record(step.id, 'approval_requested');
@@ -392,16 +428,18 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                     context,
                     idempotencyKey: `${runId}:${step.id}:${attempt}`,
                     signal: stepCtl.signal,
+                    ...(call ? { tool: call } : {}),
+                    ...(Object.keys(outputs).length > 0 ? { outputs } : {}),
                 });
                 const limitMs = step.timeoutMs ?? opts.stepTimeoutMs;
                 if (limitMs === undefined) {
-                    out = await pendingRun;
+                    out = normalize(step, await pendingRun);
                 } else {
                     pendingRun.catch(() => undefined); // a late rejection after the deadline is already accounted for
                     const deadline = new Promise<never>((_, reject) => {
                         timer = setTimeout(() => { stepCtl.abort(); reject(new Error(`timed out after ${limitMs}ms`)); }, limitMs);
                     });
-                    out = await Promise.race([pendingRun, deadline]);
+                    out = normalize(step, await Promise.race([pendingRun, deadline]));
                 }
                 if (step.gate && opts.gate) {
                     await opts.gate(step, out.content, { runId, flow: def.flow, record: (e, d) => record(step.id, e, d) });
@@ -411,12 +449,13 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                     await journal?.step(runId, step.id, { status: 'running', attempt, output: out.content });
                 }
             }
-            if (opts.approvals && approvalsWhen === 'after' && !(await settleApproval(step, prev, out.content))) return;
+            if (opts.approvals && approvalsWhen === 'after' && !(await settleApproval(step, prev, out.content, call))) return;
             record(step.id, 'completed');
             await journal?.step(runId, step.id, {
                 status: 'done', output: out.content, attempt,
                 ...(out.costUsd !== undefined ? { costUsd: out.costUsd } : {}), transitions: flush(),
             });
+            if (out.data !== undefined) datas[step.id] = out.data;
             results[step.id] = {
                 stepId: step.id, agentId: step.agent, content: out.content, status: 'completed',
                 ...(out.costUsd !== undefined ? { costUsd: out.costUsd } : {}),

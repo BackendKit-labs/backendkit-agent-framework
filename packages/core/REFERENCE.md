@@ -779,6 +779,7 @@ result.costUsd; // sum of the costUsd the steps reported (absent if none did)
 ```
 
 - **Conditional steps (0.44.0):** `when: { step, contains | equals | matches, not? }` runs a step only if the output of a step it waits for says so (`step` must be in `after`; `equals` ignores surrounding whitespace). A step whose condition does not hold, or cannot be evaluated because that step produced no output, is `skipped` before anything else: it does not run, **no approval is asked**, what waits for it is skipped too, and the flow does **not** fail. The skip is in `transitions` with the reason (`condition not met: report contains "APPROVED"`).
+- **Tool steps (SPEC-0046):** a step is a prompt for an agent, or, with `kind: tool`, a call to a tool of that agent: `{ id, agent, kind: tool, prompt, tool: { name, args } }`. The `prompt` stays required and only describes the step. The executor receives the call in `input.tool`, with `{{payload.x}}` already resolved in `args` (a value that is exactly one reference keeps its type: `"{{payload.amount}}"` is the number, not a text), and it validates the arguments against the schema of the tool: core knows no tool. A `tool` step answers `{ content, data }`: `data` is the structured result and, if `content` is empty, `content` is `JSON.stringify(data)`. The steps that wait for it get that data in `input.outputs[stepId]` (also after a resume: only the text is in the journal, and a `tool` step's data is read back from it). Everything is optional and a flow without `kind` runs exactly as before. Core does not evaluate expressions over the data: that is the executor's; `when` still looks at the text. **Approval of a tool step:** the request carries the call (`subject.tool`, through `redact`) and its digest, and a resume with another payload that changes the call fails without running it; the policy of `flow.step:<id>` receives the arguments of the call; and with `approvals.when: 'after'` the step fails without running (it is approved before it runs). A mandate bound to an agent identity does not apply to a flow step (the principal of a step has none).
 - **Waves and failure:** steps whose `after` are done run together. A failed step skips what depends on it (`onStepFailure: 'continue'` runs them without its output), then the `compensation` entries run. `timeoutMs` per step, `stepTimeoutMs` as a default.
 - **Durable and resumable:** with a `journal` each step is written before and after it runs, one process holds the run (`claim`), and calling `runFlow` again with the same `runId` **resumes**: `done` steps are not run again. The claim is **renewed while the run lives** (every `claimRenewMs`, a third of `claimTtlMs` by default), so a run longer than the TTL is not taken over by another process; it expires only when this process stops. If a renewal finds the claim taken, the run stops and `runFlow` throws `FlowClaimError` without writing over the new owner (`claimRenewMs: 0` turns renewal off). A step the journal shows as `running` (the process died) runs again by default — at least once; `input.idempotencyKey` (`runId:stepId:attempt`) lets a step with an external effect be safe. `MemoryRunJournal`, `NdjsonRunJournal` (one `<runId>.ndjson` per run on one host, see below), and `RedisRunJournal` (in [`agent-flow-queue`](../flow-queue)) share one contract. The payload is not stored: pass it again when resuming.
 - **`NdjsonRunJournal` (0.45.0, [SPEC-0024](../../docs/specs/SPEC-0024-journal-de-corridas-ndjson.md)):** the journal for runs that live on one host. One line per event, **chained** (each line carries a MAC of the one before, HMAC with `key` if you give one: a line removed, changed or added makes the run `JournalCorrupt` and the other runs are still served; `problems` says which), `fsync` after every event, and a write cut in the middle is ignored and cut off. It has **one writer per run**: if someone else writes to the file, this writer gets `JournalConflict`, and `runFlow` stops without writing more and throws `FlowClaimError`. The claim is a lock file with the pid of the process: a holder that **died** is relieved at once (no TTL to wait for, so no renewal either), one that is alive is respected however long it takes. Files are created readable by their owner only, and still hold step outputs as they are. (`FileRunJournal`, which wrote a file per event, was removed in 0.47.0: it was about 3x slower to write and ~58x slower to read.) It needs the processes to share a host: for several machines use `RedisRunJournal`. Limit: removing the *last* lines of a file leaves a valid chain.
@@ -1032,7 +1033,7 @@ verifyAuditChain('/var/log/agent/chain.log', { secret: process.env.AUDIT_KEY });
 // → { ok: true, entries, head } or { ok: false, brokenAt, reason }
 ```
 
-An event carries `at`, `principal` (agent, session, delegation chain, tenant, user), `tool`, `argsHash`, `decision` (`allow`, `deny`, `ask`, `not_found`, `not_allowed`, `sandbox_denied`, `guardrail_blocked`), `outcome` when it ran (`ok`, `error`, `timeout`, `aborted`), `durationMs`, the sandbox decisions taken during the call and the tool's `meta`. Sinks receive events one at a time in call order; a failing sink is reported on the transport (`system` warning) and never changes the result. `HashChainAuditSink` links every entry to the previous one, so editing, removing or reordering entries is detected; with a `secret` a log rewritten by someone without it does not verify either. It refuses to extend a log that is already broken.
+An event carries `at`, `principal` (agent, session, delegation chain, tenant, user), `tool`, `argsHash`, `decision` (`allow`, `deny`, `ask`, `not_found`, `not_allowed`, `sandbox_denied`, `guardrail_blocked`), `outcome` when it ran (`ok`, `error`, `timeout`, `aborted`), `durationMs`, why a person was asked (`reason`), who approved (`approval`: the approver, the role that qualified them in `authority`, and the reason they gave), the mandate that covered the call (`mandate`) or the one it went beyond (`exceeded`, which with `approval` says who took the responsibility of going past the limit), the sandbox decisions taken during the call and the tool's `meta`. Sinks receive events one at a time in call order; a failing sink is reported on the transport (`system` warning) and never changes the result. `HashChainAuditSink` links every entry to the previous one, so editing, removing or reordering entries is detected; with a `secret` a log rewritten by someone without it does not verify either. It refuses to extend a log that is already broken.
 
 `auditLog: '/path.ndjson'` (the older option) still works unchanged but is deprecated: it writes up to 200 characters of the arguments in clear. It will be removed in 0.40.
 
@@ -1046,7 +1047,7 @@ import { createBaseEngine, type ToolPolicy, type Approver, selfAssertedIdentitie
 const treasuryRules: ToolPolicy = {
   decide(principal, call) {
     if (call.tool.name === 'pay_invoice' && (call.args.amount as number) > 10_000) {
-      return { effect: 'ask', reason: 'payment above 10k', accepts: ['human'] };
+      return { effect: 'ask', reason: 'payment above 10k', accepts: ['human'], approverRoles: ['finance'] };
     }
     if (!principal.roles?.includes('treasury') && !call.tool.readOnly) {
       return { effect: 'deny', reason: 'only treasury writes' };
@@ -1061,17 +1062,22 @@ const engine = createBaseEngine({
   identity: { tenantId: 'acme', userId: 'u-42', roles: ['treasury'] },
   policy: treasuryRules,           // several combine: deny > ask > allow; a throwing policy denies
   approver: myApprover,            // { ref, request(req) → { decision, by: { kind, id }, at } }
+  approverDirectory: myDirectory,  // who an approver is and what roles they hold: YOUR user system, { describe(by) → { roles, tenantId? } | undefined }
+  forbidSelfApproval: true,        // u-42, the person the agent acts for, does not approve what it asked either
   audit: new HashChainAuditSink('audit.log'),
 });
 ```
 
 - **Without `policy`**, but with someone to ask, `defaultToolPolicy` applies. Tools declared `readOnly` run. Tools declared `destructive` always ask a person. Anything else asks.
-- **Approvals are validated before they count:**
-  - the approver's kind must be accepted;
+- **Approvals are validated before they count**, in this order:
+  - the approver's kind must be accepted (`accepts`);
   - nobody approves their own request or one from their delegation chain;
+  - with `forbidSelfApproval: true`, the person the agent acts for (`identity.userId`) does not approve it either. It needs `identity.userId` to know who asked: with none, the rule does nothing and a flow, a handler or a tool server refuse to run with it;
+  - when the `ask` carries `approverRoles`, the approver holds at least one of them. The roles come from your `approverDirectory`, never from what the caller says. Fail closed: no directory, an id it does not know, a directory that throws, an approver of another tenant or no role in common refuse the approval and the call does not run;
   - an agent approves only what it could do itself.
 
-  Every approval is audited with who gave it.
+  The framework does not authenticate anyone: `by.id` has to come from something your application verified.
+- **One check for every way of approving.** The same function enforces all of the above for an approver in process, a stored approval run later (`runApproved`), the `approvals` of a flow, `createApprovalHandler` and the direct tool server: a way that skipped it would be the way around it. Every approval is audited with who gave it, the role that qualified them (`approval.authority`) and the reason they gave (`approval.reason`), next to why they were asked (`reason`).
 - **`allow` can carry a mode.** `mode: 'dry_run'` runs the tool with `ctx.dryRun = true`. `mode: 'sandboxed'` requires a configured sandbox.
 - **Opt-in.** Setting `policy`, `approver` or `approvals` switches to this path. Without them, `onToolApproval` behaves exactly as before. With them, `onToolApproval` is adapted as the approver: "approve all" never covers destructive tools or package installs.
 
@@ -1100,6 +1106,8 @@ createBaseEngine({ ...opts, approver: agentApprover((id, q) => engine.consultAge
 - **One decision and one execution per request.** `FileApprovalStore` allows exactly one decision and one execution per request, even across processes that share the directory.
 - **Everything is checked again.** `runApproved` repeats every check. A stored approval only satisfies an `ask` whose `accepts` admits the approver: an approval from an agent never covers a destructive tool.
 - **An invalid approval is spent.** If the approval turns out not to be valid, it is consumed and audited as `deny`.
+- **Approvals can expire.** `approvalTtlSeconds` (or `ttlSeconds` in the `ask`) says how long a stored request lives; by default it does not expire, so a Monday approval still authorizes the payment on Friday. `approverTimeoutMs` bounds an approver that should answer right away (past it the call is denied); for people who may take hours, use the store.
+- **`list` is oldest first.** `FileApprovalStore.list` orders by `createdAt` and breaks a tie of the same millisecond by `id`, so the first pending request is always the oldest and the order is the same on every host.
 
 ### Lifecycle hooks
 
@@ -1145,7 +1153,7 @@ createBaseEngine({
 });
 ```
 
-With **no identity service at all**, `selfAssertedIdentities()` (or `staticAgentIdentities({...})`, or `ed25519AgentIdentities({...})` if you want signed events) satisfies the requirement. The identity is marked `assurance: 'self-asserted'` in every audit event, so a reader can tell it from one that someone vouched for. In tests, `testIdentity()` from `@backendkit-labs/agent-testkit`, or `requireAgentIdentity: false` (not for regulated environments).
+With **no identity service at all**, `selfAssertedIdentities()` (or `staticAgentIdentities({...})`, or `ed25519AgentIdentities({...})` if you want signed events) satisfies the requirement. The identity is marked `assurance: 'self-asserted'` in every audit event, so a reader can tell it from one that someone vouched for. Whoever starts the agent hears it too: the first call with a self-asserted identity writes one warning, once per engine or server (a `system` event of level `warn` on the engine's transport, a line on stderr for a tool server or a capability server), and it stays silent under `NODE_ENV=test`. In tests, `testIdentity()` from `@backendkit-labs/agent-testkit`, or `requireAgentIdentity: false` (not for regulated environments).
 
 ### Plugging in an external identity service (an eIDAS 2-compatible service, a corporate IAM, a wallet...)
 
@@ -1187,7 +1195,10 @@ createBaseEngine({
 - **The proof of a signed event is opaque.** `core` checks Ed25519 itself; any other format (a JWS, a qualified electronic seal, a timestamp) is checked by the verifier **you** register in `verifyAuditChain(path, { agentSignatures: { formats } })`, and a format with no verifier does not pass as verified. What legal value a signature has is for the provider and the operator.
 - **Reference adapters.** `examples/mandate-agent` builds, with the real engine and tests, an adapter for an eIDAS 2-compatible credential (an SD-JWT VC), another for a W3C VC-JWT and a conformance suite that runs the same scenarios against both. **The payload is an assumption**: its real format is not public, so there is no adapter for a specific service yet.
 - **Capability servers.** An `AgentServer` of `@backendkit-labs/agent-protocol` runs capabilities and flows for remote callers and runs nothing without a `gate`: `capabilityIdentityGate({ name, agentIdentity, identity })` builds it with the same rule and default as the engine and leaves a signed, attributed audit event per run. The protocol authenticates a caller with one shared key, so who a run is **for** comes from you (a fixed identity or a function of something you verified), never from a header the caller sets. A web session's engine acts for the person the server authenticated: `agent-web` hands the factory the user (`caller.userId`).
-- **What it does not do yet.** A mandate is not yet bound to the identity of the agent that presents it, so `core` does not refuse a credential issued for one agent when another presents it: adapters compare it themselves (SPEC-0044 F3). The identity of a direct tool server (`createToolServer`) is that of the server, one per server, not one per MCP client.
+- **A mandate is the power of one agent.** A credential that names an agent identity is a power of **that** agent: presented by another, or by an agent with no identity, `core` denies the call (it does not ask: nobody could approve it into existence). A credential tied to the agent's key is proven at each call with the agent's own signature: pass `agentIdentity` to `mandatePolicy` so the verifier can ask for the proof (`request.prove`). A bearer credential is accepted unless `requireHolderBinding: true`, and the audit says `holderBinding: none` so it does not look like a possession was shown (SPEC-0044 F3).
+- **Which calls need a mandate, and what counts.** `appliesTo(tool)` limits the mandate to what is critical (money, deleting data, publishing, granting access); the other tools go to `otherwise` (default `defaultToolPolicy`: a read-only tool runs, a destructive one asks a person), so forgetting to include a critical tool is annoying, never permissive. A credential of profile 2 can cap quantities that are not money with `limits.measures`, and `measureOf: { rows: (args) => ({ value: args.ids.length }) }` says how to measure each one; a cap with no measure covers nothing (SPEC-0045).
+- **A call the mandate does not cover** asks a person (`outOfScope: 'ask'`, the default) or is denied (`'deny'`). `outOfScopeApprover: { approverRoles, accepts, ttlSeconds }` says who may decide it, so an order above the limit is not approved by an intern; the roles are checked against the engine's `approverDirectory`. The audit records the mandate that was exceeded (`exceeded`) next to the `approval` of the person who took the responsibility.
+- **What it does not do yet.** The identity of a direct tool server (`createToolServer`) is that of the server, one per server, not one per MCP client.
 
 ---
 

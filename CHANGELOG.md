@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.50.18 (2026-11-25)
+
+**Un paso de un flow puede ser una llamada a una herramienta (SPEC-0046 F1).** Es el paso `tool` que la SPEC-0023 D2 aceptó y no se había construido. Aditivo: un flow sin `kind` se ejecuta igual que antes.
+
+- **`FlowStep.kind` (`'agent' | 'tool'`) y `FlowStep.tool` (`{ name, args? }`).** El `prompt` sigue siendo obligatorio y, en un paso de herramienta, solo lo describe. `validateFlow` rechaza un `kind: tool` sin `tool` y un `tool` sin `kind: tool`.
+- **`StepInput.tool` y `StepInput.outputs`.** El executor recibe la llamada con `{{payload.x}}` resuelto en los argumentos (una referencia entera conserva su tipo) y los resultados estructurados de los pasos de los que depende. Core no valida los argumentos: no conoce ninguna herramienta.
+- **`StepOutput.data`.** El resultado estructurado; con `content` vacío, `content` pasa a ser `JSON.stringify(data)`. No cambia el journal: tras reanudar, los datos de un paso de herramienta se leen de su texto.
+- **No cambia:** ningún campo existente, el esquema de los journals, `when` ni la forma de `FlowStepSchema` (sigue siendo un objeto).
+- **Aprobación de un paso de herramienta.** La solicitud lleva la llamada (`subject.tool`, con `redact`) y su digest (`subject.callDigest`); al reanudar, una llamada distinta de la aprobada falla sin ejecutarse. Con `approvals.when: 'after'` un paso de herramienta falla sin ejecutarse. La política de `flow.step:<id>` recibe los argumentos de la llamada. Un paso de agente queda igual.
+- **Documentación al día:** README y REFERENCE de `agent-core` (aprobaciones por rol y cuatro ojos, caducidad, orden de la lista, campos de auditoría, mandatos atados a identidad, medidas) y README de `agent-providers` (guarda de silencio del stream y nota de truncado), hasta `agent-core` 0.49.12.
+- **Cuidado al publicar:** un `agent-core` anterior descarta `kind` y `tool` al cargar y ejecutaría el paso como un prompt. Un flow con pasos de herramienta debe cargarse con una versión que los conozca.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.13 | El paso de herramienta de un flow (`kind: tool`), aprobado para la llamada que corre |
+| `agent-providers` | 0.3.18 | Solo README al día (sin cambio de código) |
+
+Se publican dos, en ese orden. Tags: `agent-core@0.49.13`, `agent-providers@0.3.18`.
+
 ## v0.50.17 (2026-11-24)
 
 **`FileApprovalStore.list` da siempre el mismo orden.** Ordenaba por `createdAt` (precisión de milisegundo) y, ante un empate, el orden lo daba `readdir`, que no tiene ninguno propio: dos solicitudes creadas en el mismo milisegundo salían en un orden que dependía del sistema de ficheros. Quien tomaba «la última de la lista» como «la que acabo de crear» leía a veces la otra. Lo notamos por una prueba intermitente del CI (`approval-expiry`).

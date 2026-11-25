@@ -76,7 +76,7 @@ const engine = new AgentEngine({
 await engine.run("What's the weather in London?");
 ```
 
-An agent that acts needs an identity and a person to act for, or the engine denies every tool call and says how to fix it. [Identity and external identity services](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#identity-who-the-agent-is-and-external-identity-services) explains how to plug in a real identity provider.
+An agent that acts needs an identity and a person to act for, or the engine denies every tool call and says how to fix it. [Identity and external identity services](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#identity-who-the-agent-is-and-external-identity-services) explains how to plug in a real identity provider. Who may approve what an agent asks, and how much it may do alone, is governed by [policy and approval](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#policy-and-approval-per-call); a mandate (see the identity reference) says how much it may do alone.
 
 ---
 
@@ -102,6 +102,9 @@ New here? Start with the [learning path](https://backendkit-agent-framework.verc
 | [Advanced memory system](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#advanced-memory-system) | Beyond session history, agents can use a three-layer persistent memory. |
 | [Observability](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#observability) | `ObservabilityManager` ties together cost tracking, metrics collection, and distributed tracing. |
 | [Identity: who the agent is, and external identity services](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#identity-who-the-agent-is-and-external-identity-services) | Since 0.49 an agent that acts carries two things, and the engine refuses every tool call without them |
+| [Policy and approval (per call)](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#policy-and-approval-per-call) | A policy answers `allow`, `deny` or `ask`; an approval counts only from someone with the role (`approverRoles`, `approverDirectory`) who is not the one who asked (`forbidSelfApproval`), whatever the way of approving |
+| [Durable approvals](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#durable-approvals) | Store an `ask` as pending when nobody can answer now, decide later, run it once; approvals can expire |
+| [Audit (one event per tool call)](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#audit-one-event-per-tool-call) | One attributable event per call (signed when the identity can sign), with who approved and the mandate that covered it or that it went beyond |
 | [Learning from experience](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#learning-from-experience) | An agent learns from what happens to it. |
 | [What `engine.run` returns](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#what-enginerun-returns) | Every tool that fails with a `ToolError(code, message)` (or `ToolArgumentError`) shows its `code` in `toolCalls`, in the audit event and in the... |
 | [Sources of agents, skills and instructions](https://github.com/BackendKit-labs/backendkit-agent-framework/blob/master/packages/core/REFERENCE.md#sources-of-agents-skills-and-instructions) | The engine reads no file by itself. |

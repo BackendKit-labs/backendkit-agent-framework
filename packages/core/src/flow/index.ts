@@ -1,7 +1,7 @@
 export {
-    FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowCompensationSchema, FlowDefinitionSchema,
+    FlowTriggerSchema, FlowGateSchema, FlowStepSchema, FlowToolCallSchema, FlowCompensationSchema, FlowDefinitionSchema,
 } from './types';
-export type { FlowTrigger, FlowGate, FlowCondition, FlowStep, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './types';
+export type { FlowTrigger, FlowGate, FlowCondition, FlowStep, FlowToolCall, FlowCompensation, FlowDefinition, FlowTransition, FlowTransitionEvent } from './types';
 export { parseFlow, loadFlow, loadFlowsFromDir, validateFlow, FlowLoadError } from './loader';
 export { FlowHost, FlowCancelled, FlowHostError, FlowAwaitingApproval } from './host';
 export type { FlowControl, FlowInfo, FlowRunView, FlowStatus, FlowStepView, InProcessFlow } from './host';

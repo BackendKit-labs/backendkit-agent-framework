@@ -58,6 +58,7 @@ async function run(label: string, script: MockBehavior[]) {
     baseUrl: server.url,           // a real API: 'https://api.openai.com/v1'
     model: 'mock',
     maxAttempts: 3,                // total attempts, the first included
+    streamIdleTimeoutMs: 120_000,  // a stream that sends nothing for this long is cut (the default)
     retryBaseDelayMs: 1,           // keep the backoff short in a demo; leave the default in production
   });
   const transport = mockTransport();
@@ -137,6 +138,8 @@ const engine = createBaseEngine({
 - Retries 429, 5xx and network errors with exponential backoff (`@backendkit-labs/retry`).
   `maxAttempts` counts total attempts, first try included. `maxRetries` is a deprecated alias.
 - Never retries once content reached the caller, nor after the call was aborted.
+- Cuts a stream that goes quiet. `AnthropicProvider` and the OpenAI-compatible providers (DeepSeek, Ollama and the rest) wait `streamIdleTimeoutMs` (default 120 000 ms) for the next event; the timer re-arms on every event, so it is silence, not a total time limit. A silent stream is classed as a network error: retried while no content has reached the caller, reported through `callbacks.onError` after. `AiSdkProvider` does not have this guard.
+- Never gives a cut answer as a complete one. When the output limit is reached (`finish_reason: length`, `stop_reason: max_tokens`) the text ends with `[The response was cut: the output limit was reached.]` (`TRUNCATED_NOTE`). If the limit fell in the middle of a tool call, its arguments are incomplete: the call is not run and the failure is reported through `callbacks.onError`.
 - Failures are reported through `callbacks.onError`; `chat()` does not throw.
 - Always requests token usage and reports it through `callbacks.onMetrics`.
 - `callbacks.model` and `callbacks.signal` are honoured.

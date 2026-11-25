@@ -13,8 +13,9 @@ export { isLoopbackRequest };
  * between requests, nothing to expire and nothing that grows per client. The stateful variant with session
  * TTLs lives in `@backendkit-labs/mcp-server` for engines, which do have state.
  *
- * Fail-closed: a bearer token is required on every request, compared in constant time; without a token the
- * server refuses to listen anywhere but loopback. Bound to loopback, requests whose `Host` or `Origin` is not
+ * Fail-closed: with a bearer token it is required on every request, compared in constant time. Without a token the
+ * server refuses to listen anywhere but loopback, and ON loopback it runs with no authentication (any process of the
+ * machine can call it): give a token whenever a tool has an effect. Bound to loopback, requests whose `Host` or `Origin` is not
  * loopback are rejected (DNS rebinding, cross-site POST from a page in the user's browser).
  */
 
@@ -42,9 +43,9 @@ export interface RunningToolServer {
 const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 
-/** Constant-time check of an `Authorization: Bearer <token>` header. */
+/** Constant-time check of an `Authorization: Bearer <token>` header. An empty token authorizes nobody (an empty header value would otherwise match it). */
 export function isBearerAuthorized(header: string | undefined, token: string): boolean {
-    if (!header || !/^bearer /i.test(header)) return false;
+    if (!token || !header || !/^bearer /i.test(header)) return false;
     const given = Buffer.from(header.slice(7).trim());
     const expected = Buffer.from(token);
     return given.length === expected.length && timingSafeEqual(given, expected);
@@ -59,6 +60,8 @@ export async function startToolServerHttp(
     const port = http.port ?? 3001;
     const path = http.path ?? '/mcp';
     const token = http.authToken;
+    // An empty token is a mistake (an unset variable, an empty file), not "no token": it would start the server with no authentication and no warning.
+    if (token !== undefined && token.trim() === '') throw new Error(`[${tools.name}] authToken is empty: give a token or leave it out (loopback only)`);
     const maxBodyBytes = http.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     const log = http.log ?? ((line: string) => process.stderr.write(`${line}\n`));
     const loopbackBind = LOOPBACK_BIND.has(host);

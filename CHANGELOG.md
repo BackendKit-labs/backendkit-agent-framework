@@ -1,5 +1,14 @@
 # Changelog
 
+## Sin publicar
+
+**Un token vacío ya no autoriza a nadie ni arranca un servidor sin autenticación.** Hallazgo de la revisión de Steward (ADR-0015, «No verificado»).
+
+- **`isBearerAuthorized('Bearer ', '')` devolvía `true`:** un valor de cabecera vacío coincidía con un token vacío. Ahora un token vacío no autoriza a nadie. Lo mismo en `isAuthorized` (`mcp-server`) e `isBearerAuthorized` (`mcp-connectors`), que tenían la misma copia.
+- **Un `authToken` vacío (una variable sin definir, un fichero vacío) arrancaba el servidor sin autenticación y sin aviso:** ahora `startToolServerHttp`, `AgentMCPServer.start` y `startHttp` lanzan `authToken is empty`. Omitir el token sigue permitido solo en loopback.
+- **Documentado:** en loopback y sin token el servidor de herramientas **no autentica** (cualquier proceso de la máquina lo puede llamar); la guarda contra el navegador es solo de `Host` y `Origin`. Con herramientas que tienen efecto, dar siempre un token.
+- Pruebas nuevas en los tres paquetes; quitar el arreglo en `core` rompe dos.
+
 ## v0.50.18 (2026-11-25)
 
 **Un paso de un flow puede ser una llamada a una herramienta (SPEC-0046 F1).** Es el paso `tool` que la SPEC-0023 D2 aceptó y no se había construido. Aditivo: un flow sin `kind` se ejecuta igual que antes.

@@ -52,7 +52,7 @@ export type AgentEngineFactory = (transport: CallbackTransport) => AgentEngine;
 
 /** Constant-time check of an `Authorization: Bearer <token>` header. */
 export function isAuthorized(header: string | undefined, token: string): boolean {
-    if (!header || !/^bearer /i.test(header)) return false;
+    if (!token || !header || !/^bearer /i.test(header)) return false;
     const given = Buffer.from(header.slice(7));
     const expected = Buffer.from(token);
     return given.length === expected.length && timingSafeEqual(given, expected);
@@ -212,6 +212,7 @@ export class AgentMCPServer {
         const host = this.opts.host ?? '127.0.0.1';
         const port = this.opts.port ?? 3001;
         const token = this.opts.authToken;
+        if (token !== undefined && token.trim() === '') throw new Error(`[${this.opts.name}] authToken is empty: give a token or leave it out (loopback only)`);
 
         if (!token && !['127.0.0.1', 'localhost', '::1'].includes(host)) {
             throw new Error(

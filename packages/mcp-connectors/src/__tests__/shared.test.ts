@@ -182,6 +182,11 @@ describe('request guards', () => {
         expect(isLoopbackRequest(host, origin)).toBe(expected);
     });
 
+    it('an empty token authorizes nobody, and startHttp refuses it', async () => {
+        expect(isBearerAuthorized('Bearer ', '')).toBe(false);
+        await expect(startHttp(() => ({}) as never, 0, 'x', '')).rejects.toThrow(/authToken is empty/);
+    });
+
     it('isBearerAuthorized is exact', () => {
         expect(isBearerAuthorized('Bearer tok', 'tok')).toBe(true);
         for (const h of [undefined, '', 'tok', 'Bearer', 'Bearer toK', 'Bearer tok2', 'Basic tok']) {

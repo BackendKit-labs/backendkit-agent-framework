@@ -37,7 +37,7 @@ export function isLoopbackRequest(host: string | undefined, origin: string | und
 
 /** Constant-time check of `Authorization: Bearer <token>`. */
 export function isBearerAuthorized(header: string | undefined, token: string): boolean {
-    if (!header?.startsWith('Bearer ')) return false;
+    if (!token || !header?.startsWith('Bearer ')) return false;
     const given    = Buffer.from(header.slice(7));
     const expected = Buffer.from(token);
     return given.length === expected.length && timingSafeEqual(given, expected);
@@ -62,6 +62,7 @@ export async function startHttp(
     label: string,
     authToken?: string,
 ): Promise<Server> {
+    if (authToken !== undefined && authToken.trim() === '') throw new Error(`[${label}] authToken is empty: give a token or leave it out (loopback only)`);
     const sessions = new Map<string, StreamableHTTPServerTransport>();
     const MCP_PATH = '/mcp';
 

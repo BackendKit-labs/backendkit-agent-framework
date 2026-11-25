@@ -27,6 +27,12 @@ describe('isBearerAuthorized', () => {
     });
 });
 
+describe('isBearerAuthorized with an empty token', () => {
+    it.each(['Bearer ', 'Bearer', 'bearer  ', undefined])('authorizes nobody (header %p)', (header) => {
+        expect(isBearerAuthorized(header, '')).toBe(false);
+    });
+});
+
 describe('isLoopbackRequest', () => {
     it.each([
         ['127.0.0.1:3001', undefined, true],
@@ -49,6 +55,11 @@ describe('startToolServerHttp', () => {
     it('refuses to listen off loopback without a token', async () => {
         await expect(startToolServerHttp({ name: 't', tools: [echo] }, { host: '0.0.0.0', port: 0, ...silent }))
             .rejects.toThrow(/without authToken/);
+    });
+
+    it('refuses an empty authToken instead of starting with no authentication', async () => {
+        await expect(startToolServerHttp({ name: 't', tools: [echo] }, { port: 0, authToken: '', ...silent })).rejects.toThrow(/authToken is empty/);
+        await expect(startToolServerHttp({ name: 't', tools: [echo] }, { port: 0, authToken: '   ', ...silent })).rejects.toThrow(/authToken is empty/);
     });
 
     it('validates the tools before listening', async () => {

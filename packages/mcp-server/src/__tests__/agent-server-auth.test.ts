@@ -16,6 +16,12 @@ describe('isAuthorized', () => {
 describe('AgentMCPServer HTTP auth', () => {
     const base = { name: 'test', tools: [], engineFactory: () => { throw new Error('unused'); } };
 
+    it('refuses an empty authToken instead of starting with no authentication', async () => {
+        const srv = new AgentMCPServer({ ...base, port: 0, authToken: '' } as any);
+        await expect(srv.start()).rejects.toThrow(/authToken is empty/);
+        expect(isAuthorized('Bearer ', '')).toBe(false);
+    });
+
     it('refuses non-loopback host without authToken', async () => {
         const srv = new AgentMCPServer({ ...base, host: '0.0.0.0', port: 0 } as any);
         await expect(srv.start()).rejects.toThrow(/without authToken/);

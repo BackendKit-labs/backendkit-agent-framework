@@ -8,6 +8,7 @@
 - **`StepInput.tool` y `StepInput.outputs`.** El executor recibe la llamada con `{{payload.x}}` resuelto en los argumentos (una referencia entera conserva su tipo) y los resultados estructurados de los pasos de los que depende. Core no valida los argumentos: no conoce ninguna herramienta.
 - **`StepOutput.data`.** El resultado estructurado; con `content` vacío, `content` pasa a ser `JSON.stringify(data)`. No cambia el journal: tras reanudar, los datos de un paso de herramienta se leen de su texto.
 - **No cambia:** ningún campo existente, el esquema de los journals, `when` ni la forma de `FlowStepSchema` (sigue siendo un objeto).
+- **Aprobación de un paso de herramienta.** La solicitud lleva la llamada (`subject.tool`, con `redact`) y su digest (`subject.callDigest`); al reanudar, una llamada distinta de la aprobada falla sin ejecutarse. Con `approvals.when: 'after'` un paso de herramienta falla sin ejecutarse. La política de `flow.step:<id>` recibe los argumentos de la llamada. Un paso de agente queda igual.
 - **Cuidado al publicar:** un `agent-core` anterior descarta `kind` y `tool` al cargar y ejecutaría el paso como un prompt. Un flow con pasos de herramienta debe cargarse con una versión que los conozca.
 
 ## v0.50.17 (2026-11-24)

@@ -313,10 +313,10 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
      * Asks for approval of a step through the `ApprovalStore`. Returns true to go on. On false the step has been settled here
      * (rejected, denied) or left waiting (`awaiting_approval`, with `output` kept in the journal when the review is after the step).
      */
-    const settleApproval = async (step: FlowStep, prev: Record<string, string>, output?: string): Promise<boolean> => {
+    const settleApproval = async (step: FlowStep, prev: Record<string, string>, output?: string, call?: { name: string; args: Record<string, unknown> }): Promise<boolean> => {
         let verdict;
         try {
-            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output);
+            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output, call, opts.redact);
         } catch (err) {
             verdict = { kind: 'denied' as const, reason: err instanceof Error ? err.message : String(err) };
         }
@@ -347,6 +347,19 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         const outputs: Record<string, unknown> = {};
         for (const dep of step.after) { const d = dataOf(dep); if (d !== undefined) outputs[dep] = d; }
 
+        // The call of a tool step, resolved once: what the approval is about is what runs.
+        const call = step.kind === 'tool' && step.tool ? { name: step.tool.name, args: interpolateArgs(step.tool.args ?? {}, opts.payload) as Record<string, unknown> } : undefined;
+
+        // A tool step is approved before it runs, never after: by then the call (the payment) would have been made. It fails without running.
+        if (call && opts.approvals && approvalsWhen === 'after') {
+            const reason = `step "${step.id}" calls a tool: with approvals it needs approvals.when: 'before' (an approval after the call would come when it has already been made)`;
+            record(step.id, 'failed', reason);
+            await journal?.step(runId, step.id, { status: 'failed', error: redact(reason), transitions: flush() }).catch(() => undefined);
+            results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'failed', error: reason };
+            failed.add(step.id);
+            return;
+        }
+
         // A condition is checked before anything else, so that no approval is asked for a step that will not run.
         if (step.when) {
             const seen = results[step.when.step];
@@ -364,7 +377,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         }
 
         if (opts.approvals) {
-            if (approvalsWhen === 'before' && !(await settleApproval(step, prev))) return;
+            if (approvalsWhen === 'before' && !(await settleApproval(step, prev, undefined, call))) return;
         } else if (step.gate?.approval === 'human') {
             opts.transport?.emit({ type: 'workflow_approval_required', step: step.id });
             record(step.id, 'approval_requested');
@@ -415,7 +428,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                     context,
                     idempotencyKey: `${runId}:${step.id}:${attempt}`,
                     signal: stepCtl.signal,
-                    ...(step.kind === 'tool' && step.tool ? { tool: { name: step.tool.name, args: interpolateArgs(step.tool.args ?? {}, opts.payload) as Record<string, unknown> } } : {}),
+                    ...(call ? { tool: call } : {}),
                     ...(Object.keys(outputs).length > 0 ? { outputs } : {}),
                 });
                 const limitMs = step.timeoutMs ?? opts.stepTimeoutMs;
@@ -436,7 +449,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                     await journal?.step(runId, step.id, { status: 'running', attempt, output: out.content });
                 }
             }
-            if (opts.approvals && approvalsWhen === 'after' && !(await settleApproval(step, prev, out.content))) return;
+            if (opts.approvals && approvalsWhen === 'after' && !(await settleApproval(step, prev, out.content, call))) return;
             record(step.id, 'completed');
             await journal?.step(runId, step.id, {
                 status: 'done', output: out.content, attempt,

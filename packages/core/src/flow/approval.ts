@@ -2,7 +2,22 @@ import type {
     ApprovalOutcome, ApprovalRequest, ApprovalStore, Approver, ApproverDirectory, ApproverRef, Identity, Principal, ToolPolicy,
 } from '../governance/types';
 import { checkApproval } from '../governance/approval';
+import { createHash } from 'node:crypto';
 import type { FlowStep } from './types';
+
+/** The call a `tool` step is about to make, with its arguments resolved (SPEC-0046). */
+export interface StepCall { name: string; args: Record<string, unknown> }
+
+function canonical(v: unknown): string {
+    if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+    if (v !== null && typeof v === 'object') return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`;
+    return JSON.stringify(v) ?? 'null';
+}
+
+/** What the approval binds to: the same call gives the same digest, whatever the order of the keys. */
+export function callDigest(call: StepCall): string {
+    return createHash('sha256').update(canonical({ name: call.name, args: call.args })).digest('hex');
+}
 
 /**
  * Approval of a flow step through the `ApprovalStore` of SPEC-0014 (SPEC-0023 F5). A step needs approval when its gate says
@@ -46,7 +61,7 @@ export function stepApprovalId(runId: string, stepId: string): string {
 }
 
 export async function decideStepApproval(
-    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>, output?: string,
+    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>, output?: string, call?: StepCall, redact?: (text: string) => string,
 ): Promise<StepApproval> {
     const principal: Principal = { agentId: step.agent, sessionId: runId, chain: a.chain ?? [], ...(a.identity ?? {}) };
     const human = step.gate?.approval === 'human';
@@ -58,7 +73,8 @@ export async function decideStepApproval(
     if (a.policy) {
         const d = await a.policy.decide(principal, {
             tool: { name: `flow.step:${step.id}`, description: `step "${step.id}" of flow "${flow}"`, parameters: { type: 'object', properties: {} }, execute: async () => '' },
-            args: { input: previous, ...(output !== undefined ? { output } : {}) },
+            // For a tool step the policy sees the arguments of the call, so that a limit of amount can measure them.
+            args: call ? { ...call.args } : { input: previous, ...(output !== undefined ? { output } : {}) },
         });
         if (d.effect === 'deny') return { kind: 'denied', reason: d.reason };
         if (d.effect === 'ask') {
@@ -79,10 +95,18 @@ export async function decideStepApproval(
         ...(a.forbidSelfApproval ? { forbidSelfApproval: true, requireRequester: true } : {}),
     };
     const id = stepApprovalId(runId, step.id);
+    const digest = call ? callDigest(call) : undefined;
     let stored = await a.store.get(id);
+    // The answer is for the call that was shown: a resume with another payload does not use it (a changed call is a different action).
+    if (stored && digest !== undefined && (stored.subject as { callDigest?: string }).callDigest !== digest) {
+        return { kind: 'denied', reason: `the call of step "${step.id}" is not the one that was approved (its arguments changed since the request)` };
+    }
     if (!stored) {
         const req: ApprovalRequest = {
-            id, principal, subject: { kind: 'workflow_step', workflow: flow, step: step.id, input: output !== undefined ? { previous, output } : previous },
+            id, principal, subject: {
+                kind: 'workflow_step', workflow: flow, step: step.id, input: output !== undefined ? { previous, output } : previous,
+                ...(call && digest ? { tool: shownCall(call, redact), callDigest: digest } : {}),
+            },
             reason, ...(approver ? { approver } : {}), ...(accepts ? { accepts } : {}), ...(approverRoles ? { approverRoles } : {}), createdAt: new Date().toISOString(),
         };
         await a.store.put(req);
@@ -104,4 +128,10 @@ export async function decideStepApproval(
         if ('problem' in checked) return { kind: 'denied', reason: `invalid approval: ${checked.problem}` };
     }
     return { kind: 'proceed' };
+}
+
+/** What the approver is shown: the call, with the text of its arguments through `redact` (the digest is of the real call). */
+function shownCall(call: StepCall, redact?: (text: string) => string): StepCall {
+    if (!redact) return call;
+    try { return { name: call.name, args: JSON.parse(redact(JSON.stringify(call.args))) as Record<string, unknown> }; } catch { return { name: call.name, args: {} }; }
 }

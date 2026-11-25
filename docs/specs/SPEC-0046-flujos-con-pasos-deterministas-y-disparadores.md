@@ -34,6 +34,21 @@
 
 Archivos: `types.ts`, `loader.ts`, `interpolate.ts`, `run.ts`, y los dos `index.ts` (exports). Pruebas nuevas: `__tests__/tool-steps.test.ts` (13 casos: retrocompatibilidad, validación, la llamada resuelta, los datos entre pasos y la reanudación).
 
+### 3.1 Aprobación de un paso de herramienta (auditoría del 2026-11-25)
+
+Un paso de herramienta con aprobación se aprueba **para la llamada que va a correr**. Se verificó en el código y se cerró:
+
+| Hueco | Qué se hizo |
+|---|---|
+| La solicitud mostraba el paso, no la llamada: se aprobaba a ciegas | La solicitud lleva `subject.tool` (`{ name, args }`) y `subject.callDigest`. Los argumentos mostrados pasan por `redact`; el digest es de la llamada real |
+| El payload no se guarda: se podía aprobar «pagar 100» y reanudar con otro payload para correr «pagar 900» | Al reanudar se recalcula el digest; si no coincide con el de la solicitud, el paso falla sin ejecutarse |
+| Con `approvals.when: 'after'` el paso corre antes de la aprobación: el dinero ya se movió | Un paso de herramienta con `approvals` y `when: 'after'` falla **sin ejecutarse** |
+| La política de `flow.step:<id>` recibía `{ input, output }`, no la llamada: `mandatePolicy` no podía medir un importe | Para un paso de herramienta la política recibe los argumentos de la llamada |
+
+**Límites que quedan, dichos claros:**
+- **`agentIdentity` (SPEC-0044):** el principal de un paso no lo lleva (`step.agent` es solo un id). Falla cerrado: un mandato atado a una identidad de agente, o con prueba de posesión exigida, **no sirve en un paso de flow**. Un mandato sin esa atadura sí.
+- **Identidad de la persona:** `StepInput` no la lleva. Pasarla al servidor de herramientas por MCP sería **auto-declarado** (quien tenga el bearer puede decir ser cualquiera): valdría para auditoría, nunca para autorizar. Los mandatos por persona sobre MCP necesitan un token firmado u on-behalf-of; hoy lo impide el `userId` fijo por servidor. No se implementa en esta fase.
+
 ## 4. Lo que se descartó a propósito (por ser demasiado invasivo)
 
 El borrador proponía más. Se **quita** y Steward conserva lo suyo:

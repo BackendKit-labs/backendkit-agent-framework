@@ -1,81 +1,75 @@
-# SPEC-0046: flujos con pasos deterministas (herramienta, lote, reintento) y disparadores
+# SPEC-0046: flujos con pasos deterministas (el paso de herramienta) para que un producto use el framework
 
 **Fecha:** 2026-11-25
-**Estado:** **Borrador.** Sin código. Completa lo que la SPEC-0023 ya decidió y no llegó a implementar; las preguntas abiertas (§6) las responde el autor.
-**Origen:** Steward (el producto que consume el framework) construyó su propio runner de workflows (`packages/workflow`, 1.767 líneas) y sus disparadores porque `core/flow` no podía ejecutar un paso como una llamada determinista a una herramienta. La comparación está en `docs/analisis-core-flow-vs-runner-de-hermes-2026-11-25.md` del repositorio de Steward. Petición del autor (2026-11-25): que Steward use el framework, **sobre lo que ya existe y sin crear más piezas**, y que **los flows actuales no se rompan**.
-**Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (el motor de flujos: D2, F2, F6d), SPEC-0014 (`ToolPolicy`, `ApprovalStore`), SPEC-0044 (identidad), `agent-protocol` 1.2.
-**Tipo de cambio:** **aditivo** en `core` (campos opcionales de `FlowStep`, un campo opcional en `StepOutput`, funciones puras de disparadores) y una batería de conformidad en `agent-core/testing`. Ningún campo existente cambia de significado.
-**Objetivo:** que un flujo del framework pueda ser **el flujo de un producto contable** (pasos que son llamadas a herramientas con entrada tipada, lotes con aislamiento por elemento, reintentos, disparadores con franja estable), de modo que Steward retire su runner y conserve solo lo que es de su producto.
+**Estado:** **F1 implementada (2026-11-25), sin publicar.** Alcance reducido a lo mínimo por petición del autor («que no sea tan invasivo en el framework», 2026-11-25): lo demás queda **descartado a propósito** (§4) y se retoma solo si un segundo usuario del framework lo pide. Las seis preguntas del borrador se resolvieron con las recomendaciones (§6).
+**Origen:** Steward (el producto que consume el framework) construyó su propio runner de workflows (`packages/workflow`, 1.767 líneas) y sus disparadores porque `core/flow` no podía ejecutar un paso como una llamada determinista a una herramienta. Comparación en `docs/analisis-core-flow-vs-runner-de-hermes-2026-11-25.md` del repositorio de Steward. Petición del autor: que Steward use el framework **sobre lo que ya existe y sin crear más piezas**, y que **los flows actuales no se rompan**.
+**Depende de:** [SPEC-0023](SPEC-0023-flujos-declarativos.md) (el motor de flujos: D2, F2, F6d), SPEC-0014 (`ToolPolicy`, `ApprovalStore`), SPEC-0044 (identidad).
+**Tipo de cambio:** **aditivo** en `core`: dos campos opcionales de `FlowStep`, uno de `StepOutput` y dos de `StepInput`. Ningún campo existente cambia de significado. `FlowStepSchema` sigue siendo un objeto.
+**Objetivo:** que un flow del framework pueda tener un paso que **llama a una herramienta con argumentos estructurados y recibe un resultado estructurado**, sin que core conozca ninguna herramienta, de modo que Steward pueda ejecutar sus workflows de herramientas sobre `runFlow` en lugar de sobre su propio runner.
 
 ## 1. De dónde se parte (verificado el 2026-11-25)
 
-- **La SPEC-0023 ya decidió el paso de herramienta y no se implementó.** D2 (Aceptada): «Tipos de paso: `agent`, `tool` y `gate`. Sin subflujos, bucles ni condicionales hasta que un caso real los pida». Su contrato (§4) incluye `kind?: 'agent' | 'tool' | 'gate'` y `tool?: { name; args? }`. El `FlowStepSchema` implementado (`packages/core/src/flow/types.ts`) solo tiene `id`, `agent`, `prompt`, `tools` (informativo), `after`, `when`, `gate` y `timeoutMs`: **no hay `kind` ni `tool`**. Los condicionales llegaron después (`when`, F6a); los bucles, no.
-- **El caso real que D2 esperaba ya existe.** Los workflows contables de Steward (compra a pago, venta a cobro, cobros conciliados, la vigilancia de tesorería) llaman herramientas MCP de siete agentes deterministas, con datos tipados y dinero de por medio. Ahí un paso con un prompt y texto entre pasos no sirve.
-- **El `trigger` ya está en la definición y nadie lo ejecuta.** `FlowTrigger` admite `queue`, `webhook`, `cron` y `manual`; el cargador valida `schedule` y `path`, y la SPEC-0023 (§4) dice «lo dispara la app; core solo lo declara». `TriggerManager` (`core/triggers`) es otra cosa: despierta a un agente **con modelo** con un prompt, sin id de corrida, sin identidad propia y sin recuperación de franjas.
-- **Hermes ya es la app que dispara.** SPEC-0023 F6d: «Hermes sustituye `InProcessFlows`/`serveFlows` por los de core». Hermes no define flujos: los aloja el agente y él los supervisa. En Steward, además, Hermes **ejecuta** el workflow porque los agentes contables son servidores MCP sin flujo propio.
-- **El Hermes de Steward es el Hermes del framework, con poco encima.** `packages/hermes` de Steward tiene exactamente los mismos archivos que `packages/hermes` del framework antes de salir (2026-10-26, `5d98c6b9`), con 7 archivos distintos y unas 160 líneas de diferencia (manifiesto exigido, departamento, `approvedBy`, `ProvisionContext`, `onRetired`, y los estados `awaiting_approval` y `lost` del protocolo 1.2). **No hay un segundo Hermes que reciclar:** la lógica de producto (disparadores, runner, aprobaciones por nivel, casos) vive fuera de ese paquete, en `apps/hermes-server`, `packages/workflow` y `packages/policy-engine`.
-- **Lo que Steward tiene y `core/flow` no** (comparación del 2026-11-25): paso por herramienta con entrada tipada y expresiones sobre resultados estructurados; `forEach` con clave de idempotencia por elemento y tope; `retry` con espera; `onFailure: escalate`; disparadores `schedule`/`webhook` con identidad, id de corrida por franja, recuperación de la última franja y HMAC.
-- **Lo que `core/flow` tiene y Steward no:** compensación declarada, journals SQLite/Redis/Postgres con `claim` renovable, `QueueStepExecutor` (BullMQ), `createFlowTools`.
+- **La SPEC-0023 ya decidió el paso de herramienta y no se implementó.** D2 (Aceptada): «Tipos de paso: `agent`, `tool` y `gate`». Su contrato (§4) incluye `kind?: 'agent' | 'tool' | 'gate'` y `tool?: { name; args? }`. El `FlowStepSchema` implementado solo tenía `id`, `agent`, `prompt`, `tools` (informativo), `after`, `when`, `gate` y `timeoutMs`.
+- **El caso real que D2 esperaba existe:** los workflows contables de Steward llaman herramientas MCP deterministas, con datos tipados y dinero de por medio; un paso con un prompt y texto entre pasos no sirve.
+- **El `trigger` ya está en la definición y lo dispara la app** (SPEC-0023 §4: «core solo lo declara»). `TriggerManager` despierta a un agente con modelo: es otra cosa.
+- **El Hermes de Steward es el Hermes del framework con poco encima:** `packages/hermes` de Steward tiene los mismos archivos que el del framework antes de salir (2026-10-26, `5d98c6b9`), con 7 archivos distintos y unas 160 líneas de diferencia. La lógica de producto (disparadores, runner, aprobaciones por nivel, casos) vive fuera de ese paquete. No hay un segundo Hermes que reciclar.
 
 ## 2. Principios
 
-1. **Un solo `FlowDefinition`.** No se crea un segundo formato de flujo. Lo nuevo son campos **opcionales** de la misma definición; un flujo que no los usa es idéntico al de hoy.
-2. **Ningún flujo existente cambia.** Los YAML y los flujos construidos en código de `examples/flows`, `release-captain`, `portfolio-advisor`, `enterprise` y los de las guías siguen validando y ejecutándose igual. Criterio de aceptación: **los tests actuales de `core/flow`, `enterprise/flow`, `flow-queue` y `flow-sql` pasan sin tocarlos.**
-3. **Core sigue sin conocer las herramientas.** Core no tiene un registro de herramientas ni de agentes: un paso de herramienta se ejecuta con un `StepExecutor` que pone el integrador, como hoy un paso de agente. La política, la identidad y la auditoría son del executor.
-4. **Core define contratos y piezas puras; las apps son adaptadores** (SPEC-0023, principio 1). Por eso el servicio de disparadores (identidad, política, suspensión) **se queda en el host**; a core sube solo lo puro y sin E/S, que es donde viven los invariantes.
-5. **Se reutiliza lo que hay.** Sin paquetes nuevos: `core/flow` para la definición y el motor, `core/testing` para la conformidad, `flow-sql`/`flow-queue` para el estado, y el mismo Hermes (sin un segundo plano de control).
+1. **Un solo `FlowDefinition`.** Los campos nuevos son opcionales; un flow que no los usa es idéntico al de hoy.
+2. **Ningún flow existente cambia.** Criterio cumplido: los tests de `core/flow` (14 archivos, 227 pruebas), `enterprise` (244), `flow-queue` (58) y `flow-sql` (61) pasan **sin tocarlos**, y `enterprise`, `flow-queue`, `flow-sql`, `web`, `agent-protocol` y `mcp-server` compilan.
+3. **Core sigue sin conocer las herramientas.** Un paso de herramienta lo ejecuta un `StepExecutor` que pone el integrador, como un paso de agente. La política, la identidad, la auditoría y la validación de los argumentos son del executor.
+4. **Lo mínimo.** Nada de lo que Steward ya tiene resuelto (lotes, reintentos, expresiones, disparadores) se lleva a core ahora.
 
-## 3. Decisiones propuestas
+## 3. Lo que se hizo (F1)
 
-| # | Pregunta | Propuesta |
+| # | Decisión | Qué es |
 |---|---|---|
-| D1 | ¿Cómo es un paso de herramienta? | Se **implementa lo que D2 de la SPEC-0023 ya aceptó**: `kind?: 'agent' \| 'tool' \| 'gate'` (por defecto `agent`, como hoy) y `tool?: { name: string; args?: Record<string, unknown> }`. `agent` sigue diciendo **quién** lo ejecuta; `tool.name`, **qué llama**. Un paso `kind: 'tool'` no lleva `prompt`. El esquema pasa a una unión que **valida cada forma por separado**; los flujos de hoy (sin `kind`) validan sin cambios. |
-| D2 | ¿Quién valida la entrada de la herramienta? | **El executor**, no core: core no conoce los esquemas. El `StepExecutor` recibe `{ tool, args }` ya resueltos y los valida contra el esquema de la herramienta (en MCP, el `inputSchema` que publica el servidor, o el que el manifiesto declare). Un `args` que no valida es un paso fallido con el motivo. |
-| D3 | ¿Cómo se pasan datos entre pasos si hoy es texto? | `StepOutput` gana un campo opcional **`data?: unknown`** (el resultado estructurado). `content` sigue siendo texto y, para una herramienta, es `JSON.stringify(data)`: lo que ya lee cualquier consumidor actual no cambia. El journal guarda ambos. |
-| D4 | ¿Cómo se refiere un paso a los datos de otro? | Un lenguaje de expresiones **pequeño, total y sin efectos** (sin bucles ni asignaciones) para `tool.args`, `when` y `forEach.items`: `$payload.x`, `$steps.<id>.data.a.b`, `$item`. Se propone **tomar el de Steward** (`packages/workflow/src/expr.ts`, 228 líneas, ya probado) en vez de diseñar otro. `{{payload.x}}` en los prompts y las condiciones `contains/equals/matches` **no cambian**. |
-| D5 | ¿`forEach`? | D2 de la SPEC-0023 lo aplazó «hasta que un caso real lo pida»: **el caso existe**. Campo opcional `forEach: { items, key, max }` en un paso: la lista se toma **una vez** y se guarda en el journal (reanudar no la reevalúa), cada elemento es un paso hijo `<paso>[<clave>]` con su propia clave de idempotencia (`runId:paso[clave]:intento`), `max` es un tope que falla y no corta, y el paso padre termina cuando terminan todos. Con `onFailure: skip`, un elemento que falla no detiene a los demás. El journal ya guarda `steps` como `Record<string, …>`: admite claves nuevas (se verifica en F2). |
-| D6 | ¿`retry` y `onFailure`? | `retry?: { max, backoffMs }` por paso, **solo con idempotencia** (la clave ya existe: `runId:stepId:attempt`). `onFailure?: 'abort' \| 'skip' \| 'escalate'` por paso; `onStepFailure` global sigue como defecto (`skip`/`continue`). `escalate` **no es un mecanismo nuevo**: deja el paso en `awaiting_approval` ante un rol, que es lo que ya hacen las aprobaciones (SPEC-0041). |
-| D7 | ¿Quién ejecuta los disparadores? | **El host**, como ya dice la SPEC-0023. Core sube solo las **funciones puras** que hoy están en `triggers.ts` de Steward: calcular la **última franja** de un cron en una zona horaria dentro de una ventana (`latestSlot`), derivar el **id de corrida estable** de una franja o de un envío (`triggerRunId`), y firmar/verificar un **webhook** (`webhookSignature`, `verifyWebhook`, con tolerancia de reloj y comparación en tiempo constante). El servicio que arma esto con identidad, política y suspensión es del host (en Hermes). |
-| D8 | ¿Y el período («el mes que se cierra»)? | El host, al disparar, pone en el `payload` un objeto **`trigger`** con `{ id, kind, firedAt, slot }` y, si el flujo declara cómo, el período derivado de la franja y la zona horaria. Se calcula **una sola vez al disparar** y se guarda en la corrida: reanudar o repetir ve el mismo valor. Se lee con `{{payload.trigger.period}}` y `$payload.trigger.period`. |
-| D9 | ¿Un paso de aviso? | **Sin tipo de paso nuevo.** Un aviso es una llamada a una herramienta (`kind: 'tool'`) del host: Hermes ofrece una herramienta que deja un aviso en la bandeja de una persona o un rol. Se decide en el host qué datos puede llevar (importes y nombres son datos de negocio; ver el enmascarado del host). |
-| D10 | ¿Cómo pasa Steward a usarlo sin riesgo? | Con una **batería de conformidad** `flowRunnerConformance` en `@backendkit-labs/agent-core/testing` (como `journalConformance`), escrita a partir de las pruebas del runner de Steward. Steward no sustituye su runner **hasta que el de core la pasa**. |
-| D11 | ¿Qué se queda en Steward? | Lo que es del producto y core no debe conocer: los **tipos** de workflow según el nivel que permiten (`consulta`, `transaccional`…), los **parámetros por niveles** y el dinero en unidades menores, el **caso y la segregación de funciones**, las **aprobaciones por nivel 0 a 3 con prueba firmada que verifica el Ledger**, el catálogo firmado y la consola. Se enchufan como `approvals`, `gate` y `executor`, que ya son puntos de extensión de `runFlow`. |
-| D12 | ¿Qué pasa con `WorkflowRunner`, `FlowRunner` y `orchestrator-agent`? | **Nada nuevo:** F7 de la SPEC-0023 los retira como obsoletos. Esta SPEC no los toca ni los reaviva. |
+| D1 | El paso de herramienta | `FlowStep.kind?: 'agent' \| 'tool'` (ausente = `agent`, como hoy) y `FlowStep.tool?: { name, args? }`. **`prompt` sigue siendo obligatorio** y en un paso de herramienta solo lo describe (el executor puede ignorarlo): así el tipo `FlowStep` y el esquema no cambian de forma, y no se rompe a nadie que lea `step.prompt`. `validateFlow` rechaza un `kind: 'tool'` sin `tool` y un `tool` sin `kind: 'tool'`. |
+| D2 | Quién valida los argumentos | **El executor.** Core no tiene un registro de herramientas ni sus esquemas. |
+| D3 | Resultado estructurado | `StepOutput.data?: unknown`. Si el executor da `data` y un `content` vacío, `content` es `JSON.stringify(data)`: el texto y el dato no pueden diferir. **No cambia el journal:** tras reanudar solo existe el texto, y el dato de un paso de herramienta se lee de él (`JSON.parse`). |
+| D4 | Los datos llegan al paso siguiente | `StepInput.outputs?: Record<stepId, unknown>`: los resultados estructurados de los pasos de los que depende. El texto (`context`) llega igual que antes. |
+| D5 | Los argumentos | `StepInput.tool = { name, args }` con `{{payload.x}}` ya resuelto en `args` a cualquier profundidad. **Una referencia entera conserva su tipo** (`"{{payload.amount}}"` es el número, no un texto); un texto más largo se interpola como un prompt; una ruta que no existe es `null`. |
+| D6 | Expresiones sobre los resultados | **No hay.** Core no evalúa expresiones sobre `outputs`: eso es del executor. Steward conserva su lenguaje de expresiones y resuelve con él los argumentos que dependen de otro paso. `when` sigue mirando el texto. |
 
-## 4. Lo que no hace
+Archivos: `types.ts`, `loader.ts`, `interpolate.ts`, `run.ts`, y los dos `index.ts` (exports). Pruebas nuevas: `__tests__/tool-steps.test.ts` (13 casos: retrocompatibilidad, validación, la llamada resuelta, los datos entre pasos y la reanudación).
 
-- **No crea un motor, un formato ni un paquete nuevos.** Amplía `core/flow` y su batería de pruebas.
-- **No hace que core conozca herramientas, agentes ni esquemas de un dominio.**
-- **No mueve el servicio de disparadores a core** ni le da identidad, política o suspensión: eso es del host.
-- **No cambia el significado de nada existente.** Un flujo de hoy no nota la diferencia.
-- **No trae a core los tipos de workflow, el caso, la segregación de funciones, las aprobaciones con prueba ni los parámetros por niveles** (D11).
-- **No resuelve** la conciliación de las 6:00 de tesorería: necesita un extracto que ningún disparador trae (otra fuente de documentos, fuera de esta SPEC).
+## 4. Lo que se descartó a propósito (por ser demasiado invasivo)
+
+El borrador proponía más. Se **quita** y Steward conserva lo suyo:
+
+| Quitado | Por qué | Consecuencia para Steward |
+|---|---|---|
+| Un lenguaje de expresiones en core (D4 del borrador) | Es una pieza grande y de dominio dudoso; el framework no la necesita para el paso de herramienta | Steward resuelve sus argumentos con su `expr.ts` dentro de su executor |
+| `forEach`, `retry` y `onFailure: escalate` | Cambian el motor y el contrato del journal (pasos que aparecen en la corrida) | **Steward conserva su runner para los workflows que necesitan lotes o reintentos** (los transaccionales) |
+| Funciones puras de disparadores (`latestSlot`, id de corrida por franja, firma de webhook) | Steward ya las tiene y funcionan; subirlas no le da nada hoy | Siguen en `apps/hermes-server`. Se suben si otro usuario del framework quiere ejecutar `trigger: cron` |
+| La batería de conformidad `flowRunnerConformance` | Es trabajo de pruebas sin un segundo consumidor | Steward comprueba el paso de herramienta con sus propias pruebas de flujo completo |
+| El período en el `payload` del disparador y un tipo de paso de aviso | Son del host | El aviso es una herramienta de Hermes (un paso `kind: 'tool'`); el período lo pone el host al disparar |
+
+**Costo de esto, dicho claro:** el runner de Steward **no se retira** con esta fase. Steward ejecutará sobre `runFlow` los workflows de solo lectura y los que no necesitan lote ni reintento, y conservará su runner para el resto. Mientras `forEach` y `retry` no estén en core, hay dos motores en Steward (el del framework y el suyo).
 
 ## 5. Fases
 
-- **F1. Paso de herramienta (D1, D2, D3).** `kind`/`tool` en `FlowStepSchema` como unión, `StepOutput.data`, `StepInput` con la llamada resuelta, journals que guardan `data`. Prueba: todos los tests actuales de `core/flow` pasan sin tocarlos; un flujo con un paso `tool` pasa por un executor de prueba.
-- **F2. Expresiones, `forEach` y `retry` (D4, D5, D6).** El lenguaje de expresiones en `tool.args`, `when` y `forEach.items`; expansión de lotes con claves y tope; reintento con espera; `onFailure`. Prueba: un lote donde un elemento falla no detiene los demás, y reanudar a mitad de un lote no repite los elementos hechos ni reevalúa la lista.
-- **F3. Funciones puras de disparadores (D7, D8).** Las de `triggers.ts` de Steward, con sus pruebas, más el objeto `trigger` del `payload`. Prueba: las 8 pruebas del piloto de tesorería de Steward (`trigger-tesoreria.test.ts`) pasan usando las funciones de core.
-- **F4. Conformidad (D10).** `flowRunnerConformance` en `core/testing`, desde las pruebas del runner de Steward.
-- **F5. Steward consume (D11).** Su runner pasa a ser una capa delgada sobre `runFlow`, empezando por los workflows de solo lectura y terminando por los transaccionales. Se hace en el repositorio de Steward, con su propio criterio de aceptación: sus pruebas de flujo completo (compra a pago, venta a cobro, cobros conciliados) con agentes reales.
-- **F6. Herramienta de aviso en Hermes (D9).** Fuera del framework.
+- **F1. Paso de herramienta (hecha).** Lo de §3.
+- **F2. Steward la usa** (en su repositorio): un executor sobre `runFlow` que ejecuta el paso de herramienta por Hermes (política, manifiesto, nivel, aprobaciones), empezando por los workflows `consulta`, como `vigilancia-tesoreria` y `prevision-caja`. Aceptación: sus pruebas de flujo completo con agentes reales.
+- **F3. (solo si se pide)** `forEach`, `retry` y disparadores en core, con una SPEC propia.
 
-## 6. Preguntas abiertas (las decide el autor)
+## 6. Las seis preguntas del borrador, resueltas con las recomendaciones
 
-1. **El lenguaje de expresiones (D4):** ¿se toma el de Steward tal cual (228 líneas, total y sin efectos), o se parte de `condition.ts` y se extiende? Recomendación: el de Steward, porque ya está probado con dinero de por medio y evita dos lenguajes.
-2. **Dónde queda Hermes.** Es un solo código con dos copias: el del framework (npm `@backendkit-labs/hermes` 0.4.0, de `bk-platform` desde el 2026-10-26) y el de Steward (`@steward-agents/hermes` 0.1.0, con ~160 líneas más). ¿Cuál es el canónico? Opciones: (a) el de Steward, que se publica y se deja de mantener el otro; (b) se devuelve al otro el delta genérico (los estados `awaiting_approval` y `lost`, `onRetired`) y se queda en Steward lo de producto (manifiesto exigido, departamento, `approvedBy`). Esta SPEC funciona con las dos.
-3. **Salida estructurada en el journal (D3):** ¿`data` se guarda tal cual o con la misma opción `redact` que el resto del journal? El resultado de una herramienta contable es dato sensible. Recomendación: `redact` también para `data`, sin valor por defecto, como hoy.
-4. **`escalate` (D6):** ¿se modela como `awaiting_approval` ante un rol, o como un estado propio de «un resultado dudoso espera a una persona»? Steward lo usa cuando un proceso muere con un paso que cambia algo en marcha y nadie sabe si ocurrió.
-5. **Versionado del formato:** ¿`FlowDefinition.version` sigue en 1 (todo es opcional) o se marca un `version: 2` para los flujos que usan los campos nuevos y que un lector antiguo debe rechazar en vez de ignorar? Ignorar un `forEach` sería ejecutar un paso una vez en vez de N: no es seguro. Recomendación: un lector que no conoce un campo de un paso **lo rechaza**, igual que el verificador de apoderamientos rechaza una restricción que no sabe aplicar (SPEC-0045).
-6. **`kind: 'gate'`** (la SPEC-0023 lo nombra y hoy `gate` es un campo de un paso): ¿se completa aquí o se deja como está? Recomendación: dejarlo como está; no lo necesita ningún caso.
+1. **Lenguaje de expresiones:** el borrador recomendaba el de Steward en core. **Cambiado por la petición de no ser invasivo:** no entra en core (D6).
+2. **Dónde queda Hermes:** se queda la copia de Steward; no se toca la del framework ni la de `bk-platform`. Devolver el delta genérico (los estados `awaiting_approval` y `lost`, `onRetired`) es opcional y no bloquea nada.
+3. **`redact` sobre `data`:** no hay almacenamiento nuevo, así que no hay nada que enmascarar aparte; la opción `redact` existente sigue como estaba (la salida de un paso se guarda tal cual, sin valor por defecto).
+4. **`escalate`:** fuera de esta fase (§4). Cuando se haga, será `awaiting_approval` ante un rol.
+5. **Versionado y lectores antiguos:** el lector nuevo **rechaza** una combinación incoherente (D1). Un `agent-core` anterior **descarta `kind` y `tool`** al cargar (el esquema es un objeto que ignora los campos que no conoce) y ejecutaría el paso como un prompt. Es un riesgo conocido: un flow con pasos de herramienta debe cargarse con una versión que los conozca, y el CHANGELOG lo advierte. Endurecer el esquema (`.strict()`) rompería flows existentes con campos de más: no se hace.
+6. **`kind: 'gate'`:** se deja como está. El esquema solo acepta `agent` y `tool`; un `gate` es hoy un campo de un paso.
 
 ## 7. Riesgos
 
-- **El journal con pasos que aparecen durante la corrida** (los elementos de un `forEach`). Steward lo resuelve con entradas «añadidas» en su journal; en el de core se verifica en F2 que `claim`, reanudar y los tres backends (`flow-sql`, `flow-queue`, NDJSON) lo toleran.
-- **Una unión en `FlowStepSchema`** puede romper el tipo exportado `FlowStep` para quien lo usa en código. Se evita con un tipo base común y `kind` opcional; F1 lo comprueba contra los paquetes del monorepo.
-- **El ciclo de publicación:** Steward depende de que el framework publique cada fase. Por eso F5 no empieza hasta que F4 existe, y su runner actual no se borra antes.
-- **El coste de F2** (expresiones y lotes) es el más alto y el menos medido: son varios cientos de líneas ya escritas y probadas en Steward (el lenguaje de expresiones y la expansión de lotes de su runner), pero sobre otro journal.
+- **Lectores antiguos** (pregunta 5): ejecutarían un paso de herramienta como un prompt. Mitigación: el rango de versión de `agent-core` que pide Steward, y el aviso del CHANGELOG.
+- **El dato de un paso de herramienta tras reanudar sale de `JSON.parse` del texto.** Si el executor escribe en `content` algo que no es JSON, `outputs` no lo tiene tras reanudar. Contrato: un paso de herramienta devuelve JSON en `content` o `data`.
+- **Dos motores en Steward** mientras no estén `forEach` y `retry` en core (§4).
 
 ## 8. Registro
 
-- 2026-11-25: borrador. Petición del autor: flows existentes intactos, Steward sobre el framework, sobre lo que ya existe y sin crear más. Antes de escribirlo se verificó en el código que el paso de herramienta de SPEC-0023 D2 no está implementado, que el `trigger` solo se declara, y que el `packages/hermes` de Steward es el del framework con ~160 líneas más.
+- 2026-11-25: borrador. Verificado antes de escribirlo: el paso de herramienta de SPEC-0023 D2 no estaba implementado, el `trigger` solo se declara, y el `packages/hermes` de Steward es el del framework con ~160 líneas más.
+- 2026-11-25: F1 implementada con el alcance mínimo, a petición del autor. Pruebas: `core/flow` 14 archivos y 227 pruebas, `enterprise` 244, `flow-queue` 58, `flow-sql` 61; compilan `enterprise`, `flow-queue`, `flow-sql`, `web`, `agent-protocol` y `mcp-server`.

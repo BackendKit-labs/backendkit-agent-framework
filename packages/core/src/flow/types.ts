@@ -50,6 +50,15 @@ export const FlowConditionSchema = z.object({
     message: 'a condition needs exactly one of contains, equals or matches',
 });
 
+/**
+ * What a `tool` step calls (SPEC-0046). `args` may use `{{payload.x}}` like a prompt: a value that is exactly one reference keeps its type (a number stays a
+ * number), a longer text is interpolated. Core knows no tool: the executor validates the arguments against the schema of the tool it calls.
+ */
+export const FlowToolCallSchema = z.object({
+    name: z.string().min(1),
+    args: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const FlowStepSchema = z.object({
     id: z.string().min(1),
     /** Agent id that executes this step. */
@@ -58,6 +67,13 @@ export const FlowStepSchema = z.object({
     prompt: z.string().min(1),
     /** Tools the agent may use in this step (informational until engine-level scoping). */
     tools: z.array(z.string()).optional(),
+    /**
+     * What the step is. Absent or `agent`: a prompt for the agent. `tool`: a call to the tool `tool.name` of that agent, with structured arguments and a
+     * structured result (SPEC-0046). A `tool` step still carries a `prompt`: it describes the step (the executor may ignore it).
+     */
+    kind: z.enum(['agent', 'tool']).optional(),
+    /** The call, for `kind: 'tool'`. */
+    tool: FlowToolCallSchema.optional(),
     /** Step ids this step waits for. Steps with no `after` run in parallel. */
     after: z.array(z.string()).default([]),
     /** Run this step only if the condition holds. A step that is not run is `skipped` (it does not fail the flow), and so are the steps that wait for it. No approval is asked for it. */
@@ -89,6 +105,7 @@ export type FlowTrigger      = z.infer<typeof FlowTriggerSchema>;
 export type FlowGate         = z.infer<typeof FlowGateSchema>;
 export type FlowCondition    = z.infer<typeof FlowConditionSchema>;
 export type FlowStep         = z.infer<typeof FlowStepSchema>;
+export type FlowToolCall     = z.infer<typeof FlowToolCallSchema>;
 export type FlowCompensation = z.infer<typeof FlowCompensationSchema>;
 export type FlowDefinition   = z.infer<typeof FlowDefinitionSchema>;
 

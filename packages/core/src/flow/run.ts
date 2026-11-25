@@ -1,7 +1,7 @@
 import type { Transport } from '../transport/Transport';
 import type { FlowDefinition, FlowStep, FlowTransition } from './types';
 import type { ConcurrencyLimiter } from './limiter';
-import { interpolate } from './interpolate';
+import { interpolate, interpolateArgs } from './interpolate';
 import { decideStepApproval } from './approval';
 import { describeCondition, evaluateCondition } from './condition';
 import type { FlowApprovals } from './approval';
@@ -14,7 +14,12 @@ import { JournalConflict } from './journal';
  * concern: that is the `StepExecutor` (one agent, a remote worker, a queue).
  */
 
-export interface StepOutput { content: string; costUsd?: number }
+/**
+ * What a step produced. `content` is the text the next steps and the journal carry. For a `tool` step (SPEC-0046), `data` is the structured result: when the
+ * executor gives `data` and an empty `content`, `content` is `JSON.stringify(data)`, so the text and the data never differ. After a resume only the text survives, and the
+ * data of a `tool` step is read back from it (`JSON.parse`).
+ */
+export interface StepOutput { content: string; costUsd?: number; data?: unknown }
 
 export interface StepInput {
     prompt: string;
@@ -22,6 +27,10 @@ export interface StepInput {
     context?: string;
     /** `runId:stepId:attempt`: a step with an external effect uses it to be safe when run again (at-least-once). */
     idempotencyKey: string;
+    /** For a `kind: 'tool'` step: the call, with `{{payload.x}}` already resolved in its arguments (SPEC-0046). The executor validates the arguments against the schema of the tool. */
+    tool?: { name: string; args: Record<string, unknown> };
+    /** The structured results (`data`) of the steps this one waits for that produced one, by step id (SPEC-0046). */
+    outputs?: Record<string, unknown>;
     signal: AbortSignal;
 }
 
@@ -254,6 +263,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     if (opts.signal?.aborted) controller.abort(); else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     const results: Record<string, FlowStepResult> = {};
+    /** The structured result (`data`) of the steps that gave one, kept for the steps that wait for them (SPEC-0046). */
+    const datas: Record<string, unknown> = {};
     const completed = new Set<string>();
     const failed = new Set<string>();
     /** Steps not run because their condition did not hold, and what waits for them: skipped, but the flow did not fail. */
@@ -283,6 +294,16 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
             }
         }
     }
+
+    /** What a completed step produced as data: from this run, or read back from its text after a resume (only a `tool` step is JSON by contract). */
+    const dataOf = (id: string): unknown => {
+        if (id in datas) return datas[id];
+        const r = results[id];
+        if (r?.status !== 'completed' || def.steps.find(s => s.id === id)?.kind !== 'tool') return undefined;
+        try { return JSON.parse(r.content); } catch { return undefined; }
+    };
+    /** A `tool` step that gave data and no text carries the data as its text, so the two never differ. */
+    const normalize = (step: FlowStep, o: StepOutput): StepOutput => (step.kind === 'tool' && o.data !== undefined && o.content === '' ? { ...o, content: JSON.stringify(o.data) } : o);
 
     opts.transport?.emit({ type: 'workflow_start', name: def.flow });
 
@@ -323,6 +344,8 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const executeOne = async (step: FlowStep): Promise<void> => {
         const prev: Record<string, string> = {};
         for (const dep of step.after) if (results[dep]?.status === 'completed') prev[dep] = results[dep].content;
+        const outputs: Record<string, unknown> = {};
+        for (const dep of step.after) { const d = dataOf(dep); if (d !== undefined) outputs[dep] = d; }
 
         // A condition is checked before anything else, so that no approval is asked for a step that will not run.
         if (step.when) {
@@ -392,16 +415,18 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                     context,
                     idempotencyKey: `${runId}:${step.id}:${attempt}`,
                     signal: stepCtl.signal,
+                    ...(step.kind === 'tool' && step.tool ? { tool: { name: step.tool.name, args: interpolateArgs(step.tool.args ?? {}, opts.payload) as Record<string, unknown> } } : {}),
+                    ...(Object.keys(outputs).length > 0 ? { outputs } : {}),
                 });
                 const limitMs = step.timeoutMs ?? opts.stepTimeoutMs;
                 if (limitMs === undefined) {
-                    out = await pendingRun;
+                    out = normalize(step, await pendingRun);
                 } else {
                     pendingRun.catch(() => undefined); // a late rejection after the deadline is already accounted for
                     const deadline = new Promise<never>((_, reject) => {
                         timer = setTimeout(() => { stepCtl.abort(); reject(new Error(`timed out after ${limitMs}ms`)); }, limitMs);
                     });
-                    out = await Promise.race([pendingRun, deadline]);
+                    out = normalize(step, await Promise.race([pendingRun, deadline]));
                 }
                 if (step.gate && opts.gate) {
                     await opts.gate(step, out.content, { runId, flow: def.flow, record: (e, d) => record(step.id, e, d) });
@@ -417,6 +442,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
                 status: 'done', output: out.content, attempt,
                 ...(out.costUsd !== undefined ? { costUsd: out.costUsd } : {}), transitions: flush(),
             });
+            if (out.data !== undefined) datas[step.id] = out.data;
             results[step.id] = {
                 stepId: step.id, agentId: step.agent, content: out.content, status: 'completed',
                 ...(out.costUsd !== undefined ? { costUsd: out.costUsd } : {}),

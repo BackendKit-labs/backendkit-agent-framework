@@ -88,7 +88,7 @@ export function toolServerUsage(bin = 'bk-mcp', tokenEnv = 'BK_MCP_TOKEN', defau
         '  --http              Serve over HTTP instead of stdio',
         `  --port <n>          HTTP port (default ${defaultPort})`,
         '  --host <host>       Interface to bind (default 127.0.0.1)',
-        `  --token <token>     Bearer token for HTTP (or ${tokenEnv}); required off loopback`,
+        `  --token <token>     Bearer token for HTTP; required off loopback. Prefer ${tokenEnv}: a token on the command line is visible to other users (ps)`,
         '',
     ].join('\n');
 }
@@ -119,6 +119,10 @@ export async function runToolServer(
     }
 
     if (args.mode === 'http') {
+        // The command line of a process is readable by other users of the machine (`ps`): the variable keeps the token out of it.
+        if ((cli.argv ?? process.argv.slice(2)).includes('--token')) {
+            log(`[${tools.name}] warning: --token puts the token where other users of this machine can read it (ps); set ${tokenEnv} instead`);
+        }
         const running: RunningToolServer = await startToolServerHttp(tools, {
             ...cli.http,
             log,

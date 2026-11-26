@@ -118,3 +118,12 @@ describe('policy inheritance: a child is never wider than its parent', () => {
         expect(dims({}, { preset: 'auto-edit' })).toEqual(['approval']);
     });
 });
+
+describe('ownStateTools', () => {
+    it('a child may exempt only tools the parent exempts', () => {
+        expect(checkNarrower({ ownStateTools: ['save_context'] }, { ownStateTools: ['save_context'] }).ok).toBe(true);
+        expect(checkNarrower({ ownStateTools: ['save_context'] }, {}).ok).toBe(true);
+        const wider = checkNarrower({ ownStateTools: ['save_context'] }, { ownStateTools: ['save_context', 'send_email'] });
+        expect(wider).toMatchObject({ ok: false, violations: [{ dimension: 'ownStateTools', child: 'send_email' }] });
+    });
+});

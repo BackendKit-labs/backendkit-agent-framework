@@ -6,6 +6,12 @@ import type { SandboxService } from '@backendkit-labs/agent-sandbox';
 import { buildCodingSandbox, CODING_WRITE_TOOLS, readFileTool, writeFileTool, runCommandTool, CODING_TOOLS } from '../index';
 
 const caller = { agentId: 'coder', sessionId: 's1' };
+/** What a coding tool declares, as the engine hands it to the sandbox. */
+const factsOf = (name: string) => {
+    const t = CODING_TOOLS.find(x => x.name === name);
+    if (!t) throw new Error(`no coding tool "${name}"`);
+    return { ...(t.readOnly !== undefined ? { readOnly: t.readOnly } : {}), ...(t.destructive !== undefined ? { destructive: t.destructive } : {}) };
+};
 
 describe('buildCodingSandbox', () => {
     it('hands a ready-made runner back untouched', () => {
@@ -13,13 +19,15 @@ describe('buildCodingSandbox', () => {
         expect(buildCodingSandbox(runner)).toBe(runner);
     });
 
-    it('knows which coding tools write, so read-only refuses exactly those', () => {
+    it('read-only refuses exactly the coding tools that write the workspace, judged by what each declares', () => {
         expect([...CODING_WRITE_TOOLS]).toEqual(['write_file', 'edit_file']);
         const sandbox = buildCodingSandbox({ preset: 'read-only' });
-        expect(sandbox.authorizeTool!(caller, 'write_file')).toMatchObject({ ok: false, code: 'SANDBOX_DENIED' });
-        expect(sandbox.authorizeTool!(caller, 'edit_file')).toMatchObject({ ok: false, code: 'SANDBOX_DENIED' });
-        for (const t of ['read_file', 'list_directory', 'search_files', 'run_command', 'save_audit', 'update_session']) {
-            expect(sandbox.authorizeTool!(caller, t)).toEqual({ ok: true });
+        const allowed = CODING_TOOLS.filter(t => sandbox.authorizeTool!(caller, t.name, factsOf(t.name)).ok).map(t => t.name).sort();
+        const refused = CODING_TOOLS.map(t => t.name).filter(n => !allowed.includes(n)).sort();
+        expect(refused).toEqual(['edit_file', 'write_file']);
+        // the reads declare readOnly; run_command is confined by the backend; the memory tools are the agent's own state
+        for (const t of ['read_file', 'list_directory', 'search_files', 'get_latest_audit', 'list_audits', 'run_command', 'save_audit', 'update_session']) {
+            expect(allowed).toContain(t);
         }
         // every writing tool of the set is covered, nothing else is
         const names = CODING_TOOLS.map(t => t.name);
@@ -29,7 +37,7 @@ describe('buildCodingSandbox', () => {
     it('the preset decides what asks: ask = writes and commands, auto-edit = commands, full and read-only = nothing', () => {
         const asks = (preset: 'ask' | 'auto-edit' | 'read-only' | 'full') => {
             const s = buildCodingSandbox({ preset });
-            return ['write_file', 'run_command', 'read_file'].map(t => s.approvalFor!(caller, t));
+            return ['write_file', 'run_command', 'read_file'].map(t => s.approvalFor!(caller, t, factsOf(t)));
         };
         expect(asks('ask')).toEqual(['ask', 'ask', 'none']);
         expect(asks('auto-edit')).toEqual(['none', 'ask', 'none']);

@@ -20,7 +20,7 @@ export type { JobRegistry, JobRegistryOptions, JobInfo, JobSpec, JobStatus, JobO
 export { JOB_TOOLS, jobOutputTool, jobListTool, jobKillTool } from './jobs/tools';
 export type {
     SandboxMode, SandboxNetwork, SandboxExecRequest, SandboxExecResult, SandboxCaller,
-    SandboxDenyCode, SandboxOutcome, SandboxDecision, SandboxRunner, SandboxPathRequest, SandboxPathVerdict,
+    SandboxDenyCode, SandboxOutcome, SandboxDecision, SandboxRunner, SandboxPathRequest, SandboxPathVerdict, SandboxToolFacts,
 } from './sandbox/types';
 export {
     GuardrailRunner,

@@ -652,7 +652,19 @@ await runToolServer(options, { bin: 'ledger-mcp', tokenEnv: 'LEDGER_TOKEN' });
 
 **Identity.** A direct tool is another way to run a tool, so it needs the same two things as the engine: the server has a digital identity (`agentIdentity`, a provider of identities, here named after the server) and says for whom it acts (`identity.userId`). Without them **every call is denied**, before `authorize` or the policy are even asked, and the reason says how to fix it. Every audit event is attributed to that identity and signed by it when the provider can sign; `requireAgentIdentity: false` is for tests only. A provider that fails or does not answer in time denies the call.
 
-**Error contract.** `isError: true` means the call did not run to completion: denied by `authorize`, timed out, threw (message only, no stack), or returned more than `maxOutputChars`. Whatever the tool *returned* is payload, even a JSON `{ ok: false }` that encodes a business failure. The `audit` hook receives one record per call, including denied and failed ones, with a SHA-256 of the arguments rather than the arguments themselves; if the hook throws, the failure goes to stderr and the result does not change (the tool has already run).
+**Error contract.** `isError: true` means the call did not run to completion: denied by `authorize`, timed out, threw, or returned more than `maxOutputChars`. Whatever the tool *returned* is payload, even a JSON `{ ok: false }` that encodes a business failure. A tool that throws a `ToolError(code, message)` tells the client why: its message goes through, and the audit event records its `code`. Any other thrown error is internal (an exception message can carry paths, queries or credentials): the client gets `internal error (<errorId>)`, the error itself goes to `onInternalError(err, { errorId, server, tool, where, requestId })` (default: stderr) under that id, and the audit records only its code. The same holds for an `authorize` hook or an approver that throws.
+
+**Who calls.** A fixed `identity` serves every caller as the same person: with one shared bearer token, the server cannot tell callers apart. Over Streamable HTTP each call carries its request `headers` (and `authInfo`, when an auth layer in front set it) in `ToolCallInfo`, so `identity` can be a function of the call and `authorize` can decide per caller:
+
+```ts
+startToolServerHttp({
+  name: 'ledger', tools, agentIdentity: selfAssertedIdentities(),
+  // for whom this call runs: from a token you verify, never from a header the caller sets by itself
+  identity: (call) => verifyUserToken(call.headers?.['x-user-token']),   // → { userId } or undefined (denied)
+}, { authToken: process.env.BK_MCP_TOKEN });
+```
+
+The policies, the audit events and four-eyes approval then see the real caller. A function that throws denies the call (`internal error (<errorId>)`, the detail to `onInternalError`). The headers include the server's own bearer: never log them. The `audit` hook receives one record per call, including denied and failed ones, with a SHA-256 of the arguments rather than the arguments themselves; if the hook throws, the failure goes to stderr and the result does not change (the tool has already run).
 
 **HTTP guards.** Without `authToken` the server refuses to listen anywhere but loopback. Bound to loopback, requests whose `Host` or `Origin` is not loopback get 403 (DNS rebinding, cross-site POST). Only `POST <path>` is served: a stateless server has no SSE stream to open and no session to delete. Bodies above `maxBodyBytes` (1 MiB) get 413.
 

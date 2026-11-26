@@ -14,6 +14,8 @@ import type {
     ApprovalRequest, Approver, ApproverAuthority, ApproverDirectory, ApproverRef, AuditDecision, AuditEvent, AuditMandate, AuditOutcome, AuditSink, Identity, PolicyDecision, Principal, ToolPolicy,
 } from '../governance/types';
 import { randomUUID } from 'node:crypto';
+import { ToolError } from '../tools/tool-error';
+import { errorCodeOf } from '../engine/error-code';
 
 /**
  * MCP tool server: exposes `ToolDefinition`s as MCP tools that run **directly**, with no model in between.
@@ -30,7 +32,10 @@ import { randomUUID } from 'node:crypto';
  * is capped, and every call (including denied and failed ones) reaches the `audit` hook.
  *
  * Error contract: `isError: true` means the call did not run to completion (denied, timed out, threw, output
- * too large). Whatever the tool *returned* is payload, even when it encodes a business failure.
+ * too large). Whatever the tool *returned* is payload, even when it encodes a business failure. A tool that throws a
+ * `ToolError` (`code`, `message`) tells the client why: its message is meant for them. Any other thrown error is internal: the
+ * client gets an `errorId`, the error itself goes to `onInternalError` under that id, and the audit event records the error's
+ * code, never its message (an exception message can carry paths, queries or credentials).
  */
 
 /** Facts about one incoming call, as given to `authorize` and `context`. */
@@ -40,6 +45,13 @@ export interface ToolCallInfo {
     /** MCP session id when the transport has sessions (stdio and stateless HTTP have none). */
     sessionId?: string;
     requestId: string | number;
+    /**
+     * Headers of the HTTP request that carried the call (Streamable HTTP; absent over stdio). Use them to know WHO calls, from something
+     * you verify (a personal token), never from a header the caller sets by itself. The server's own bearer is among them: never log them.
+     */
+    headers?: Record<string, string | string[] | undefined>;
+    /** What the transport authenticated, when an auth layer in front of it set it (the SDK's `AuthInfo`). */
+    authInfo?: unknown;
 }
 
 export type ToolCallOutcome = 'ok' | 'denied' | 'timeout' | 'error' | 'too_large';
@@ -93,8 +105,12 @@ export interface ToolServerOptions {
     approverDirectory?: ApproverDirectory;
     /** Four eyes: whoever the server acts for (`identity.userId`) does not approve the call either. With no `identity.userId` the call is denied. */
     forbidSelfApproval?: boolean;
-    /** Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off. */
-    identity?: Identity;
+    /**
+     * Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off.
+     * A fixed identity serves every caller as the same person. A function of the call (`headers`, `authInfo`) acts for whoever made it: derive
+     * it from something you verified (a validated token), never from a header the caller sets by itself. A function that throws denies the call.
+     */
+    identity?: Identity | ((call: ToolCallInfo) => Identity | undefined | Promise<Identity | undefined>);
     /**
      * Gives the server its digital identity (SPEC-0044): who executes the calls. The same contract and the same default as the engine: every call
      * is attributed to it in the audit and signed by it when the provider can sign. See `selfAssertedIdentities`, `ed25519AgentIdentities`.
@@ -123,6 +139,11 @@ export interface ToolServerOptions {
     maxOutputChars?: number;
     /** Time limit for tools that declare none. Default: none. */
     toolTimeoutMs?: number;
+    /**
+     * Where an internal error goes: one a tool, `authorize` or the approver threw that is not a `ToolError`. The client only gets
+     * its `errorId`; this receives the error itself under that id. Default: stderr.
+     */
+    onInternalError?: (err: unknown, info: { errorId: string; server: string; tool: string; where: string; requestId: string | number }) => void;
 }
 
 const DEFAULT_MAX_OUTPUT_CHARS = 1_048_576;
@@ -265,6 +286,8 @@ interface CallExtra {
     signal: AbortSignal;
     sessionId?: string;
     requestId: string | number;
+    requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+    authInfo?: unknown;
 }
 
 async function runCall(
@@ -276,10 +299,23 @@ async function runCall(
 ): Promise<CallToolResult> {
     const started = Date.now();
     const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as Record<string, unknown>;
-    const info: ToolCallInfo = { tool, args, requestId: extra.requestId, ...(extra.sessionId ? { sessionId: extra.sessionId } : {}) };
+    const info: ToolCallInfo = {
+        tool, args, requestId: extra.requestId,
+        ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+        ...(extra.requestInfo?.headers ? { headers: extra.requestInfo.headers } : {}),
+        ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
+    };
     const gov = governance(opts);
+    // For whom this call runs: fixed, or derived per call from what the server verified. A function that throws denies the call (below).
+    let callerIdentity: Identity | undefined;
+    let identityError: { err: unknown } | undefined;
+    if (typeof opts.identity === 'function') {
+        try { callerIdentity = await opts.identity(info); } catch (err) { identityError = { err }; }
+    } else {
+        callerIdentity = opts.identity;
+    }
     const principal: Principal = {
-        ...opts.identity,
+        ...callerIdentity,
         agentId: opts.name,
         sessionId: info.sessionId ?? 'mcp',
         chain: [opts.name],
@@ -292,6 +328,20 @@ async function runCall(
     const identityContext = { sessionId: principal.sessionId, ...(principal.tenantId !== undefined ? { tenantId: principal.tenantId } : {}), ...(principal.userId !== undefined ? { userId: principal.userId } : {}) };
     const who = await gov.identities.check(opts.name, identityContext);
     if (who.ok && who.identity) principal.agentIdentity = who.identity;
+
+    /** An internal error as the client sees it: a generic line with its `errorId`. The error itself goes to `onInternalError`. */
+    const internal = (err: unknown, where: string): string => {
+        const errorId = randomUUID();
+        const info = { errorId, server: opts.name, tool: tool.name, where, requestId: extra.requestId };
+        try {
+            if (opts.onInternalError) opts.onInternalError(err, info);
+            else process.stderr.write(`[${opts.name}] internal error ${errorId} in ${where} of ${tool.name}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}
+`);
+        } catch { /* a failing logger must not change the answer */ }
+        return `internal error (${errorId}): the detail is in the server's logs`;
+    };
+    // The code of the error a call failed with, for the audit event: a stable code, never a message.
+    let failedCode: string | undefined;
 
     const finish = async (outcome: ToolCallOutcome, text: string, error?: string): Promise<CallToolResult> => {
         await audit(opts, {
@@ -318,8 +368,10 @@ async function runCall(
                 tool: tool.name,
                 argsHash: hashArgs(args),
                 decision: ran ? 'allow' : policyDecision === 'allow' ? 'deny' : policyDecision,
-                ...(error !== undefined ? { reason: error } : asked ? { reason: asked.reason } : {}),
+                // A refusal says why (the policy, the identity); a failure only by its code: an exception message never reaches the audit.
+                ...(!ran && error !== undefined ? { reason: error } : asked ? { reason: asked.reason } : {}),
                 ...(ran ? { outcome: outcome as AuditOutcome } : {}),
+                ...(failedCode ? { errorCode: failedCode } : {}),
                 durationMs: Date.now() - started,
                 ...(approval ? { approval } : {}),
                 ...(asked?.exceeds ? { exceeded: asked.exceeds } : {}),
@@ -334,7 +386,11 @@ async function runCall(
             : { content: [{ type: 'text', text }], isError: true };
     };
 
-    // 0. Identity: no identity for the server, or no one to act for, and nothing runs.
+    // 0. Identity: who the call is for could not be told, no identity for the server, or no one to act for, and nothing runs.
+    if (identityError) {
+        const reason = `who the call is for could not be checked: ${internal(identityError.err, 'identity')}`;
+        return finish('denied', `Tool "${tool.name}" denied: ${reason}`, reason);
+    }
     if (!who.ok) return finish('denied', `Tool "${tool.name}" denied: ${who.reason}`, who.reason);
 
     // 1. Authorization — before anything else runs.
@@ -344,7 +400,7 @@ async function runCall(
         try {
             allowed = await opts.authorize(info);
         } catch (err) {
-            reason = `authorize threw: ${messageOf(err)}`;
+            reason = `authorize failed: ${internal(err, 'authorize')}`;
         }
         if (!allowed) return finish('denied', `Tool "${tool.name}" denied: ${reason}`, reason);
     }
@@ -355,7 +411,7 @@ async function runCall(
         const d = await evaluatePolicies(gov.policies, principal, { tool, args });
         if (d.effect === 'deny') return finish('denied', `Tool "${tool.name}" denied: ${d.reason}`, d.reason);
         if (d.effect === 'ask') {
-            const resolved = await resolveAsk(opts, gov, principal, tool, args, d);
+            const resolved = await resolveAsk(opts, gov, principal, tool, args, d, (err) => internal(err, 'approver'));
             if (!resolved.ok) {
                 policyDecision = 'deny';
                 return finish('denied', `Tool "${tool.name}" denied: ${resolved.reason}`, resolved.reason);
@@ -407,8 +463,9 @@ async function runCall(
             const msg = `Tool "${tool.name}" timed out after ${err.timeoutMs}ms`;
             return finish('timeout', msg, msg);
         }
-        // No stack: the client is on the other side of a wire and gets the message only.
-        const msg = messageOf(err);
+        failedCode = errorCodeOf(err);
+        // A ToolError is meant for the client; any other error is internal: the client gets its errorId, never its message.
+        const msg = err instanceof ToolError ? err.message : internal(err, 'execute');
         return finish('error', `Tool "${tool.name}" failed: ${msg}`, msg);
     } finally {
         if (timer) clearTimeout(timer);
@@ -435,6 +492,8 @@ async function signedEvent(opts: ToolServerOptions, gov: Governance, event: Audi
 async function resolveAsk(
     opts: ToolServerOptions, gov: Governance, principal: Principal, tool: ToolDefinition, args: Record<string, unknown>,
     d: Extract<PolicyDecision, { effect: 'ask' }>,
+    /** Turns an error of the approver into what the client sees (an errorId); the error itself goes to the server's log. */
+    internal: (err: unknown) => string,
 ): Promise<{ ok: true; approval: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string } } | { ok: false; reason: string }> {
     if (!opts.approver) return { ok: false, reason: `needs approval (${d.reason}) and no approver is configured` };
     const request: ApprovalRequest = {
@@ -446,7 +505,7 @@ async function resolveAsk(
     try {
         answer = await opts.approver.request(request);
     } catch (err) {
-        return { ok: false, reason: `the approver failed: ${messageOf(err)}` };
+        return { ok: false, reason: `the approver failed: ${internal(err)}` };
     }
     if (answer.decision !== 'approve') return { ok: false, reason: answer.reason ?? 'rejected by the approver' };
     const checked = await checkApproval(answer, request, {

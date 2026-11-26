@@ -19,6 +19,7 @@ export const saveAuditTool = defineTool({
 
 export const getLatestAuditTool = defineTool({
     name: 'get_latest_audit',
+    readOnly: true,
     concurrencySafe: true,
     description: 'Retrieve the most recent audit report for a given agent type.',
     input: z.object({
@@ -32,6 +33,7 @@ export const getLatestAuditTool = defineTool({
 
 export const listAuditsTool = defineTool({
     name: 'list_audits',
+    readOnly: true,
     concurrencySafe: true,
     description: 'List all saved audit files for this project.',
     input: z.object({}),

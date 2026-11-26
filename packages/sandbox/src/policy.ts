@@ -31,8 +31,16 @@ export interface SandboxPolicyConfig {
     roots?: string[];
     rules?: SandboxRule[];
     env?: EnvPolicy;
-    /** Tools refused outright while the mode is `read-only` (they write). The integrator lists them. */
+    /**
+     * Tools refused while the mode is `read-only`, whatever they declare. A reinforcement: the sandbox already refuses every tool that
+     * does not declare `readOnly: true` (see `SandboxToolFacts`), so this only matters for a tool that claims to read and does not.
+     */
     writeTools?: string[];
+    /**
+     * Tools that write only the agent's own state (its memory, its notes), never the workspace or the outside world. They keep working
+     * in `read-only` and never ask for approval. An explicit list: a tool is trusted this way only because the integrator named it.
+     */
+    ownStateTools?: string[];
     /** Tools that run commands (what the approval level calls "commands"). Default `['run_command']`. */
     commandTools?: string[];
 }
@@ -83,6 +91,7 @@ export function parsePolicyConfig(input: unknown): SandboxPolicyConfig {
     if (c.roots !== undefined) out.roots = stringList('roots', c.roots);
     if (c.writeTools !== undefined) out.writeTools = stringList('writeTools', c.writeTools);
     if (c.commandTools !== undefined) out.commandTools = stringList('commandTools', c.commandTools);
+    if (c.ownStateTools !== undefined) out.ownStateTools = stringList('ownStateTools', c.ownStateTools);
     if (c.env !== undefined) {
         const e = c.env as Record<string, unknown>;
         if (typeof e !== 'object' || e === null) throw new SandboxPolicyError('env', 'expected an object');
@@ -119,8 +128,10 @@ export interface SandboxPolicy {
     set(config: SandboxPolicyConfig): void;
     /** A copy of the current configuration. */
     snapshot(): SandboxPolicyConfig;
-    /** Tools refused while `read-only`, for the caller to enforce. */
+    /** Tools refused while `read-only` whatever they declare. */
     writeTools(): readonly string[];
+    /** Tools that write only the agent's own state: allowed in `read-only`, never asked about. */
+    ownStateTools(): readonly string[];
     /** Tools that count as running a command for the approval level. */
     commandTools(): readonly string[];
     /** Increments on every successful `set`, so a control plane can tell whether its copy is current. */
@@ -158,6 +169,7 @@ export function createSandboxPolicy(initial: SandboxPolicyConfig = {}): SandboxP
         },
         snapshot: () => JSON.parse(JSON.stringify(config)) as SandboxPolicyConfig,
         writeTools: () => config.writeTools ?? [],
+        ownStateTools: () => config.ownStateTools ?? [],
         commandTools: () => config.commandTools ?? ['run_command'],
         get version() { return version; },
     };

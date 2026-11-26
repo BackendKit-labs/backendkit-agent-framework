@@ -82,20 +82,31 @@ export interface SandboxPathRequest {
 
 export type SandboxPathVerdict = { ok: true } | { ok: false; code: SandboxDenyCode; reason: string };
 
+/**
+ * What a tool declares about its effects (`ToolDefinition.readOnly` / `destructive`), as the sandbox judges it. A tool that changes
+ * nothing declares `readOnly: true`; one with an effect (it writes, pays, sends, deletes, processes) declares `destructive: true`.
+ * A tool that declares neither, or facts the caller did not pass, counts as having effects: what is not known is not trusted.
+ */
+export interface SandboxToolFacts {
+    readOnly?: boolean;
+    destructive?: boolean;
+}
+
 /** `ExecutionContext.sandbox`: the single place tools go through to run something confined. */
 export interface SandboxRunner {
     run(caller: SandboxCaller, request: SandboxExecRequest): Promise<SandboxOutcome>;
     /**
-     * Is `tool` allowed at all for this caller under the current policy? Lets the engine refuse tools
-     * that write (in `read-only`) before they run. Never depends on the approval gate.
+     * Is `tool` allowed at all for this caller under the current policy? Lets the engine refuse, in `read-only`, every tool
+     * with an effect before it runs: judged by its `facts` (only `readOnly: true` passes), not by its name. Never depends on the approval gate.
      */
-    authorizeTool?(caller: SandboxCaller, tool: string): { ok: true } | { ok: false; code: SandboxDenyCode; reason: string };
+    authorizeTool?(caller: SandboxCaller, tool: string, facts?: SandboxToolFacts): { ok: true } | { ok: false; code: SandboxDenyCode; reason: string };
     /**
      * Does this tool need a human under the current policy? When present it REPLACES the engine's built-in
      * list of tools that ask (the tools that declare `readOnly: false`). `ask` with no approver configured is
      * refused (fail closed): an unattended flow or trigger can never end up running what nobody approved.
+     * Judged by `facts` as `authorizeTool` is: a tool without them counts as one with an effect.
      */
-    approvalFor?(caller: SandboxCaller, tool: string): 'none' | 'ask';
+    approvalFor?(caller: SandboxCaller, tool: string, facts?: SandboxToolFacts): 'none' | 'ask';
     /**
      * May `tool` touch this path? For file tools, which do their I/O in the host process and so never go through
      * `run`. The path is judged by where it REALLY points (symlinks and junctions are followed), so a link inside the

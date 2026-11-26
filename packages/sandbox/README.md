@@ -64,7 +64,8 @@ const policy = createSandboxPolicy({
         { tool: 'run_command', network: 'allow' },
     ],
     env: { allow: ['GH_TOKEN'] },
-    writeTools: ['write_file', 'edit_file'],       // refused outright while read-only
+    writeTools: ['write_file', 'edit_file'],       // refused while read-only, whatever they declare (a reinforcement)
+    ownStateTools: ['save_context'],             // write only the agent's own state: allowed in read-only, never ask
 });
 
 policy.snapshot();            // a copy of the configuration
@@ -87,7 +88,7 @@ const engine = createCodingEngine({
 ```
 
 - `run_command` goes through the service; an unmet confinement comes back as `Error: SANDBOX_UNAVAILABLE: …` and nothing runs.
-- In `read-only` the engine refuses the write tools by name (`write_file`, `edit_file`), whatever the approval gate says. The memory tools keep working: they write the agent's own store, outside the workspace.
+- In `read-only` the engine refuses every tool that does not declare `readOnly: true`, whatever the approval gate says: one that is `destructive`, or declares nothing, may have an effect. A command tool (`run_command`) is confined by the backend instead (a read-only mount). The coding memory tools keep working because coding lists them in `ownStateTools`: they write the agent's own store, outside the workspace.
 - The preset replaces the engine's built-in list of tools that ask. **If a tool needs approval and no `onToolApproval` is set, it is refused** (`SANDBOX_DENIED`): an unattended flow, trigger or fleet agent can never run what nobody approved.
 - Every decision is a `sandbox` event on the transport and a line in the engine's audit log.
 - File tools (`write_file`, `edit_file`) still enforce the workspace with their own path check; moving them behind the service is the next delivery.
@@ -112,7 +113,7 @@ const verdict = checkNarrower(parentPolicy.snapshot(), requestedChildPolicy);
 if (!verdict.ok) throw new Error(`POLICY_WIDER_THAN_PARENT: ${describeViolations(verdict.violations)}`);
 ```
 
-Each policy is measured at its **widest** (its base setting or any rule), so a rule cannot hide a widening. The child may not exceed the parent's mode or network, must ask at least as much (`approval`), may only use roots inside the parent's, must keep every `writeTools`/`commandTools` entry and every `env.deny` the parent lists, and may only allow variables the parent allows. Note that a `read-only` child of an `ask` parent must still set `approval: 'writes-and-commands'`: it can still run commands.
+Each policy is measured at its **widest** (its base setting or any rule), so a rule cannot hide a widening. The child may not exceed the parent's mode or network, must ask at least as much (`approval`), may only use roots inside the parent's, must keep every `writeTools`/`commandTools` entry and every `env.deny` the parent lists, may exempt only `ownStateTools` the parent exempts, and may only allow variables the parent allows. Note that a `read-only` child of an `ask` parent must still set `approval: 'writes-and-commands'`: it can still run commands.
 
 ## Environment hygiene
 
@@ -121,7 +122,7 @@ Host processes start from a scrubbed environment: names matching `KEY`, `SECRET`
 ## What it does not confine
 
 - **Tools that start processes on their own.** Only calls that go through `ctx.sandbox.run(...)` are confined (`run_command` does). A custom or MCP tool that spawns a process itself is outside the sandbox: write it against `ctx.sandbox`.
-- **`read-only` refuses tools by name.** It refuses exactly the tools listed in `writeTools` (the coding set lists `write_file` and `edit_file`). MCP tools and your own tools that write are not blocked unless you list them.
+- **`read-only` judges a tool by what it declares.** Only a tool that declares `readOnly: true` runs; a `destructive` one, or one that declares nothing (an MCP tool without annotations, your own tool without facts), is refused. Exceptions are explicit: `ownStateTools` for tools that write only the agent's own state. `writeTools` still refuses a listed tool even if it claims to read. The engine passes the facts; a `SandboxRunner` called with a name only gets no facts and treats the tool as one with an effect.
 - **File tools run in the host process**, so they are not confined by a backend: the service judges the path instead (`authorizePath`). It follows symlinks and junctions, so a link inside the workspace cannot reach outside; the tool's own workspace check stays as the floor, even in full access. A tool that does its own I/O must call `ctx.sandbox.authorizePath(...)` itself.
 - **Several engines may share one service**: each engine reports only the decisions of its own calls on its transport and audit log. `sandbox.onDecision(...)` on the service sees all of them.
 

@@ -209,7 +209,7 @@ describe('SandboxService — decisions, audit and authorizeTool', () => {
         expect(seenModes).toEqual(['read-only', 'danger-full-access']);
     });
 
-    it('authorizeTool refuses listed write tools only while read-only, and records the refusal', () => {
+    it('authorizeTool refuses, while read-only, every tool that does not declare readOnly, and records the refusal', () => {
         const svc = createSandboxService({
             policy: createSandboxPolicy({ preset: 'read-only', writeTools: ['write_file', 'edit_file'], rules: [{ agentId: 'builder', mode: 'workspace-write' }] }),
             backends: [],
@@ -217,11 +217,24 @@ describe('SandboxService — decisions, audit and authorizeTool', () => {
         const seen: SandboxDecision[] = [];
         svc.onDecision(d => seen.push(d));
 
-        expect(svc.authorizeTool!(caller, 'read_file')).toEqual({ ok: true });
-        const denied = svc.authorizeTool!(caller, 'write_file');
+        expect(svc.authorizeTool!(caller, 'read_file', { readOnly: true })).toEqual({ ok: true });
+        const denied = svc.authorizeTool!(caller, 'write_file', { destructive: true });
         expect(denied).toMatchObject({ ok: false, code: 'SANDBOX_DENIED' });
-        expect(svc.authorizeTool!({ agentId: 'builder', sessionId: 's' }, 'write_file')).toEqual({ ok: true });
+        expect(svc.authorizeTool!({ agentId: 'builder', sessionId: 's' }, 'write_file', { destructive: true })).toEqual({ ok: true });
         expect(seen.map(d => [d.tool, d.outcome])).toEqual([['write_file', 'SANDBOX_DENIED']]);
+    });
+
+    it('read-only judges a tool by what it declares, not by its name', () => {
+        const svc = createSandboxService({ policy: createSandboxPolicy({ preset: 'read-only', writeTools: ['lies'], ownStateTools: ['save_context'] }), backends: [] });
+        const allowed = (tool: string, facts?: { readOnly?: boolean; destructive?: boolean }) => svc.authorizeTool!(caller, tool, facts).ok;
+        expect(allowed('lookup', { readOnly: true })).toBe(true);            // declares it changes nothing
+        expect(allowed('send_email', { destructive: true })).toBe(false);     // declares an effect
+        expect(allowed('mystery')).toBe(false);                               // declares nothing: not trusted
+        expect(allowed('mystery', {})).toBe(false);
+        expect(allowed('lies', { readOnly: true })).toBe(false);             // writeTools wins over what it claims
+        expect(allowed('save_context')).toBe(true);                           // named by the integrator: the agent's own state
+        expect(allowed('run_command')).toBe(true);                            // a command: confined by the backend when it runs
+        expect((svc.authorizeTool!(caller, 'mystery') as { reason: string }).reason).toMatch(/does not declare readOnly/);
     });
 });
 
@@ -231,10 +244,13 @@ describe('SandboxService — approvalFor and environment switch', () => {
 
     it('maps the approval level to ask / none by the kind of tool', () => {
         const writes = ['write_file', 'edit_file'];
-        const ask = svcFor({ preset: 'ask', writeTools: writes });
+        const ask = svcFor({ preset: 'ask', writeTools: writes, ownStateTools: ['save_context'] });
         expect(ask.approvalFor!(caller, 'run_command')).toBe('ask');
         expect(ask.approvalFor!(caller, 'write_file')).toBe('ask');
-        expect(ask.approvalFor!(caller, 'read_file')).toBe('none');
+        expect(ask.approvalFor!(caller, 'read_file', { readOnly: true })).toBe('none');
+        expect(ask.approvalFor!(caller, 'pay', { destructive: true })).toBe('ask');   // an effect, declared
+        expect(ask.approvalFor!(caller, 'mystery')).toBe('ask');                      // declares nothing: treated as an effect
+        expect(ask.approvalFor!(caller, 'save_context')).toBe('none');                 // the agent's own state
 
         const autoEdit = svcFor({ preset: 'auto-edit', writeTools: writes });
         expect(autoEdit.approvalFor!(caller, 'run_command')).toBe('ask');

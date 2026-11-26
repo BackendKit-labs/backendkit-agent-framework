@@ -22,7 +22,8 @@
 - **Delegación sin políticas:** no comprobaba la identidad del agente (SPEC-0044), a diferencia de cualquier llamada a tool. Ahora sí, en `ask_agent` y en `ctx.askAgent`. **Cambio de comportamiento:** sin `agentIdentity` (y sin `requireAgentIdentity: false`) ya no se delega.
 - **Abort en la ruta MCP directa:** una tool cuya aprobación llegaba tras el abort también corría ahí. Ahora se corta en cualquier camino de la corrida.
 - **REFERENCE de `agent-core`:** el ejemplo de `DelegationBus` usaba métodos que no existen (`register`, `delegate`). Ahora usa la API real (`runSingle`, `runParallel`).
-- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`, `AgentEngine.singleCall.test.ts`, `workflow-complete-status.test.ts`); quitar el arreglo rompe dieciséis.
+- **Una delegación aprobada desde el store nunca corría:** con una política que pide aprobación para `ask_agent` y un store de `approvals`, `runApproved` buscaba `ask_agent` en el registro de tools, donde no está, y gastaba la aprobación sin delegar. Ahora la delegación se vuelve a comprobar con la aprobación guardada, se ejecuta y se audita con la aprobación. Una delegación aprobada en vivo también registra ahora quién la aprobó.
+- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`, `AgentEngine.singleCall.test.ts`, `workflow-complete-status.test.ts`, `AgentEngine.approvedDelegation.test.ts`); quitar el arreglo rompe diecinueve.
 
 ## v0.50.18 (2026-11-25)
 

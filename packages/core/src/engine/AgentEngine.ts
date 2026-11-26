@@ -870,11 +870,40 @@ export class AgentEngine {
         const profile = this.opts.agents.get(item.principal.agentId);
         if (!profile) throw new Error(`agent "${item.principal.agentId}" of approval "${approvalId}" is not registered`);
         if (!(await store.markExecuted(approvalId))) throw new Error(`approval "${approvalId}" was already executed`);
+        const approved: NonNullable<ToolCall['approved']> = { by: item.outcome.by, approvalId, ...(item.outcome.reason ? { reason: item.outcome.reason } : {}), ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}), ...(item.expiresAt !== undefined ? { expiresAt: item.expiresAt } : {}) };
+        // A delegation is not a tool of the registry: it is run as one, through the same check as when it was asked.
+        if (subject.call.tool.name === ASK_AGENT_TOOL.name) return this.runApprovedDelegation(profile, subject.call.args, item.principal.chain, approved);
         return this.executeToolCall(
             { name: subject.call.tool.name, args: JSON.stringify(subject.call.args) },
-            profile, 0, undefined, undefined, item.principal.chain,
-            { by: item.outcome.by, approvalId, ...(item.outcome.reason ? { reason: item.outcome.reason } : {}), ...(item.principal.userId !== undefined ? { requestedBy: item.principal.userId } : {}), ...(item.expiresAt !== undefined ? { expiresAt: item.expiresAt } : {}) },
+            profile, 0, undefined, undefined, item.principal.chain, approved,
         );
+    }
+
+    /** `runApproved` for an `ask_agent` that waited for approval: checked again (with the stored approval), delegated, audited once. */
+    private async runApprovedDelegation(
+        profile: AgentProfile, args: Record<string, unknown>, chain: string[], approved: NonNullable<ToolCall['approved']>,
+    ): Promise<string> {
+        const startedAt = Date.now();
+        const call = {
+            agentId: typeof args.agent_id === 'string' ? args.agent_id : '',
+            question: typeof args.question === 'string' ? args.question : '',
+            ...(typeof args.context === 'string' ? { context: args.context } : {}),
+        };
+        const userId = this.principalFor(profile.id, chain).userId ?? approved.requestedBy;
+        const audit = { startedAt, agentId: profile.id, chain, ...(userId !== undefined ? { userId } : {}), tool: ASK_AGENT_TOOL.name, rawArgs: delegationArgs(call) };
+        const verdict = call.agentId && call.question
+            ? await this.authorizeDelegation(profile, call, chain, approved)
+            : { ok: false as const, message: 'Delegation refused: the stored request has no agent_id or question', decision: 'deny' as const, reason: 'malformed delegation request' };
+        if (!verdict.ok) {
+            await this.recordAudit({ ...audit, decision: verdict.decision, reason: verdict.reason });
+            return verdict.message;
+        }
+        const result = await this.bus.runSingle({ ...call, fromAgentId: profile.id, chain });
+        await this.recordAudit({
+            ...audit, decision: 'allow', ...(verdict.approval ? { approval: verdict.approval } : {}),
+            ...(result.error ? { reason: result.error } : {}), outcome: result.error ? 'error' : 'ok',
+        });
+        return result.error ? `Error: ${result.error}` : result.content;
     }
 
     /**
@@ -1181,19 +1210,23 @@ export class AgentEngine {
 
     /**
      * Whether `profile` may delegate `call` now: not to itself, only to its `delegationTargets`, and, in the policy path, with an
-     * identity and the policies' consent, like any tool call. `undefined` means yes; otherwise why not, for the caller to report and audit.
-     * The one check for every delegation: the model's `ask_agent` and a tool's `ctx.askAgent`.
+     * identity and the policies' consent, like any tool call. When it may not, it says why, for the caller to report and audit.
+     * The one check for every delegation: the model's `ask_agent`, a tool's `ctx.askAgent` and `runApproved` (with the stored `approved`).
      */
     private async authorizeDelegation(
-        profile: AgentProfile, call: { agentId: string; question: string; context?: string }, chain: string[],
-    ): Promise<{ message: string; decision: AuditDecision; reason: string } | undefined> {
+        profile: AgentProfile, call: { agentId: string; question: string; context?: string }, chain: string[], approved?: ToolCall['approved'],
+    ): Promise<
+        | { ok: true; approval?: { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string } }
+        | { ok: false; message: string; decision: AuditDecision; reason: string }
+    > {
         if (call.agentId === profile.id) {
-            return { message: `Self-delegation blocked: agent "${profile.id}" cannot delegate to itself. Execute the task directly.`, decision: 'not_allowed', reason: 'self-delegation' };
+            return { ok: false, message: `Self-delegation blocked: agent "${profile.id}" cannot delegate to itself. Execute the task directly.`, decision: 'not_allowed', reason: 'self-delegation' };
         }
         // `delegatesTo` is a limit, not a hint: a delegation outside it never reaches the policies or the bus.
         const targets = this.delegationTargets(profile);
         if (!targets.includes(call.agentId)) {
             return {
+                ok: false,
                 message: targets.length > 0
                     ? `Delegation refused: agent "${profile.id}" may not delegate to "${call.agentId}". It may delegate to: ${targets.join(', ')}.`
                     : `Delegation refused: agent "${profile.id}" may not delegate to any agent. Execute the task directly.`,
@@ -1202,13 +1235,17 @@ export class AgentEngine {
             };
         }
         // No identity, or no one to act for, and nobody is delegated to (SPEC-0044), with or without policies: as for any tool call.
-        const base = this.principalFor(profile.id, chain);
+        let base = this.principalFor(profile.id, chain);
+        // Run from a stored approval, it acts for whoever asked, as the stored request recorded (SPEC-0041 F2), like a tool call does.
+        if (base.userId === undefined && approved?.requestedBy !== undefined) base = { ...base, userId: approved.requestedBy };
         const who = await this.identities.check(profile.id, { sessionId: base.sessionId, ...(base.tenantId !== undefined ? { tenantId: base.tenantId } : {}), ...(base.userId !== undefined ? { userId: base.userId } : {}) });
-        if (!who.ok) return { message: `Tool call "ask_agent" denied: ${who.reason}`, decision: 'deny', reason: who.reason };
-        if (!this.governed) return undefined;
+        if (!who.ok) return { ok: false, message: `Tool call "ask_agent" denied: ${who.reason}`, decision: 'deny', reason: who.reason };
+        if (!this.governed) return { ok: true };
         // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
-        const verdict = await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, []);
-        return verdict.run ? undefined : { message: verdict.message, decision: verdict.decision, reason: verdict.reason };
+        const verdict = await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, [], approved);
+        return verdict.run
+            ? { ok: true, ...(verdict.approval ? { approval: verdict.approval } : {}) }
+            : { ok: false, message: verdict.message, decision: verdict.decision, reason: verdict.reason };
     }
 
     /** Whether `profile` is offered `ask_agent`: only the default agent, and only with someone registered to delegate to. */
@@ -1417,10 +1454,16 @@ export class AgentEngine {
                 // Delegations are audited like any tool call: one event each (SPEC-0014 F1).
                 const callerChain = this.principalFor(currentProfile.id).chain;
                 const validCalls: typeof askAgentCalls = [];
+                // Who approved each delegation that asked first: its audit event says so, as for any approved tool call.
+                const approvals = new Map<string, { id: string; by: ApproverRef; authority?: ApproverAuthority; reason?: string }>();
                 for (const call of askAgentCalls) {
                     const startedAt = Date.now();
                     const refused = await this.authorizeDelegation(currentProfile, call, callerChain);
-                    if (!refused) { validCalls.push(call); continue; }
+                    if (refused.ok) {
+                        validCalls.push(call);
+                        if (refused.approval) approvals.set(call.id, refused.approval);
+                        continue;
+                    }
                     this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: refused.message.slice(0, 120) });
                     toolResults.push({ role: 'tool', tool_call_id: call.id, content: refused.message });
                     await this.recordAudit({
@@ -1451,7 +1494,8 @@ export class AgentEngine {
                         toolResults.push({ role: 'tool', tool_call_id: call.id, content });
                         await this.recordAudit({
                             startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent', rawArgs: delegationArgs(call),
-                            decision: 'allow', ...(result.error ? { reason: result.error } : {}),
+                            decision: 'allow', ...(approvals.has(call.id) ? { approval: approvals.get(call.id) } : {}),
+                            ...(result.error ? { reason: result.error } : {}),
                             outcome: result.error ? 'error' : 'ok',
                         });
                     }
@@ -2139,12 +2183,12 @@ export class AgentEngine {
             askAgent: async (agentId, question, context) => {
                 const call = { agentId, question, ...(context !== undefined ? { context } : {}) };
                 const startedAt = Date.now();
-                const refused = profile
+                const verdict = profile
                     ? await this.authorizeDelegation(profile, call, principal.chain)
-                    : { message: `Delegation refused: agent "${id}" is not registered`, decision: 'not_allowed' as const, reason: `agent "${id}" is not registered` };
-                if (refused) {
-                    await this.recordAudit({ startedAt, agentId: id, chain: principal.chain, tool: 'ask_agent', rawArgs: delegationArgs(call), decision: refused.decision, reason: refused.reason });
-                    throw new Error(refused.message);
+                    : { ok: false as const, message: `Delegation refused: agent "${id}" is not registered`, decision: 'not_allowed' as const, reason: `agent "${id}" is not registered` };
+                if (!verdict.ok) {
+                    await this.recordAudit({ startedAt, agentId: id, chain: principal.chain, tool: 'ask_agent', rawArgs: delegationArgs(call), decision: verdict.decision, reason: verdict.reason });
+                    throw new Error(verdict.message);
                 }
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1, chain: principal.chain });
                 await this.recordAudit({

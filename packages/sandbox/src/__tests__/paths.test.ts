@@ -18,7 +18,8 @@ describe('file access through the sandbox', () => {
     let workspace: string;
     let outside: string;
     beforeEach(() => {
-        root = realpathSync(mkdtempSync(join(tmpdir(), 'bk-paths-')));
+        // The native resolution, as `realPathOf` uses: the JS one leaves a Windows 8.3 short name (`MAIRON~1`) that the native one expands.
+        root = realpathSync.native(mkdtempSync(join(tmpdir(), 'bk-paths-')));
         workspace = join(root, 'ws');
         outside = join(root, 'outside');
         mkdirSync(workspace); mkdirSync(outside);

@@ -55,7 +55,7 @@ const CONTROL_ROUTES: Array<[string, string, unknown?]> = [
     ['GET', '/v1/agent/audit'],
     ['GET', '/v1/agent/approvals'],
     ['GET', '/v1/agent/approvals/a1'],
-    ['POST', '/v1/agent/approvals/a1/decision', { decision: 'approve', by: { kind: 'human', id: 'ana' } }],
+    ['POST', '/v1/agent/approvals/a1/decision', { decision: 'approve' }],
     ['POST', '/v1/agent/flow-runs/f1/pause', {}],
 ];
 const spellings = (path: string): string[] => [
@@ -110,5 +110,30 @@ describe('every route declares the key that opens it', () => {
             // A new route without its key is the bug this guards against: add `this.runKey` or `this.controlKey` to it.
             expect({ path: route.path, guarded: first === server.runKey || first === server.controlKey }).toEqual({ path: route.path, guarded: true });
         }
+    });
+});
+
+describe('on loopback with no apiKey, only loopback callers are served', () => {
+    it('refuses a foreign Host (a rebinding DNS name) and a foreign Origin (a web page)', async () => {
+        const { url } = await start(undefined);
+        const get = (headers: Record<string, string>) => fetch(`${url}/v1/agent/info`, { headers });
+        expect((await get({})).status).toBe(200);                                         // a local client: loopback Host, no Origin
+        expect((await get({ Origin: 'http://localhost:5173' })).status).toBe(200);       // a local page
+        expect((await get({ Origin: 'https://evil.example' })).status).toBe(403);         // a foreign page
+        // Node's fetch sets Host from the URL; a raw request shows what a rebinding name sends.
+        const raw = await new Promise<number>((resolve, reject) => {
+            const u = new URL(url);
+            const req = require('node:http').request({ host: u.hostname, port: u.port, path: '/v1/agent/info', headers: { Host: 'rebind.evil.example' } },
+                (res: { statusCode: number; resume(): void }) => { res.resume(); resolve(res.statusCode); });
+            req.on('error', reject);
+            req.end();
+        });
+        expect(raw).toBe(403);
+    });
+
+    it('with an apiKey the key is the check, whatever the Host', async () => {
+        const { url } = await start('run-key');
+        const res = await fetch(`${url}/v1/agent/info`, { headers: { Authorization: 'Bearer run-key', Origin: 'https://app.example' } });
+        expect(res.status).toBe(200);
     });
 });

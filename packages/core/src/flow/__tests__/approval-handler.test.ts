@@ -202,14 +202,18 @@ describe('over agent-protocol', () => {
         const server = new AgentServer({ allowUngated: true,
             name: 'finance', version: '1.0.0', description: 'd', port, controlApiKey: 'ctl',
             approvalHandler: createApprovalHandler(store) as unknown as ApprovalHandler,
+            // Who decides comes from what the server authenticates (here a header standing for a personal token), never from the body.
+            approverOf: ({ headers }) => (headers['x-user'] === human.id ? human : headers['x-user'] === 'bot' ? { kind: 'service', id: 'bot' } : undefined),
         });
         await server.start();
         try {
             const client = new AgentClient({ url: `http://127.0.0.1:${port}`, controlApiKey: 'ctl' });
             expect((await client.listApprovals({ status: 'pending' }))[0]).toMatchObject({ id: 'a1', subject: { step: 'pay' } });
-            await expect(client.decideApproval('a1', { decision: 'approve', by: { kind: 'service', id: 'bot' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-            expect(await client.decideApproval('a1', { decision: 'approve', by: human })).toMatchObject({ status: 'approved' });
-            await expect(client.decideApproval('a1', { decision: 'approve', by: human })).rejects.toMatchObject({ code: 'CONFLICT' });
+            await expect(client.decideApproval('a1', { decision: 'approve' }, undefined, { 'x-user': 'bot' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+            // Claiming to be the human with the bot's credentials is refused too.
+            await expect(client.decideApproval('a1', { decision: 'approve', by: human }, undefined, { 'x-user': 'bot' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+            expect(await client.decideApproval('a1', { decision: 'approve' }, undefined, { 'x-user': human.id })).toMatchObject({ status: 'approved' });
+            await expect(client.decideApproval('a1', { decision: 'approve' }, undefined, { 'x-user': human.id })).rejects.toMatchObject({ code: 'CONFLICT' });
         } finally {
             await server.stop();
         }

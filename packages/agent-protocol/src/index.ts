@@ -32,12 +32,13 @@ export type {
     ApprovalStatus,
     ApprovalSummary,
     ApprovalDecision,
+    ApprovalDecisionRequest,
     ApproverKind,
     ApproverRef,
 } from './types';
 
 // ── Server ────────────────────────────────────────────────────────────────────
-export { AgentServer }         from './server/AgentServer';
+export { AgentServer, CONTROL_KEY_APPROVER } from './server/AgentServer';
 export type { AgentServerOptions, CapabilityHandler } from './server/AgentServer';
 export { TaskStore }           from './server/TaskStore';
 export { ControlError, statusForCode } from './server/ControlHandler';

@@ -19,7 +19,7 @@ import {
 import { ControlError, statusForCode, type ControlHandler } from './ControlHandler';
 import type { FlowHandler } from './FlowHandler';
 import type { ApprovalHandler } from './ApprovalHandler';
-import type { ApprovalDecision, ApprovalStatus } from '../types';
+import type { ApprovalDecision, ApprovalDecisionRequest, ApprovalStatus, ApproverRef } from '../types';
 import { FLOW_STEER_ACTIONS, type FlowSteerAction } from '../types';
 import { TaskStore } from './TaskStore';
 
@@ -76,9 +76,38 @@ export interface AgentServerOptions {
     gate?: CapabilityGate;
     /** Run with no gate, for tests only. Default false. */
     allowUngated?: boolean;
+    /**
+     * Who decides an approval, from something the server can verify (a personal token in a header, say): the control key only says
+     * "a supervisor we know", not who is behind it. Without it the decider is `{ kind: 'service', id: 'control-key' }`, so what
+     * only a person may approve cannot be approved through the protocol. Return undefined when the caller cannot be identified (401).
+     */
+    approverOf?: (call: { headers: Request['headers'] }) => ApproverRef | undefined | Promise<ApproverRef | undefined>;
 }
 
+/** Who decides an approval when the server has no `approverOf`: whoever holds the control key, as a service. */
+export const CONTROL_KEY_APPROVER: ApproverRef = { kind: 'service', id: 'control-key' };
+
+const APPROVER_KINDS = ['human', 'agent', 'service'];
+const isApproverRef = (v: unknown): v is ApproverRef =>
+    !!v && typeof v === 'object' && typeof (v as ApproverRef).id === 'string' && !!(v as ApproverRef).id && APPROVER_KINDS.includes((v as ApproverRef).kind);
+
 const isLoopback = (host: string): boolean => host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+/**
+ * Whether the `Host` header and, if present, the `Origin` header are loopback. A server bound to 127.0.0.1 can still be reached from
+ * a page in the user's browser through a rebinding DNS name. A copy of `isLoopbackRequest` of agent-core, which this package cannot
+ * depend on (agent-core depends on it); keep the copies in step (SPEC-0013 D6).
+ */
+function isLoopbackRequest(host: string | undefined, origin: string | undefined): boolean {
+    if (!host || !LOOPBACK_HOSTS.has(host.replace(/:\d+$/, '').toLowerCase())) return false;
+    if (origin === undefined) return true; // non-browser clients send no Origin
+    try {
+        return LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase().replace(/^(::1)$/, '[::1]'));
+    } catch {
+        return false;
+    }
+}
 
 export class AgentServer {
     private readonly app:        Express;
@@ -94,6 +123,7 @@ export class AgentServer {
     private readonly approvalHandler?: ApprovalHandler;
     private readonly gate?: CapabilityGate;
     private readonly allowUngated: boolean;
+    private readonly approverOf?: AgentServerOptions['approverOf'];
     private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
@@ -111,6 +141,7 @@ export class AgentServer {
         this.approvalHandler = opts.approvalHandler;
         if (opts.gate) this.gate = opts.gate;
         this.allowUngated = opts.allowUngated === true;
+        if (opts.approverOf) this.approverOf = opts.approverOf;
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
         this.info      = {
@@ -171,6 +202,14 @@ export class AgentServer {
     // ── Middleware ──────────────────────────────────────────────────────────
 
     private setupMiddleware(): void {
+        // On loopback with no apiKey nothing authenticates a request: only its Host and Origin say it comes from this machine and not
+        // from a web page the user opened. With an apiKey a foreign page has no key, so the check is not needed (and would refuse proxies).
+        if (!this.apiKey && isLoopback(this.host)) {
+            this.app.use((req: Request, res: Response, next: NextFunction) => {
+                if (isLoopbackRequest(req.headers.host, req.headers.origin)) return next();
+                res.status(403).json(this.errEnvelope('FORBIDDEN', 'Forbidden host or origin: without an apiKey only loopback callers are served'));
+            });
+        }
         this.app.use(express.json({ limit: '10mb' }));
     }
 
@@ -434,18 +473,34 @@ export class AgentServer {
 
         this.app.post('/v1/agent/approvals/:id/decision', this.controlKey, async (req: Request, res: Response) => {
             if (!this.approvalHandler) return noApprovals(res);
-            const b = req.body as Partial<ApprovalDecision> | undefined;
-            const by = b?.by;
-            if ((b?.decision !== 'approve' && b?.decision !== 'reject')
-                || !by || typeof by.id !== 'string' || !by.id || !['human', 'agent', 'service'].includes(by.kind)) {
-                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "Body needs 'decision' (approve | reject) and 'by' ({ kind: human | agent | service, id })"));
+            const b = req.body as Partial<ApprovalDecisionRequest> | undefined;
+            if (b?.decision !== 'approve' && b?.decision !== 'reject') {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "Body needs 'decision' (approve | reject)"));
+            }
+            if (b.by !== undefined && !isApproverRef(b.by)) {
+                return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'by', when sent, must be { kind: human | agent | service, id }"));
             }
             if (b.reason !== undefined && typeof b.reason !== 'string') {
                 return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'reason' must be a string"));
             }
+            // Who decides is what the server can tell, never what the body says: the control key alone is not a person.
+            let by: ApproverRef | undefined = CONTROL_KEY_APPROVER;
+            if (this.approverOf) {
+                try {
+                    by = await this.approverOf({ headers: req.headers });
+                } catch (err) {
+                    return res.status(403).json(this.errEnvelope('FORBIDDEN', `who approves could not be checked: ${(err as Error).message}`));
+                }
+                if (!isApproverRef(by)) {
+                    return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'who approves could not be identified'));
+                }
+            }
+            if (b.by !== undefined && (b.by.kind !== by!.kind || b.by.id !== by!.id)) {
+                return res.status(403).json(this.errEnvelope('FORBIDDEN', `'by' says ${b.by.kind}:${b.by.id}, but the caller is ${by!.kind}:${by!.id}`));
+            }
             const context = extractContext(req);
             try {
-                const decision: ApprovalDecision = { decision: b.decision, by: { kind: by.kind, id: by.id }, ...(b.reason !== undefined ? { reason: b.reason } : {}) };
+                const decision: ApprovalDecision = { decision: b.decision, by: { kind: by!.kind, id: by!.id }, ...(b.reason !== undefined ? { reason: b.reason } : {}) };
                 res.json(this.okEnvelope(await this.approvalHandler.decide(String(req.params.id), decision, context)));
             } catch (err) { this.sendControlError(res, err, context.traceId); }
         });

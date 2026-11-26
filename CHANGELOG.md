@@ -2,6 +2,12 @@
 
 ## Sin publicar
 
+**`agent-protocol`: las rutas de control exigen la clave de control en la propia ruta.** Actualizar cuanto antes si se usa `controlApiKey`.
+
+- **Corregido:** la comprobación de claves se hacía aparte, comparando la URL, y algunas grafías de la URL de una ruta de control llegaban a ella sin la clave de control. Ahora cada ruta declara su clave (`runKey` o `controlKey`) como primer manejador, y la comprobación corre siempre que la ruta coincide.
+- **No cambia:** qué clave abre cada ruta. Una ruta desconocida responde 404 también sin clave (antes, con `apiKey`, respondía 401).
+- Pruebas nuevas (`route-keys.test.ts`): cada ruta de control con varias grafías, y una que falla si una ruta nueva no declara su clave.
+
 **Un token vacío ya no autoriza a nadie ni arranca un servidor sin autenticación.** Hallazgo de la revisión de Steward (ADR-0015, «No verificado»).
 
 - **`isBearerAuthorized('Bearer ', '')` devolvía `true`:** un valor de cabecera vacío coincidía con un token vacío. Ahora un token vacío no autoriza a nadie. Lo mismo en `isAuthorized` (`mcp-server`) e `isBearerAuthorized` (`mcp-connectors`), que tenían la misma copia.

@@ -23,11 +23,6 @@ import type { ApprovalDecision, ApprovalStatus } from '../types';
 import { FLOW_STEER_ACTIONS, type FlowSteerAction } from '../types';
 import { TaskStore } from './TaskStore';
 
-const CONTROL_PATHS = new Set(['/v1/agent/control', '/v1/agent/runs', '/v1/agent/audit']);
-/** Pausing, resuming and cancelling a flow run are control: they need the control key. */
-/** Approvals carry the input and output of steps: all of them (list, read, decide) need the control key. */
-const APPROVALS_PATH = /^\/v1\/agent\/approvals(\/.*)?$/;
-const FLOW_STEER_PATH = /^\/v1\/agent\/flow-runs\/[^/]+\/(pause|resume|cancel)$/;
 
 /** Constant-time comparison of a presented Bearer token with the expected key. */
 function keyMatches(header: string | undefined, key: string): boolean {
@@ -177,27 +172,34 @@ export class AgentServer {
 
     private setupMiddleware(): void {
         this.app.use(express.json({ limit: '10mb' }));
-
-        // Auth. Control endpoints need the control key and nothing else opens them.
-        this.app.use((req: Request, res: Response, next: NextFunction) => {
-            if (CONTROL_PATHS.has(req.path) || (req.method === 'POST' && FLOW_STEER_PATH.test(req.path)) || APPROVALS_PATH.test(req.path)) {
-                if (!this.controlApiKey) {
-                    return res.status(403).json(this.errEnvelope('FORBIDDEN', 'Control endpoints are disabled: no controlApiKey is configured'));
-                }
-                if (!keyMatches(req.headers.authorization, this.controlApiKey)) {
-                    return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing control key'));
-                }
-                return next();
-            }
-            if (req.path === '/v1/agent/health') return next();
-            if (!this.apiKey) return next();
-            const auth = req.headers.authorization;
-            if (!keyMatches(auth, this.apiKey)) {
-                return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing API key'));
-            }
-            next();
-        });
     }
+
+    /**
+     * Every route but `health` declares which key opens it, as the first handler of the route itself: `runKey` (the `apiKey`) or
+     * `controlKey`. The check runs exactly when the route matched, however the client spelled the URL. Deciding it apart, by
+     * comparing paths, let `/V1/agent/control` or `/v1/agent/runs/` through to the control routes with no control key, because the
+     * router ignores case and a trailing slash and the comparison did not.
+     */
+    readonly runKey = (req: Request, res: Response, next: NextFunction): void => {
+        if (this.apiKey && !keyMatches(req.headers.authorization, this.apiKey)) {
+            res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing API key'));
+            return;
+        }
+        next();
+    };
+
+    /** Control routes need the control key and nothing else opens them; without one configured they are off. */
+    readonly controlKey = (req: Request, res: Response, next: NextFunction): void => {
+        if (!this.controlApiKey) {
+            res.status(403).json(this.errEnvelope('FORBIDDEN', 'Control endpoints are disabled: no controlApiKey is configured'));
+            return;
+        }
+        if (!keyMatches(req.headers.authorization, this.controlApiKey)) {
+            res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'Invalid or missing control key'));
+            return;
+        }
+        next();
+    };
 
     // ── Routes ──────────────────────────────────────────────────────────────
 
@@ -206,11 +208,11 @@ export class AgentServer {
             res.json(this.okEnvelope({ status: 'ok' }));
         });
 
-        this.app.get('/v1/agent/info', (_req, res) => {
+        this.app.get('/v1/agent/info', this.runKey, (_req, res) => {
             res.json(this.okEnvelope(this.info, { agentVersion: this.info.version }));
         });
 
-        this.app.post('/v1/agent/run', async (req: Request, res: Response) => {
+        this.app.post('/v1/agent/run', this.runKey, async (req: Request, res: Response) => {
             const start   = Date.now();
             const context = extractContext(req);
             const body    = req.body as RunRequest;
@@ -280,7 +282,7 @@ export class AgentServer {
             });
         });
 
-        this.app.get('/v1/agent/tasks/:id', (req: Request, res: Response) => {
+        this.app.get('/v1/agent/tasks/:id', this.runKey, (req: Request, res: Response) => {
             const task = this.taskStore.get(req.params.id);
             if (!task) {
                 return res.status(404).json(this.errEnvelope('TASK_NOT_FOUND', `Task '${req.params.id}' not found`));
@@ -288,7 +290,7 @@ export class AgentServer {
             res.json(this.okEnvelope(task));
         });
 
-        this.app.delete('/v1/agent/tasks/:id', (req: Request, res: Response) => {
+        this.app.delete('/v1/agent/tasks/:id', this.runKey, (req: Request, res: Response) => {
             const task = this.taskStore.get(req.params.id);
             if (!task) {
                 return res.status(404).json(this.errEnvelope('TASK_NOT_FOUND', `Task '${req.params.id}' not found`));
@@ -299,7 +301,7 @@ export class AgentServer {
 
         // ── Control (protocol 1.1) ──────────────────────────────────────────────
 
-        this.app.post('/v1/agent/control', async (req: Request, res: Response) => {
+        this.app.post('/v1/agent/control', this.controlKey, async (req: Request, res: Response) => {
             const body = req.body as { action?: unknown; params?: unknown } | undefined;
             const action = body?.action;
             if (typeof action !== 'string' || !(CONTROL_ACTIONS as readonly string[]).includes(action)) {
@@ -330,7 +332,7 @@ export class AgentServer {
             }
         });
 
-        this.app.get('/v1/agent/runs', async (_req: Request, res: Response) => {
+        this.app.get('/v1/agent/runs', this.controlKey, async (_req: Request, res: Response) => {
             try {
                 const runs: RunSummary[] = this.control?.runs
                     ? await this.control.runs()
@@ -345,7 +347,7 @@ export class AgentServer {
             }
         });
 
-        this.app.get('/v1/agent/audit', async (req: Request, res: Response) => {
+        this.app.get('/v1/agent/audit', this.controlKey, async (req: Request, res: Response) => {
             if (!this.control?.audit) {
                 return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent does not publish an audit trail'));
             }
@@ -367,12 +369,12 @@ export class AgentServer {
 
         // ── Flows (protocol 1.1) ────────────────────────────────────────────────
 
-        this.app.get('/v1/agent/flows', (_req: Request, res: Response) => {
+        this.app.get('/v1/agent/flows', this.runKey, (_req: Request, res: Response) => {
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             res.json(this.okEnvelope({ flows: this.flowHandler.flows() }));
         });
 
-        this.app.post('/v1/agent/flows/:name/runs', async (req: Request, res: Response) => {
+        this.app.post('/v1/agent/flows/:name/runs', this.runKey, async (req: Request, res: Response) => {
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             if (this.draining) return res.status(503).json(this.errEnvelope('AGENT_UNAVAILABLE', 'The agent is draining: it is not accepting new runs'));
             const input = (req.body as { input?: unknown } | undefined)?.input ?? {};
@@ -393,13 +395,13 @@ export class AgentServer {
             }
         });
 
-        this.app.get('/v1/agent/flow-runs/:id', async (req: Request, res: Response) => {
+        this.app.get('/v1/agent/flow-runs/:id', this.runKey, async (req: Request, res: Response) => {
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             try { res.json(this.okEnvelope(await this.flowHandler.status(String(req.params.id)))); }
             catch (err) { this.sendControlError(res, err); }
         });
 
-        this.app.post('/v1/agent/flow-runs/:id/:action', async (req: Request, res: Response) => {
+        this.app.post('/v1/agent/flow-runs/:id/:action', this.controlKey, async (req: Request, res: Response) => {
             const action = String(req.params.action) as FlowSteerAction;
             if (!(FLOW_STEER_ACTIONS as readonly string[]).includes(action)) {
                 return res.status(404).json(this.errEnvelope('INVALID_INPUT', `Unknown flow action '${action}'`));
@@ -414,7 +416,7 @@ export class AgentServer {
         const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'executed'];
         const noApprovals = (res: Response) => res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent has no approvals'));
 
-        this.app.get('/v1/agent/approvals', async (req: Request, res: Response) => {
+        this.app.get('/v1/agent/approvals', this.controlKey, async (req: Request, res: Response) => {
             if (!this.approvalHandler) return noApprovals(res);
             const status = typeof req.query.status === 'string' ? req.query.status : undefined;
             if (status !== undefined && !(APPROVAL_STATUSES as readonly string[]).includes(status)) {
@@ -424,13 +426,13 @@ export class AgentServer {
             catch (err) { this.sendControlError(res, err); }
         });
 
-        this.app.get('/v1/agent/approvals/:id', async (req: Request, res: Response) => {
+        this.app.get('/v1/agent/approvals/:id', this.controlKey, async (req: Request, res: Response) => {
             if (!this.approvalHandler) return noApprovals(res);
             try { res.json(this.okEnvelope(await this.approvalHandler.get(String(req.params.id)))); }
             catch (err) { this.sendControlError(res, err); }
         });
 
-        this.app.post('/v1/agent/approvals/:id/decision', async (req: Request, res: Response) => {
+        this.app.post('/v1/agent/approvals/:id/decision', this.controlKey, async (req: Request, res: Response) => {
             if (!this.approvalHandler) return noApprovals(res);
             const b = req.body as Partial<ApprovalDecision> | undefined;
             const by = b?.by;

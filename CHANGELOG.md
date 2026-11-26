@@ -9,6 +9,22 @@
 - **Documentado:** en loopback y sin token el servidor de herramientas **no autentica** (cualquier proceso de la máquina lo puede llamar); la guarda contra el navegador es solo de `Host` y `Origin`. Con herramientas que tienen efecto, dar siempre un token.
 - Pruebas nuevas en los tres paquetes; quitar el arreglo en `core` rompe dos.
 
+**`delegatesTo` se aplica, y un abort para las tools pendientes de un sub-agente.** Hallazgos de la revisión de código del engine (2026-11-26).
+
+- **`delegatesTo` era decorativo:** el agente por defecto podía delegar con `ask_agent` en cualquier agente registrado, aunque su perfil diera una lista. Ahora, con una lista, una delegación fuera de ella se rechaza, se audita como `not_allowed` y no llega ni a las políticas ni al agente. El roster del prompt muestra solo esos agentes. **Cambio de comportamiento:** revisa las listas de tu agente por defecto.
+- **No cambia:** sin lista o con lista vacía, el agente por defecto sigue pudiendo delegar en todos; `['*']` igual. Un agente que registra un servidor MCP en `mode: 'agent'` siempre es alcanzable. Solo el agente por defecto recibe `ask_agent`.
+- **El mensaje de tool no autorizada** ya no le dice a un especialista que use `ask_agent`, una tool que no tiene.
+- **Abort en un sub-agente:** `abort()` (también por presupuesto con `abortOnBudget`) cortaba la llamada al LLM y las tools en curso, pero las tools que quedaban de esa vuelta empezaban igual. Ahora no empiezan.
+- **`ctx.askAgent` (delegación desde una tool) no pasaba ningún control:** ni auto-delegación, ni `delegatesTo`, ni identidad, ni políticas, ni auditoría. Ahora pasa el mismo control que `ask_agent` y deja un evento `ask_agent` en la auditoría. Si lo rechaza, lanza, y la tool falla con el motivo. **Cambio de comportamiento:** una tool de un agente que no es el agente por defecto y no tiene `delegatesTo` ya no puede delegar.
+- **Abort mientras una tool espera al aprobador:** si la aprobación llegaba después del abort, la tool corría igual. Ahora no empieza; se audita como permitida, con `outcome: 'aborted'` y la aprobación.
+- **`ctx.llmCall` y `callLLM` no contaban en el presupuesto:** no emitían el evento `metrics` (de donde salen el coste y el presupuesto) ni recibían el abort. Ahora emiten `metrics` (`purpose: 'tool_llm_call'` / `'call_llm'`), se cortan con `abort()` durante una corrida y fallan con el error del proveedor. **Cambio de comportamiento:** `ctx.llmCall` antes se tragaba el error y devolvía `''`; ahora lanza. `callLLM` se quedaba colgada si el proveedor rechazaba en vez de llamar a `onError`.
+- **`workflow_complete` anunciaba `failed`** para un flow suspendido esperando aprobación o cancelado. Ahora lleva el estado real; el tipo del evento suma `awaiting_approval` y `cancelled`.
+- **Delegación sin políticas:** no comprobaba la identidad del agente (SPEC-0044), a diferencia de cualquier llamada a tool. Ahora sí, en `ask_agent` y en `ctx.askAgent`. **Cambio de comportamiento:** sin `agentIdentity` (y sin `requireAgentIdentity: false`) ya no se delega.
+- **Abort en la ruta MCP directa:** una tool cuya aprobación llegaba tras el abort también corría ahí. Ahora se corta en cualquier camino de la corrida.
+- **REFERENCE de `agent-core`:** el ejemplo de `DelegationBus` usaba métodos que no existen (`register`, `delegate`). Ahora usa la API real (`runSingle`, `runParallel`).
+- **Una delegación aprobada desde el store nunca corría:** con una política que pide aprobación para `ask_agent` y un store de `approvals`, `runApproved` buscaba `ask_agent` en el registro de tools, donde no está, y gastaba la aprobación sin delegar. Ahora la delegación se vuelve a comprobar con la aprobación guardada, se ejecuta y se audita con la aprobación. Una delegación aprobada en vivo también registra ahora quién la aprobó.
+- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`, `AgentEngine.singleCall.test.ts`, `workflow-complete-status.test.ts`, `AgentEngine.approvedDelegation.test.ts`); quitar el arreglo rompe diecinueve.
+
 ## v0.50.18 (2026-11-25)
 
 **Un paso de un flow puede ser una llamada a una herramienta (SPEC-0046 F1).** Es el paso `tool` que la SPEC-0023 D2 aceptó y no se había construido. Aditivo: un flow sin `kind` se ejecuta igual que antes.

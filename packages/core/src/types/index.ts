@@ -12,7 +12,11 @@ export interface AgentProfile {
      * (`crm_*`), for tools you do not define yourself (an MCP server's). Adds `tool_search` to this agent. See `ToolDefinition.defer`.
      */
     deferTools?: string[];
-    /** Agent IDs this agent can delegate to. Use ['*'] to allow delegation to all registered agents. */
+    /**
+     * Agent IDs this agent may delegate to with `ask_agent`: a limit the engine enforces, not a hint. `['*']`: every registered agent.
+     * Absent or empty: the default agent may delegate to every other agent. An agent an MCP server registered (mode 'agent') is always
+     * allowed. Only the default agent is offered `ask_agent`; `ctx.askAgent` from a tool is checked against the same list.
+     */
     delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;
     provider?: string;
@@ -336,7 +340,8 @@ export type AgentEvent =
     | { type: 'workflow_step_start'; step: string; agent: string }
     | { type: 'workflow_step_complete'; step: string; success: boolean }
     | { type: 'workflow_approval_required'; step: string }
-    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' }
+    /** `awaiting_approval` (a flow suspended until someone decides) and `cancelled` come only from `runFlow`. */
+    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' | 'awaiting_approval' | 'cancelled' }
     | { type: 'compacting'; label: string; phase: 'start' | 'done' | 'fail' }
     /**
      * A guardrail changed, blocked or failed on a piece of text. `replacement` (output phase only) is the

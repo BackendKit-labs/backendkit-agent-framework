@@ -1523,30 +1523,38 @@ await triggers.start();
 
 `DelegationBus` enables multi-agent collaboration — orchestrators delegate sub-tasks to specialized agents and collect results.
 
+Inside the engine, the default agent delegates with `ask_agent`, and `AgentProfile.delegatesTo` is a limit: with a list, a delegation to an agent outside it is refused and audited as `not_allowed`, and the roster in the prompt shows only those agents. `['*']` means every agent. No list, or an empty one, lets the default agent delegate to every other agent. An agent an MCP server registered (`mode: 'agent'`) is always reachable. Only the default agent is offered `ask_agent`.
+
+A tool delegates with `ctx.askAgent(agentId, question, context?)`. It goes through the same check as `ask_agent` (self-delegation, `delegatesTo`, identity and policies), it is audited as an `ask_agent` event, and a refusal throws, so the tool's call fails with the reason.
+
+The engine builds its own bus; you use `DelegationBus` directly only to run agents outside an `AgentEngine`. It does not decide who may delegate: that is the engine's check above. It runs each request through `runAgent`, with a bulkhead per nesting depth (`maxParallel` at a time, default 6), refuses requests deeper than `maxDepth` (default 5) and never throws: a failure comes back as `error` on the result.
+
 ```typescript
-import { DelegationBus } from '@backendkit-labs/agent-core';
+import { AgentRegistry, DelegationBus, StdoutTransport } from '@backendkit-labs/agent-core';
 
-const bus = new DelegationBus();
+const agents = new AgentRegistry();
+agents.upsert(securityProfile);   // a request for an agent that is not registered fails with error 'agent_not_found'
 
-// Register specialized agents
-bus.register('security-agent', async (req) => ({
-  output:  (await securityEngine.run(req.prompt)).final,
-  agentId: 'security-agent',
-}));
-
-bus.register('data-agent', async (req) => ({
-  output:  (await dataEngine.run(req.prompt)).final,
-  agentId: 'data-agent',
-}));
-
-// Delegate from orchestrator
-const secResult = await bus.delegate({
-  targetAgentId: 'security-agent',
-  prompt:        'Audit this SQL query for injection risks: SELECT * FROM users WHERE id=' + input,
-  context:       currentMessages,
+const bus = new DelegationBus({
+  agents,
+  transport: new StdoutTransport(),
+  maxParallel: 4,
+  // How a delegate runs: here, a separate engine per agent.
+  runAgent: async (agentId, question, context) => {
+    const started = Date.now();
+    const result = await engines[agentId].run(context ? `${question}\n\nContext:\n${context}` : question);
+    return { agentId, content: result.text, inputTokens: 0, outputTokens: 0, elapsedMs: Date.now() - started };
+  },
 });
 
-console.log(secResult.output);
+const one = await bus.runSingle({ agentId: 'security-agent', question: 'Audit this SQL query for injection risks', fromAgentId: 'orchestrator' });
+if (one.error) console.error(one.error); else console.log(one.content);
+
+// Several at once; each delegate's events are flushed together when it finishes, so their output never interleaves.
+const many = await bus.runParallel([
+  { agentId: 'security-agent', question: 'Audit the query' },
+  { agentId: 'data-agent', question: 'Estimate the row count' },
+]);
 ```
 
 ---

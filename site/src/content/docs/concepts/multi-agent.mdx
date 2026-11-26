@@ -22,7 +22,11 @@ Two ways to get several agents working together, for two different needs.
 
 ## Delegation: an agent asks another
 
-An agent whose profile has `delegatesTo` can hand a sub-task to a named agent through the `ask_agent` call. The engine runs the other agent and returns its answer.
+The default agent hands a sub-task to a named agent through the `ask_agent` call. The engine runs the other agent and returns its answer.
+
+`delegatesTo` is a limit, not a hint. With a list, the engine refuses (and audits as `not_allowed`) a delegation to any agent outside it, and the agent roster in the prompt shows only those agents. `['*']` means every registered agent. Without a list, or with an empty one, the default agent may delegate to every other agent. An agent that an MCP server registers in `mode: 'agent'` is always reachable, because configuring that server already declared it. Only the default agent receives `ask_agent`: a specialist does not delegate, whatever its `delegatesTo` says.
+
+A tool can delegate too, with `ctx.askAgent(agentId, question)`. It goes through the same check, for the agent that runs the tool, and is audited the same way; a refusal throws.
 
 ```ts
 const orchestrator: AgentProfile = {

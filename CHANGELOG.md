@@ -2,6 +2,17 @@
 
 ## Sin publicar
 
+**El modo `read-only` del sandbox juzga cada tool por lo que declara, no por su nombre.** Hallazgo de la revisión de código del sandbox (2026-11-26).
+
+- **Antes:** `read-only` solo rechazaba las tools listadas en `writeTools` (vacío por defecto). Una tool `destructive` (pagar, enviar un email), una tool MCP o una propia sin declarar corría igual.
+- **Ahora:** en `read-only` solo corre lo que declara `readOnly: true`. Una tool `destructive`, o una que no declara nada, se rechaza: lo que no se conoce no se da por bueno. `approvalFor` clasifica igual: una tool sin declarar cuenta como una con efecto.
+- **`SandboxRunner.authorizeTool` y `approvalFor`** reciben un tercer argumento, `facts` (`SandboxToolFacts`: `readOnly`, `destructive`). El engine los pasa en todos sus caminos (`executeToolCall`, `tool_search`, la aprobación por política y la heredada). Un runner al que se llama solo con el nombre recibe la tool como "sin declarar".
+- **Nueva opción de la política `ownStateTools`:** tools que escriben solo el estado propio del agente (su memoria). Corren en `read-only` y nunca piden aprobación. Es una lista explícita, y una política hija solo puede eximir las que eximía la padre (`checkNarrower`).
+- **`writeTools` se queda como refuerzo:** una tool listada se rechaza aunque declare `readOnly`.
+- **Coding:** `buildCodingSandbox` pone sus tools de memoria en `ownStateTools` (`CODING_OWN_STATE_TOOLS`). `get_latest_audit` y `list_audits` declaran `readOnly: true`, y en core también `job_output` y `job_list`.
+- **Cambio de comportamiento:** en `read-only`, una tool sin `readOnly: true` que antes corría ahora se rechaza; en `ask`, una tool sin declarar ahora pide aprobación. Declara los hechos de tus tools o nómbralas en `ownStateTools`.
+- Pruebas nuevas: `AgentEngine.sandboxFacts.test.ts` (el engine pasa los hechos), y casos en `service.test.ts`, `inherit.test.ts` y el `sandbox.test.ts` de coding (cada tool de coding con sus hechos reales).
+
 ## v0.50.19 (2026-11-26)
 
 **Seguridad: actualizar `agent-protocol` cuanto antes si se usa `controlApiKey`.** Además, `agent-core` cierra los huecos de delegación, abort y presupuesto de la revisión de código del engine, y los tres servidores con token bearer dejan de aceptar uno vacío.

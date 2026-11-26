@@ -53,7 +53,7 @@ export interface GovernanceGateDeps {
     /** Whether the engine has a sandbox at all (a policy that requires one is denied without it). */
     hasSandbox: boolean;
     /** What the sandbox policy says about a tool: 'ask' makes the call ask. */
-    sandboxApprovalFor?: (who: { agentId: string; sessionId: string }, tool: string) => 'none' | 'ask' | undefined;
+    sandboxApprovalFor?: (who: { agentId: string; sessionId: string }, tool: ToolDefinition) => 'none' | 'ask' | undefined;
     agents: { get(id: string): AgentProfile | undefined };
     transport: Pick<Transport, 'emit'>;
     principalFor(agentId: string, chain?: string[]): Principal;
@@ -101,7 +101,7 @@ export class GovernanceGate {
         } catch { /* not JSON at all: the tool reports it when it runs */ }
         // `approved` is never taken from what the model sent: only `runApproved`, which holds a stored approval, sets it.
         const call: ToolCall = { tool, args: this.parseArgs(rawArgs), ...(approved ? { approved } : {}) };
-        const sandboxAsk = this.deps.sandboxApprovalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool.name) === 'ask';
+        const sandboxAsk = this.deps.sandboxApprovalFor?.({ agentId: principal.agentId, sessionId: principal.sessionId }, tool) === 'ask';
 
         let d = await evaluatePolicies(this.deps.policies, principal, call);
         if (sandboxAsk) d = combineDecisions([d, { effect: 'ask', reason: 'the sandbox policy requires approval' }]);

@@ -252,6 +252,12 @@ const ASK_AGENT_TOOL: ToolDefinition = {
     execute: async () => '',
 };
 
+/** What a tool declares about its effects, for the sandbox. A tool it does not know has no facts: it counts as one with an effect. */
+function toolFacts(tool: ToolDefinition | undefined): import('../sandbox/types').SandboxToolFacts {
+    if (!tool) return {};
+    return { ...(tool.readOnly !== undefined ? { readOnly: tool.readOnly } : {}), ...(tool.destructive !== undefined ? { destructive: tool.destructive } : {}) };
+}
+
 /** The arguments of a delegation, as `ask_agent` takes them: what its policies see and its audit event records. */
 function delegationArgs(c: { agentId: string; question: string; context?: string }): Record<string, unknown> {
     return { agent_id: c.agentId, question: c.question, ...(c.context !== undefined ? { context: c.context } : {}) };
@@ -427,7 +433,7 @@ export class AgentEngine {
             approverTimeoutMs: opts.approverTimeoutMs,
             hasSandbox: !!opts.sandbox,
             sandboxApprovalFor: opts.sandbox?.approvalFor
-                ? (who, tool) => opts.sandbox!.approvalFor!(who, tool)
+                ? (who, tool) => opts.sandbox!.approvalFor!(who, tool.name, toolFacts(tool))
                 : undefined,
             agents: opts.agents,
             transport: this.transport,
@@ -1291,7 +1297,7 @@ export class AgentEngine {
             for (const t of this.opts.tools.getForAgent(profile.allowedTools)) {
                 if (!isDeferred(t, profile)) continue;
                 // A tool the sandbox refuses outright, or a policy denies, is not offered: the model would only be told it exists.
-                const verdict = this.opts.sandbox?.authorizeTool?.({ agentId: profile.id, sessionId: this.opts.sessionId ?? 'default' }, t.name);
+                const verdict = this.opts.sandbox?.authorizeTool?.({ agentId: profile.id, sessionId: this.opts.sessionId ?? 'default' }, t.name, toolFacts(t));
                 if (verdict && !verdict.ok) continue;
                 if (this.governed && (await evaluatePolicies(this.policies, principal, { tool: t, args: {} })).effect === 'deny') continue;
                 candidates.push(t);
@@ -1752,9 +1758,9 @@ export class AgentEngine {
         });
     }
 
-    /** The message for the model when the sandbox policy refuses `tool` for `agentId`; undefined when allowed. */
-    private sandboxRefusal(tool: string, agentId: string, collect?: AuditSandboxDecision[]): string | undefined {
-        const verdict = this.opts.sandbox?.authorizeTool?.({ agentId, sessionId: this.opts.sessionId ?? 'default' }, tool);
+    /** The message for the model when the sandbox policy refuses `tool` for `agentId`; undefined when allowed. Judged by what the tool declares. */
+    private sandboxRefusal(tool: string, agentId: string, collect?: AuditSandboxDecision[], def?: ToolDefinition): string | undefined {
+        const verdict = this.opts.sandbox?.authorizeTool?.({ agentId, sessionId: this.opts.sessionId ?? 'default' }, tool, toolFacts(def));
         if (!verdict || verdict.ok) return undefined;
         this.reportSandboxDecision({ outcome: verdict.code, tool, agentId, reason: verdict.reason }, collect);
         return `Tool call "${tool}" refused by the sandbox policy (${verdict.code}): ${verdict.reason}`;
@@ -1847,7 +1853,7 @@ export class AgentEngine {
             success = false;
             decision = 'not_found';
             reason = 'a deferred tool was called before tool_search found it';
-        } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id, sandboxDecisions)) !== undefined) {
+        } else if ((sandboxRefusal = this.sandboxRefusal(call.name, profile.id, sandboxDecisions, toolDef)) !== undefined) {
             // The policy refuses this tool outright (e.g. a writer while read-only). Nobody is asked and nothing runs.
             result  = sandboxRefusal;
             success = false;
@@ -1980,7 +1986,7 @@ export class AgentEngine {
         call: { name: string; args: string }, agentId: string, sandboxDecisions: AuditSandboxDecision[],
     ): Promise<GovernedVerdict> {
         const sandboxAsk = this.opts.sandbox?.approvalFor
-            ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name)
+            ? this.opts.sandbox.approvalFor({ agentId, sessionId: this.opts.sessionId ?? 'default' }, call.name, toolFacts(this.opts.tools.get(call.name)))
             : undefined;
         const gate = await this.gate.serialize(() => this.approvalGate.check(call, agentId, sandboxAsk, this.opts.tools.get(call.name)));
         if (gate === 'rejected') {

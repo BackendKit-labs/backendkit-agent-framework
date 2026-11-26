@@ -7,6 +7,7 @@ const describeJob = (j: JobInfo) => `${j.id} [${j.status}]${j.summary ? ` — ${
 
 export const jobOutputTool = defineTool({
     name: 'job_output',
+    readOnly: true,
     description:
         'Read the output of a background job started by this agent. Pass `since_offset` (the `next_offset` of the previous read) ' +
         'to get only new output; `wait_ms` waits for new output or completion before answering.',
@@ -29,6 +30,7 @@ export const jobOutputTool = defineTool({
 
 export const jobListTool = defineTool({
     name: 'job_list',
+    readOnly: true,
     description: "List this agent's background jobs (running and recently finished).",
     input: z.object({}),
     execute: async (_args, ctx) => {

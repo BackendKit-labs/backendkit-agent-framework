@@ -164,7 +164,7 @@ export * from './tools/save-learning';
 export * from './tools/save-audit';
 export * from './tools/save-user-preference';
 export * from './tools/update-session';
-export { CODING_WRITE_TOOLS, buildCodingSandbox } from './sandbox';
+export { CODING_WRITE_TOOLS, CODING_OWN_STATE_TOOLS, buildCodingSandbox } from './sandbox';
 export type { CodingSandboxConfig, CodingSandboxOptions } from './sandbox';
 
 // ── Tool sets ─────────────────────────────────────────────────────────────────

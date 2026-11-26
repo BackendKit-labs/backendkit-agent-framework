@@ -5,11 +5,16 @@ import {
 } from '@backendkit-labs/agent-sandbox';
 
 /**
- * Tools of the coding set that write to the workspace. `read-only` refuses them. The memory tools
- * (`save_context`, `save_audit`, `update_session`, …) write the agent's own store outside the workspace and keep working.
- * `run_command` is not listed: it is confined by the backend (a read-only mount), not refused by name.
+ * Tools of the coding set that write to the workspace. `read-only` refuses them (they declare `readOnly: false`; the list is a
+ * reinforcement). `run_command` is not listed: it is confined by the backend (a read-only mount), not refused by name.
  */
 export const CODING_WRITE_TOOLS: readonly string[] = ['write_file', 'edit_file'];
+
+/**
+ * Tools of the coding set that write only the agent's own store (its memory, outside the workspace): they keep working in
+ * `read-only` and never ask. Named on purpose: the sandbox refuses every other tool that does not declare `readOnly: true`.
+ */
+export const CODING_OWN_STATE_TOOLS: readonly string[] = ['save_context', 'save_audit', 'update_session', 'save_learning', 'save_user_preference'];
 
 export interface CodingSandboxOptions {
     /** Starting point for mode and approval. Default `ask`. */
@@ -37,6 +42,7 @@ export function buildCodingSandbox(config: CodingSandboxConfig): SandboxRunner {
     return createSandboxService({
         policy: createSandboxPolicy({
             writeTools: [...CODING_WRITE_TOOLS],
+            ownStateTools: [...CODING_OWN_STATE_TOOLS],
             commandTools: ['run_command'],
             ...(config.preset ? { preset: config.preset } : {}),
             ...config.policy,

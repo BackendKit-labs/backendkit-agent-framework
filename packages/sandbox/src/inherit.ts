@@ -7,7 +7,7 @@ const MODE_RANK: Record<SandboxMode, number> = { 'read-only': 0, 'workspace-writ
 const NETWORK_RANK: Record<SandboxNetwork, number> = { none: 0, allow: 1 };
 const APPROVAL_RANK: Record<ApprovalLevel, number> = { none: 0, commands: 1, 'writes-and-commands': 2 };
 
-export type InheritanceDimension = 'mode' | 'network' | 'approval' | 'roots' | 'writeTools' | 'commandTools' | 'env.allow' | 'env.deny';
+export type InheritanceDimension = 'mode' | 'network' | 'approval' | 'roots' | 'writeTools' | 'commandTools' | 'ownStateTools' | 'env.allow' | 'env.deny';
 
 export interface InheritanceViolation {
     dimension: InheritanceDimension;
@@ -49,6 +49,7 @@ const show = (xs: readonly string[]): string => (xs.length ? xs.join(', ') : '(n
  * - approval: the child must ask at least as much as the parent.
  * - roots: each child root must lie inside a parent root (only matters while the parent's widest mode is not full access).
  * - writeTools and commandTools: the child must keep every tool the parent lists (it cannot un-list a tool to dodge the read-only refusal or the approval).
+ * - ownStateTools: the child may exempt only tools the parent exempts (an exemption lets a tool run in `read-only` and skip approval).
  * - env: the child may allow only variables the parent allows, and must keep every variable the parent denies.
  *
  * Returns every violation, so a caller can show why a request was refused (`POLICY_WIDER_THAN_PARENT`).
@@ -75,6 +76,9 @@ export function checkNarrower(parent: SandboxPolicyConfig, child: SandboxPolicyC
     const effCommands = (c: SandboxPolicyConfig) => c.commandTools ?? ['run_command'];
     const commandGap = missing(effCommands(parent), effCommands(child));
     if (commandGap.length) violations.push({ dimension: 'commandTools', parent: show(effCommands(parent)), child: `missing ${show(commandGap)}` });
+
+    const stateGap = list(child.ownStateTools).filter(t => !list(parent.ownStateTools).includes(t));
+    if (stateGap.length) violations.push({ dimension: 'ownStateTools', parent: show(list(parent.ownStateTools)), child: show(stateGap) });
 
     const allowGap = list(child.env?.allow).filter(v => !list(parent.env?.allow).includes(v));
     if (allowGap.length) violations.push({ dimension: 'env.allow', parent: show(list(parent.env?.allow)), child: show(allowGap) });

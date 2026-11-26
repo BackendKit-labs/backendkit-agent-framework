@@ -2,13 +2,13 @@ import { appendFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import type {
     SandboxCaller, SandboxDecision, SandboxDenyCode, SandboxExecRequest, SandboxOutcome, SandboxPathRequest,
-    SandboxPathVerdict, SandboxRunner,
+    SandboxPathVerdict, SandboxRunner, SandboxToolFacts,
 } from '@backendkit-labs/agent-core';
 import type { SandboxBackend } from './backends/types';
 import { scrubEnv } from './env';
 import { isInside, realPathOf } from './paths';
 import type { SandboxPolicy } from './policy';
-import { needsApproval } from './presets';
+import { needsApproval, type ActionKind } from './presets';
 
 export type DecisionListener = (decision: SandboxDecision) => void;
 
@@ -64,6 +64,18 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
     const base = (caller: SandboxCaller, tool: string) => ({ at: Date.now(), agentId: caller.agentId, sessionId: caller.sessionId, tool });
 
+    /**
+     * What a tool does, judged by what it declares, never by its name alone. A command tool is confined by the backend when it runs
+     * (`run`). One the integrator named as writing only the agent's own state is `own-state`. Otherwise only a tool that declares
+     * `readOnly: true` (and is not listed in `writeTools`) reads: one that is destructive, or declares nothing, has an effect.
+     */
+    const kindOf = (tool: string, facts: SandboxToolFacts | undefined): ActionKind | 'own-state' => {
+        if (policy.commandTools().includes(tool)) return 'command';
+        if (policy.ownStateTools().includes(tool)) return 'own-state';
+        if (policy.writeTools().includes(tool)) return 'write';
+        return facts?.readOnly === true && facts.destructive !== true ? 'read' : 'write';
+    };
+
     return {
         policy,
 
@@ -72,19 +84,23 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             return () => { listeners.delete(listener); };
         },
 
-        authorizeTool(caller, tool) {
+        authorizeTool(caller, tool, facts) {
             const r = policy.resolve(caller, tool);
-            if (r.mode === 'read-only' && policy.writeTools().includes(tool)) {
-                const reason = `tool "${tool}" writes, and the sandbox policy for agent "${caller.agentId}" is read-only`;
+            if (r.mode === 'read-only' && kindOf(tool, facts) === 'write') {
+                const why = policy.writeTools().includes(tool) ? 'writes'
+                    : facts?.destructive === true ? 'has an effect (destructive)'
+                    : 'does not declare readOnly, so it may have an effect';
+                const reason = `tool "${tool}" ${why}, and the sandbox policy for agent "${caller.agentId}" is read-only`;
                 emit({ ...base(caller, tool), mode: r.mode, network: r.network, outcome: 'SANDBOX_DENIED', reason });
                 return { ok: false, code: 'SANDBOX_DENIED', reason };
             }
             return { ok: true };
         },
 
-        approvalFor(caller, tool) {
+        approvalFor(caller, tool, facts) {
             const r = policy.resolve(caller, tool);
-            const kind = policy.commandTools().includes(tool) ? 'command' : policy.writeTools().includes(tool) ? 'write' : 'read';
+            const kind = kindOf(tool, facts);
+            if (kind === 'own-state') return 'none';
             return needsApproval(r.approval, kind) ? 'ask' : 'none';
         },
 

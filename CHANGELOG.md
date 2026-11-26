@@ -13,6 +13,12 @@
 - **Cambio de comportamiento:** en `read-only`, una tool sin `readOnly: true` que antes corría ahora se rechaza; en `ask`, una tool sin declarar ahora pide aprobación. Declara los hechos de tus tools o nómbralas en `ownStateTools`.
 - Pruebas nuevas: `AgentEngine.sandboxFacts.test.ts` (el engine pasa los hechos), y casos en `service.test.ts`, `inherit.test.ts` y el `sandbox.test.ts` de coding (cada tool de coding con sus hechos reales).
 
+**El servidor de tools de core ya no envía al cliente el mensaje de un error interno.** Mismo contrato que `agent-protocol` 0.8.0, con el error tipado que core ya tenía.
+
+- **Antes:** si una tool lanzaba un error, el cliente MCP recibía `Tool "x" failed: <mensaje>`, y el mensaje también iba a la auditoría (`reason`). Lo mismo con `authorize threw: <mensaje>` y `the approver failed: <mensaje>`.
+- **Ahora:** un `ToolError(code, message)` es para el cliente: su mensaje viaja y la auditoría registra su `errorCode`, no el mensaje. Cualquier otro error es interno: el cliente recibe `internal error (<errorId>)` y el error va a la nueva opción `onInternalError(err, { errorId, server, tool, where, requestId })` (por defecto stderr), igual para `authorize` y el aprobador. El registro del hook `audit` (obsoleto) lleva el mensaje genérico.
+- **Cambio de comportamiento:** para que el cliente vea por qué falló, lanza `ToolError`, o devuelve el fallo como resultado (lo devuelto es payload). Afecta también a las tools directas de `AgentMCPServer` (`mcp-server`), que usan el mismo registrador.
+
 **El backend Docker monta también las raíces extra de la política.** Un comando con el directorio de trabajo en una de `policy.roots`, fuera del workspace, pasaba la comprobación pero Docker solo montaba el workspace: corría en `/workspace/../<ruta>`, un directorio vacío que Docker crea dentro del contenedor, sin error. Ahora cada raíz se monta en `/roots/<n>` (en solo lectura en `read-only`) y el directorio de trabajo es el de dentro del montaje que lo contiene. Un `cwd` que no está en ninguno falla en vez de correr en el sitio equivocado. `BackendExecRequest` gana `roots`.
 
 ## v0.50.19 (2026-11-26)

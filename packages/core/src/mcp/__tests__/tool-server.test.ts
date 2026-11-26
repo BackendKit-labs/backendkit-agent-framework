@@ -3,6 +3,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { defineTool, z } from '../../tools/defineTool';
 import type { ToolDefinition } from '../../types';
 import { createToolServer, hashArgs, type ToolCallRecord, type ToolServerOptions } from '../tool-server';
+import { ToolError } from '../../tools/tool-error';
+import type { AuditEvent } from '../../governance/types';
 
 const balances = defineTool({
     name: 'balances',
@@ -154,13 +156,35 @@ describe('createToolServer: calls', () => {
         }
     });
 
-    it('a thrown error becomes isError with the message and no stack', async () => {
-        const { client, close } = await connect({ name: 'ledger', tools: [boom] });
+    it('a thrown error becomes isError with an errorId: its message and stack stay in the server log', async () => {
+        const logged: Array<{ err: unknown; errorId: string; where: string }> = [];
+        const { client, close } = await connect({ name: 'ledger', tools: [boom], onInternalError: (err, info) => logged.push({ err, ...info }) });
         try {
             const result = await client.callTool({ name: 'boom', arguments: {} });
             expect(result.isError).toBe(true);
-            expect(textOf(result)).toBe('Tool "boom" failed: ERP down');
+            expect(textOf(result)).not.toContain('ERP down');
             expect(textOf(result)).not.toMatch(/at .*\.ts/);
+            expect(logged).toHaveLength(1);
+            expect(textOf(result)).toContain(logged[0].errorId);
+            expect((logged[0].err as Error).message).toBe('ERP down');
+            expect(logged[0].where).toBe('execute');
+        } finally {
+            await close();
+        }
+    });
+
+    it('a ToolError is meant for the client: its message goes through, and the audit records its code, not its message', async () => {
+        const events: AuditEvent[] = [];
+        const closed = defineTool({
+            name: 'post', description: 'posts', readOnly: true, input: z.object({}),
+            execute: async () => { throw new ToolError('ERP_PERIOD_CLOSED', 'period 2026-10 is closed'); },
+        });
+        const { client, close } = await connect({ name: 'ledger', tools: [closed], auditSink: { write: (e) => { events.push(e); } } });
+        try {
+            const result = await client.callTool({ name: 'post', arguments: {} });
+            expect(textOf(result)).toBe('Tool "post" failed: period 2026-10 is closed');
+            expect(events[0]).toMatchObject({ outcome: 'error', errorCode: 'ERP_PERIOD_CLOSED' });
+            expect(JSON.stringify(events[0])).not.toContain('period 2026-10 is closed');
         } finally {
             await close();
         }
@@ -220,7 +244,8 @@ describe('createToolServer: calls', () => {
         try {
             const result = await client.callTool({ name: 'pay', arguments: { invoiceId: 'F-1' } });
             expect(result.isError).toBe(true);
-            expect(textOf(result)).toMatch(/PDP unreachable/);
+            expect(textOf(result)).toMatch(/authorize failed: internal error/);   // why stays in the server log
+            expect(textOf(result)).not.toContain('PDP unreachable');
         } finally {
             await close();
         }
@@ -286,7 +311,7 @@ describe('createToolServer: audit', () => {
         expect(records.map(r => [r.tool, r.outcome])).toEqual([['balances', 'ok'], ['boom', 'error'], ['pay', 'denied']]);
         expect(records[0]).toMatchObject({ server: 'ledger', argsHash: hashArgs({ date: '2026-10-31', accounts: [] }) });
         expect(records[0].outputChars).toBeGreaterThan(0);
-        expect(records[1].error).toBe('ERP down');
+        expect(records[1].error).toMatch(/^internal error \(/);   // the detail goes to onInternalError, not to the record
         expect(records[2].outputChars).toBe(0);
         expect(JSON.stringify(records)).not.toContain('SECRET-1');
         for (const r of records) {

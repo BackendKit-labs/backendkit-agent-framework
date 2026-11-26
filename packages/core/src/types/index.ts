@@ -15,7 +15,7 @@ export interface AgentProfile {
     /**
      * Agent IDs this agent may delegate to with `ask_agent`: a limit the engine enforces, not a hint. `['*']`: every registered agent.
      * Absent or empty: the default agent may delegate to every other agent. An agent an MCP server registered (mode 'agent') is always
-     * allowed. Only the default agent is offered `ask_agent`.
+     * allowed. Only the default agent is offered `ask_agent`; `ctx.askAgent` from a tool is checked against the same list.
      */
     delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;

@@ -15,8 +15,10 @@
 - **No cambia:** sin lista o con lista vacía, el agente por defecto sigue pudiendo delegar en todos; `['*']` igual. Un agente que registra un servidor MCP en `mode: 'agent'` siempre es alcanzable. Solo el agente por defecto recibe `ask_agent`.
 - **El mensaje de tool no autorizada** ya no le dice a un especialista que use `ask_agent`, una tool que no tiene.
 - **Abort en un sub-agente:** `abort()` (también por presupuesto con `abortOnBudget`) cortaba la llamada al LLM y las tools en curso, pero las tools que quedaban de esa vuelta empezaban igual. Ahora no empiezan.
-- **Sin cambiar:** `ctx.askAgent` (delegación desde una tool) sigue sin mirar `delegatesTo`. Una tool que espera a un aprobador cuando llega el abort corre igual si la aprueban.
-- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.subAgentAbort.test.ts`); quitar el arreglo rompe cuatro.
+- **`ctx.askAgent` (delegación desde una tool) no pasaba ningún control:** ni auto-delegación, ni `delegatesTo`, ni identidad, ni políticas, ni auditoría. Ahora pasa el mismo control que `ask_agent` y deja un evento `ask_agent` en la auditoría. Si lo rechaza, lanza, y la tool falla con el motivo. **Cambio de comportamiento:** una tool de un agente que no es el agente por defecto y no tiene `delegatesTo` ya no puede delegar.
+- **Abort mientras una tool espera al aprobador:** si la aprobación llegaba después del abort, la tool corría igual. Ahora no empieza; se audita como permitida, con `outcome: 'aborted'` y la aprobación.
+- **REFERENCE de `agent-core`:** el ejemplo de `DelegationBus` usaba métodos que no existen (`register`, `delegate`). Ahora usa la API real (`runSingle`, `runParallel`).
+- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`); quitar el arreglo rompe nueve.
 
 ## v0.50.18 (2026-11-25)
 

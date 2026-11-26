@@ -252,6 +252,11 @@ const ASK_AGENT_TOOL: ToolDefinition = {
     execute: async () => '',
 };
 
+/** The arguments of a delegation, as `ask_agent` takes them: what its policies see and its audit event records. */
+function delegationArgs(c: { agentId: string; question: string; context?: string }): Record<string, unknown> {
+    return { agent_id: c.agentId, question: c.question, ...(c.context !== undefined ? { context: c.context } : {}) };
+}
+
 import type { ZodType } from 'zod';
 import { generateObject } from '../structured/generateObject';
 
@@ -1155,6 +1160,37 @@ export class AgentEngine {
         return [...new Set([...(declared as string[]), ...mcp])].filter(id => id !== profile.id);
     }
 
+    /**
+     * Whether `profile` may delegate `call` now: not to itself, only to its `delegationTargets`, and, in the policy path, with an
+     * identity and the policies' consent, like any tool call. `undefined` means yes; otherwise why not, for the caller to report and audit.
+     * The one check for every delegation: the model's `ask_agent` and a tool's `ctx.askAgent`.
+     */
+    private async authorizeDelegation(
+        profile: AgentProfile, call: { agentId: string; question: string; context?: string }, chain: string[],
+    ): Promise<{ message: string; decision: AuditDecision; reason: string } | undefined> {
+        if (call.agentId === profile.id) {
+            return { message: `Self-delegation blocked: agent "${profile.id}" cannot delegate to itself. Execute the task directly.`, decision: 'not_allowed', reason: 'self-delegation' };
+        }
+        // `delegatesTo` is a limit, not a hint: a delegation outside it never reaches the policies or the bus.
+        const targets = this.delegationTargets(profile);
+        if (!targets.includes(call.agentId)) {
+            return {
+                message: targets.length > 0
+                    ? `Delegation refused: agent "${profile.id}" may not delegate to "${call.agentId}". It may delegate to: ${targets.join(', ')}.`
+                    : `Delegation refused: agent "${profile.id}" may not delegate to any agent. Execute the task directly.`,
+                decision: 'not_allowed',
+                reason: `"${call.agentId}" is not in the delegatesTo of agent "${profile.id}"`,
+            };
+        }
+        if (!this.governed) return undefined;
+        // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
+        const base = this.principalFor(profile.id, chain);
+        const who = await this.identities.check(profile.id, { sessionId: base.sessionId, ...(base.tenantId !== undefined ? { tenantId: base.tenantId } : {}), ...(base.userId !== undefined ? { userId: base.userId } : {}) });
+        if (!who.ok) return { message: `Tool call "ask_agent" denied: ${who.reason}`, decision: 'deny', reason: who.reason };
+        const verdict = await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, []);
+        return verdict.run ? undefined : { message: verdict.message, decision: verdict.decision, reason: verdict.reason };
+    }
+
     /** Whether `profile` is offered `ask_agent`: only the default agent, and only with someone registered to delegate to. */
     private offersAskAgent(profile: AgentProfile): boolean {
         return profile.id === this.opts.defaultAgentId && this.delegationTargets(profile).some(id => this.opts.agents.has(id));
@@ -1358,59 +1394,20 @@ export class AgentEngine {
 
             // ── ask_agent: parallel if 2+ calls ──────────────────────────────
             if (askAgentCalls.length > 0) {
-                const validCalls = askAgentCalls.filter(c => c.agentId !== currentProfile.id);
-                const selfCalls  = askAgentCalls.filter(c => c.agentId === currentProfile.id);
-
                 // Delegations are audited like any tool call: one event each (SPEC-0014 F1).
-                const delegationArgs = (c: { agentId: string; question: string; context?: string }) =>
-                    ({ agent_id: c.agentId, question: c.question, ...(c.context !== undefined ? { context: c.context } : {}) });
-
-                for (const call of selfCalls) {
-                    const startedAt = Date.now();
-                    const msg = `Self-delegation blocked: agent "${currentProfile.id}" cannot delegate to itself. Execute the task directly.`;
-                    this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: msg });
-                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
-                    await this.recordAudit({
-                        startedAt, agentId: currentProfile.id, tool: 'ask_agent', rawArgs: delegationArgs(call),
-                        decision: 'not_allowed', reason: 'self-delegation',
-                    });
-                }
-
-                // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
                 const callerChain = this.principalFor(currentProfile.id).chain;
-                const targets = this.delegationTargets(currentProfile);
-                const allowedCalls: typeof validCalls = [];
-                for (const call of validCalls) {
-                    // `delegatesTo` is a limit, not a hint: a delegation outside it never reaches the policies or the bus.
-                    if (!targets.includes(call.agentId)) {
-                        const startedAt = Date.now();
-                        const msg = targets.length > 0
-                            ? `Delegation refused: agent "${currentProfile.id}" may not delegate to "${call.agentId}". It may delegate to: ${targets.join(', ')}.`
-                            : `Delegation refused: agent "${currentProfile.id}" may not delegate to any agent. Execute the task directly.`;
-                        this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: msg.slice(0, 120) });
-                        toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
-                        await this.recordAudit({
-                            startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent', rawArgs: delegationArgs(call),
-                            decision: 'not_allowed', reason: `"${call.agentId}" is not in the delegatesTo of agent "${currentProfile.id}"`,
-                        });
-                        continue;
-                    }
-                    if (!this.governed) { allowedCalls.push(call); continue; }
+                const validCalls: typeof askAgentCalls = [];
+                for (const call of askAgentCalls) {
                     const startedAt = Date.now();
-                    const base = this.principalFor(currentProfile.id, callerChain);
-                    const who = await this.identities.check(currentProfile.id, { sessionId: base.sessionId, ...(base.tenantId !== undefined ? { tenantId: base.tenantId } : {}), ...(base.userId !== undefined ? { userId: base.userId } : {}) });
-                    const verdict = !who.ok
-                        ? { run: false as const, decision: 'deny' as const, reason: who.reason, message: `Tool call "ask_agent" denied: ${who.reason}` }
-                        : await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, []);
-                    if (verdict.run) { allowedCalls.push(call); continue; }
-                    this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: verdict.message.slice(0, 120) });
-                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: verdict.message });
+                    const refused = await this.authorizeDelegation(currentProfile, call, callerChain);
+                    if (!refused) { validCalls.push(call); continue; }
+                    this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: refused.message.slice(0, 120) });
+                    toolResults.push({ role: 'tool', tool_call_id: call.id, content: refused.message });
                     await this.recordAudit({
                         startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent',
-                        rawArgs: delegationArgs(call), decision: verdict.decision, reason: verdict.reason,
+                        rawArgs: delegationArgs(call), decision: refused.decision, reason: refused.reason,
                     });
                 }
-                validCalls.splice(0, validCalls.length, ...allowedCalls);
 
                 if (validCalls.length > 0) {
                     const startedAt = Date.now();
@@ -1830,6 +1827,12 @@ export class AgentEngine {
                     result = verdict.message; success = false;
                     decision = verdict.decision;
                     reason = verdict.reason;
+                } else if (this.runController?.signal.aborted) {
+                    // The run was aborted while the call waited (for an approver, say): an approval that arrives late does not start it.
+                    result = `Error: aborted: tool "${call.name}" was cancelled before it ran`; success = false;
+                    outcome = 'aborted';
+                    approval = verdict.approval;
+                    reason = 'the run was aborted before the call started';
                 } else {
                     ran = true;
                     approval = verdict.approval;
@@ -1883,7 +1886,7 @@ export class AgentEngine {
             rawArgs: call.args,
             decision,
             reason,
-            outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : undefined,
+            outcome: ran ? (outcome ?? (success ? 'ok' : 'error')) : outcome,
             ...(errorCode ? { errorCode } : {}),
             approval,
             ...(credentials ? { credentials } : {}),
@@ -2111,8 +2114,22 @@ export class AgentEngine {
             ...(serviceMap ? { services: serviceMap } : {}),
             advancedMemory: this.opts.memorySystem,
             ...(additionalRoots.length ? { additionalRoots } : {}),
+            // A tool delegates on behalf of its agent: the same check as the model's `ask_agent`, and one audit event either way.
             askAgent: async (agentId, question, context) => {
+                const call = { agentId, question, ...(context !== undefined ? { context } : {}) };
+                const startedAt = Date.now();
+                const refused = profile
+                    ? await this.authorizeDelegation(profile, call, principal.chain)
+                    : { message: `Delegation refused: agent "${id}" is not registered`, decision: 'not_allowed' as const, reason: `agent "${id}" is not registered` };
+                if (refused) {
+                    await this.recordAudit({ startedAt, agentId: id, chain: principal.chain, tool: 'ask_agent', rawArgs: delegationArgs(call), decision: refused.decision, reason: refused.reason });
+                    throw new Error(refused.message);
+                }
                 const result = await this.bus.runSingle({ agentId, question, context, fromAgentId: id, depth: depth + 1, chain: principal.chain });
+                await this.recordAudit({
+                    startedAt, agentId: id, chain: principal.chain, tool: 'ask_agent', rawArgs: delegationArgs(call),
+                    decision: 'allow', ...(result.error ? { reason: result.error } : {}), outcome: result.error ? 'error' : 'ok',
+                });
                 return result.content;
             },
             emitCompacting: (phase, label) => {

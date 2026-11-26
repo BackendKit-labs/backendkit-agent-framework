@@ -41,7 +41,7 @@ export type {
 export { AgentServer, CONTROL_KEY_APPROVER } from './server/AgentServer';
 export type { AgentServerOptions, CapabilityHandler } from './server/AgentServer';
 export { TaskStore }           from './server/TaskStore';
-export { ControlError, statusForCode } from './server/ControlHandler';
+export { ControlError, CapabilityError, publicError, statusForCode } from './server/ControlHandler';
 export type { FlowHandler } from './server/FlowHandler';
 export type { ApprovalHandler } from './server/ApprovalHandler';
 export type { ControlHandler } from './server/ControlHandler';

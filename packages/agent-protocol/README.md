@@ -64,7 +64,19 @@ await server.start();
 | `GET /v1/agent/approvals`, `GET /v1/agent/approvals/:id`, `POST /v1/agent/approvals/:id/decision` | Approvals waiting for a person (protocol 1.2, control key) |
 | `GET /v1/agent/flows`, `POST /v1/agent/flows/:name/runs`, `GET /v1/agent/flow-runs/:id`, `POST /v1/agent/flow-runs/:id/:action` | Flows hosted by the agent (protocol 1.1) |
 
-Every request except `health` needs `Authorization: Bearer <apiKey>` when `apiKey` is set. Answers use one envelope: `{ ok, data | error, meta }`, with stable error codes (`ErrorCode`).
+Every request except `health` needs `Authorization: Bearer <apiKey>` when `apiKey` is set. Without an `apiKey` on loopback, only requests whose `Host` and `Origin` are loopback are served. Answers use one envelope: `{ ok, data | error, meta }`, with stable error codes (`ErrorCode`).
+
+**Errors: what the caller is told.** To tell the caller why a capability failed, throw a `CapabilityError(code, message, details?)`: its code (and HTTP status), message and details go through as they are. `ControlError` works the same for control, flow and approval handlers. Any other error is internal (a bug, a driver's exception, whose message can carry paths, queries or credentials): the caller gets `EXECUTION_FAILED` with `details.errorId`, and the error itself goes to `onInternalError(err, { errorId, where, traceId })` (default `console.error`) under that id, so it can be found in the logs.
+
+```ts
+server.register({
+  definition: payInvoice,
+  execute: async ({ invoiceId }) => {
+    if (await isPaid(invoiceId)) throw new CapabilityError('CONFLICT', `invoice ${invoiceId} is already paid`);
+    return ledger.pay(invoiceId);   // if this throws, the caller sees only an errorId
+  },
+});
+```
 
 ## Calling an agent
 

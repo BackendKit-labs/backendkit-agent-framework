@@ -1,5 +1,5 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
     CONTROL_ACTIONS,
     PROTOCOL_MINOR,
@@ -16,7 +16,7 @@ import {
     type ErrorCode,
     type ResponseMeta,
 } from '../types';
-import { ControlError, statusForCode, type ControlHandler } from './ControlHandler';
+import { publicError, statusForCode, type ControlHandler } from './ControlHandler';
 import type { FlowHandler } from './FlowHandler';
 import type { ApprovalHandler } from './ApprovalHandler';
 import type { ApprovalDecision, ApprovalDecisionRequest, ApprovalStatus, ApproverRef } from '../types';
@@ -82,6 +82,11 @@ export interface AgentServerOptions {
      * only a person may approve cannot be approved through the protocol. Return undefined when the caller cannot be identified (401).
      */
     approverOf?: (call: { headers: Request['headers'] }) => ApproverRef | undefined | Promise<ApproverRef | undefined>;
+    /**
+     * Where an internal error goes: one that is not a `CapabilityError` or a `ControlError` (a bug, a driver's exception). The caller
+     * only gets `EXECUTION_FAILED` with the `errorId`; this receives the error itself under that id. Default: `console.error`.
+     */
+    onInternalError?: (err: unknown, info: { errorId: string; where: string; traceId?: string }) => void;
 }
 
 /** Who decides an approval when the server has no `approverOf`: whoever holds the control key, as a service. */
@@ -124,6 +129,7 @@ export class AgentServer {
     private readonly gate?: CapabilityGate;
     private readonly allowUngated: boolean;
     private readonly approverOf?: AgentServerOptions['approverOf'];
+    private readonly onInternalError: NonNullable<AgentServerOptions['onInternalError']>;
     private draining = false;
     private server:              ReturnType<Express['listen']> | null = null;
     private evictTimer?:         ReturnType<typeof setInterval>;
@@ -142,6 +148,8 @@ export class AgentServer {
         if (opts.gate) this.gate = opts.gate;
         this.allowUngated = opts.allowUngated === true;
         if (opts.approverOf) this.approverOf = opts.approverOf;
+        this.onInternalError = opts.onInternalError
+            ?? ((err, info) => console.error(`[agent-protocol] internal error ${info.errorId} in ${info.where}${info.traceId ? ` (trace ${info.traceId})` : ''}:`, err));
         this.taskStore = new TaskStore();
         this.handlers  = new Map();
         this.info      = {
@@ -185,7 +193,8 @@ export class AgentServer {
         try {
             answer = await this.gate({ capability, input, context, headers: req.headers });
         } catch (err) {
-            return { ok: false, status: 403, code: 'FORBIDDEN', message: `the identity gate failed: ${(err as Error).message}` };
+            // A gate that refuses on purpose answers { ok: false, message }; one that throws failed, and why stays on the server.
+            return { ok: false, status: 403, code: 'FORBIDDEN', message: `the identity gate failed: ${this.internalError(err, `gate of ${capability}`, context.traceId).message}` };
         }
         if (!answer || typeof answer !== 'object' || typeof answer.ok !== 'boolean') {
             return { ok: false, status: 403, code: 'FORBIDDEN', message: 'the identity gate returned something that is not an answer' };
@@ -292,10 +301,9 @@ export class AgentServer {
                         { durationMs: Date.now() - start, traceId: context.traceId, agentVersion: this.info.version },
                     ));
                 } catch (err) {
+                    // The gate's own record (audit, server side) keeps the real message; the caller gets what is meant for them.
                     await gated.finish?.({ ok: false, error: (err as Error).message });
-                    res.status(500).json(
-                        this.errEnvelope('EXECUTION_FAILED', (err as Error).message, undefined, context.traceId)
-                    );
+                    this.sendError(res, err, `capability ${body.capability}`, context.traceId);
                 }
                 return;
             }
@@ -316,7 +324,7 @@ export class AgentServer {
                     this.taskStore.complete(taskId, output, cost);
                 } catch (err) {
                     await gated.finish?.({ ok: false, error: (err as Error).message });
-                    this.taskStore.fail(taskId, (err as Error).message, cost);
+                    this.taskStore.fail(taskId, this.taskError(err, `capability ${body.capability} (task ${taskId})`, context.traceId), cost);
                 }
             });
         });
@@ -367,11 +375,11 @@ export class AgentServer {
                     : undefined;
                 res.json(this.okEnvelope({ action: act, ...(act === 'resume' ? { draining: false } : {}), ...(result !== undefined ? { result } : {}) }));
             } catch (err) {
-                this.sendControlError(res, err, context.traceId);
+                this.sendError(res, err, `${req.method} ${req.path}`, context.traceId);
             }
         });
 
-        this.app.get('/v1/agent/runs', this.controlKey, async (_req: Request, res: Response) => {
+        this.app.get('/v1/agent/runs', this.controlKey, async (req: Request, res: Response) => {
             try {
                 const runs: RunSummary[] = this.control?.runs
                     ? await this.control.runs()
@@ -382,7 +390,7 @@ export class AgentServer {
                     }));
                 res.json(this.okEnvelope({ runs, draining: this.draining }));
             } catch (err) {
-                this.sendControlError(res, err);
+                this.sendError(res, err, `${req.method} ${req.path}`);
             }
         });
 
@@ -402,7 +410,7 @@ export class AgentServer {
                 const entries = await this.control.audit({ ...(since ? { since } : {}), ...(limitRaw ? { limit: limitRaw } : {}) });
                 res.json(this.okEnvelope({ entries }));
             } catch (err) {
-                this.sendControlError(res, err);
+                this.sendError(res, err, `${req.method} ${req.path}`);
             }
         });
 
@@ -430,14 +438,14 @@ export class AgentServer {
                 res.json(this.okEnvelope(started));
             } catch (err) {
                 await gated.finish?.({ ok: false, error: (err as Error).message });
-                this.sendControlError(res, err, context.traceId);
+                this.sendError(res, err, `${req.method} ${req.path}`, context.traceId);
             }
         });
 
         this.app.get('/v1/agent/flow-runs/:id', this.runKey, async (req: Request, res: Response) => {
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             try { res.json(this.okEnvelope(await this.flowHandler.status(String(req.params.id)))); }
-            catch (err) { this.sendControlError(res, err); }
+            catch (err) { this.sendError(res, err, `${req.method} ${req.path}`); }
         });
 
         this.app.post('/v1/agent/flow-runs/:id/:action', this.controlKey, async (req: Request, res: Response) => {
@@ -447,7 +455,7 @@ export class AgentServer {
             }
             if (!this.flowHandler) return res.status(501).json(this.errEnvelope('CONTROL_UNSUPPORTED', 'This agent hosts no flows'));
             try { res.json(this.okEnvelope(await this.flowHandler[action](String(req.params.id)))); }
-            catch (err) { this.sendControlError(res, err); }
+            catch (err) { this.sendError(res, err, `${req.method} ${req.path}`); }
         });
 
         // ── Approvals (protocol 1.2) ────────────────────────────────────────────
@@ -462,13 +470,13 @@ export class AgentServer {
                 return res.status(400).json(this.errEnvelope('INVALID_INPUT', "'status' must be pending, approved, rejected or executed"));
             }
             try { res.json(this.okEnvelope({ approvals: await this.approvalHandler.list(status ? { status: status as ApprovalStatus } : {}) })); }
-            catch (err) { this.sendControlError(res, err); }
+            catch (err) { this.sendError(res, err, `${req.method} ${req.path}`); }
         });
 
         this.app.get('/v1/agent/approvals/:id', this.controlKey, async (req: Request, res: Response) => {
             if (!this.approvalHandler) return noApprovals(res);
             try { res.json(this.okEnvelope(await this.approvalHandler.get(String(req.params.id)))); }
-            catch (err) { this.sendControlError(res, err); }
+            catch (err) { this.sendError(res, err, `${req.method} ${req.path}`); }
         });
 
         this.app.post('/v1/agent/approvals/:id/decision', this.controlKey, async (req: Request, res: Response) => {
@@ -489,7 +497,7 @@ export class AgentServer {
                 try {
                     by = await this.approverOf({ headers: req.headers });
                 } catch (err) {
-                    return res.status(403).json(this.errEnvelope('FORBIDDEN', `who approves could not be checked: ${(err as Error).message}`));
+                    return res.status(403).json(this.errEnvelope('FORBIDDEN', `who approves could not be checked: ${this.internalError(err, 'approverOf', req.headers['x-trace-id'] as string | undefined).message}`));
                 }
                 if (!isApproverRef(by)) {
                     return res.status(401).json(this.errEnvelope('UNAUTHORIZED', 'who approves could not be identified'));
@@ -502,7 +510,7 @@ export class AgentServer {
             try {
                 const decision: ApprovalDecision = { decision: b.decision, by: { kind: by!.kind, id: by!.id }, ...(b.reason !== undefined ? { reason: b.reason } : {}) };
                 res.json(this.okEnvelope(await this.approvalHandler.decide(String(req.params.id), decision, context)));
-            } catch (err) { this.sendControlError(res, err, context.traceId); }
+            } catch (err) { this.sendError(res, err, `${req.method} ${req.path}`, context.traceId); }
         });
 
         // 404 fallback
@@ -515,13 +523,12 @@ export class AgentServer {
 
         // Error handler — body-parser failures (malformed JSON, payload too large) and
         // anything thrown outside a capability handler must still use the protocol envelope.
-        this.app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, next: NextFunction) => {
+        this.app.use((err: Error & { status?: number; type?: string }, req: Request, res: Response, next: NextFunction) => {
             if (res.headersSent) return next(err);
             const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 500;
-            if (status === 500) {
-                return res.status(500).json(this.errEnvelope('EXECUTION_FAILED', err.message));
-            }
-            res.status(status).json(this.errEnvelope('INVALID_INPUT', err.message));
+            // A 4xx from the body parser is about what the client sent (malformed JSON, too large): its message is for them.
+            if (status !== 500) return res.status(status).json(this.errEnvelope('INVALID_INPUT', err.message));
+            this.sendError(res, err, `${req.method} ${req.path}`);
         });
     }
 
@@ -530,16 +537,30 @@ export class AgentServer {
         return [...new Set<ControlAction>(['drain', 'resume', ...(this.control?.actions ?? [])])];
     }
 
-    private sendControlError(res: Response, err: unknown, traceId?: string): void {
-        // By name as well as by class: a handler from another package (agent-core's engine control) raises its own
-        // error and must not need to import this one.
-        const named = err as { name?: unknown; code?: unknown; message?: unknown; details?: unknown };
-        if (err instanceof ControlError || (named?.name === 'ControlError' && typeof named.code === 'string')) {
-            const e = named as { code: ErrorCode; message: string; details?: unknown };
-            res.status(statusForCode(e.code)).json(this.errEnvelope(e.code, e.message, e.details, traceId));
+    /**
+     * An internal error, as the caller sees it: a generic message and an `errorId`. The error itself goes to `onInternalError` under
+     * that id, so whoever reads the logs finds it; it never goes over the wire.
+     */
+    private internalError(err: unknown, where: string, traceId?: string): { message: string; errorId: string } {
+        const errorId = randomUUID();
+        try { this.onInternalError(err, { errorId, where, ...(traceId ? { traceId } : {}) }); } catch { /* a failing logger must not change the answer */ }
+        return { message: `Internal error (${errorId}): the detail is in the agent's logs`, errorId };
+    }
+
+    /** Answers an error: one meant for the caller (`CapabilityError`, `ControlError`) with its code and message, any other as internal. */
+    private sendError(res: Response, err: unknown, where: string, traceId?: string): void {
+        const known = publicError(err);
+        if (known) {
+            res.status(statusForCode(known.code)).json(this.errEnvelope(known.code, known.message, known.details, traceId));
             return;
         }
-        res.status(500).json(this.errEnvelope('EXECUTION_FAILED', (err as Error).message, undefined, traceId));
+        const internal = this.internalError(err, where, traceId);
+        res.status(500).json(this.errEnvelope('EXECUTION_FAILED', internal.message, { errorId: internal.errorId }, traceId));
+    }
+
+    /** What a failed task records for its caller: the message of an error meant for them, the generic one with its id otherwise. */
+    private taskError(err: unknown, where: string, traceId?: string): string {
+        return publicError(err)?.message ?? this.internalError(err, where, traceId).message;
     }
 
     // ── Envelope helpers ────────────────────────────────────────────────────

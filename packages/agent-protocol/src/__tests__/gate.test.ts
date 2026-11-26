@@ -74,7 +74,8 @@ describe('a capability server needs a gate', () => {
         const throws = await start({ gate: () => { throw new Error('IAM down'); } }); current = throws.server;
         const t = await throws.post('work');
         expect(t.status).toBe(403);
-        expect(t.body.error?.message).toMatch(/identity gate failed: IAM down/);
+        expect(t.body.error?.message).toMatch(/identity gate failed: Internal error/);   // why stays in the server's log
+        expect(t.body.error?.message).not.toContain('IAM down');
         expect(throws.ran).toEqual([]);
         await throws.server.stop();
         const junk = await start({ gate: (() => undefined) as unknown as CapabilityGate }); current = junk.server;
@@ -89,8 +90,8 @@ describe('a capability server needs a gate', () => {
         expect((await s.post('work')).status).toBe(200);
         const failed = await s.post('boom');
         expect(failed.status).toBe(500);
-        expect(failed.body.error?.message).toBe('kaput');
-        expect(ended).toEqual([{ ok: true }, { ok: false, error: 'kaput' }]);
+        expect(failed.body.error?.message).not.toContain('kaput');                  // internal: the caller gets an errorId
+        expect(ended).toEqual([{ ok: true }, { ok: false, error: 'kaput' }]);   // the gate, on the server, keeps the real one
     });
 
     it('an asynchronous run is gated too, and its context carries the identity', async () => {

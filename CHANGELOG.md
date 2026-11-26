@@ -2,6 +2,21 @@
 
 ## Sin publicar
 
+## v0.50.19 (2026-11-26)
+
+**Seguridad: actualizar `agent-protocol` cuanto antes si se usa `controlApiKey`.** Además, `agent-core` cierra los huecos de delegación, abort y presupuesto de la revisión de código del engine, y los tres servidores con token bearer dejan de aceptar uno vacío.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-protocol` | 0.8.0 | Claves por ruta, `approverOf`, errores internos con `errorId`, Host/Origin en loopback |
+| `agent-core` | 0.49.14 | `delegatesTo` y `ctx.askAgent` bajo control, abort y presupuesto, identidad en la delegación, delegación aprobada, `workflow_complete`, token vacío |
+| `mcp-server` | 0.19.15 | Un token vacío no autoriza; `authToken` vacío no arranca |
+| `mcp-connectors` | 0.2.7 | Un token vacío no autoriza; `authToken` vacío no arranca |
+
+Se publican cuatro, en ese orden (`agent-core` necesita `agent-protocol` 0.8.0). Tags: `agent-protocol@0.8.0`, `agent-core@0.49.14`, `mcp-server@0.19.15`, `mcp-connectors@0.2.7`.
+
+**Cuidado al actualizar:** los cambios de comportamiento de abajo (marcados) afectan a quien apruebe por el protocolo sin `approverOf`, a quien comunique fallos de negocio con un `Error` normal, a un agente por defecto con lista `delegatesTo`, a la delegación sin identidad y a `ctx.llmCall`.
+
 **`agent-protocol`: las rutas de control exigen la clave de control en la propia ruta.** Actualizar cuanto antes si se usa `controlApiKey`.
 
 - **Corregido:** la comprobación de claves se hacía aparte, comparando la URL, y algunas grafías de la URL de una ruta de control llegaban a ella sin la clave de control. Ahora cada ruta declara su clave (`runKey` o `controlKey`) como primer manejador, y la comprobación corre siempre que la ruta coincide.

@@ -1,6 +1,6 @@
 import { AgentEngine } from '../AgentEngine';
 import type { AgentProfile, LLMProvider } from '../../types';
-import { buildRegistries, createMockTransport, testAgent } from '../../__tests__/helpers';
+import { buildRegistries, createMockTransport, createScriptedProvider, testAgent } from '../../__tests__/helpers';
 
 describe('AgentEngine — abort() reaches a sub-agent mid-call', () => {
     it('aborts the sub-agent LLM call instead of letting it run to completion', async () => {
@@ -50,5 +50,35 @@ describe('AgentEngine — abort() reaches a sub-agent mid-call', () => {
         expect(specialistSignal!.aborted).toBe(true);
         expect(specialistFinished).toBe(false);
         expect(Date.now() - started).toBeLessThan(2_000);
+    });
+
+    it('does not start the tool calls of the sub-agent that come after an abort', async () => {
+        const ran: string[] = [];
+        let engine!: AgentEngine;
+        const orchestratorProvider = createScriptedProvider([
+            { tool_calls: [{ id: 'c1', name: 'ask_agent', args: { agent_id: 'worker', question: 'q' } }] },
+            { content: 'done' },
+        ]);
+        const workerProvider = createScriptedProvider([
+            { tool_calls: [{ id: 'w1', name: 'first', args: {} }, { id: 'w2', name: 'second', args: {} }] },
+            { content: 'ok' },
+        ]);
+
+        const orchestrator: AgentProfile = { ...testAgent, delegatesTo: ['worker'] };
+        const { agents, tools, providers } = buildRegistries(orchestratorProvider, orchestrator);
+        agents.upsert({ id: 'worker', name: 'worker', icon: '·', description: 'w', systemPrompt: '', allowedTools: ['first', 'second'], delegatesTo: [], provider: 'worker' });
+        providers.register('worker', workerProvider);
+        const params = { type: 'object', properties: {} };
+        tools.register({ name: 'first', description: 'aborts the run', parameters: params, execute: async () => { ran.push('first'); engine.abort(); return 'aborted it'; } });
+        tools.register({ name: 'second', description: 'must not run', parameters: params, execute: async () => { ran.push('second'); return 'ran'; } });
+
+        const { transport } = createMockTransport();
+        engine = new AgentEngine({ requireAgentIdentity: false,
+            model: { provider: 'mock', id: 'mock' }, agents, tools, providers,
+            defaultProvider: 'mock', transport, defaultAgentId: testAgent.id, iterationMode: 'auto', maxIterations: 5,
+        });
+        await engine.run('delegate');
+
+        expect(ran).toEqual(['first']);
     });
 });

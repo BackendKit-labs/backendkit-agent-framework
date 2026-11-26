@@ -9,6 +9,15 @@
 - **Documentado:** en loopback y sin token el servidor de herramientas **no autentica** (cualquier proceso de la máquina lo puede llamar); la guarda contra el navegador es solo de `Host` y `Origin`. Con herramientas que tienen efecto, dar siempre un token.
 - Pruebas nuevas en los tres paquetes; quitar el arreglo en `core` rompe dos.
 
+**`delegatesTo` se aplica, y un abort para las tools pendientes de un sub-agente.** Hallazgos de la revisión de código del engine (2026-11-26).
+
+- **`delegatesTo` era decorativo:** el agente por defecto podía delegar con `ask_agent` en cualquier agente registrado, aunque su perfil diera una lista. Ahora, con una lista, una delegación fuera de ella se rechaza, se audita como `not_allowed` y no llega ni a las políticas ni al agente. El roster del prompt muestra solo esos agentes. **Cambio de comportamiento:** revisa las listas de tu agente por defecto.
+- **No cambia:** sin lista o con lista vacía, el agente por defecto sigue pudiendo delegar en todos; `['*']` igual. Un agente que registra un servidor MCP en `mode: 'agent'` siempre es alcanzable. Solo el agente por defecto recibe `ask_agent`.
+- **El mensaje de tool no autorizada** ya no le dice a un especialista que use `ask_agent`, una tool que no tiene.
+- **Abort en un sub-agente:** `abort()` (también por presupuesto con `abortOnBudget`) cortaba la llamada al LLM y las tools en curso, pero las tools que quedaban de esa vuelta empezaban igual. Ahora no empiezan.
+- **Sin cambiar:** `ctx.askAgent` (delegación desde una tool) sigue sin mirar `delegatesTo`. Una tool que espera a un aprobador cuando llega el abort corre igual si la aprueban.
+- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.subAgentAbort.test.ts`); quitar el arreglo rompe cuatro.
+
 ## v0.50.18 (2026-11-25)
 
 **Un paso de un flow puede ser una llamada a una herramienta (SPEC-0046 F1).** Es el paso `tool` que la SPEC-0023 D2 aceptó y no se había construido. Aditivo: un flow sin `kind` se ejecuta igual que antes.

@@ -12,7 +12,11 @@ export interface AgentProfile {
      * (`crm_*`), for tools you do not define yourself (an MCP server's). Adds `tool_search` to this agent. See `ToolDefinition.defer`.
      */
     deferTools?: string[];
-    /** Agent IDs this agent can delegate to. Use ['*'] to allow delegation to all registered agents. */
+    /**
+     * Agent IDs this agent may delegate to with `ask_agent`: a limit the engine enforces, not a hint. `['*']`: every registered agent.
+     * Absent or empty: the default agent may delegate to every other agent. An agent an MCP server registered (mode 'agent') is always
+     * allowed. Only the default agent is offered `ask_agent`.
+     */
     delegatesTo?: string[] | ['*'];
     suppressDefaultOutput?: boolean;
     provider?: string;

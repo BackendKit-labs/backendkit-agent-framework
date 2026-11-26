@@ -1523,6 +1523,8 @@ await triggers.start();
 
 `DelegationBus` enables multi-agent collaboration — orchestrators delegate sub-tasks to specialized agents and collect results.
 
+Inside the engine, the default agent delegates with `ask_agent`, and `AgentProfile.delegatesTo` is a limit: with a list, a delegation to an agent outside it is refused and audited as `not_allowed`, and the roster in the prompt shows only those agents. `['*']` means every agent. No list, or an empty one, lets the default agent delegate to every other agent. An agent an MCP server registered (`mode: 'agent'`) is always reachable. Only the default agent is offered `ask_agent`.
+
 ```typescript
 import { DelegationBus } from '@backendkit-labs/agent-core';
 

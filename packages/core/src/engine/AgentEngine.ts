@@ -1094,8 +1094,9 @@ export class AgentEngine {
         return this.opts.agents.get(this.currentAgentId);
     }
 
-    private buildAgentRoster(excludeId: string): string {
-        const all = this.opts.agents.getAll().filter(a => a.id !== excludeId);
+    private buildAgentRoster(profile: AgentProfile): string {
+        const targets = new Set(this.delegationTargets(profile));
+        const all = this.opts.agents.getAll().filter(a => targets.has(a.id));
         const mcp   = all.filter(a => a.source === 'mcp');
         const local = all.filter(a => a.source !== 'mcp');
 
@@ -1125,7 +1126,7 @@ export class AgentEngine {
     private buildSystemPrompt(profile: AgentProfile, hookSections: string[] = []): string {
         const isOrchestrator = profile.id === this.opts.defaultAgentId;
         const parts: string[] = [profile.systemPrompt];
-        if (isOrchestrator) parts.push(this.buildAgentRoster(profile.id));
+        if (isOrchestrator) parts.push(this.buildAgentRoster(profile));
         if (this.opts.workingDir) {
             parts.push(
                 `## Working Directory\n` +
@@ -1139,14 +1140,24 @@ export class AgentEngine {
         return parts.join('\n\n');
     }
 
-    private resolvesDelegateTo(profile: AgentProfile): string[] {
-        if (!profile.delegatesTo || profile.delegatesTo.length === 0) return [];
-        if (profile.delegatesTo[0] === '*') {
-            return this.opts.agents.getAll()
-                .map(a => a.id)
-                .filter(id => id !== profile.id);
-        }
-        return profile.delegatesTo as string[];
+    /**
+     * The agents `profile` may delegate to with `ask_agent`, never itself. A non-empty `delegatesTo` is the list (`['*']`: every
+     * other agent). Without one, the default agent may delegate to every other agent, as it always could, and any other agent to none.
+     * An agent an MCP server registered (mode 'agent') is always a target of a list: configuring that server declared it.
+     */
+    private delegationTargets(profile: AgentProfile): string[] {
+        const all = this.opts.agents.getAll().filter(a => a.id !== profile.id);
+        const others = all.map(a => a.id);
+        const declared = profile.delegatesTo ?? [];
+        if (declared.length === 0) return profile.id === this.opts.defaultAgentId ? others : [];
+        if (declared[0] === '*') return others;
+        const mcp = all.filter(a => a.source === 'mcp').map(a => a.id);
+        return [...new Set([...(declared as string[]), ...mcp])].filter(id => id !== profile.id);
+    }
+
+    /** Whether `profile` is offered `ask_agent`: only the default agent, and only with someone registered to delegate to. */
+    private offersAskAgent(profile: AgentProfile): boolean {
+        return profile.id === this.opts.defaultAgentId && this.delegationTargets(profile).some(id => this.opts.agents.has(id));
     }
 
     private getToolsForAgent(profile: AgentProfile): ToolDefinition[] {
@@ -1161,10 +1172,7 @@ export class AgentEngine {
         // target valido en el roster — si el modelo la llamaba, el turno completo
         // se perdia sin texto visible y sin error (ver bug del pulso de mercado,
         // agente_bk, 2026-07-24).
-        const hasDelegationTarget = this.opts.agents.getAll().some(a => a.id !== profile.id);
-        if (profile.id === this.opts.defaultAgentId && hasDelegationTarget) {
-            tools.push(ASK_AGENT_TOOL);
-        }
+        if (this.offersAskAgent(profile)) tools.push(ASK_AGENT_TOOL);
         if (hasDeferred) {
             // The list only grows, at the end: what the provider has cached of the prefix stays valid up to there (D4).
             // In 'message' mode it does not grow: what was found is described in the answer of tool_search.
@@ -1370,8 +1378,23 @@ export class AgentEngine {
 
                 // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
                 const callerChain = this.principalFor(currentProfile.id).chain;
+                const targets = this.delegationTargets(currentProfile);
                 const allowedCalls: typeof validCalls = [];
                 for (const call of validCalls) {
+                    // `delegatesTo` is a limit, not a hint: a delegation outside it never reaches the policies or the bus.
+                    if (!targets.includes(call.agentId)) {
+                        const startedAt = Date.now();
+                        const msg = targets.length > 0
+                            ? `Delegation refused: agent "${currentProfile.id}" may not delegate to "${call.agentId}". It may delegate to: ${targets.join(', ')}.`
+                            : `Delegation refused: agent "${currentProfile.id}" may not delegate to any agent. Execute the task directly.`;
+                        this.transport.emit({ type: 'tool_result', name: 'ask_agent', agent_id: currentProfile.id, success: false, preview: msg.slice(0, 120) });
+                        toolResults.push({ role: 'tool', tool_call_id: call.id, content: msg });
+                        await this.recordAudit({
+                            startedAt, agentId: currentProfile.id, chain: callerChain, tool: 'ask_agent', rawArgs: delegationArgs(call),
+                            decision: 'not_allowed', reason: `"${call.agentId}" is not in the delegatesTo of agent "${currentProfile.id}"`,
+                        });
+                        continue;
+                    }
                     if (!this.governed) { allowedCalls.push(call); continue; }
                     const startedAt = Date.now();
                     const base = this.principalFor(currentProfile.id, callerChain);
@@ -1617,6 +1640,8 @@ export class AgentEngine {
 
             const toolResults: LLMMessage[] = [];
             for (const call of toolCalls) {
+                // abort() reaches the calls already running, not the ones still to start: those must not start.
+                if (this.aborted) break;
                 const result = await this.executeToolCall(call, profile, depth, emit, () => {
                     // Sub-agent history is the local `messages` array: blank the refused arguments there too.
                     for (const m of messages) {
@@ -1749,7 +1774,7 @@ export class AgentEngine {
             !(this.opts.allowUnlistedTools && profile.allowedTools.length === 0 && !(profile.delegatesTo && profile.delegatesTo.length > 0))
         ) {
             result  = `Tool "${call.name}" is not authorized for agent "${profile.id}". ` +
-                      (profile.delegatesTo && profile.delegatesTo.length > 0
+                      (this.offersAskAgent(profile)
                           ? `Use ask_agent to delegate to a specialist.`
                           : `Add it to the agent's allowedTools if it should be able to use it.`);
             success = false;

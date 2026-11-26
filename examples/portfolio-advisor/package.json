@@ -11,9 +11,9 @@
     "demo": "tsc && node dist/demo.js"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.49.11",
+    "@backendkit-labs/agent-core": "^0.49.14",
     "@backendkit-labs/agent-mandates": "^0.1.5",
-    "@backendkit-labs/agent-protocol": "^0.7.3"
+    "@backendkit-labs/agent-protocol": "^0.8.0"
   },
   "devDependencies": {
     "@backendkit-labs/agent-testkit": "^0.1.21",

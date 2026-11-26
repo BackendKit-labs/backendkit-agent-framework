@@ -9,7 +9,7 @@ import type {
     FlowSteerAction,
     ApprovalStatus,
     ApprovalSummary,
-    ApprovalDecision,
+    ApprovalDecisionRequest,
     RunRequest,
     RunResponse,
     RunSummary,
@@ -287,6 +287,8 @@ export class AgentClient {
                 ...init,
                 headers: {
                     ...this.baseHeaders,
+                    // Extra headers of the call (checked: none can replace Authorization), then the control key.
+                    ...(init.headers as Record<string, string> | undefined ?? {}),
                     Authorization: `Bearer ${this.controlApiKey}`,
                     ...(context?.tenantId  ? { 'X-Tenant-ID':  context.tenantId  } : {}),
                     ...(context?.traceId   ? { 'X-Trace-ID':   context.traceId   } : {}),
@@ -394,9 +396,13 @@ export class AgentClient {
         return this.controlRequest<ApprovalSummary>(`/v1/agent/approvals/${encodeURIComponent(id)}`);
     }
 
-    /** Approves or rejects. Never retried: a decision is made once (a second one answers `CONFLICT`). */
-    async decideApproval(id: string, decision: ApprovalDecision, context?: AgentContext): Promise<ApprovalSummary> {
-        return this.controlRequest<ApprovalSummary>(`/v1/agent/approvals/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(decision) }, context);
+    /**
+     * Approves or rejects. Never retried: a decision is made once (a second one answers `CONFLICT`). Who decides is what the server
+     * authenticates (`approverOf` of `AgentServer`), not `by`: send `by` only to have the server confirm it, or leave it out.
+     * Extra `headers` (a personal token, for `approverOf`) go with this call only.
+     */
+    async decideApproval(id: string, decision: ApprovalDecisionRequest, context?: AgentContext, headers?: Record<string, string>): Promise<ApprovalSummary> {
+        return this.controlRequest<ApprovalSummary>(`/v1/agent/approvals/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(decision), headers: checkHeaders(headers) }, context);
     }
 
     /** Returns the current circuit breaker state ('closed', 'open', 'half_open'). */

@@ -148,7 +148,9 @@ describe('control actions go to the handler', () => {
 
         const broken = await post(url, 'c', { action: 'cancel_job', params: { id: 'boom' } });
         expect(broken.status).toBe(500);
-        expect((await json(broken)).error).toMatchObject({ code: 'EXECUTION_FAILED', message: 'registry exploded' });
+        const brokenError = (await json(broken)).error;
+        expect(brokenError).toMatchObject({ code: 'EXECUTION_FAILED', details: { errorId: expect.any(String) } });
+        expect(brokenError.message).not.toContain('registry exploded');
     });
 
     it('an error from another package is recognised by name and code, without importing ControlError', async () => {

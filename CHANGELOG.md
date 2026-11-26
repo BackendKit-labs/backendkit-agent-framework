@@ -2,6 +2,15 @@
 
 ## Sin publicar
 
+**`agent-protocol`: las rutas de control exigen la clave de control en la propia ruta.** Actualizar cuanto antes si se usa `controlApiKey`.
+
+- **Corregido:** la comprobación de claves se hacía aparte, comparando la URL, y algunas grafías de la URL de una ruta de control llegaban a ella sin la clave de control. Ahora cada ruta declara su clave (`runKey` o `controlKey`) como primer manejador, y la comprobación corre siempre que la ruta coincide.
+- **No cambia:** qué clave abre cada ruta. Una ruta desconocida responde 404 también sin clave (antes, con `apiKey`, respondía 401).
+- Pruebas nuevas (`route-keys.test.ts`): cada ruta de control con varias grafías, y una que falla si una ruta nueva no declara su clave.
+- **Quién aprueba lo dice el servidor, no el body.** El `by` de `POST /v1/agent/approvals/:id/decision` lo declaraba el cliente, así que quien tuviera la clave de control podía aprobar como cualquier persona. Nueva opción `approverOf({ headers })`: devuelve el aprobador a partir de algo que el servidor verifica (un token personal); si no puede identificarlo, 401. Sin ella, quien decide es `CONTROL_KEY_APPROVER` (`{ kind: 'service', id: 'control-key' }`). El `by` del body pasa a ser opcional y, si viene y no coincide, 403. `decideApproval` del cliente acepta cabeceras extra para esa llamada. **Cambio de comportamiento:** sin `approverOf` no se puede aprobar como humano por el protocolo.
+- **Los errores internos ya no viajan al llamador.** Cualquier error de una capability, de un handler o de la gate que no sea un `ControlError` o el nuevo `CapabilityError` (los pensados para el llamador) responde `EXECUTION_FAILED` con un mensaje genérico y `details.errorId`. El error real va a la nueva opción `onInternalError(err, { errorId, where, traceId })` (por defecto `console.error`) con el mismo id. Antes viajaba su mensaje, que puede llevar rutas, consultas o credenciales. **Cambio de comportamiento:** para comunicar un fallo de negocio al llamador, lanza `CapabilityError(code, message, details?)`. Los errores de core pensados para el llamador ya se llaman `ControlError` y siguen viajando.
+- **En loopback y sin `apiKey`**, el servidor solo atiende peticiones cuyo `Host` y `Origin` sean loopback (como `agent-web` y el servidor de tools de `agent-core`): una página web abierta en el navegador ya no le llega mediante un nombre DNS que apunte a 127.0.0.1. Con `apiKey` no cambia nada.
+
 **Un token vacío ya no autoriza a nadie ni arranca un servidor sin autenticación.** Hallazgo de la revisión de Steward (ADR-0015, «No verificado»).
 
 - **`isBearerAuthorized('Bearer ', '')` devolvía `true`:** un valor de cabecera vacío coincidía con un token vacío. Ahora un token vacío no autoriza a nadie. Lo mismo en `isAuthorized` (`mcp-server`) e `isBearerAuthorized` (`mcp-connectors`), que tenían la misma copia.

@@ -64,7 +64,19 @@ await server.start();
 | `GET /v1/agent/approvals`, `GET /v1/agent/approvals/:id`, `POST /v1/agent/approvals/:id/decision` | Approvals waiting for a person (protocol 1.2, control key) |
 | `GET /v1/agent/flows`, `POST /v1/agent/flows/:name/runs`, `GET /v1/agent/flow-runs/:id`, `POST /v1/agent/flow-runs/:id/:action` | Flows hosted by the agent (protocol 1.1) |
 
-Every request except `health` needs `Authorization: Bearer <apiKey>` when `apiKey` is set. Answers use one envelope: `{ ok, data | error, meta }`, with stable error codes (`ErrorCode`).
+Every request except `health` needs `Authorization: Bearer <apiKey>` when `apiKey` is set. Without an `apiKey` on loopback, only requests whose `Host` and `Origin` are loopback are served. Answers use one envelope: `{ ok, data | error, meta }`, with stable error codes (`ErrorCode`).
+
+**Errors: what the caller is told.** To tell the caller why a capability failed, throw a `CapabilityError(code, message, details?)`: its code (and HTTP status), message and details go through as they are. `ControlError` works the same for control, flow and approval handlers. Any other error is internal (a bug, a driver's exception, whose message can carry paths, queries or credentials): the caller gets `EXECUTION_FAILED` with `details.errorId`, and the error itself goes to `onInternalError(err, { errorId, where, traceId })` (default `console.error`) under that id, so it can be found in the logs.
+
+```ts
+server.register({
+  definition: payInvoice,
+  execute: async ({ invoiceId }) => {
+    if (await isPaid(invoiceId)) throw new CapabilityError('CONFLICT', `invoice ${invoiceId} is already paid`);
+    return ledger.pay(invoiceId);   // if this throws, the caller sees only an errorId
+  },
+});
+```
 
 ## Calling an agent
 
@@ -128,6 +140,8 @@ const server = new AgentServer({
   ...opts,
   gate,                                            // required: who runs capabilities and for whom (see above)
   controlApiKey: process.env.AGENT_CONTROL_KEY,
+  // Who decides: from something you verify, such as a personal token. The control key alone is not a person.
+  approverOf: ({ headers }) => verifyUserToken(headers['x-user-token']),   // → { kind: 'human', id } or undefined
   flowHandler,                                       // see createFlowHandler in agent-core
   approvalHandler: createApprovalHandler(store, {
     onDecided: approval => resumeFlow(approval),     // run the flow again with the same runId
@@ -137,14 +151,16 @@ const server = new AgentServer({
 // supervisor side
 const client = new AgentClient({ url, apiKey, controlApiKey });
 const pending = await client.listApprovals({ status: 'pending' });
-await client.decideApproval(pending[0].id, { decision: 'approve', by: { kind: 'human', id: 'ana' }, reason: 'ok' });
+await client.decideApproval(pending[0].id, { decision: 'approve', reason: 'ok' }, undefined, { 'x-user-token': anaToken });
 ```
 
 | Endpoint | |
 |---|---|
 | `GET /v1/agent/approvals?status=` | Pending, approved, rejected or executed |
 | `GET /v1/agent/approvals/:id` | One approval: subject, reason, who may decide, outcome |
-| `POST /v1/agent/approvals/:id/decision` | `{ decision: 'approve' \| 'reject', by: { kind, id }, reason? }` |
+| `POST /v1/agent/approvals/:id/decision` | `{ decision: 'approve' \| 'reject', reason?, by? }` |
+
+**Who decides is what the server authenticates, never what the body says.** With `approverOf` it is what that hook returns (`undefined` is a 401). Without it, it is `{ kind: 'service', id: 'control-key' }` (`CONTROL_KEY_APPROVER`): the control key says "a supervisor we know", not which person, so what only a human may approve cannot be approved without `approverOf`. A `by` in the body is optional and must match (403 otherwise).
 
 The host checks who decides: an approval that `accepts: ['human']` refuses an agent or a service, and the requester's own chain cannot approve it (`FORBIDDEN`, and the request stays open). A second decision for the same id is a `CONFLICT`. `AgentInfo` reports `approvals: true` and `protocolMinor`; flow runs can now be `awaiting_approval` or `lost` (a supervisor that restarted and no longer finds the run), and steps `awaiting_approval` or `interrupted`. A server older than 1.2 never sends them.
 

@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { AgentServer, AgentClient, ControlError, PROTOCOL_MINOR } from '../index';
+import { AgentServer, AgentClient, ControlError, PROTOCOL_MINOR, CONTROL_KEY_APPROVER } from '../index';
 import type { ApprovalHandler, ApprovalSummary } from '../index';
 
 function freePort(): Promise<number> {
@@ -60,6 +60,9 @@ async function start(opts: Partial<ConstructorParameters<typeof AgentServer>[0]>
 afterAll(async () => { await Promise.all(running.map(s => s.stop())); });
 
 const human = { kind: 'human' as const, id: 'ana' };
+/** Who approves, as these tests authenticate it: a personal header, `x-user: ana`. */
+const asUser = { approverOf: ({ headers }: { headers: Record<string, unknown> }) => (typeof headers['x-user'] === 'string' ? { kind: 'human' as const, id: headers['x-user'] } : undefined) };
+const withUser = (key: string, user = 'ana'): Record<string, string> => ({ ...auth(key), 'x-user': user });
 
 describe('approvals over agent-protocol (1.2)', () => {
     it('speaks 1.2 and publishes that it has approvals', async () => {
@@ -95,8 +98,8 @@ describe('approvals over agent-protocol (1.2)', () => {
     });
 
     it('decides once; a second decision is a CONFLICT (409); an unknown id is 404', async () => {
-        const { url } = await start({ controlApiKey: 'ctl' });
-        const decide = (id: string, body: unknown) => fetch(`${url}/v1/agent/approvals/${id}/decision`, { method: 'POST', headers: auth('ctl'), body: JSON.stringify(body) });
+        const { url } = await start({ controlApiKey: 'ctl', ...asUser });
+        const decide = (id: string, body: unknown) => fetch(`${url}/v1/agent/approvals/${id}/decision`, { method: 'POST', headers: withUser('ctl'), body: JSON.stringify(body) });
         const ok = await json(await decide('ap1', { decision: 'approve', reason: 'checked', by: human }));
         expect(ok.data).toMatchObject({ status: 'approved', outcome: { decision: 'approve', by: human, reason: 'checked' } });
         const again = await decide('ap1', { decision: 'reject', by: human });
@@ -106,12 +109,43 @@ describe('approvals over agent-protocol (1.2)', () => {
     });
 
     it('validates the body and leaves the approver check to the host', async () => {
-        const { url } = await start({ controlApiKey: 'ctl' });
+        const { url } = await start({ controlApiKey: 'ctl', approverOf: () => ({ kind: 'service', id: 'bot' }) });
         const decide = (body: unknown) => fetch(`${url}/v1/agent/approvals/ap1/decision`, { method: 'POST', headers: auth('ctl'), body: JSON.stringify(body) });
-        expect((await decide({ decision: 'maybe', by: human })).status).toBe(400);
-        expect((await decide({ decision: 'approve' })).status).toBe(400);
+        expect((await decide({ decision: 'maybe' })).status).toBe(400);
         expect((await decide({ decision: 'approve', by: { kind: 'robot', id: 'x' } })).status).toBe(400);
-        expect((await decide({ decision: 'approve', by: { kind: 'service', id: 'bot' } })).status).toBe(403); // the host: only a human
+        expect((await decide({ decision: 'approve' })).status).toBe(403); // the host: only a human, and the caller is the service "bot"
+    });
+
+    it('takes who decides from approverOf, never from the body', async () => {
+        const { url, handler } = await start({ controlApiKey: 'ctl', ...asUser });
+        const decide = (id: string, headers: Record<string, string>, body: unknown) =>
+            fetch(`${url}/v1/agent/approvals/${id}/decision`, { method: 'POST', headers, body: JSON.stringify(body) });
+        // Claiming someone else is refused, and nothing is decided.
+        const claimed = await decide('ap1', withUser('ctl', 'mallory'), { decision: 'approve', by: human });
+        expect(claimed.status).toBe(403);
+        expect(handler.items.get('ap1')!.status).toBe('pending');
+        // A caller approverOf cannot identify is 401.
+        expect((await decide('ap1', auth('ctl'), { decision: 'approve' })).status).toBe(401);
+        // Without `by`, the decision is recorded as the authenticated caller.
+        const ok = await json(await decide('ap1', withUser('ctl'), { decision: 'approve' }));
+        expect(ok.data.outcome).toMatchObject({ by: human });
+    });
+
+    it('an approverOf that throws refuses the decision', async () => {
+        const { url, handler } = await start({ controlApiKey: 'ctl', approverOf: () => { throw new Error('token service down'); } });
+        const res = await fetch(`${url}/v1/agent/approvals/ap1/decision`, { method: 'POST', headers: auth('ctl'), body: JSON.stringify({ decision: 'approve' }) });
+        expect(res.status).toBe(403);
+        expect(handler.items.get('ap1')!.status).toBe('pending');
+    });
+
+    it('without approverOf the control key decides as a service: it cannot pass for a person', async () => {
+        const { url, handler } = await start({ controlApiKey: 'ctl' });
+        const decide = (body: unknown) => fetch(`${url}/v1/agent/approvals/ap1/decision`, { method: 'POST', headers: auth('ctl'), body: JSON.stringify(body) });
+        expect((await decide({ decision: 'approve', by: human })).status).toBe(403);   // the body cannot say "a human"
+        expect((await decide({ decision: 'approve' })).status).toBe(403);              // the host: this one needs a human
+        handler.items.get('ap1')!.accepts = ['service'];
+        const ok = await json(await decide({ decision: 'approve' }));
+        expect(ok.data.outcome).toMatchObject({ by: CONTROL_KEY_APPROVER });
     });
 
     it('answers CONTROL_UNSUPPORTED when the agent has no approvals', async () => {
@@ -120,14 +154,15 @@ describe('approvals over agent-protocol (1.2)', () => {
     });
 
     it('the client lists, reads and decides', async () => {
-        const { port } = await start({ apiKey: 'run', controlApiKey: 'ctl' });
+        const { port } = await start({ apiKey: 'run', controlApiKey: 'ctl', ...asUser });
         const client = new AgentClient({ url: `http://127.0.0.1:${port}`, apiKey: 'run', controlApiKey: 'ctl' });
         const open = await client.listApprovals({ status: 'pending' });
         expect(open.map(a => a.id)).toEqual(['ap1', 'ap2']);
         expect((await client.approval('ap2')).reason).toBe('pay supplier');
-        const done = await client.decideApproval('ap2', { decision: 'reject', reason: 'no budget', by: human });
-        expect(done).toMatchObject({ status: 'rejected', outcome: { reason: 'no budget' } });
-        await expect(client.decideApproval('ap2', { decision: 'approve', by: human })).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
+        // The personal header travels with the decision; the control key stays in Authorization.
+        const done = await client.decideApproval('ap2', { decision: 'reject', reason: 'no budget' }, undefined, { 'x-user': 'ana' });
+        expect(done).toMatchObject({ status: 'rejected', outcome: { reason: 'no budget', by: human } });
+        await expect(client.decideApproval('ap2', { decision: 'approve', by: human }, undefined, { 'x-user': 'ana' })).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
         const noKey = new AgentClient({ url: `http://127.0.0.1:${port}`, apiKey: 'run' });
         await expect(noKey.listApprovals()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });

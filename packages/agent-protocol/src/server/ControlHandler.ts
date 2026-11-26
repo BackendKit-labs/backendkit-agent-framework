@@ -23,6 +23,31 @@ export class ControlError extends Error {
     }
 }
 
+/**
+ * Throw it from a capability to tell the caller why it failed: its `code` and `message` are meant for the caller and reach them as
+ * they are. Any other error is internal: the caller gets a generic message with an `errorId`, and the detail goes to the server's
+ * `onInternalError` under that id, never over the wire (an exception message can carry paths, queries, secrets).
+ */
+export class CapabilityError extends Error {
+    constructor(readonly code: ErrorCode, message: string, readonly details?: unknown) {
+        super(message);
+        this.name = 'CapabilityError';
+    }
+}
+
+/**
+ * The code, message and details of an error meant for the caller (`ControlError`, `CapabilityError`), or undefined for any other.
+ * By name as well as by class: a handler from another package (agent-core's) raises its own and must not need to import these.
+ */
+export function publicError(err: unknown): { code: ErrorCode; message: string; details?: unknown } | undefined {
+    if (err instanceof ControlError || err instanceof CapabilityError) return { code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) };
+    const named = err as { name?: unknown; code?: unknown; message?: unknown; details?: unknown } | null;
+    if (named && (named.name === 'ControlError' || named.name === 'CapabilityError') && typeof named.code === 'string') {
+        return { code: named.code as ErrorCode, message: String(named.message ?? ''), ...(named.details !== undefined ? { details: named.details } : {}) };
+    }
+    return undefined;
+}
+
 /** HTTP status for a code a control handler can raise. */
 export function statusForCode(code: ErrorCode): number {
     switch (code) {

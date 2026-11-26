@@ -147,8 +147,21 @@ export interface ApprovalSummary {
 export interface ApprovalDecision {
     decision: 'approve' | 'reject';
     reason?:  string;
-    /** Who decides. The host checks it (kind accepted, not the requester's own chain...) before taking the answer. */
+    /**
+     * Who decides, as the server authenticated them (`approverOf` of `AgentServer`), never as the caller claimed. The host checks it
+     * (kind accepted, not the requester's own chain...) before taking the answer.
+     */
     by:       ApproverRef;
+}
+
+/**
+ * What a client sends to decide. `by` is optional and is not trusted: the server takes who decides from `approverOf` (or, without it,
+ * the holder of the control key as a service). A `by` that does not match that is refused.
+ */
+export interface ApprovalDecisionRequest {
+    decision: 'approve' | 'reject';
+    reason?:  string;
+    by?:      ApproverRef;
 }
 
 // ── Control (protocol 1.1) ────────────────────────────────────────────────────

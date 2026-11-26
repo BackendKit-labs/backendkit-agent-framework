@@ -84,14 +84,16 @@ describe('AgentServer + AgentClient (HTTP real)', () => {
             expect((await json(res)).error.code).toBe('CAPABILITY_NOT_FOUND');
         });
 
-        it('handler error -> 500 EXECUTION_FAILED with message and traceId', async () => {
+        it('handler error -> 500 EXECUTION_FAILED with an errorId and the traceId, never the internal message', async () => {
             const res = await raw('/v1/agent/run', {
                 method: 'POST', headers: { 'X-Trace-ID': 'trace-1' },
                 body: JSON.stringify({ capability: 'boom', input: {} }),
             });
             expect(res.status).toBe(500);
             const body = await json(res);
-            expect(body.error).toMatchObject({ code: 'EXECUTION_FAILED', message: 'kaput' });
+            expect(body.error).toMatchObject({ code: 'EXECUTION_FAILED', details: { errorId: expect.any(String) } });
+            expect(body.error.message).not.toContain('kaput');
+            expect(body.error.message).toContain(body.error.details.errorId);
             expect(body.meta.traceId).toBe('trace-1');
         });
 

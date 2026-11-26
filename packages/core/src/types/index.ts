@@ -340,7 +340,8 @@ export type AgentEvent =
     | { type: 'workflow_step_start'; step: string; agent: string }
     | { type: 'workflow_step_complete'; step: string; success: boolean }
     | { type: 'workflow_approval_required'; step: string }
-    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' }
+    /** `awaiting_approval` (a flow suspended until someone decides) and `cancelled` come only from `runFlow`. */
+    | { type: 'workflow_complete'; name: string; status: 'completed' | 'failed' | 'rejected' | 'awaiting_approval' | 'cancelled' }
     | { type: 'compacting'; label: string; phase: 'start' | 'done' | 'fail' }
     /**
      * A guardrail changed, blocked or failed on a piece of text. `replacement` (output phase only) is the

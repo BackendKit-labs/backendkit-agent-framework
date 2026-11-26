@@ -589,18 +589,37 @@ export class AgentEngine {
      * Uses the engine's default provider and model.
      */
     async callLLM(prompt: string): Promise<string> {
-        const provider = this.opts.providers.resolve(undefined, this.opts.defaultProvider);
+        return this.singleCall(this.opts.providers.resolve(undefined, this.opts.defaultProvider), prompt, {
+            provider: this.opts.defaultProvider, purpose: 'call_llm',
+        });
+    }
+
+    /**
+     * One prompt, no tools, outside the conversation. Like every other LLM call of the engine it reports its tokens as a `metrics`
+     * event (the budget and the cost are counted from those), stops with `abort()` while a run is going on, and fails with the
+     * provider's error, also when the provider rejects instead of calling `onError`.
+     */
+    private singleCall(provider: LLMProvider, prompt: string, info: LlmCallInfo, model?: string): Promise<string> {
+        const startedAt = Date.now();
+        const signal = this.runController?.signal;
         return new Promise<string>((resolve, reject) => {
             const chunks: string[] = [];
-            provider.chat(
+            Promise.resolve(provider.chat(
                 [{ role: 'user', content: prompt }],
                 [],
                 {
-                    onChunk(delta) { chunks.push(delta); },
-                    onDone()       { resolve(chunks.join('')); },
-                    onError(err)   { reject(err); },
+                    onChunk: (delta) => { chunks.push(delta); },
+                    onDone: () => resolve(chunks.join('')),
+                    onError: reject,
+                    onMetrics: (inputTokens, outputTokens, usage) => {
+                        this.transport.emit(metricsEvent(inputTokens, outputTokens, usage, {
+                            ...info, model: model ?? info.model ?? provider.modelId, startedAt,
+                        }));
+                    },
+                    ...(signal ? { signal } : {}),
+                    ...(model ? { model } : {}),
                 },
-            );
+            )).catch(reject);
         });
     }
 
@@ -1182,11 +1201,12 @@ export class AgentEngine {
                 reason: `"${call.agentId}" is not in the delegatesTo of agent "${profile.id}"`,
             };
         }
-        if (!this.governed) return undefined;
-        // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
+        // No identity, or no one to act for, and nobody is delegated to (SPEC-0044), with or without policies: as for any tool call.
         const base = this.principalFor(profile.id, chain);
         const who = await this.identities.check(profile.id, { sessionId: base.sessionId, ...(base.tenantId !== undefined ? { tenantId: base.tenantId } : {}), ...(base.userId !== undefined ? { userId: base.userId } : {}) });
         if (!who.ok) return { message: `Tool call "ask_agent" denied: ${who.reason}`, decision: 'deny', reason: who.reason };
+        if (!this.governed) return undefined;
+        // In the policy path a delegation is a call like any other: the policies may deny it or ask first.
         const verdict = await this.gate.decide(ASK_AGENT_TOOL, JSON.stringify(delegationArgs(call)), who.identity ? { ...base, agentIdentity: who.identity } : base, []);
         return verdict.run ? undefined : { message: verdict.message, decision: verdict.decision, reason: verdict.reason };
     }
@@ -1827,8 +1847,9 @@ export class AgentEngine {
                     result = verdict.message; success = false;
                     decision = verdict.decision;
                     reason = verdict.reason;
-                } else if (this.runController?.signal.aborted) {
+                } else if (this.currentRunId !== undefined && this.aborted) {
                     // The run was aborted while the call waited (for an approver, say): an approval that arrives late does not start it.
+                    // Any path of a run, the direct MCP route included; outside a run (`runApproved`) a stale abort stops nothing.
                     result = `Error: aborted: tool "${call.name}" was cancelled before it ran`; success = false;
                     outcome = 'aborted';
                     approval = verdict.approval;
@@ -2135,22 +2156,14 @@ export class AgentEngine {
             emitCompacting: (phase, label) => {
                 this.transport.emit({ type: 'compacting', phase, label });
             },
+            // Counted in the budget like any call of this agent; a provider error reaches the tool instead of becoming ''.
             llmCall: async (prompt: string): Promise<string> => {
                 const profile = this.opts.agents.get(id);
-                if (!profile) return '';
-                const provider = this.getProviderForProfile(profile);
-                let result = '';
-                await provider.chat(
-                    [{ role: 'user', content: prompt }],
-                    [],
-                    {
-                        onChunk:   (d) => { result += d; },
-                        onToolCall: () => {},
-                        onDone:    () => {},
-                        onError:   () => {},
-                    },
-                );
-                return result.trim();
+                if (!profile) throw new Error(`llmCall: agent "${id}" is not registered`);
+                const text = await this.singleCall(this.getProviderForProfile(profile), prompt, {
+                    agentId: id, provider: profile.provider ?? this.opts.defaultProvider, purpose: 'tool_llm_call',
+                }, profile.model);
+                return text.trim();
             },
         };
     }

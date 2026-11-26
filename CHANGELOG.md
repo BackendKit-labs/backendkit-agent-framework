@@ -17,8 +17,12 @@
 - **Abort en un sub-agente:** `abort()` (también por presupuesto con `abortOnBudget`) cortaba la llamada al LLM y las tools en curso, pero las tools que quedaban de esa vuelta empezaban igual. Ahora no empiezan.
 - **`ctx.askAgent` (delegación desde una tool) no pasaba ningún control:** ni auto-delegación, ni `delegatesTo`, ni identidad, ni políticas, ni auditoría. Ahora pasa el mismo control que `ask_agent` y deja un evento `ask_agent` en la auditoría. Si lo rechaza, lanza, y la tool falla con el motivo. **Cambio de comportamiento:** una tool de un agente que no es el agente por defecto y no tiene `delegatesTo` ya no puede delegar.
 - **Abort mientras una tool espera al aprobador:** si la aprobación llegaba después del abort, la tool corría igual. Ahora no empieza; se audita como permitida, con `outcome: 'aborted'` y la aprobación.
+- **`ctx.llmCall` y `callLLM` no contaban en el presupuesto:** no emitían el evento `metrics` (de donde salen el coste y el presupuesto) ni recibían el abort. Ahora emiten `metrics` (`purpose: 'tool_llm_call'` / `'call_llm'`), se cortan con `abort()` durante una corrida y fallan con el error del proveedor. **Cambio de comportamiento:** `ctx.llmCall` antes se tragaba el error y devolvía `''`; ahora lanza. `callLLM` se quedaba colgada si el proveedor rechazaba en vez de llamar a `onError`.
+- **`workflow_complete` anunciaba `failed`** para un flow suspendido esperando aprobación o cancelado. Ahora lleva el estado real; el tipo del evento suma `awaiting_approval` y `cancelled`.
+- **Delegación sin políticas:** no comprobaba la identidad del agente (SPEC-0044), a diferencia de cualquier llamada a tool. Ahora sí, en `ask_agent` y en `ctx.askAgent`. **Cambio de comportamiento:** sin `agentIdentity` (y sin `requireAgentIdentity: false`) ya no se delega.
+- **Abort en la ruta MCP directa:** una tool cuya aprobación llegaba tras el abort también corría ahí. Ahora se corta en cualquier camino de la corrida.
 - **REFERENCE de `agent-core`:** el ejemplo de `DelegationBus` usaba métodos que no existen (`register`, `delegate`). Ahora usa la API real (`runSingle`, `runParallel`).
-- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`); quitar el arreglo rompe nueve.
+- Pruebas nuevas (`AgentEngine.delegatesTo.test.ts`, `AgentEngine.ctxAskAgent.test.ts`, `AgentEngine.subAgentAbort.test.ts`, `AgentEngine.singleCall.test.ts`, `workflow-complete-status.test.ts`); quitar el arreglo rompe dieciséis.
 
 ## v0.50.18 (2026-11-25)
 

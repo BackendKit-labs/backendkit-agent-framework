@@ -571,6 +571,6 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
         ...(costUsd !== undefined ? { costUsd } : {}),
         transitions: flush(),
     });
-    opts.transport?.emit({ type: 'workflow_complete', name: def.flow, status: status === 'completed' ? 'completed' : status === 'rejected' ? 'rejected' : 'failed' });
+    opts.transport?.emit({ type: 'workflow_complete', name: def.flow, status });
     return { runId, flow: def.flow, version: def.version, status, steps: results, ...(costUsd !== undefined ? { costUsd } : {}), transitions, compensations };
 }

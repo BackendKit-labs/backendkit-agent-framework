@@ -167,6 +167,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
                     ...(req.hostCommand !== undefined ? { hostCommand: req.hostCommand } : {}),
                     cwd: req.cwd,
                     workspace,
+                    roots: r.roots,
                     mode: r.mode,
                     network: r.network,
                     env: options.scrubEnvironment === false

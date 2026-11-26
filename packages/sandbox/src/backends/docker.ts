@@ -57,15 +57,28 @@ function defaultProbe(bin: string): Promise<boolean> {
 
 /**
  * Arguments of `docker run` for one confined command: all capabilities dropped, no new privileges,
- * memory and process limits, only the workspace mounted (read-only in `read-only` mode).
+ * memory and process limits, only the workspace and the policy's extra roots mounted (read-only in `read-only` mode).
+ * The working directory is the `cwd` inside the mount that holds it. A `cwd` in none of them throws: the command would
+ * otherwise run in an empty directory docker makes up inside the container.
  */
 export function buildDockerArgs(
     name: string,
-    req: Pick<BackendExecRequest, 'command' | 'cwd' | 'workspace' | 'mode' | 'network'>,
+    req: Pick<BackendExecRequest, 'command' | 'cwd' | 'workspace' | 'roots' | 'mode' | 'network'>,
     opts: { image: string; memory: string; pidsLimit: number; user?: string },
 ): string[] {
-    const rel = path.relative(req.workspace, req.cwd).split(path.sep).join('/');
     const readOnly = req.mode === 'read-only';
+    const mounts = [{ host: req.workspace, at: '/workspace' }];
+    for (const root of req.roots ?? []) {
+        if (!mounts.some(m => path.resolve(m.host) === path.resolve(root))) mounts.push({ host: root, at: `/roots/${mounts.length - 1}` });
+    }
+    const relTo = (host: string): string | undefined => {
+        const rel = path.relative(host, req.cwd);
+        const outside = rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+        return outside ? undefined : rel.split(path.sep).join('/');
+    };
+    const holder = mounts.find(m => relTo(m.host) !== undefined);
+    if (!holder) throw new Error(`the working directory "${req.cwd}" is in none of the mounted directories (the workspace and the policy roots)`);
+    const rel = relTo(holder.host)!;
     return [
         'run', '--rm', '--name', name,
         '--network', req.network === 'none' ? 'none' : 'bridge',
@@ -75,8 +88,8 @@ export function buildDockerArgs(
         '--pids-limit', String(opts.pidsLimit),
         ...(opts.user ? ['--user', opts.user, '-e', `HOME=${CONTAINER_HOME}`] : []),
         ...(readOnly ? ['--read-only', '--tmpfs', '/tmp'] : []),
-        '-v', `${req.workspace}:/workspace${readOnly ? ':ro' : ''}`,
-        '-w', rel ? `/workspace/${rel}` : '/workspace',
+        ...mounts.flatMap(m => ['-v', `${m.host}:${m.at}${readOnly ? ':ro' : ''}`]),
+        '-w', rel ? `${holder.at}/${rel}` : holder.at,
         opts.image,
         'sh', '-c', req.command,
     ];

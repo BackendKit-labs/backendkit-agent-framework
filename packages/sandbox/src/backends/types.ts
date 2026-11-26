@@ -8,6 +8,8 @@ export interface BackendExecRequest {
     cwd: string;
     /** Directory exposed to the command (mounted by container backends). */
     workspace: string;
+    /** Extra directories of the policy (`roots`) the command may work in: container backends mount them too, as they mount the workspace. */
+    roots?: string[];
     mode: SandboxMode;
     network: SandboxNetwork;
     /** Environment for backends that run on the host (already scrubbed). */

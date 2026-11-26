@@ -13,6 +13,8 @@
 - **Cambio de comportamiento:** en `read-only`, una tool sin `readOnly: true` que antes corría ahora se rechaza; en `ask`, una tool sin declarar ahora pide aprobación. Declara los hechos de tus tools o nómbralas en `ownStateTools`.
 - Pruebas nuevas: `AgentEngine.sandboxFacts.test.ts` (el engine pasa los hechos), y casos en `service.test.ts`, `inherit.test.ts` y el `sandbox.test.ts` de coding (cada tool de coding con sus hechos reales).
 
+**El backend Docker monta también las raíces extra de la política.** Un comando con el directorio de trabajo en una de `policy.roots`, fuera del workspace, pasaba la comprobación pero Docker solo montaba el workspace: corría en `/workspace/../<ruta>`, un directorio vacío que Docker crea dentro del contenedor, sin error. Ahora cada raíz se monta en `/roots/<n>` (en solo lectura en `read-only`) y el directorio de trabajo es el de dentro del montaje que lo contiene. Un `cwd` que no está en ninguno falla en vez de correr en el sitio equivocado. `BackendExecRequest` gana `roots`.
+
 ## v0.50.19 (2026-11-26)
 
 **Seguridad: actualizar `agent-protocol` cuanto antes si se usa `controlApiKey`.** Además, `agent-core` cierra los huecos de delegación, abort y presupuesto de la revisión de código del engine, y los tres servidores con token bearer dejan de aceptar uno vacío.

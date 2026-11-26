@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,6 +41,20 @@ describe('buildDockerArgs', () => {
         const withUser = buildDockerArgs('c', base, { ...opts, user: '1001:1002' });
         expect(withUser[withUser.indexOf('-e') + 1]).toBe('HOME=/tmp');
         expect(buildDockerArgs('c', base, opts)).not.toContain('HOME=/tmp');
+    });
+
+    it('mounts the policy roots too, and runs in the cwd inside the mount that holds it', () => {
+        const p = (x: string) => path.resolve(x);
+        const base = { command: 'x', workspace: p('/w'), roots: [p('/r')], mode: 'read-only' as const, network: 'none' as const };
+        const inRoot = buildDockerArgs('c', { ...base, cwd: p('/r/x') }, opts);
+        const volumes = inRoot.flatMap((v, i) => (v === '-v' ? [inRoot[i + 1]] : []));
+        expect(volumes).toEqual([`${p('/w')}:/workspace:ro`, `${p('/r')}:/roots/0:ro`]);
+        expect(flag(inRoot, '-w')).toBe('/roots/0/x');                                     // not /workspace/../r/x
+        expect(flag(buildDockerArgs('c', { ...base, cwd: p('/w/src') }, opts), '-w')).toBe('/workspace/src');
+        // a root equal to the workspace is not mounted twice
+        expect(buildDockerArgs('c', { ...base, roots: [p('/w')], cwd: p('/w') }, opts).filter(v => v === '-v')).toHaveLength(1);
+        // a cwd in none of them is refused instead of running in an empty directory
+        expect(() => buildDockerArgs('c', { ...base, cwd: p('/elsewhere') }, opts)).toThrow(/none of the mounted directories/);
     });
 
     it('closes the network unless the policy allows it', () => {

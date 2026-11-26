@@ -54,6 +54,18 @@ describe('runToolServer', () => {
         await expect(runToolServer({ name: 't', tools }, { argv: ['--nope'], log: () => undefined })).rejects.toThrow(/Unknown option\(s\): --nope/);
     });
 
+    it('warns that --token is visible to other users, and not when the token comes from the variable', async () => {
+        const fromFlag: string[] = [];
+        const a = await runToolServer({ name: 't', tools }, { argv: ['--http', '--port', '0', '--token', 'tok'], log: l => { fromFlag.push(l); } });
+        await a.close();
+        expect(fromFlag.some(l => /--token puts the token where other users/.test(l))).toBe(true);
+
+        const fromEnv: string[] = [];
+        const b = await runToolServer({ name: 't', tools }, { argv: ['--http', '--port', '0'], env: { BK_MCP_TOKEN: 'tok' }, log: l => { fromEnv.push(l); } });
+        await b.close();
+        expect(fromEnv.some(l => /--token puts/.test(l))).toBe(false);
+    });
+
     it('starts HTTP with the flags and the token from the configured env variable', async () => {
         const lines: string[] = [];
         const running = await runToolServer(

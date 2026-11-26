@@ -19,6 +19,10 @@
 - **Ahora:** un `ToolError(code, message)` es para el cliente: su mensaje viaja y la auditoría registra su `errorCode`, no el mensaje. Cualquier otro error es interno: el cliente recibe `internal error (<errorId>)` y el error va a la nueva opción `onInternalError(err, { errorId, server, tool, where, requestId })` (por defecto stderr), igual para `authorize` y el aprobador. El registro del hook `audit` (obsoleto) lleva el mensaje genérico.
 - **Cambio de comportamiento:** para que el cliente vea por qué falló, lanza `ToolError`, o devuelve el fallo como resultado (lo devuelto es payload). Afecta también a las tools directas de `AgentMCPServer` (`mcp-server`), que usan el mismo registrador.
 
+**El servidor de tools sabe quién llama.** Antes `authorize` y las políticas no recibían ningún dato del llamador, y con un token compartido todas las llamadas actuaban como la misma persona (`identity` fija). Ahora `ToolCallInfo` lleva las cabeceras de la petición HTTP (`headers`) y `authInfo`, que el SDK ya entregaba, e `identity` puede ser una función de la llamada: cada llamada actúa por quien la hizo, a partir de algo que el servidor verifica (un token personal). Una función que lanza deniega la llamada con un `errorId`. Aditivo: una `identity` fija funciona igual.
+
+**`--token` del CLI del servidor de tools** avisa al arrancar de que el token queda visible para otros usuarios de la máquina (`ps`), y la ayuda recomienda `BK_MCP_TOKEN`.
+
 **El backend Docker monta también las raíces extra de la política.** Un comando con el directorio de trabajo en una de `policy.roots`, fuera del workspace, pasaba la comprobación pero Docker solo montaba el workspace: corría en `/workspace/../<ruta>`, un directorio vacío que Docker crea dentro del contenedor, sin error. Ahora cada raíz se monta en `/roots/<n>` (en solo lectura en `read-only`) y el directorio de trabajo es el de dentro del montaje que lo contiene. Un `cwd` que no está en ninguno falla en vez de correr en el sitio equivocado. `BackendExecRequest` gana `roots`.
 
 ## v0.50.19 (2026-11-26)

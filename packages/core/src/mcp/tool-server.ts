@@ -45,6 +45,13 @@ export interface ToolCallInfo {
     /** MCP session id when the transport has sessions (stdio and stateless HTTP have none). */
     sessionId?: string;
     requestId: string | number;
+    /**
+     * Headers of the HTTP request that carried the call (Streamable HTTP; absent over stdio). Use them to know WHO calls, from something
+     * you verify (a personal token), never from a header the caller sets by itself. The server's own bearer is among them: never log them.
+     */
+    headers?: Record<string, string | string[] | undefined>;
+    /** What the transport authenticated, when an auth layer in front of it set it (the SDK's `AuthInfo`). */
+    authInfo?: unknown;
 }
 
 export type ToolCallOutcome = 'ok' | 'denied' | 'timeout' | 'error' | 'too_large';
@@ -98,8 +105,12 @@ export interface ToolServerOptions {
     approverDirectory?: ApproverDirectory;
     /** Four eyes: whoever the server acts for (`identity.userId`) does not approve the call either. With no `identity.userId` the call is denied. */
     forbidSelfApproval?: boolean;
-    /** Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off. */
-    identity?: Identity;
+    /**
+     * Who the server acts for; part of the principal policies and audit events see. Its `userId` is required unless `requireAgentIdentity` is off.
+     * A fixed identity serves every caller as the same person. A function of the call (`headers`, `authInfo`) acts for whoever made it: derive
+     * it from something you verified (a validated token), never from a header the caller sets by itself. A function that throws denies the call.
+     */
+    identity?: Identity | ((call: ToolCallInfo) => Identity | undefined | Promise<Identity | undefined>);
     /**
      * Gives the server its digital identity (SPEC-0044): who executes the calls. The same contract and the same default as the engine: every call
      * is attributed to it in the audit and signed by it when the provider can sign. See `selfAssertedIdentities`, `ed25519AgentIdentities`.
@@ -275,6 +286,8 @@ interface CallExtra {
     signal: AbortSignal;
     sessionId?: string;
     requestId: string | number;
+    requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+    authInfo?: unknown;
 }
 
 async function runCall(
@@ -286,10 +299,23 @@ async function runCall(
 ): Promise<CallToolResult> {
     const started = Date.now();
     const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as Record<string, unknown>;
-    const info: ToolCallInfo = { tool, args, requestId: extra.requestId, ...(extra.sessionId ? { sessionId: extra.sessionId } : {}) };
+    const info: ToolCallInfo = {
+        tool, args, requestId: extra.requestId,
+        ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+        ...(extra.requestInfo?.headers ? { headers: extra.requestInfo.headers } : {}),
+        ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
+    };
     const gov = governance(opts);
+    // For whom this call runs: fixed, or derived per call from what the server verified. A function that throws denies the call (below).
+    let callerIdentity: Identity | undefined;
+    let identityError: { err: unknown } | undefined;
+    if (typeof opts.identity === 'function') {
+        try { callerIdentity = await opts.identity(info); } catch (err) { identityError = { err }; }
+    } else {
+        callerIdentity = opts.identity;
+    }
     const principal: Principal = {
-        ...opts.identity,
+        ...callerIdentity,
         agentId: opts.name,
         sessionId: info.sessionId ?? 'mcp',
         chain: [opts.name],
@@ -360,7 +386,11 @@ async function runCall(
             : { content: [{ type: 'text', text }], isError: true };
     };
 
-    // 0. Identity: no identity for the server, or no one to act for, and nothing runs.
+    // 0. Identity: who the call is for could not be told, no identity for the server, or no one to act for, and nothing runs.
+    if (identityError) {
+        const reason = `who the call is for could not be checked: ${internal(identityError.err, 'identity')}`;
+        return finish('denied', `Tool "${tool.name}" denied: ${reason}`, reason);
+    }
     if (!who.ok) return finish('denied', `Tool "${tool.name}" denied: ${who.reason}`, who.reason);
 
     // 1. Authorization — before anything else runs.

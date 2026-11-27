@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/mcp-connectors",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Enterprise MCP connectors — HubSpot CRM, Jira, Google Calendar, Odoo ERP, AI Vault",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

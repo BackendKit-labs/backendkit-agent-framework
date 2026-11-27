@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/agent-coding",
-  "version": "0.32.14",
+  "version": "0.32.15",
   "description": "Coding agent profiles and tools for @backendkit-labs/agent-core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -56,7 +56,7 @@
     "@backendkit-labs/agent-core": "^0.49.15",
     "@backendkit-labs/agent-providers": "^0.3.0",
     "@backendkit-labs/result": "^0.2.1",
-    "@backendkit-labs/agent-sandbox": "^0.1.24",
+    "@backendkit-labs/agent-sandbox": "^0.1.25",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
     "zod": "^4.6.6"

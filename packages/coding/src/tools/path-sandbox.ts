@@ -103,12 +103,8 @@ const PROTECTED_SEGMENTS = [
  * Returns an error string when protection triggers, undefined when the write
  * is safe.
  *
- * Protection is SKIPPED when:
- * - workingDir itself is inside a protected segment (user is developing the
- *   framework — all writes to framework source are intentional).
- * - workingDir is the monorepo root (user has explicitly scoped to the full
- *   repo; checkFrameworkProtection cannot tell which project they intend to
- *   work on, so it defers to path-sandbox alone and the startup warning).
+ * Protection is SKIPPED only when workingDir itself is inside a protected segment (the user is developing the framework:
+ * writes to its source are intentional). At the repository root, or above it, it applies.
  */
 /** Is the directory the repository of THIS framework? Its packages/core/package.json names @backendkit-labs/agent-core. */
 function isFrameworkRepo(root: string): boolean {
@@ -144,12 +140,9 @@ export function checkFrameworkProtection(abs: string, workingDir: string | undef
     const at = absNorm.indexOf(triggered.replace(/\\/g, '/').toLowerCase());
     if (!isFrameworkRepo(abs.slice(0, at))) return undefined;
 
-    // Skip protection when workingDir is a direct ancestor of the protected
-    // segment — i.e., the monorepo root. Use /cwd or WORKING_DIR to narrow scope.
-    const triggerNorm = triggered.replace(/\\/g, '/').toLowerCase();
-    const isAncestor = triggerNorm.startsWith(cwdNorm.replace(/\\/g, '/')) ||
-                       cwdNorm.split('/').length <= 2; // very short path = likely root
-    if (isAncestor) return undefined;
+    // There used to be a skip here for "workingDir is the monorepo root" that never matched it (it compared a relative segment
+    // with an absolute path) and instead turned the protection off for any two-segment workingDir, `C:\projects` (audit E-08).
+    // Working at the repository root, or above it, is protected: only working inside a framework package skips (above).
 
     const rel = relative(workingDir, abs).replace(/\\/g, '/');
     return (

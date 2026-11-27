@@ -146,3 +146,30 @@ describe('flow step approval through the ApprovalStore', () => {
         }
     });
 });
+
+describe('the approval of an agent step is for what was shown (audit B-05)', () => {
+    const paying = FlowDefinitionSchema.parse({
+        flow: 'f', trigger: { type: 'manual' },
+        steps: [{ id: 'pay', agent: 'x', prompt: 'Pay {{payload.amount}} to {{payload.to}}', gate: { approval: 'human' } }],
+    });
+
+    it('a resume with another payload does not reuse the approval: it is denied, not run', async () => {
+        const store = new MemoryApprovalStore(); const journal = new MemoryRunJournal(); const { executor, ran } = counting();
+        const first = await runFlow(paying, { executor, journal, runId: 'b5', approvals: { store }, payload: { amount: 10, to: 'acme' } });
+        expect(first.status).toBe('awaiting_approval');
+        await store.resolve(stepApprovalId('b5', 'pay'), { decision: 'approve', by: human, at: new Date().toISOString() });
+        const tampered = await runFlow(paying, { executor, journal, runId: 'b5', approvals: { store }, payload: { amount: 10_000, to: 'mallory' } });
+        expect(tampered.steps.pay.status).toBe('failed');
+        expect(tampered.steps.pay.error).toMatch(/not the one that was approved/);
+        expect(ran).toEqual([]);
+    });
+
+    it('the same payload goes on with the approval it got', async () => {
+        const store = new MemoryApprovalStore(); const journal = new MemoryRunJournal(); const { executor, ran } = counting();
+        await runFlow(paying, { executor, journal, runId: 'b5b', approvals: { store }, payload: { amount: 10, to: 'acme' } });
+        await store.resolve(stepApprovalId('b5b', 'pay'), { decision: 'approve', by: human, at: new Date().toISOString() });
+        const again = await runFlow(paying, { executor, journal, runId: 'b5b', approvals: { store }, payload: { to: 'acme', amount: 10 } });
+        expect(again.status).toBe('completed');
+        expect(ran).toEqual(['pay']);
+    });
+});

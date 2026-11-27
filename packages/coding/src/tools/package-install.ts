@@ -41,7 +41,9 @@ export function requiresInstallApproval(command: string, depth = 0): boolean {
             const inner = dq ?? sq ?? '';
             return /[&|;`$()<>{}\r\n]/.test(inner) ? '""' : inner.replace(/\s+/g, '_');
         })
-        .replace(/[0-9]*>>?\s*(?:&[0-9]*|\S*)/g, '');
+        .replace(/[0-9]*>>?\s*(?:&[0-9]*|\S*)/g, '')
+        // `{}` is the placeholder of xargs -I and find -exec, an argument, not a brace group that splits the command
+        .replace(/\{\}/g, 'placeholder-argument');
     return unquoted.split(SEGMENT_SEPARATORS).some(segment => segmentInstalls(segment, depth));
 }
 
@@ -63,6 +65,17 @@ function segmentInstalls(segment: string, depth: number): boolean {
     if (!name) return false;
     const rest = tokens.slice(i + 1);
 
+    // Commands that run another command not at their start: `xargs npm install`, `find . -exec npm install x ;`.
+    // xargs adds what it reads to the command: `ls | xargs npm install` names packages, so it is judged as if one were named.
+    if (name === 'xargs') return segmentInstalls(`${skipXargsOptions(rest).join(' ')} stdin-argument`, depth + 1);
+    if (name === 'find') {
+        const exec = rest.findIndex(a => FIND_EXEC.has(a));
+        return exec >= 0 && segmentInstalls(rest.slice(exec + 1).filter(a => a !== ';' && a !== '+' && a !== '\\').join(' '), depth + 1);
+    }
+
+    // Runners that fetch a package and run it: always for `dlx`, for npx/bunx/npm exec when the command names one to fetch.
+    if (name === 'npx' || name === 'bunx') return fetchesPackage(rest);
+
     // a shell given its script as an argument: the quoted payload was already checked; an unquoted one is the rest
     if (SHELLS.has(name)) {
         // drop the shell's own switches (-c, -Command, cmd's /c) and judge the script that follows
@@ -79,8 +92,37 @@ function segmentInstalls(segment: string, depth: number): boolean {
     }
 
     if (name === 'pip' || name === 'pip3') return pipTouches(rest);
-    if (name === 'npm' || name === 'yarn' || name === 'pnpm') return jsManagerTouches(rest);
+    if (name === 'npm' || name === 'yarn' || name === 'pnpm' || name === 'bun') return jsManagerTouches(rest);
+    const sub = rest.find(a => !a.startsWith('-'))?.toLowerCase();
+    if (name === 'uv') {
+        if (sub === 'pip') return pipTouches(rest.slice(rest.indexOf('pip') + 1));
+        if (sub === 'tool') return rest.some(a => a === 'install' || a === 'uninstall');
+        return sub === 'add' || sub === 'remove';
+    }
+    if (name === 'poetry' || name === 'pdm') return sub === 'add' || sub === 'remove';
+    if (name === 'pipx' || name === 'gem') return sub === 'install' || sub === 'uninstall';
+    if (name === 'cargo') return sub === 'install' || sub === 'add' || sub === 'remove' || sub === 'uninstall';
+    if (name === 'go') return sub === 'install' || sub === 'get';
     return false;
+}
+
+const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir']);
+const XARGS_VALUE_OPTS = new Set(['-i', '-l', '-n', '-p', '-s', '-d', '-e', '-a', '--arg-file', '--max-args', '--max-procs', '--max-lines', '--max-chars', '--delimiter', '--eof', '--replace']);
+
+function skipXargsOptions(args: string[]): string[] {
+    let k = 0;
+    while (k < args.length && args[k].startsWith('-')) {
+        // -I {} takes a value; -I{} carries it
+        k += XARGS_VALUE_OPTS.has(args[k].toLowerCase()) && !args[k].includes('=') ? 2 : 1;
+    }
+    return args.slice(k);
+}
+
+/** `npx pkg@1`, `npx -y pkg`, `npx -p pkg cmd`: the runner fetches a package and runs its code. `npx tsc` runs a local one. */
+function fetchesPackage(args: string[]): boolean {
+    if (args.some(a => a === '-y' || a === '--yes' || a === '-p' || a === '--package' || a.startsWith('--package='))) return true;
+    const pkg = args.find(a => !a.startsWith('-'));
+    return pkg !== undefined && /.@/.test(pkg);   // a version or tag after the name: `create-app@latest`, `@scope/x@2`
 }
 
 function pipTouches(args: string[]): boolean {
@@ -95,6 +137,8 @@ function jsManagerTouches(args: string[]): boolean {
     }
     const sub = args[k]?.toLowerCase();
     if (!sub) return false;
+    if (sub === 'dlx') return true;                                       // pnpm dlx / yarn dlx always fetch
+    if (sub === 'exec' || sub === 'x') return fetchesPackage(args.slice(k + 1));
     if (REMOVE_SUBCOMMANDS.has(sub)) return true;
     if (!INSTALL_SUBCOMMANDS.has(sub)) return false;
     // `install` with only flags restores package.json (nothing new), so it does not ask; naming anything does, wherever

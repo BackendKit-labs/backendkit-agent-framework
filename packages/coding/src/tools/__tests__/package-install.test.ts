@@ -39,7 +39,7 @@ describe('requiresInstallApproval', () => {
 
     it.each([
         'npm install', 'npm install --no-audit', 'npm i --prefer-offline', 'npm ci', 'yarn install', 'pnpm install',
-        'npm test', 'npm run build', 'npm run install-hooks', 'npm run i', 'npm ls', 'npm view foo', 'yarn', 'pnpm dlx x',
+        'npm test', 'npm run build', 'npm run install-hooks', 'npm run i', 'npm ls', 'npm view foo', 'yarn',
         'pip list', 'pip --version', 'python script.py', 'python -m pytest',
         'git status', 'ls -la', 'cd packages && npm test', 'FOO=1 node index.js', 'echo done', 'cat package.json',
         '',
@@ -51,5 +51,35 @@ describe('requiresInstallApproval', () => {
         let cmd = 'npm install foo';
         for (let i = 0; i < 8; i++) cmd = `bash -c "${cmd.replace(/"/g, '\\"')}"`;
         expect(requiresInstallApproval(cmd)).toBe(true);
+    });
+});
+
+describe('installs behind other commands and other package managers (audit E-05)', () => {
+    it.each([
+        'xargs npm install',
+        'xargs -I {} npm install {}',
+        'find . -name package.json -exec npm install left-pad ;',
+        'npx -y create-react-app app',
+        'npx create-react-app@latest app',
+        'npx -p cowsay cowsay hi',
+        'pnpm dlx create-vite',
+        'yarn dlx create-vite',
+        'npm exec --yes -- create-vite',
+        'bunx create-vite@latest',
+        'bun add left-pad',
+        'uv pip install requests',
+        'uv add requests',
+        'uv tool install ruff',
+        'poetry add requests',
+        'pipx install black',
+        'cargo install ripgrep',
+        'gem install rails',
+        'go install golang.org/x/tools/gopls@latest',
+    ])('%s asks', (command) => {
+        expect(requiresInstallApproval(command)).toBe(true);
+    });
+
+    it.each(['npx tsc --noEmit', 'npx jest', 'bun test', 'uv run pytest', 'cargo build', 'go test ./...', 'xargs -n 1 echo', 'find . -name "*.ts" -exec grep -l x {} +'])('%s does not ask', (command) => {
+        expect(requiresInstallApproval(command)).toBe(false);
     });
 });

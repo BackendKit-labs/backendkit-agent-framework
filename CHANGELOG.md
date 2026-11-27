@@ -15,6 +15,13 @@
 - **Cambio de comportamiento:** un flujo con aprobación humana que corría sin aprobador ahora la rechaza. Pasa `approve`/`approvals` (`onApprovalRequired` en enterprise).
 - Documentación: ADR-0009 (lo declarado decide el efecto), ADR-0010, ADR-0011 (error público e interno); ADR-0008 aceptado; registro en SPEC-0006, SPEC-0011, SPEC-0023 y SPEC-0041.
 
+**`run_command` ve el código que se ejecuta en línea y las instalaciones escondidas (coding).** Auditoría externa del 2026-11-26.
+
+- **E-01:** `npx -c`, `npm exec -c`, `git -c …` / `--config-env` (alias `!sh`, `core.pager`, `core.sshCommand`) y `make --eval` pasan a ser *bins* marcadores que ninguna allowlist tiene: el comando se rechaza nombrando la forma. `npm exec` / `x` / `dlx` y `npx` juzgan además el comando que corren (`npm exec -- sh -c …` ve `sh`).
+- **E-02:** una asignación de una variable que un programa ejecuta o carga (`GIT_PAGER`, `GIT_SSH_COMMAND`, `EDITOR`, `NODE_OPTIONS`, `LD_PRELOAD`, `DYLD_*`, `PATH`, `npm_config_*`, `PYTHONPATH`…) es un marcador (`GIT_PAGER=`): antes se saltaba sin mirar su valor.
+- **E-05:** la aprobación de instalación (`alwaysAsk`) cubre `xargs npm install` (lo que xargs lee cuenta como paquete nombrado), `find -exec npm install x`, `npx -y` / `npx -p` / `npx paquete@versión`, `pnpm dlx` / `yarn dlx` (antes no preguntaba), `npm exec --yes`, `bun add`, `uv pip install` / `uv add` / `uv tool install`, `poetry add`, `pipx install`, `cargo install`, `gem install` y `go install`. `npx tsc` (binario local) y `npm ci` (restaura lo declarado) siguen sin preguntar.
+- **Límite (sin cambios):** la allowlist es una barandilla, no el confinamiento: un intérprete permitido (`node`, `python`, `npm run`) puede ejecutar cualquier cosa. El confinamiento es el sandbox.
+
 ## v0.50.21 (2026-11-26)
 
 **El cliente MCP fija la definición de las tools y los hechos locales ganan a las anotaciones del servidor.**

@@ -87,3 +87,36 @@ describe('run_command — wrapper bypasses are rejected', () => {
         expect(out).toBe('bar');
     });
 });
+
+describe('inline code and executing variables become marker bins (audit E-01, E-02)', () => {
+    it.each([
+        [`GIT_PAGER='sh -c "touch /tmp/x"' git log`, 'GIT_PAGER='],
+        [`NODE_OPTIONS='--require=evil.js' node -p 1`, 'NODE_OPTIONS='],
+        [`LD_PRELOAD=/tmp/x.so ls`, 'LD_PRELOAD='],
+        [`env GIT_SSH_COMMAND='sh -c id' git fetch`, 'GIT_SSH_COMMAND='],
+        [`DYLD_INSERT_LIBRARIES=x ls`, 'DYLD_INSERT_LIBRARIES='],
+        [`npm_config_script_shell=/bin/sh npm test`, 'npm_config_script_shell='],
+        [`npx -c 'touch /tmp/x'`, 'npx -c'],
+        [`npm exec -c 'touch /tmp/x'`, 'npm exec -c'],
+        [`git -c alias.x='!sh -c id' x`, 'git -c'],
+        [`git -c core.pager='sh -c id' log`, 'git -c'],
+        [`git --config-env=core.pager=EVIL log`, 'git -c'],
+        [`make --eval='x: ; touch /tmp/x' x`, 'make --eval'],
+    ])('%s -> %s', (command, marker) => {
+        expect(extractAllBins(command)).toContain(marker);
+    });
+
+    it('npm exec / x / dlx judge the command they run', () => {
+        expect(extractAllBins(`npm exec -- sh -c 'echo x'`)).toEqual(['npm', 'sh']);
+        expect(extractAllBins(`pnpm dlx cowsay hi`)).toEqual(['pnpm', 'cowsay']);
+        expect(extractAllBins(`npx tsc --noEmit`)).toEqual(['npx', 'tsc']);
+    });
+
+    it('ordinary commands are unchanged', () => {
+        expect(extractAllBins('git status')).toEqual(['git']);
+        expect(extractAllBins('git -C sub log')).toEqual(['git']);
+        expect(extractAllBins('FOO=1 CI=true npm test')).toEqual(['npm']);
+        expect(extractAllBins('npm --prefix x test')).toEqual(['npm']);
+        expect(extractAllBins('make build')).toEqual(['make']);
+    });
+});

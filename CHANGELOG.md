@@ -2,6 +2,12 @@
 
 ## Sin publicar
 
+**El servidor de tools exige `authorize` o `policy` para toda tool que no declare `readOnly: true` ([ADR-0009](docs/adr/0009-lo-declarado-decide-el-efecto.md) punto 5, auditoría B-07).**
+
+- **Antes:** solo una tool `destructive` exigía un gate. Una que escribe y no declara nada, o `readOnly: false`, quedaba abierta a cualquier cliente con el token del servidor.
+- **Ahora:** `createToolServer`, `createToolRegistrar` (y por tanto `AgentMCPServer.directTools` de `mcp-server`) lanzan al construir si alguna tool no es `readOnly: true` y no hay `authorize` ni `policy`. El error dice qué tool y por qué.
+- **Cambio de comportamiento:** un servidor con tools sin declarar ya no arranca. Declara `readOnly: true` en lo que solo lee, o pasa `authorize` / `policy`. `createFlowTools` servidas por MCP necesitan gate (start, pause y resume cambian cosas).
+
 **La aprobación falla cerrada ([ADR-0010](docs/adr/0010-la-aprobacion-falla-cerrada.md)).** Auditoría externa del 2026-11-26, reproducida contra `dist/`.
 
 - **B-01 / C-02:** un paso con `gate.approval: human` sin aprobador se **rechaza** (antes se aprobaba). Igual en `runFlow` (`approve`), `FlowRunner` de enterprise (`onApprovalRequired`) y `WorkflowRunner` de core.

@@ -350,7 +350,7 @@ const server = new AgentMCPServer({
   tools: [{ name: 'explain_variance', description: 'Explain a budget variance',
             schema: { account: z.string() }, buildPrompt: ({ account }) => `Explain the variance in ${account}` }],
   engineFactory: (transport) => createEngine(transport),
-  // direct tools: no model; `authorize` is required because pay_invoice is destructive
+  // direct tools: no model; `authorize` is required because pay_invoice is not readOnly
   directTools: [balances, pay],
   agentIdentity: selfAssertedIdentities(),   // who executes the direct calls (required, like in the engine)
   identity: { userId: 'svc-ledger' },        // for whom
@@ -362,7 +362,7 @@ await server.start();
 
 **Direct tools need an identity.** Without `agentIdentity` and `identity.userId` every direct call is denied (the reason says how to fix it); the audit events are attributed to that identity and signed by it when the provider can sign. `requireAgentIdentity: false` is for tests only. Prompt tools run in an engine, which has its own identity.
 
-Rules checked in the constructor: prompt tools need `engineFactory` (a server with only direct tools does not); a name may not appear in both lists; a `destructive` direct tool needs `authorize`. Direct tools list with `annotations` (`readOnlyHint`, `destructiveHint`...) and `_meta` from what `defineTool` declared, and their `audit` records carry the MCP session id. For a direct-only server that does not need this package's code-intelligence dependencies, use `createToolServer` / `startToolServerHttp` from `@backendkit-labs/agent-core` instead (stateless HTTP, no SQLite or tree-sitter).
+Rules checked in the constructor: prompt tools need `engineFactory` (a server with only direct tools does not); a name may not appear in both lists; a direct tool that does not declare `readOnly: true` needs `authorize`. Direct tools list with `annotations` (`readOnlyHint`, `destructiveHint`...) and `_meta` from what `defineTool` declared, and their `audit` records carry the MCP session id. For a direct-only server that does not need this package's code-intelligence dependencies, use `createToolServer` / `startToolServerHttp` from `@backendkit-labs/agent-core` instead (stateless HTTP, no SQLite or tree-sitter).
 
 ---
 

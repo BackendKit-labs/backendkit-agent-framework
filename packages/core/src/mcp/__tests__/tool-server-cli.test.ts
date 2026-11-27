@@ -40,7 +40,7 @@ describe('toolServerUsage', () => {
 });
 
 describe('runToolServer', () => {
-    const tools = [defineTool({ name: 'ping', description: '', input: z.object({}), execute: async () => 'pong' })];
+    const tools = [defineTool({ name: 'ping', description: '', readOnly: true, input: z.object({}), execute: async () => 'pong' })];
 
     it('prints usage and does not start anything on --help', async () => {
         const lines: string[] = [];

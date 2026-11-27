@@ -650,7 +650,7 @@ const options = {
   // Who executes the calls, and for whom: required, like in the engine (see "Identity" below).
   agentIdentity: selfAssertedIdentities(),
   identity: { userId: 'svc-ledger' },
-  // Required because payTool is destructive: a direct tool skips the engine's allowedTools, gates and budget.
+  // Required because payTool is not readOnly (any tool that is not needs it): a direct tool skips the engine's allowedTools, gates and budget.
   authorize: async ({ tool, args, sessionId }) =>
     !tool.destructive || approvals.isValid(args.approvalId as string),
   audit: record => fs.appendFile('tool-calls.ndjson', JSON.stringify(record) + '\n'),
@@ -819,7 +819,7 @@ result.costUsd; // sum of the costUsd the steps reported (absent if none did)
 - **Approval:** `gate.approval: human` or a `policy` that answers `ask` for `flow.step:<id>` stops the run as `awaiting_approval`; decide it and run again with the same `runId`. `when: 'after'` runs the step first and shows its output to the approver.
 - **Events:** with a `transport`, `runFlow` emits `workflow_start`, `workflow_step_start`, `workflow_step_complete`, `workflow_approval_required` and, at the end, `workflow_complete` with the run's real `status`: the same value as `result.status`, so a run that stopped for an approval reports `awaiting_approval` and a cancelled one `cancelled`, not `failed`.
 - **Plan with a model:** `planFlow(task, { agents, provider })` turns a task into a validated `FlowDefinition` (unknown agents, cycles and duplicate ids are rejected and the model is asked again); steps no agent covers come back in `unresolved`. A plan a model writes and a YAML file are the same object. `flowFromTaskPlan` and `flowFromStaticFlow` convert older shapes.
-- **Serve and steer it:** `flowFromDefinition(def, opts)` + `createFlowHandler({ name: flow })` give the `flowHandler` an `AgentServer` takes (start, status, pause, resume, cancel). `createApprovalHandler(store)` gives the `approvalHandler` (list, get, decide). `createFlowTools({ flows, approvals, approver })` exposes both as tools for a model or an MCP server; `flow_cancel` and `approval_decide` are `destructive`, so the tool server needs an `authorize` or a `policy`, and a model-driven server should use `approver: { kind: 'service', id }` (it cannot satisfy an approval that needs a human).
+- **Serve and steer it:** `flowFromDefinition(def, opts)` + `createFlowHandler({ name: flow })` give the `flowHandler` an `AgentServer` takes (start, status, pause, resume, cancel). `createApprovalHandler(store)` gives the `approvalHandler` (list, get, decide). `createFlowTools({ flows, approvals, approver })` exposes both as tools for a model or an MCP server; `flow_cancel` and `approval_decide` are `destructive` and the start, pause and resume tools change things, so the tool server needs an `authorize` or a `policy` (only the `readOnly` ones run without), and a model-driven server should use `approver: { kind: 'service', id }` (it cannot satisfy an approval that needs a human).
 - **Across processes:** [`@backendkit-labs/agent-flow-queue`](../flow-queue) provides a BullMQ `StepExecutor` (each step runs on a worker) and a Redis journal.
 
 ---

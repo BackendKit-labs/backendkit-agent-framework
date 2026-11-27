@@ -127,9 +127,10 @@ describe('createFlowTools', () => {
         expect(tools.filter(t => t.readOnly).map(t => t.name)).toEqual(['flow_list', 'flow_status', 'flow_wait', 'approval_list', 'approval_get']);
     });
 
-    it('an MCP tool server refuses the destructive ones until authorize or policy decides who may call them', () => {
+    it('an MCP tool server refuses the ones that change things until authorize or policy decides who may call them', () => {
         const tools = createFlowTools({ flows: createFlowHandler({}).handler });
-        expect(() => createToolRegistrar({ name: 's', tools })).toThrow(/flow_cancel/);
+        expect(() => createToolRegistrar({ name: 's', tools })).toThrow(/no authorize hook or policy/);
+        expect(() => createToolRegistrar({ name: 's', tools: tools.filter(t => t.readOnly) })).not.toThrow();
         expect(() => createToolRegistrar({ name: 's', tools, authorize: () => true })).not.toThrow();
     });
 

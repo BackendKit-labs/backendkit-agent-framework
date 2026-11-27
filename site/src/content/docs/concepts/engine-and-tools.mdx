@@ -174,10 +174,10 @@ Different arguments or another run give another key, so two real purchases of th
 | Flag | Says | The engine does |
 |---|---|---|
 | `readOnly: true` | Changes nothing. | Runs it without asking. Implies safe to run in parallel with other read-only tools. |
-| `destructive: true` | Cannot be undone (pay, delete, send). | Asks a person, always. Cannot be combined with `readOnly`. |
+| `destructive: true` | Cannot be undone (pay, delete, send). | Asks a person, always: "approve all" never covers it. Cannot be combined with `readOnly`. |
 | `idempotent: true` | Calling twice is the same as once. | Safe to retry. |
 
-A tool that declares nothing is treated as "may change things": it asks. This is deliberate: forgetting a fact asks too much, never too little.
+A tool that declares nothing is treated as "may change things": it asks, and "approve all" covers it (writing a file in a coding agent should not ask every time; paying should). This is deliberate: forgetting a fact asks too much, never too little.
 
 ### Many tools: let the model search
 

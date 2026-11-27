@@ -186,3 +186,7 @@ Más:
 - Bucles, condicionales y subflujos (D2).
 - Un editor visual de flujos.
 - Reanudar un turno del engine a mitad (el journal es por paso). Depende de SPEC-0004.
+
+## 11. Registro
+
+- **2026-11-26, la aprobación de un paso falla cerrada ([ADR-0010](../adr/0010-la-aprobacion-falla-cerrada.md)).** La auditoría externa reprodujo que un paso con `gate.approval: human` se aprobaba cuando `runFlow` no recibía `approve` (y `FlowRunner` sin `onApprovalRequired`), que un `gate` con criterios se omitía sin `opts.gate`, y que una política podía ampliar un paso solo humano a `['human', 'agent']`. Se corrige: sin aprobador el paso se rechaza, sin evaluador el gate falla el paso, y lo que pide una persona solo se estrecha. Cambio de comportamiento para quien corría flujos con `gate` sin aprobador.

@@ -81,7 +81,12 @@ export async function decideStepApproval(
             reason = d.reason;
             approver = d.approver;
             approverRoles = d.approverRoles;
-            if (d.accepts) accepts = human && !d.accepts.includes('human') ? ['human'] : d.accepts;
+            // Who may approve only narrows (ADR-0010): a step that needs a person keeps needing one whatever the policy accepts,
+            // and a policy that accepts no person for it leaves no one who can approve, so it is denied.
+            if (d.accepts) {
+                if (!human) accepts = d.accepts;
+                else if (!d.accepts.includes('human')) return { kind: 'denied', reason: `step "${step.id}" requires a human approver and the policy accepts only ${d.accepts.join(', ')}` };
+            }
         } else if (!human) {
             return { kind: 'proceed' };
         }

@@ -67,8 +67,35 @@ describe('runFlow', () => {
         expect(rejected.status).toBe('rejected');
         expect(rejected.steps.a.status).toBe('rejected');
         expect(rejected.steps.b.status).toBe('skipped');
-        const auto = await runFlow(flow(gated), { executor: ok() });
-        expect(auto.steps.a.status).toBe('completed');
+    });
+
+    it('human approval fails closed (ADR-0010): no approver, an answer that is not true, or an approver that throws reject', async () => {
+        const gated = [step('a', [], { gate: { approval: 'human' } }), step('b', ['a'])];
+        const ran: string[] = [];
+        const executor = { run: async (s: { id: string }) => { ran.push(s.id); return { content: 'x' }; } };
+        const none = await runFlow(flow(gated), { executor });
+        expect(none.steps.a.status).toBe('rejected');
+        expect(none.steps.b.status).toBe('skipped');
+        expect(none.transitions.find(t => t.stepId === 'a' && t.event === 'rejected')?.detail).toMatch(/no approver/);
+        const vague = await runFlow(flow(gated), { executor, approve: (async () => undefined) as never });
+        expect(vague.steps.a.status).toBe('rejected');
+        const broken = await runFlow(flow(gated), { executor, approve: async () => { throw new Error('ui down'); } });
+        expect(broken.steps.a.status).toBe('rejected');
+        expect(broken.transitions.find(t => t.stepId === 'a' && t.event === 'rejected')?.detail).toMatch(/approver failed/);
+        expect(ran).toEqual([]);
+    });
+
+    it('a gate nothing can evaluate fails the step before it runs (ADR-0010); a person reviewing criteria is enough', async () => {
+        const ran: string[] = [];
+        const executor = { run: async (s: { id: string }) => { ran.push(s.id); return { content: 'x' }; } };
+        const byAgent = await runFlow(flow([step('a', [], { gate: { evaluator: 'auditor', criteria: ['balances'] } })]), { executor });
+        expect(byAgent.steps.a.status).toBe('failed');
+        expect(byAgent.steps.a.error).toMatch(/no gate function/);
+        const unreviewed = await runFlow(flow([step('a', [], { gate: { criteria: ['balances'] } })]), { executor });
+        expect(unreviewed.steps.a.status).toBe('failed');
+        expect(ran).toEqual([]);
+        const byPerson = await runFlow(flow([step('a', [], { gate: { approval: 'human', criteria: ['balances'] } })]), { executor, approve: async () => true });
+        expect(byPerson.steps.a.status).toBe('completed');
     });
 
     it('a gate hook that throws fails the step and records what it logged', async () => {

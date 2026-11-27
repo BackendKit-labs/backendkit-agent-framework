@@ -235,13 +235,25 @@ steps:
         expect(events).toContain('rejected');
     });
 
-    it('auto-approves when no onApprovalRequired is provided', async () => {
+    it('rejects when no onApprovalRequired is provided: nobody to ask is not an approval (ADR-0010)', async () => {
+        const ran: string[] = [];
         const runner = new FlowRunner(APPROVAL_FLOW, {
             transport: makeTransport(),
-            runAgent: async () => ({ content: 'ok' }),
+            runAgent: async (agent) => { ran.push(agent); return { content: 'ok' }; },
         });
         const result = await runner.run();
-        expect(result.status).toBe('completed');
+        expect(result.steps['confirmar'].status).toBe('rejected');
+        expect(result.status).toBe('rejected');
+        expect(ran).not.toContain('nomina');
+        const t = result.transitions.find(x => x.stepId === 'confirmar' && x.event === 'rejected');
+        expect(t?.detail).toMatch(/no approver/);
+    });
+
+    it('an approver that throws, or answers anything but true, rejects', async () => {
+        for (const onApprovalRequired of [async () => { throw new Error('ui down'); }, (async () => undefined) as never]) {
+            const runner = new FlowRunner(APPROVAL_FLOW, { transport: makeTransport(), runAgent: async () => ({ content: 'ok' }), onApprovalRequired });
+            expect((await runner.run()).steps['confirmar'].status).toBe('rejected');
+        }
     });
 });
 

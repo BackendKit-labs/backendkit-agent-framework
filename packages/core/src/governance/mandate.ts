@@ -172,9 +172,12 @@ export function mandateCovers(
         if (principal.userId === undefined) return { ok: false, reason: 'the engine does not say who the agent acts for (identity.userId), so the mandate cannot be matched to a person' };
         if (m.subject !== principal.userId) return { ok: false, reason: 'the mandate empowers another person than the one the agent acts for' };
     }
+    // A mandate comes from a verifier: its lists are checked as lists, or a text would match by substring ("delete_all" covers "delete").
+    if (!isStringList(m.actions)) return { ok: false, reason: 'the mandate does not list its actions as a list of names' };
     if (!m.actions.includes('*') && !m.actions.includes(call.tool.name)) return { ok: false, reason: `the mandate does not cover "${call.tool.name}"` };
 
     if (m.resources !== undefined) {
+        if (!isStringList(m.resources)) return { ok: false, reason: 'the mandate does not list its resources as a list of names' };
         const resource = options.resourceOf?.(call.args);
         if (resource === undefined) return { ok: false, reason: 'the mandate limits what the agent may act on and this call does not say what it acts on' };
         if (!m.resources.includes(resource)) return { ok: false, reason: `the mandate does not cover "${resource}"` };
@@ -275,4 +278,8 @@ export function mandatePolicy(options: MandatePolicyOptions): ToolPolicy {
                 };
         },
     };
+}
+
+function isStringList(v: unknown): v is string[] {
+    return Array.isArray(v) && v.every(x => typeof x === 'string');
 }

@@ -67,7 +67,8 @@ const RANK = { low: 0, substantial: 1, high: 2 } as const;
 /** `assurance` is only recorded unless the deployment sets a minimum. */
 export function checkAssurance(min: 'low' | 'substantial' | 'high' | undefined, got: unknown): string | undefined {
     if (!min) return undefined;
-    const level = typeof got === 'string' && got in RANK ? RANK[got as keyof typeof RANK] : -1;
+    // Own keys only: `'toString' in RANK` is true (prototype chain), and RANK.toString < 2 is false, so it would pass.
+    const level = typeof got === 'string' && Object.prototype.hasOwnProperty.call(RANK, got) ? RANK[got as keyof typeof RANK] : -1;
     return level < RANK[min] ? `the person was identified with a lower assurance than the "${min}" this deployment requires` : undefined;
 }
 

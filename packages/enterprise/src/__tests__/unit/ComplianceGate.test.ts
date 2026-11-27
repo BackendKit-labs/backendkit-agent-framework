@@ -299,3 +299,16 @@ describe('Fase 2 — criterio de salida', () => {
         }
     });
 });
+
+describe('ComplianceGate — a rejection is final (ADR-0010, C-01)', () => {
+    it('evaluating criteria after reject() does not turn the verdict into passed', () => {
+        const gate = makeGate({ evidenceMode: 'optional' });
+        gate.reject('auditor', 'blocking issue');
+        expect(gate.verdict).toBe('failed');
+        gate.evaluateCriterion(0, 'auditor', true);
+        gate.evaluateCriterion(1, 'auditor', true);
+        gate.evaluateCriterion(2, 'auditor', true);
+        expect(gate.verdict).toBe('failed');
+        expect(gate.getRecord().verdict).toBe('failed');
+    });
+});

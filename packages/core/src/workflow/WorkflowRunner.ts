@@ -127,7 +127,11 @@ export class WorkflowRunner {
 
         if (step.requireApproval) {
             this.opts.transport.emit({ type: 'workflow_approval_required', step: step.id });
-            const approved = await (this.opts.onApprovalRequired?.(step, prevOutputs) ?? Promise.resolve(true));
+            // No one to ask is a rejection, never an approval (ADR-0010); only a literal `true` approves, and a throw rejects.
+            let approved = false;
+            if (this.opts.onApprovalRequired) {
+                try { approved = (await this.opts.onApprovalRequired(step, prevOutputs)) === true; } catch { approved = false; }
+            }
             if (!approved) {
                 results[step.id] = { stepId: step.id, agentId: step.agentId, content: '', status: 'rejected' };
                 failed.add(step.id);

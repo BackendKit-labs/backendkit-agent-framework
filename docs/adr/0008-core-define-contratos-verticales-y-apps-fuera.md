@@ -1,7 +1,7 @@
 # ADR-0008: core define contratos; los verticales y las apps viven fuera
 
 **Fecha:** 2026-11-14
-**Estado:** Propuesto
+**Estado:** Aceptado (2026-11-26; aplicado en SPEC-0014 a SPEC-0018)
 **Spec:** [SPEC-0013](../specs/SPEC-0013-framework-como-libreria-hoja-de-ruta.md) (hoja de ruta), que se ejecuta en SPEC-0014 a SPEC-0018
 
 ## Contexto

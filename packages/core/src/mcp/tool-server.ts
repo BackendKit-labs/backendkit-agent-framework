@@ -86,8 +86,9 @@ export interface ToolServerOptions {
      */
     context?: Partial<ExecutionContext> | ((call: ToolCallInfo & { signal: AbortSignal }) => ExecutionContext);
     /**
-     * Decides whether a call may run: the simple yes/no gate. A `destructive` tool needs this or `policy`: a direct
-     * tool bypasses the engine's `allowedTools`, gates and budget, so the server refuses to start without a gate.
+     * Decides whether a call may run: the simple yes/no gate. Every tool that does not declare `readOnly: true` needs this
+     * or `policy` (ADR-0009): a direct tool bypasses the engine's `allowedTools`, gates and budget, so the server refuses
+     * to start without a gate.
      * `false` or a throw produces `isError` with outcome 'denied'; the tool never runs.
      */
     authorize?: (call: ToolCallInfo) => boolean | Promise<boolean>;
@@ -194,10 +195,14 @@ function prepareTools(opts: ToolServerOptions): PreparedTool[] {
         validateToolDefinition(tool);
         if (seen.has(tool.name)) throw new Error(`createToolServer(${opts.name}): duplicate tool name "${tool.name}"`);
         seen.add(tool.name);
-        if (tool.destructive && !opts.authorize && !opts.policy) {
+        // ADR-0009: what does not declare `readOnly: true` may change something, so the server must gate it. Not only
+        // `destructive`: a tool that writes and declares nothing would be open to every client holding the token.
+        if (tool.readOnly !== true && !opts.authorize && !opts.policy) {
+            const what = tool.destructive ? 'is destructive' : tool.readOnly === false ? 'changes things (readOnly: false)' : 'does not declare readOnly: true';
             throw new Error(
-                `createToolServer(${opts.name}): tool "${tool.name}" is destructive and no authorize hook or policy was given. ` +
-                'A direct tool skips the engine\'s allowedTools, gates and budget; the server must gate it itself.',
+                `createToolServer(${opts.name}): tool "${tool.name}" ${what} and no authorize hook or policy was given. ` +
+                'A direct tool skips the engine\'s allowedTools, gates and budget; the server must gate it itself. ' +
+                'Declare readOnly: true if it only reads, or pass authorize / policy.',
             );
         }
         prepared.push({ tool, schema: inputSchemaOf(opts.name, tool), annotations: annotationsOf(tool) });

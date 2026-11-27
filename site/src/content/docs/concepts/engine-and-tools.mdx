@@ -30,7 +30,7 @@ A tool is a plain definition (`defineTool`). **Who decides to call it** is a sep
 | Who calls it | The engine, because the model asked | Your code, or an MCP client, with exact arguments |
 | Arguments | Written by the model | Sent by the caller |
 | Result | Goes back to the model, which decides what next | Goes back to the caller as is |
-| Safety | The engine's gates: allowed tools, guardrails, [policy](../governance/), approval | Your `authorize` function or a `policy`, one of them required for destructive tools, plus audit |
+| Safety | The engine's gates: allowed tools, guardrails, [policy](../governance/), approval | Your `authorize` function or a `policy`, one of them required for every tool that is not `readOnly`, plus audit |
 | Use it for | Open-ended work: understanding a request, choosing steps | Anything a program or a person must call the same way every time |
 
 The same tool serves both. You write it once, declare `readOnly` or `destructive` once, and choose per use. A model can also reach a direct tool: serve it over MCP and an engine with an MCP client sees it next to its own tools ([MCP](../mcp/)).
@@ -101,7 +101,7 @@ const out = await tool.execute({ city: 'London' }, createToolContext());   // "W
 await mcp.disconnect();
 ```
 
-`get_weather` is `readOnly`, so the server needs no gate. A `destructive` tool would not start without an `authorize` function or a `policy`, and that is where the gates apply to a direct call: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
+`get_weather` is `readOnly`, so the server needs no gate. A tool that is not `readOnly` (one that declares nothing included) would not start without an `authorize` function or a `policy`, and that is where the gates apply to a direct call: [serving tools directly](../mcp/#as-a-server-without-a-model) shows one.
 
 The rest of this page is the first case: the model-driven loop.
 

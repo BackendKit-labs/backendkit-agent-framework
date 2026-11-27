@@ -27,6 +27,7 @@ const pay = defineTool({
 const boom = defineTool({
     name: 'boom',
     description: 'Throws',
+    readOnly: true,
     input: z.object({}),
     execute: async () => { throw new Error('ERP down'); },
 });
@@ -34,6 +35,7 @@ const boom = defineTool({
 const slow = defineTool({
     name: 'slow',
     description: 'Waits until aborted',
+    readOnly: true,
     timeoutMs: 50,
     input: z.object({}),
     execute: (_args, ctx) => new Promise<string>((resolve, reject) => {
@@ -45,6 +47,7 @@ const slow = defineTool({
 const big = defineTool({
     name: 'big',
     description: 'Returns a lot',
+    readOnly: true,
     input: z.object({ chars: z.number().int() }),
     execute: async ({ chars }) => 'x'.repeat(chars),
 });
@@ -61,7 +64,8 @@ const rawTool: ToolDefinition = {
 };
 
 async function connect(opts: ToolServerOptions): Promise<{ client: Client; close: () => Promise<void> }> {
-    const server = createToolServer({ requireAgentIdentity: false, ...opts });
+    // The call tests gate nothing unless they say so; the registration tests check that a gate is demanded.
+    const server = createToolServer({ requireAgentIdentity: false, authorize: () => true, ...opts });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     const client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -100,6 +104,16 @@ describe('createToolServer: registration', () => {
         expect(() => createToolServer({ name: 's', tools: [balances, balances] })).toThrow(/duplicate tool name "balances"/);
     });
 
+    it('refuses every tool that does not declare readOnly: true without an authorize hook or policy (ADR-0009, audit B-07)', () => {
+        const undeclared = defineTool({ name: 'note', description: 'writes a note', input: z.object({}), execute: async () => 'ok' });
+        const writer = defineTool({ name: 'save', description: 'saves', readOnly: false, input: z.object({}), execute: async () => 'ok' });
+        expect(() => createToolServer({ name: 's', tools: [undeclared] })).toThrow(/"note" does not declare readOnly: true and no authorize hook/);
+        expect(() => createToolServer({ name: 's', tools: [writer] })).toThrow(/"save" changes things \(readOnly: false\) and no authorize hook/);
+        expect(() => createToolServer({ name: 's', tools: [undeclared, writer], authorize: () => true })).not.toThrow();
+        expect(() => createToolServer({ name: 's', tools: [undeclared], policy: { decide: async () => ({ effect: 'allow' }) } })).not.toThrow();
+        expect(() => createToolServer({ name: 's', tools: [balances] })).not.toThrow();
+    });
+
     it('refuses a destructive tool without an authorize hook', () => {
         expect(() => createToolServer({ name: 's', tools: [pay] })).toThrow(/"pay" is destructive and no authorize hook/);
         expect(() => createToolServer({ name: 's', tools: [pay], authorize: () => true })).not.toThrow();
@@ -116,7 +130,7 @@ describe('createToolServer: registration', () => {
             name: 'weird',
             parameters: { type: 'object', if: { properties: { a: { const: 1 } } }, then: { required: ['b'] } },
         };
-        expect(() => createToolServer({ name: 's', tools: [weird] })).toThrow(/cannot derive an input schema for tool "weird"/);
+        expect(() => createToolServer({ name: 's', tools: [weird], authorize: () => true })).toThrow(/cannot derive an input schema for tool "weird"/);
     });
 });
 

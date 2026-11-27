@@ -2,6 +2,8 @@
 
 ## Sin publicar
 
+**La herencia de políticas del sandbox compara las raíces donde de verdad caen (auditoría E-03).** `checkNarrower` comparaba las rutas como texto, y el servicio las resuelve al decidir: una raíz hija `/permitida/enlace` que es un enlace a `/etc` pasaba como más estrecha y luego daba acceso a `/etc`. Ahora resuelve los enlaces de las dos políticas antes de comparar; una raíz que no se puede resolver es una violación. De paso, una raíz padre alcanzada por un enlace ya contiene sus subcarpetas reales.
+
 **El servidor de tools exige `authorize` o `policy` para toda tool que no declare `readOnly: true` ([ADR-0009](docs/adr/0009-lo-declarado-decide-el-efecto.md) punto 5, auditoría B-07).**
 
 - **Antes:** solo una tool `destructive` exigía un gate. Una que escribe y no declara nada, o `readOnly: false`, quedaba abierta a cualquier cliente con el token del servidor.

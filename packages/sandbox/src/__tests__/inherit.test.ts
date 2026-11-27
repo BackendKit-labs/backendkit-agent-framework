@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { checkNarrower, describeViolations, isNarrowerOrEqual } from '../index';
 import type { SandboxPolicyConfig } from '../index';
 
@@ -125,5 +128,35 @@ describe('ownStateTools', () => {
         expect(checkNarrower({ ownStateTools: ['save_context'] }, {}).ok).toBe(true);
         const wider = checkNarrower({ ownStateTools: ['save_context'] }, { ownStateTools: ['save_context', 'send_email'] });
         expect(wider).toMatchObject({ ok: false, violations: [{ dimension: 'ownStateTools', child: 'send_email' }] });
+    });
+});
+
+describe('roots are compared where they really land (audit E-03)', () => {
+    let base: string;
+    beforeEach(() => {
+        base = realpathSync.native(mkdtempSync(join(tmpdir(), 'bk-inherit-')));
+        mkdirSync(join(base, 'allowed')); mkdirSync(join(base, 'secret'));
+    });
+    afterEach(() => { rmSync(base, { recursive: true, force: true }); });
+    const link = (target: string, path: string): boolean => {
+        try { symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir'); return true; }
+        catch (err) { if ((err as NodeJS.ErrnoException).code === 'EPERM') return false; throw err; }
+    };
+
+    it('a child root that is a link inside the parent root to somewhere outside is wider', () => {
+        if (!link(join(base, 'secret'), join(base, 'allowed', 'door'))) return;
+        expect(dims({ preset: 'ask', roots: [join(base, 'allowed')] }, { preset: 'ask', roots: [join(base, 'allowed', 'door')] })).toContain('roots');
+    });
+
+    it('a parent root reached through a link still contains its own subfolders', () => {
+        mkdirSync(join(base, 'allowed', 'sub'));
+        if (!link(join(base, 'allowed'), join(base, 'alias'))) return;
+        expect(dims({ preset: 'ask', roots: [join(base, 'alias')] }, { preset: 'ask', roots: [join(base, 'allowed', 'sub')] })).not.toContain('roots');
+    });
+
+    it('a child root that cannot be resolved is a violation', () => {
+        const a = join(base, 'allowed', 'a'); const b = join(base, 'allowed', 'b');
+        try { symlinkSync(b, a, 'junction'); symlinkSync(a, b, 'junction'); } catch { return; }
+        expect(dims({ preset: 'ask', roots: [join(base, 'allowed')] }, { preset: 'ask', roots: [join(a, 'x')] })).toContain('roots');
     });
 });

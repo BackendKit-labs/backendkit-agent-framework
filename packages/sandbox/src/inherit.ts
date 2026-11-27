@@ -1,5 +1,5 @@
 import type { SandboxMode, SandboxNetwork } from '@backendkit-labs/agent-core';
-import { isInside } from './paths';
+import { isInside, realPathOf } from './paths';
 import type { SandboxPolicyConfig } from './policy';
 import { PERMISSION_PRESETS, type ApprovalLevel } from './presets';
 
@@ -41,7 +41,8 @@ const list = (xs: readonly string[] | undefined): string[] => [...(xs ?? [])];
 const show = (xs: readonly string[]): string => (xs.length ? xs.join(', ') : '(none)');
 
 /**
- * Is `child` no wider than `parent` in every dimension? A pure function, no I/O: it is what stops a created agent or a
+ * Is `child` no wider than `parent` in every dimension? Pure but for one read of the disk: roots are compared where they
+ * really land (links resolved), as the service judges paths. It is what stops a created agent or a
  * sub-agent from having more power than whoever made it. The comparison uses the WIDEST each policy can ever be (its base
  * setting or any rule), so a rule cannot be used to slip past it.
  *
@@ -64,8 +65,16 @@ export function checkNarrower(parent: SandboxPolicyConfig, child: SandboxPolicyC
     if (APPROVAL_RANK[c.approval] < APPROVAL_RANK[p.approval]) violations.push({ dimension: 'approval', parent: p.approval, child: c.approval });
 
     if (p.mode !== 'danger-full-access') {
+        // Compared where they really land, as the service judges paths (`authorizePath` resolves its roots): a child root
+        // `/allowed/link` that is a link to `/etc` is inside the parent by its text and outside it in fact. A root that
+        // cannot be resolved (a link loop) is a violation, never a pass.
+        const resolved = (root: string): string | undefined => { try { return realPathOf(root); } catch { return undefined; } };
         const parentRoots = list(parent.roots);
-        const stray = list(child.roots).filter(root => !parentRoots.some(pr => isInside(pr, root)));
+        const parentReal = parentRoots.map(resolved).filter((r): r is string => r !== undefined);
+        const stray = list(child.roots).filter(root => {
+            const real = resolved(root);
+            return real === undefined || !parentReal.some(pr => isInside(pr, real));
+        });
         if (stray.length) violations.push({ dimension: 'roots', parent: show(parentRoots), child: show(stray) });
     }
 

@@ -1,9 +1,10 @@
 /**
  * Non-blocking secret detection for agent write paths.
  *
- * Logs a console.warn when content appears to contain credentials.
- * Does NOT block the write — legitimate code examples may match patterns.
- * The warning is surfaced to the developer/operator, not exposed to the LLM.
+ * Logs a console.warn when content appears to contain credentials, and returns the warning so the write tools can
+ * tell the model too: it wrote the content, so it learns nothing it did not have, and it can take the credential out.
+ * Only the KIND of pattern is said ("GitHub token"), never the matched text. Does NOT block the write: legitimate code
+ * examples may match.
  */
 
 const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [

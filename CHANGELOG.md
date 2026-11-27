@@ -2,6 +2,13 @@
 
 ## Sin publicar
 
+**Resto de la prioridad 2 de la auditoría (B-05, E-06, E-07, E-08).**
+
+- **B-05 (core):** la aprobación de un paso de agente se liga a lo que se aprobó: el prompt resuelto con el payload, las salidas que recibe y, con `approvals.when: 'after'`, su salida (`contentDigest`, como ya hacía `callDigest` con los pasos `tool`). Reanudar la corrida con otro payload ya no reutiliza la aprobación: el paso se deniega sin correr. Las aprobaciones pendientes guardadas antes de esta versión no llevan la huella y se deniegan: hay que pedirlas otra vez.
+- **E-07 (coding):** `search_files` deja fuera los `.env` (también `.env.local` y demás): una búsqueda amplia metía sus secretos en el contexto del modelo. Las plantillas (`.env.example`, `.sample`, `.template`, `.dist`) se siguen buscando; leer un `.env` a propósito es `read_file`.
+- **E-08 (coding):** la protección del código del framework se desactivaba con cualquier directorio de trabajo de dos segmentos (`C:projects`, `/tmp`). Esa rama se quita: solo trabajar dentro de un paquete del framework la salta.
+- **E-06 (coding), solo documentación:** el escáner de secretos devuelve su aviso al modelo a propósito (lo escribió él, no aprende nada nuevo, y puede quitar la credencial; solo se dice el tipo de patrón). Su comentario decía lo contrario.
+
 **Rutas, orígenes e ids que llegan de fuera se comprueban (auditoría 2026-11-26, prioridad 2).**
 
 - **C-07 (enterprise):** `VaultIndexer` rechaza al construir una carpeta de `folders` que sale del vault (`../secreto`).

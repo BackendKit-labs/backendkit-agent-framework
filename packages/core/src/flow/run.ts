@@ -324,7 +324,7 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
     const settleApproval = async (step: FlowStep, prev: Record<string, string>, output?: string, call?: { name: string; args: Record<string, unknown> }): Promise<boolean> => {
         let verdict;
         try {
-            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output, call, opts.redact);
+            verdict = await decideStepApproval(opts.approvals!, def.flow, runId, step, prev, output, call, opts.redact, call ? undefined : interpolate(step.prompt, opts.payload));
         } catch (err) {
             verdict = { kind: 'denied' as const, reason: err instanceof Error ? err.message : String(err) };
         }

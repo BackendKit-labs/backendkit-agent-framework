@@ -20,6 +20,14 @@ export function callDigest(call: StepCall): string {
 }
 
 /**
+ * What the approval of an agent step binds to: the prompt it will run (payload resolved), the outputs it receives and, when it
+ * is reviewed after running, its output. A resume whose payload changes the prompt asks again (audit B-05).
+ */
+export function stepDigest(content: { prompt: string; previous: Record<string, string>; output?: string }): string {
+    return createHash('sha256').update(canonical(content)).digest('hex');
+}
+
+/**
  * Approval of a flow step through the `ApprovalStore` of SPEC-0014 (SPEC-0023 F5). A step needs approval when its gate says
  * `approval: human`, or when the `policy` decides `ask` for the pseudo tool `flow.step:<stepId>` (which is how a learned rule
  * can put a step behind a person). The request is stored with a deterministic id, so resuming the run finds the answer.
@@ -61,7 +69,7 @@ export function stepApprovalId(runId: string, stepId: string): string {
 }
 
 export async function decideStepApproval(
-    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>, output?: string, call?: StepCall, redact?: (text: string) => string,
+    a: FlowApprovals, flow: string, runId: string, step: FlowStep, previous: Record<string, string>, output?: string, call?: StepCall, redact?: (text: string) => string, prompt?: string,
 ): Promise<StepApproval> {
     const principal: Principal = { agentId: step.agent, sessionId: runId, chain: a.chain ?? [], ...(a.identity ?? {}) };
     const human = step.gate?.approval === 'human';
@@ -100,17 +108,23 @@ export async function decideStepApproval(
         ...(a.forbidSelfApproval ? { forbidSelfApproval: true, requireRequester: true } : {}),
     };
     const id = stepApprovalId(runId, step.id);
-    const digest = call ? callDigest(call) : undefined;
+    // A tool step binds to its call; an agent step to what it is about (prompt, input, output). The prompt comes resolved
+    // from the run: the payload is not stored, so a resume with another payload would otherwise reuse an approval given for a different action.
+    const digest = call ? callDigest(call) : prompt !== undefined ? stepDigest({ prompt, previous, ...(output !== undefined ? { output } : {}) }) : undefined;
+    const digestField = call ? 'callDigest' : 'contentDigest';
     let stored = await a.store.get(id);
     // The answer is for the call that was shown: a resume with another payload does not use it (a changed call is a different action).
-    if (stored && digest !== undefined && (stored.subject as { callDigest?: string }).callDigest !== digest) {
-        return { kind: 'denied', reason: `the call of step "${step.id}" is not the one that was approved (its arguments changed since the request)` };
+    if (stored && digest !== undefined && (stored.subject as Record<string, unknown>)[digestField] !== digest) {
+        return { kind: 'denied', reason: call
+            ? `the call of step "${step.id}" is not the one that was approved (its arguments changed since the request)`
+            : `step "${step.id}" is not the one that was approved (its prompt, input or output changed since the request)` };
     }
     if (!stored) {
         const req: ApprovalRequest = {
             id, principal, subject: {
                 kind: 'workflow_step', workflow: flow, step: step.id, input: output !== undefined ? { previous, output } : previous,
                 ...(call && digest ? { tool: shownCall(call, redact), callDigest: digest } : {}),
+                ...(!call && digest ? { contentDigest: digest } : {}),
             },
             reason, ...(approver ? { approver } : {}), ...(accepts ? { accepts } : {}), ...(approverRoles ? { approverRoles } : {}), createdAt: new Date().toISOString(),
         };

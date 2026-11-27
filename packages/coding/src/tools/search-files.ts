@@ -12,6 +12,8 @@ const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB — skip binary/large files
  * Budget for the whole search. The pattern comes from the model: a catastrophic one must not hang the agent.
  * `BK_SEARCH_FILES_TIMEOUT_MS` overrides the 5 s default.
  */
+/** `.env.example`, `.env.sample`, `.env.template`, `.env.dist`: the shape of a `.env`, with no secrets. */
+const ENV_TEMPLATE = /^\.env\.(?:example|sample|template|dist)$/i;
 const searchBudgetMs = (): number => Number(process.env.BK_SEARCH_FILES_TIMEOUT_MS) || 5_000;
 
 class SearchTimeoutError extends Error {}
@@ -79,7 +81,9 @@ function walkAndSearch(
 
     for (const entry of entries) {
         if (results.length >= MAX_RESULTS) break;
-        if (entry.name.startsWith('.') && entry.name !== '.env') continue;
+        // Hidden entries are skipped, `.env` files too: a broad search would pull the secrets in them into the model's
+        // context unasked (audit E-07). Reading one on purpose is `read_file`. Templates (`.env.example`...) hold none, so they stay.
+        if (entry.name.startsWith('.') && !ENV_TEMPLATE.test(entry.name)) continue;
 
         const fullPath = path.join(dir, entry.name);
         const relPath  = path.relative(baseDir, fullPath);

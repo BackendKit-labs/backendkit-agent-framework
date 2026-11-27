@@ -82,8 +82,8 @@ export { getGitDiff } from './shared/utils/git';
 export { sanitizeFilename } from './shared/utils/string-utils';
 export { getService, learnedRules, LEARNED_RULES_SERVICE } from './tools/services';
 // ── MCP client — MCPClientManager in AgentEngineOptions, MCPServerConfig in coding config ─
-export { MCPClientManager, MCP_TOOL_ERROR } from './mcp/MCPClientManager';
-export type { MCPServerConfig } from './mcp/types';
+export { MCPClientManager, MCP_TOOL_ERROR, mcpToolFingerprint } from './mcp/MCPClientManager';
+export type { MCPServerConfig, MCPToolFacts } from './mcp/types';
 
 // ── Governance contracts (SPEC-0014): principal, policy, approval, audit ─────────
 export type {

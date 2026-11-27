@@ -5,7 +5,7 @@ import {
     AgentRegistry,
     ToolRegistry,
     ProviderRegistry,
-    CallbackTransport,
+    type Transport,
     createMemorySystem,
     selfAssertedIdentities,
 } from '@backendkit-labs/agent-core';
@@ -31,7 +31,8 @@ const memory = createMemorySystem({
     retention:  { maxEpisodes: 500 },
 });
 
-export function createEngine(transport: CallbackTransport): AgentEngine {
+/** Any transport: the REPL passes a CallbackTransport, the web server one WebSocketTransport per session. */
+export function createEngine(transport: Transport): AgentEngine {
     const config = loadConfig();
 
     // ── Knowledge base (RAG) ──────────────────────────────────────────────────

@@ -1,5 +1,20 @@
 # Changelog
 
+## Sin publicar
+
+**Resto de la prioridad 3 de la auditoría 2026-11-26.**
+
+- **D-08 / D-10 (core):** `CostTracker` ya no usa un temporizador: el día cambia al registrar o leer. Antes cada engine dejaba un `setInterval` vivo para siempre (los engines no se cierran: en un servidor con un engine por sesión, la memoria crecía). `onTokens` devuelve el coste que dio el proveedor, no la estimación. `destroy()` se mantiene y no hace nada.
+- **C-05 / C-11 (mcp-connectors):** las sesiones HTTP tienen caducidad y límite (503 al llenarse), y un error de petición devuelve un estado y un mensaje genérico, no `String(err)` (ADR-0011). El cuerpo de un 5xx del servicio externo ya no llega al modelo, solo su estado; el de un 4xx sí (dice qué falló de la petición).
+- **C-03 (enterprise):** dos `index()` del RAG a la vez ya no embeben el vault dos veces: la segunda se une a la primera. `VectorStore.save()` ya no pierde un cambio hecho mientras escribe.
+- **C-12 (enterprise):** se reindexa un archivo cuyo mtime cambió hacia atrás (restaurado de una copia), no solo hacia adelante.
+- **C-10 (enterprise):** `EventPublisher` acota los jobs terminados que guarda la cola (1 000 completados, 5 000 fallidos; `retainJobs`). La conciliación lee el vault, no la cola.
+- **C-04 (aval-tools):** bajo un engine, la clave de idempotencia de `pay` es la de la llamada (`ctx.idempotencyKey`): dos pagos iguales en dos turnos son dos pagos. Antes la clave era sesión + argumentos y el segundo se tomaba por repetición y no se pagaba.
+- **B-23 (flow-queue):** una cancelación que llega mientras se encola el paso ya no se pierde: el job se quita y el paso no corre. **B-24:** documentado que un solo escritor por corrida lo da el claim, no el journal Redis.
+- **B-25 (create-bk-agent):** enterprise con despliegue `web` genera `src/server.ts` (`AgentServer` de agent-web); antes los scripts apuntaban a un archivo que no existía. `createEngine` de la plantilla acepta cualquier `Transport`.
+- **B-26 (create-bk-agent):** `add server --name` escribe el nombre como literal escapado y `--port` solo acepta un número de 1 a 65535; `add knowledge` escapa la ruta del vault y usa el rango actual de agent-enterprise (antes `^0.10.0`, que no incluye 0.11).
+- **D-02 (coding):** AGENT.md, USER.md, el contexto del proyecto y la sesión entran en el prompt con un tope por archivo (`CONTEXT_LIMITS`) y una línea que dice cuánto se dejó fuera.
+
 ## v0.50.22 (2026-11-27)
 
 **Seguridad: correcciones de la auditoría externa del 2026-11-26, prioridades 1 y 2.** Las aprobaciones fallan cerradas, el servidor de tools exige gate a todo lo que no es de solo lectura, y se comprueban rutas, orígenes e ids que llegan de fuera.

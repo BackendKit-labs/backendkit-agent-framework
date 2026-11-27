@@ -78,6 +78,15 @@ describe('scaffold', () => {
             fs.rmSync(path.join(root, 'my-agent'), { recursive: true, force: true });
             expect(pkg('repl').scripts?.server).toBeUndefined();
         });
+
+        it('enterprise + web brings the server its scripts run, and agent-web (audit B-25)', () => {
+            const dir = gen({ architecture: 'enterprise', deployMode: 'web', vaultPath: '/vault' });
+            const p = readJson(path.join(dir, 'package.json'));
+            expect(p.scripts.dev).toBe('ts-node src/server.ts');
+            expect(fs.existsSync(path.join(dir, 'src', 'server.ts'))).toBe(true);
+            expect(read(path.join(dir, 'src', 'server.ts'))).toContain("from './engine'");
+            expect(p.dependencies['@backendkit-labs/agent-web']).toBe(GENERATED_DEP_RANGES['@backendkit-labs/agent-web']);
+        });
     });
 
     it('skill packs append a marked comment block to engine.ts', () => {

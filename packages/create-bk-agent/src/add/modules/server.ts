@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { BkProjectInfo } from '../detector';
 import { addPackageDependency, addPackageScript } from '../patcher';
+import { quote } from '../names';
+import { GENERATED_DEP_RANGES } from '../../scaffold';
 
 interface ServerOptions {
     port: number;
@@ -12,7 +14,15 @@ function parseArgs(args: string[], defaultName: string): ServerOptions {
     let port = 3001;
     let name = defaultName;
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--port' && args[i + 1]) port = parseInt(args[++i]);
+        if (args[i] === '--port' && args[i + 1]) {
+            const raw = args[++i];
+            // A port goes into generated code: only a whole number in range (audit B-26). `parseInt('3001abc')` was 3001.
+            if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) {
+                console.error(`\n✗  Invalid --port "${raw.slice(0, 20)}": a number from 1 to 65535.\n`);
+                process.exit(1);
+            }
+            port = Number(raw);
+        }
         if (args[i] === '--name' && args[i + 1]) name = args[++i];
     }
     return { port, name };
@@ -26,7 +36,7 @@ import { z } from 'zod';
 import { ${info.engineFnName} } from './engine';
 
 const server = new AgentMCPServer({
-    name:    '${opts.name}',
+    name:    ${quote(opts.name)},
     version: '1.0.0',
     port:    parseInt(process.env.MCP_PORT ?? '${opts.port}'),
 
@@ -59,7 +69,7 @@ export function addServer(info: BkProjectInfo, args: string[]): void {
     fs.writeFileSync(info.serverFile, generateServerTs(info, opts));
     console.log(`\n✓  Created src/server.ts  (HTTP MCP on port ${opts.port})`);
 
-    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/mcp-server', '^0.19.4');
+    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/mcp-server', GENERATED_DEP_RANGES['@backendkit-labs/mcp-server']);
     addPackageDependency(info.pkgFile, 'zod', '^4.6.6');
     addPackageScript(info.pkgFile, 'server', 'ts-node src/server.ts');
 

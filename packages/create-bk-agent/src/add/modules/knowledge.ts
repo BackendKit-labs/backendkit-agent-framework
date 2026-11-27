@@ -3,6 +3,8 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import type { BkProjectInfo } from '../detector';
 import { addImportLine, addPackageDependency } from '../patcher';
+import { quote } from '../names';
+import { GENERATED_DEP_RANGES } from '../../scaffold';
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
@@ -44,7 +46,7 @@ function patchFolders(engineFile: string, folderPath: string): PatchResult {
 
     const normalized = folderPath.replace(/\\/g, '/');
 
-    if (content.includes(`'${normalized}'`)) return 'already_exists';
+    if (content.includes(`${quote(normalized)}`)) return 'already_exists';
 
     // Case 1: folders array already exists (uncommented)
     if (/\bfolders:\s*\[/.test(content)) {
@@ -53,7 +55,7 @@ function patchFolders(engineFile: string, folderPath: string): PatchResult {
             (_full, open, inner, close) => {
                 const trimmed = inner.trimEnd();
                 const needsComma = trimmed.length > 0 && !trimmed.endsWith(',');
-                return `${open}${inner}${needsComma ? ',' : ''}\n        '${normalized}',\n    ${close}`;
+                return `${open}${inner}${needsComma ? ',' : ''}\n        ${quote(normalized)},\n    ${close}`;
             },
         );
         if (patched !== content) {
@@ -66,7 +68,7 @@ function patchFolders(engineFile: string, folderPath: string): PatchResult {
     if (content.includes('// folders:') || content.includes('// TODO: restrict indexing')) {
         const patched = content.replace(
             /[ \t]*\/\/\s*TODO:\s*restrict indexing[^\n]*\n[ \t]*\/\/\s*folders:[^\n]*\n/,
-            `        folders: ['${normalized}'],\n`,
+            `        folders: [${quote(normalized)}],\n`,
         );
         if (patched !== content) {
             fs.writeFileSync(engineFile, patched);
@@ -75,7 +77,7 @@ function patchFolders(engineFile: string, folderPath: string): PatchResult {
         // Fallback: just the commented folders line
         const patched2 = content.replace(
             /[ \t]*\/\/\s*folders:[^\n]*\n/,
-            `        folders: ['${normalized}'],\n`,
+            `        folders: [${quote(normalized)}],\n`,
         );
         if (patched2 !== content) {
             fs.writeFileSync(engineFile, patched2);
@@ -102,7 +104,7 @@ function patchFolders(engineFile: string, folderPath: string): PatchResult {
     }
 
     if (closeIdx === -1) return 'no_rag_found';
-    lines.splice(closeIdx, 0, `        folders: ['${normalized}'],`);
+    lines.splice(closeIdx, 0, `        folders: [${quote(normalized)}],`);
     fs.writeFileSync(engineFile, lines.join('\n'));
     return 'added';
 }
@@ -128,7 +130,7 @@ function addNewVault(engineFile: string, vaultPath: string): PatchResult {
         '',
         `    // Additional vault: ${path.basename(normalized)}`,
         `    const ${varName} = new ObsidianRAGProvider({`,
-        `        vaultPath:      '${normalized}',`,
+        `        vaultPath:      ${quote(normalized)},`,
         `        ollamaHost:     config.ollamaHost,`,
         `        embeddingModel: config.embeddingModel,`,
         `    });`,
@@ -156,7 +158,7 @@ function addNewVault(engineFile: string, vaultPath: string): PatchResult {
 function setupRagFromScratch(info: BkProjectInfo, vaultPath: string): void {
     console.log('\n📦  Installing @backendkit-labs/agent-enterprise ...');
 
-    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/agent-enterprise', '^0.10.0');
+    const added = addPackageDependency(info.pkgFile, '@backendkit-labs/agent-enterprise', GENERATED_DEP_RANGES['@backendkit-labs/agent-enterprise']);
     if (added) {
         execSync('npm install', { cwd: info.cwd, stdio: 'inherit' });
     }
@@ -187,7 +189,7 @@ function setupRagFromScratch(info: BkProjectInfo, vaultPath: string): void {
         '',
         `    // Knowledge base (RAG over Obsidian vault)`,
         `    const rag = new ObsidianRAGProvider({`,
-        `        vaultPath: '${normalized}',`,
+        `        vaultPath: ${quote(normalized)},`,
         `        // ollamaHost: process.env.OLLAMA_HOST ?? 'http://localhost:11434',`,
         `        // embeddingModel: process.env.EMBEDDING_MODEL ?? 'nomic-embed-text',`,
         `    });`,
@@ -225,7 +227,7 @@ function printManualInstructions(vaultPath: string): void {
      import { ObsidianRAGProvider } from '@backendkit-labs/agent-enterprise';
 
   2. Create RAG instance:
-     const rag = new ObsidianRAGProvider({ vaultPath: '${normalized}' });
+     const rag = new ObsidianRAGProvider({ vaultPath: ${quote(normalized)} });
 
   3. Register tool:
      tools.register(rag.createTool());

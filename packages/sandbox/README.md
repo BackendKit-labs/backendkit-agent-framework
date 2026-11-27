@@ -37,7 +37,7 @@ if (!out.ok) {
 
 The service picks the first backend that can really **enforce** the mode:
 
-- `docker` enforces `read-only` and `workspace-write` (never `danger-full-access`: a container is not full access). If the daemon does not answer you get `SANDBOX_UNAVAILABLE`, not a run on the host.
+- `docker` enforces `read-only` and `workspace-write` (never `danger-full-access`: a container is not full access). If the daemon does not answer you get `SANDBOX_UNAVAILABLE`, not a run on the host. It mounts the workspace at `/workspace` and each of the policy's `roots` at `/roots/<n>` (read-only in `read-only`); a command runs in the mount that holds its working directory, and one whose directory is in none of them fails instead of running in an empty directory of the container.
 - `none` (the host) claims only `danger-full-access` with the network open. Checking that a directory is inside the workspace is not confinement, so it does not claim anything stricter.
 
 ## Presets

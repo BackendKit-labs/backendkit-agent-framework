@@ -8,6 +8,8 @@ const HOST  = process.env.JIRA_HOST;   // e.g. mycompany.atlassian.net
 const EMAIL = process.env.JIRA_EMAIL;
 const TOKEN = process.env.JIRA_TOKEN;  // Jira API token (not password)
 
+/** An issue key (`PROJ-123`) or a numeric id: it goes into the URL path, so nothing else is accepted (audit C-13). */
+const ISSUE_KEY = z.string().regex(/^(?:[A-Za-z][A-Za-z0-9_]*-\d+|\d+)$/, 'an issue key like PROJ-123, or a numeric id');
 const BASE = `https://${HOST}/rest/api/3`;
 const AUTH = Buffer.from(`${EMAIL}:${TOKEN}`).toString('base64');
 
@@ -79,7 +81,7 @@ export function buildServer(): McpServer {
         'jira_get_issue',
         'Get full details for a Jira issue including description and recent comments.',
         {
-            key: z.string().describe('Jira issue key (e.g. PROJ-123)'),
+            key: ISSUE_KEY.describe('Jira issue key (e.g. PROJ-123)'),
         },
         async ({ key }: { key: string }) => {
             const data = await jira<{
@@ -91,7 +93,7 @@ export function buildServer(): McpServer {
                     description: AdfNode | null;
                     comment: { comments: Array<{ author: { displayName: string }; body: AdfNode; created: string }> };
                 };
-            }>('GET', `/issue/${key}?fields=summary,status,assignee,description,comment`);
+            }>('GET', `/issue/${encodeURIComponent(key)}?fields=summary,status,assignee,description,comment`);
             const f = data.fields;
             const desc = adfText(f.description);
             const comments = f.comment.comments.slice(-3).map(c =>
@@ -137,11 +139,11 @@ export function buildServer(): McpServer {
         'jira_add_comment',
         'Add a comment to a Jira issue.',
         {
-            key:  z.string().describe('Issue key (e.g. PROJ-123)'),
+            key:  ISSUE_KEY.describe('Issue key (e.g. PROJ-123)'),
             body: z.string().describe('Comment text'),
         },
         async ({ key, body }: { key: string; body: string }) => {
-            await jira<unknown>('POST', `/issue/${key}/comment`, { body: adfDoc(body) });
+            await jira<unknown>('POST', `/issue/${encodeURIComponent(key)}/comment`, { body: adfDoc(body) });
             return { content: [{ type: 'text' as const, text: `Comment added to ${key}.` }] };
         },
     );
@@ -150,19 +152,19 @@ export function buildServer(): McpServer {
         'jira_transition',
         'Move a Jira issue to a new status (e.g. "In Progress", "Done").',
         {
-            key:    z.string().describe('Issue key (e.g. PROJ-123)'),
+            key:    ISSUE_KEY.describe('Issue key (e.g. PROJ-123)'),
             status: z.string().describe('Target status name (e.g. Done, In Progress, To Do)'),
         },
         async ({ key, status }: { key: string; status: string }) => {
             const { transitions } = await jira<{ transitions: Array<{ id: string; name: string }> }>(
-                'GET', `/issue/${key}/transitions`,
+                'GET', `/issue/${encodeURIComponent(key)}/transitions`,
             );
             const match = transitions.find(t => t.name.toLowerCase() === status.toLowerCase());
             if (!match) {
                 const available = transitions.map(t => t.name).join(', ');
                 throw new Error(`Status "${status}" not available for ${key}. Options: ${available}`);
             }
-            await jira('POST', `/issue/${key}/transitions`, { transition: { id: match.id } });
+            await jira('POST', `/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: match.id } });
             return { content: [{ type: 'text' as const, text: `${key} → "${match.name}"` }] };
         },
     );

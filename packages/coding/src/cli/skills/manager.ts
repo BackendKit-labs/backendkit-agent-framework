@@ -191,7 +191,8 @@ export class SkillManager {
         const { allowedSources } = this.trust;
         if (!allowedSources) return; // open mode
 
-        const trusted = allowedSources.some(prefix => source.startsWith(prefix));
+        // A prefix ends at a boundary: `https://github.com/my-org` admits `my-org/x`, not `my-org-evil/x` (audit D-14).
+        const trusted = allowedSources.some(prefix => source === prefix || (source.startsWith(prefix) && (/[/?#:]$/.test(prefix) || /^[/?#]/.test(source.slice(prefix.length)))));
         if (!trusted) {
             throw new Error(
                 `Source '${source}' is not in the trusted allowlist.\n` +

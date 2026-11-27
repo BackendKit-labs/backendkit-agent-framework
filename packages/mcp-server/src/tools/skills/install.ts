@@ -12,7 +12,13 @@ export async function skillsInstall(
     appName: string,
     options: { skill?: string; pack?: string } = {},
 ): Promise<InstallResult> {
-    const manager = createSkillManager(appName);
+    // A skill is text that goes into an agent's prompt. Through MCP the caller is a client (often a model), so a source is
+    // installed only from an allowlist the operator set (audit C-09): an open install would let anyone plant instructions.
+    const allowed = (process.env.BK_TRUSTED_SOURCES ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (allowed.length === 0) {
+        return { ok: false, pack: '', skillsInstalled: 0, error: 'skills_install needs BK_TRUSTED_SOURCES (comma-separated source prefixes) on the server: without an allowlist no source is installed over MCP.' };
+    }
+    const manager = createSkillManager(appName, { allowedSources: allowed });
 
     try {
         await manager.install(source, options);

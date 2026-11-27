@@ -2,6 +2,15 @@
 
 ## Sin publicar
 
+**Rutas, orígenes e ids que llegan de fuera se comprueban (auditoría 2026-11-26, prioridad 2).**
+
+- **C-07 (enterprise):** `VaultIndexer` rechaza al construir una carpeta de `folders` que sale del vault (`../secreto`).
+- **D-09 (coding):** `ObsidianProvider` rechaza un `?folder=` que sale del vault.
+- **D-14 (coding):** `allowedSources` compara el prefijo en un límite: `https://github.com/my-org` admite `my-org/x`, ya no `my-org-evil/x`.
+- **C-08 (mcp-server):** `skills_search` comprueba el `cwd` del cliente como `code_index` (dentro de `BK_CWD` o `BK_INDEX_ROOTS`). `stack_detect` ignora el suyo, sin cambios.
+- **C-09 (mcp-server):** `skills_install` instala solo desde `BK_TRUSTED_SOURCES`; sin la variable no instala nada (antes, cualquier origen). Nueva `BK_MCP_AUTH_TOKEN` opcional: en modo HTTP exige `Authorization: Bearer`. **Cambio de comportamiento** para quien instalaba skills por MCP sin lista.
+- **C-13 (mcp-connectors):** las claves de Jira (`PROJ-123` o un id numérico) y los ids de HubSpot (numéricos) se validan antes de entrar en la ruta de la URL, y se codifican.
+
 **La herencia de políticas del sandbox compara las raíces donde de verdad caen (auditoría E-03).** `checkNarrower` comparaba las rutas como texto, y el servicio las resuelve al decidir: una raíz hija `/permitida/enlace` que es un enlace a `/etc` pasaba como más estrecha y luego daba acceso a `/etc`. Ahora resuelve los enlaces de las dos políticas antes de comparar; una raíz que no se puede resolver es una violación. De paso, una raíz padre alcanzada por un enlace ya contiene sus subcarpetas reales.
 
 **El servidor de tools exige `authorize` o `policy` para toda tool que no declare `readOnly: true` ([ADR-0009](docs/adr/0009-lo-declarado-decide-el-efecto.md) punto 5, auditoría B-07).**

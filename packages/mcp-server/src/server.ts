@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as path from 'path';
-import { getFrameworkDir } from '@backendkit-labs/agent-core';
+import { getFrameworkDir, isBearerAuthorized } from '@backendkit-labs/agent-core';
 import { skillsSearch } from './tools/skills/search.js';
 import { skillsInstall } from './tools/skills/install.js';
 import { skillsList } from './tools/skills/list.js';
@@ -22,6 +22,8 @@ import { SessionRegistry } from './session-registry.js';
 
 const APP_NAME = process.env.BK_APP_NAME ?? 'deepseek-code';
 const CWD = process.env.BK_CWD ?? process.cwd();
+/** Optional: with it set, every HTTP request needs `Authorization: Bearer <token>` (other local users and processes reach 127.0.0.1 too). */
+const AUTH_TOKEN = process.env.BK_MCP_AUTH_TOKEN || undefined;
 
 // --- Code index setup ---
 const dbPath = path.join(
@@ -87,13 +89,20 @@ t(
         cwd: z.string().optional().describe('Project directory to detect stack (defaults to server cwd)'),
     },
     async ({ query, cwd }: { query: string; cwd?: string }) => {
+        // the client picks the directory: it must stay inside the working directory (or BK_INDEX_ROOTS), as in code_index (audit C-08)
+        let dir: string;
+        try {
+            dir = cwd ? await resolveInside([CWD, ...extraIndexRoots()], cwd) : CWD;
+        } catch (err) {
+            return { isError: true, content: [{ type: 'text', text: `Error: ${(err as Error).message}` }] };
+        }
         // Merge file-based + graph-based stack detection
         const { detectStack } = await import('@backendkit-labs/agent-coding/cli');
-        const fileTech = await detectStack(cwd ?? CWD);
+        const fileTech = await detectStack(dir);
         const graphTech = detectStackFromGraph(store);
         const enrichedStack = [...new Set([...fileTech, ...graphTech])];
 
-        const results = await skillsSearch(query, cwd ?? CWD, APP_NAME);
+        const results = await skillsSearch(query, dir, APP_NAME);
         if (results.length === 0) {
             return { content: [{ type: 'text', text: `No skills found matching "${query}".` }] };
         }
@@ -282,6 +291,12 @@ async function startHttp() {
         if (!isLoopbackRequest(req.headers.host, req.headers.origin)) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden host or origin' }));
+            return;
+        }
+
+        if (AUTH_TOKEN && !isBearerAuthorized(req.headers.authorization, AUTH_TOKEN)) {
+            res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
             return;
         }
 

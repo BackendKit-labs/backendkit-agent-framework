@@ -35,6 +35,8 @@ export class ObsidianProvider implements SkillSourceProvider {
         const scanDir = folder
             ? path.join(vaultPath, ...folder.split('/'))
             : vaultPath;
+        // The folder comes from the source URL: `?folder=../..` must not read outside the vault (audit D-09).
+        if (!insideVault(vaultPath, scanDir)) throw new Error(`obsidian source: folder ${JSON.stringify(folder)} resolves outside the vault`);
 
         const mdFiles = await this.collectMdFiles(scanDir);
         const skills: Skill[] = [];
@@ -111,4 +113,10 @@ export class ObsidianProvider implements SkillSourceProvider {
             return false;
         }
     }
+}
+
+/** Is `target` the vault or inside it? `..`, an absolute path elsewhere, or another drive are not. */
+function insideVault(vault: string, target: string): boolean {
+    const rel = path.relative(path.resolve(vault), path.resolve(target));
+    return rel === '' || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`));
 }

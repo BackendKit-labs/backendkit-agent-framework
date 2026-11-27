@@ -50,7 +50,7 @@ export interface FlowRunOptions {
     /**
      * Called for steps with `gate.approval: human`. Receives the flow step
      * (including its gate definition) and the outputs of its dependencies.
-     * Return false to reject the step and abort dependents.
+     * Return false to reject the step and abort dependents. Without it such a step is rejected (ADR-0010).
      */
     onApprovalRequired?: (
         step: FlowStep,
@@ -187,9 +187,14 @@ export class FlowRunner {
             onApprovalRequired: async (coreStep, previousOutputs) => {
                 this.record({ stepId: coreStep.id, event: 'approval_requested' });
                 const flowStep = stepsById.get(coreStep.id);
-                const approved = await (
-                    this.opts.onApprovalRequired?.(flowStep!, previousOutputs) ?? Promise.resolve(true)
-                );
+                // No one to ask is a rejection, never an approval (ADR-0010); only a literal `true` approves.
+                if (!this.opts.onApprovalRequired) {
+                    this.record({ stepId: coreStep.id, event: 'rejected', detail: 'no approver: pass onApprovalRequired' });
+                    return false;
+                }
+                let approved = false;
+                try { approved = (await this.opts.onApprovalRequired(flowStep!, previousOutputs)) === true; }
+                catch { /* an approver that fails does not approve */ }
                 if (!approved) {
                     this.record({ stepId: coreStep.id, event: 'rejected' });
                 }

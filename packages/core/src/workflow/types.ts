@@ -35,7 +35,7 @@ export interface WorkflowRunOptions {
     /**
      * Called before a step with requireApproval: true.
      * Return true to proceed, false to reject (aborts the workflow).
-     * Defaults to auto-approve when not provided.
+     * Without it such a step is rejected: an approval nobody can give is not given (ADR-0010).
      */
     onApprovalRequired?: (
         step: WorkflowStepDef,

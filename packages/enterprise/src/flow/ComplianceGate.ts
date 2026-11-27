@@ -101,6 +101,8 @@ export class ComplianceGateError extends Error {
 
 export class ComplianceGate {
     private readonly _record: GateRecord;
+    /** Set by `reject()` and never cleared: a rejected gate stays rejected whatever is evaluated after (ADR-0010). */
+    private rejected = false;
     private readonly evidenceMode: 'required' | 'optional';
     private readonly audit?: AuditSink;
     private readonly auditWrites: Array<Promise<void>> = [];
@@ -197,6 +199,7 @@ export class ComplianceGate {
                 `evaluator "${evaluatorId}" cannot reject their own step`,
             );
         }
+        this.rejected = true;
         this._record.verdict = 'failed';
         this.appendLog({
             event: 'gate_rejected',
@@ -281,6 +284,7 @@ export class ComplianceGate {
     // ── Private ───────────────────────────────────────────────────────────────
 
     private computeVerdict(): 'passed' | 'failed' | 'pending' {
+        if (this.rejected) return 'failed';
         const criteria = this._record.criteria;
         if (criteria.some(c => c.passed === false)) return 'failed';
         if (criteria.every(c => c.passed === true)) return 'passed';

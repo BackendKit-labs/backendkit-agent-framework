@@ -154,9 +154,11 @@ export function approverFromCallback(
             const name = call ? call.tool.name : subject.kind;
             const preview = previewArgs(call ? JSON.stringify(call.args) : JSON.stringify(subject)).text;
             opts.onAsk?.(req, preview);
-            const decision = await onToolApproval(name, req.principal.agentId, preview);
+            const decision: unknown = await onToolApproval(name, req.principal.agentId, preview);
+            // Only an explicit approval approves (ADR-0010): `undefined`, an unknown value or a typo is a rejection.
             if (decision === 'approve_all') approveAll = true;
-            return { decision: decision === 'reject' ? 'reject' : 'approve', by: ref, at: at() };
+            const approved = decision === 'approve' || decision === 'approve_all';
+            return { decision: approved ? 'approve' : 'reject', by: ref, at: at(), ...(approved || decision === 'reject' ? {} : { reason: `the approver gave no decision (${JSON.stringify(decision) ?? 'undefined'})` }) };
         },
     };
 }

@@ -122,14 +122,14 @@ describe('WorkflowRunner', () => {
         expect(result.steps['a'].status).toBe('rejected');
     });
 
-    it('requireApproval defaults to auto-approve when no callback given', async () => {
+    it('requireApproval without a callback rejects: nobody to ask is not an approval (ADR-0010)', async () => {
         const def: WorkflowDef = {
-            name: 'auto-approve',
+            name: 'no-approver',
             steps: [makeStep('a', [], true)],
         };
         const { runner } = makeRunner(def);
         const result = await runner.run();
-        expect(result.steps['a'].status).toBe('completed');
+        expect(result.steps['a'].status).toBe('rejected');
     });
 
     it('emits workflow_start and workflow_complete events', async () => {

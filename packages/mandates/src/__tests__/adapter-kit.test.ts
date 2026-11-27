@@ -49,6 +49,9 @@ describe('checkAssurance', () => {
         expect(checkAssurance('low', 'banana')).toMatch(/lower assurance/);
         expect(checkAssurance('substantial', 'high')).toBeUndefined();
     });
+    it('a name from the prototype chain is an unknown level, not a pass (B-16)', () => {
+        for (const got of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) expect(checkAssurance('high', got)).toMatch(/lower assurance/);
+    });
 });
 
 describe('consent', () => {

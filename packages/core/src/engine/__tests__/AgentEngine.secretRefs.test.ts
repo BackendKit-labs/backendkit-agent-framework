@@ -82,3 +82,19 @@ describe('AgentEngine — secret references', () => {
         expect(lastSent).toContain('[REDACTED:secret]');
     });
 });
+
+describe('the guardrails resolve every agent\'s secrets once per run (audit B-08)', () => {
+    it('several tool calls in one run ask the resolver once for the guardrails, and again in the next run', async () => {
+        const resolver = jest.fn(async () => 'from-vault-1234567890');
+        const { engine } = build({
+            secrets: { V: { env: 'BK_TEST_UNSET_FOR_B08' } }, resolver, guard: true,
+            script: [call('1'), call('2'), call('3'), { content: 'done' }, { content: 'again' }],
+        });
+        await engine.run('first');
+        const afterFirst = resolver.mock.calls.length;
+        // One for the guardrails' cache, plus one per tool call (the tool's own ctx.secrets is resolved fresh each call).
+        expect(afterFirst).toBe(1 + 3);
+        await engine.run('second');
+        expect(resolver.mock.calls.length).toBe(afterFirst + 1);
+    });
+});

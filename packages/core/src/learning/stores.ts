@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { atomicWrite } from '../shared/utils/atomic-write';
+import { withFileLock } from '../shared/utils/file-lock';
 import type { ApprovedRule, LessonStore, RuleStore, TaughtLesson } from './types';
 
 export class MemoryRuleStore implements RuleStore {
@@ -11,13 +12,19 @@ export class MemoryRuleStore implements RuleStore {
     async remove(id: string): Promise<boolean> { return this.items.delete(id); }
 }
 
-/** Approved rules in one JSON file, written atomically. */
+/**
+ * Approved rules in one JSON file, written atomically. A change (read, edit, write back) holds the file's lock, in the
+ * process and across processes: two approvals at the same time both stay (audit D-03). A file that cannot be parsed
+ * makes `list` throw, on purpose: read as empty, the next `add` would write over every approved rule.
+ */
 export class FileRuleStore implements RuleStore {
     constructor(private readonly path: string) {}
 
     async add(rule: ApprovedRule): Promise<void> {
-        const all = (await this.list()).filter(r => r.id !== rule.id);
-        await this.write([...all, rule]);
+        await withFileLock(this.path, async () => {
+            const all = (await this.list()).filter(r => r.id !== rule.id);
+            await this.write([...all, rule]);
+        });
     }
 
     async list(): Promise<ApprovedRule[]> {
@@ -31,11 +38,13 @@ export class FileRuleStore implements RuleStore {
     }
 
     async remove(id: string): Promise<boolean> {
-        const all = await this.list();
-        const rest = all.filter(r => r.id !== id);
-        if (rest.length === all.length) return false;
-        await this.write(rest);
-        return true;
+        return withFileLock(this.path, async () => {
+            const all = await this.list();
+            const rest = all.filter(r => r.id !== id);
+            if (rest.length === all.length) return false;
+            await this.write(rest);
+            return true;
+        });
     }
 
     private async write(rules: ApprovedRule[]): Promise<void> {
@@ -52,13 +61,15 @@ export class MemoryLessonStore implements LessonStore {
     async remove(id: string): Promise<boolean> { return this.items.delete(id); }
 }
 
-/** Taught lessons in one JSON file, written atomically. */
+/** Taught lessons in one JSON file, written atomically, changed under the file's lock (see FileRuleStore). */
 export class FileLessonStore implements LessonStore {
     constructor(private readonly path: string) {}
 
     async add(lesson: TaughtLesson): Promise<void> {
-        const all = (await this.list()).filter(l => l.id !== lesson.id);
-        await this.write([...all, lesson]);
+        await withFileLock(this.path, async () => {
+            const all = (await this.list()).filter(l => l.id !== lesson.id);
+            await this.write([...all, lesson]);
+        });
     }
 
     async list(): Promise<TaughtLesson[]> {
@@ -72,11 +83,13 @@ export class FileLessonStore implements LessonStore {
     }
 
     async remove(id: string): Promise<boolean> {
-        const all = await this.list();
-        const rest = all.filter(l => l.id !== id);
-        if (rest.length === all.length) return false;
-        await this.write(rest);
-        return true;
+        return withFileLock(this.path, async () => {
+            const all = await this.list();
+            const rest = all.filter(l => l.id !== id);
+            if (rest.length === all.length) return false;
+            await this.write(rest);
+            return true;
+        });
     }
 
     private async write(lessons: TaughtLesson[]): Promise<void> {

@@ -36,6 +36,7 @@ import type {
     ToolPolicy,
 } from '../governance/types';
 import { hashArgs } from '../shared/utils/canonical-json';
+import { scopedJobs } from '../jobs/JobRegistry';
 
 import type {
     AgentProfile,
@@ -848,7 +849,20 @@ export class AgentEngine {
             runAgent: (agentId, input, context) => this.runAgentInternal(agentId, input, context, 0),
             transport: this.transport,
         });
-        return runner.run();
+        // A workflow uses the same shared state as a turn (the run id its audit events carry, the agents' sessions): it
+        // waits for the turn in progress and holds the engine like one, with an id of its own (audit B-10).
+        let release!: () => void;
+        const slot = new Promise<void>(r => { release = r; });
+        const prev = this.runMutex;
+        this.runMutex = prev.then(() => slot);
+        await prev;
+        this.currentRunId = randomUUID();
+        try {
+            return await runner.run();
+        } finally {
+            this.currentRunId = undefined;
+            release();
+        }
     }
 
     /**
@@ -957,6 +971,24 @@ export class AgentEngine {
      * Runs the guardrails of `phase` over `content`, reports what happened (transport event + audit log)
      * and returns the outcome. `replacement` lets output checks attach the corrected text to the event.
      */
+    /**
+     * The secrets of every agent, for the guardrails to mask (a secret of one agent showing up in another's output is
+     * masked too). Resolved once per run, not on every guardrail pass: with a remote `secretResolver` that was a call per
+     * agent per phase (audit B-08). Outside a run, or in the next one, they are resolved again, so a rotated secret is seen.
+     */
+    private secretsCache?: { runId: string; value: Promise<ReadonlyArray<readonly [string, Record<string, string>]>> };
+    private allAgentSecrets(): Promise<ReadonlyArray<readonly [string, Record<string, string>]>> {
+        const load = () => Promise.all(this.opts.agents.getAll().map(async a => [a.id, await resolveSecrets(a, this.opts.secretResolver)] as const));
+        const runId = this.currentRunId;
+        if (runId === undefined) return load();
+        if (this.secretsCache?.runId !== runId) {
+            const value = load();
+            this.secretsCache = { runId, value };
+            value.catch(() => { if (this.secretsCache?.value === value) this.secretsCache = undefined; });   // a failure is not cached
+        }
+        return this.secretsCache.value;
+    }
+
     private async guard(
         phase: GuardrailPhase,
         content: string,
@@ -966,7 +998,7 @@ export class AgentEngine {
     ): Promise<GuardrailOutcome> {
         if (!this.guardrails?.has(phase)) return { content, changed: false, events: [] };
         const sessionId = this.opts.sessionId ?? 'default';
-        const resolved = await Promise.all(this.opts.agents.getAll().map(async a => [a.id, await resolveSecrets(a, this.opts.secretResolver)] as const));
+        const resolved = await this.allAgentSecrets();
         const secrets = resolved.find(([id]) => id === agentId)?.[1];
         const secretValues = resolved.flatMap(([, r]) => Object.values(r));
         const outcome = await this.guardrails.run({
@@ -2025,7 +2057,8 @@ export class AgentEngine {
             ...(Object.keys(secrets).length ? { secrets } : {}),
             ...(credentials ? { credentials } : {}),
             ...(idempotencyKey ? { idempotencyKey } : {}),
-            ...(this.opts.jobs ? { jobs: this.opts.jobs } : {}),
+            // The tool sees only its agent's jobs (audit B-11); the whole registry stays the engine's and the operator's.
+            ...(this.opts.jobs ? { jobs: scopedJobs(this.opts.jobs, agentId) } : {}),
             ...(this.opts.sandbox ? { sandbox: this.sandboxFor(agentId, sandboxDecisions) } : {}),
             signal: controller.signal,
         };

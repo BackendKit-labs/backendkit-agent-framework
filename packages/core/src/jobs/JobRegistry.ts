@@ -50,6 +50,24 @@ export interface JobRegistryOptions {
     cancelGraceMs?: number;
 }
 
+/**
+ * The registry as one agent's tools see it (`ctx.jobs`): every call acts for `owner`, whatever owner it passes, and
+ * `listAll` / `cancelAll` cover only its own jobs. The whole registry stays the operator's (engine, control channel);
+ * a tool cannot read or cancel another agent's jobs (audit B-11).
+ */
+export function scopedJobs(registry: JobRegistry, owner: string): JobRegistry {
+    return {
+        start: spec => registry.start({ ...spec, owner }),
+        get: id => registry.get(id, owner),
+        output: (id, _o, opts) => registry.output(id, owner, opts),
+        cancel: id => registry.cancel(id, owner),
+        list: () => registry.list(owner),
+        listAll: () => registry.list(owner),
+        drainFinished: () => registry.drainFinished(owner),
+        cancelAll: async () => { await Promise.all(registry.list(owner).filter(j => j.status === 'running').map(j => registry.cancel(j.id, owner))); },
+    };
+}
+
 export class JobLimitError extends Error {
     readonly code = 'JOB_LIMIT_REACHED';
     constructor(owner: string, max: number) {

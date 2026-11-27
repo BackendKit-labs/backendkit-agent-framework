@@ -15,7 +15,7 @@ export type {
     EngineControl, EngineControlAction, EngineControlContext, EngineControlOptions, PolicyControl, PolicyReview,
     WideningRequest, ControlAuditEntry,
 } from './control/EngineControl';
-export { createJobRegistry, JobLimitError } from './jobs/JobRegistry';
+export { createJobRegistry, JobLimitError, scopedJobs } from './jobs/JobRegistry';
 export type { JobRegistry, JobRegistryOptions, JobInfo, JobSpec, JobStatus, JobOutput } from './jobs/JobRegistry';
 export { JOB_TOOLS, jobOutputTool, jobListTool, jobKillTool } from './jobs/tools';
 export type {

@@ -1,6 +1,6 @@
 {
   "name": "@backendkit-labs/mcp-server",
-  "version": "0.19.15",
+  "version": "0.19.16",
   "description": "MCP server for agent-framework — skills, code intelligence, agent context",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -28,8 +28,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@backendkit-labs/agent-core": "^0.49.9",
-    "@backendkit-labs/agent-coding": "^0.32.0",
+    "@backendkit-labs/agent-core": "^0.49.17",
+    "@backendkit-labs/agent-coding": "^0.32.15",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",

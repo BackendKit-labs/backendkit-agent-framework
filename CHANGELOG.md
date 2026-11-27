@@ -1,6 +1,22 @@
 # Changelog
 
-## Sin publicar
+## v0.50.22 (2026-11-27)
+
+**Seguridad: correcciones de la auditoría externa del 2026-11-26, prioridades 1 y 2.** Las aprobaciones fallan cerradas, el servidor de tools exige gate a todo lo que no es de solo lectura, y se comprueban rutas, orígenes e ids que llegan de fuera.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.17 | Aprobación que falla cerrada (ADR-0010), aprobación de paso ligada a su contenido, gate obligatorio en el servidor de tools (ADR-0009), listas del mandato |
+| `agent-sandbox` | 0.1.25 | Herencia de políticas con raíces resueltas |
+| `agent-coding` | 0.32.15 | `run_command` ve código en línea, variables que ejecutan e instalaciones escondidas; `search_files` sin `.env`; protección del framework; vault y orígenes de skills. `agent-sandbox` ^0.1.25 |
+| `agent-enterprise` | 0.11.10 | `FlowRunner` sin aprobador rechaza; `ComplianceGate.reject()` definitivo; `VaultIndexer` dentro del vault |
+| `agent-mandates` | 0.1.6 | `checkAssurance` no acepta nombres del prototipo |
+| `mcp-server` | 0.19.16 | `skills_install` solo desde `BK_TRUSTED_SOURCES`, `BK_MCP_AUTH_TOKEN`, `skills_search` dentro del proyecto. `agent-core` ^0.49.17, `agent-coding` ^0.32.15 |
+| `mcp-connectors` | 0.2.8 | Claves de Jira e ids de HubSpot validados en la URL |
+
+Se publican siete, en este orden: `agent-core`, `agent-sandbox`, `agent-coding`, `agent-enterprise`, `agent-mandates`, `mcp-server`, `mcp-connectors`. Tags: `agent-core@0.49.17`, `agent-sandbox@0.1.25`, `agent-coding@0.32.15`, `agent-enterprise@0.11.10`, `agent-mandates@0.1.6`, `mcp-server@0.19.16`, `mcp-connectors@0.2.8`.
+
+**Cuidado al actualizar (cambios de comportamiento):** un paso con aprobación humana sin aprobador ahora se rechaza (`runFlow`, `FlowRunner`, `WorkflowRunner`); solo `approve`/`approve_all` aprueban; un servidor de tools con alguna tool que no declare `readOnly: true` no arranca sin `authorize` o `policy`; `skills_install` por MCP necesita `BK_TRUSTED_SOURCES`; aprobaciones de pasos de agente pendientes de antes se deniegan; `run_command` rechaza `npx -c`, `git -c`, `PATH=…` y similares, y pide aprobación para `pnpm dlx`, `npx -y` y otros gestores.
 
 **Resto de la prioridad 2 de la auditoría (B-05, E-06, E-07, E-08).**
 

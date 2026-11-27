@@ -70,14 +70,21 @@ export class VectorStore {
 
     async save(): Promise<void> {
         if (!this.dirty) return;
-        await fs.mkdir(path.dirname(this.storePath), { recursive: true });
+        // Cleared before the write, not after: a change made while the file is being written sets it again and is
+        // saved next time, instead of being marked as saved (audit C-03). A failed write marks it dirty again.
+        this.dirty = false;
         const data: StoreFile = {
             version: '1',
             embeddingModel: this.embeddingModel,
-            chunks: this.chunks,
+            chunks: [...this.chunks],
         };
-        await atomicWrite(this.storePath, JSON.stringify(data));
-        this.dirty = false;
+        try {
+            await fs.mkdir(path.dirname(this.storePath), { recursive: true });
+            await atomicWrite(this.storePath, JSON.stringify(data));
+        } catch (err) {
+            this.dirty = true;
+            throw err;
+        }
     }
 
     /** Devuelve los mtime conocidos por filePath para detectar cambios. */

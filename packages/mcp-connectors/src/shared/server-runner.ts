@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { SessionRegistry } from './session-registry.js';
 
 export function parseCliArgs(argv: string[] = process.argv.slice(2)): { httpMode: boolean; port: number } {
     const httpMode = argv.includes('--http');
@@ -63,7 +64,8 @@ export async function startHttp(
     authToken?: string,
 ): Promise<Server> {
     if (authToken !== undefined && authToken.trim() === '') throw new Error(`[${label}] authToken is empty: give a token or leave it out (loopback only)`);
-    const sessions = new Map<string, StreamableHTTPServerTransport>();
+    // Bounded and swept: a client that vanished without closing used to leave its transport behind for good (audit C-05).
+    const sessions = new SessionRegistry<StreamableHTTPServerTransport>();
     const MCP_PATH = '/mcp';
 
     async function parseBody(req: IncomingMessage): Promise<unknown> {
@@ -107,6 +109,11 @@ export async function startHttp(
                 res.end('Session ID required for GET');
                 return;
             }
+            if (sessions.isFull()) {
+                res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+                res.end(JSON.stringify({ error: 'Too many open sessions' }));
+                return;
+            }
             const body = await parseBody(req);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
@@ -119,9 +126,13 @@ export async function startHttp(
                 transport.onclose = () => sessions.delete(transport.sessionId!);
             }
         } catch (err) {
+            // ADR-0011: the client gets a status and a generic message; what went wrong goes to the server's log.
+            const tooLarge = err instanceof Error && /larger than/.test(err.message);
+            const [status, error] = tooLarge ? [413, 'Request body too large'] : err instanceof SyntaxError ? [400, 'Invalid JSON body'] : [500, 'Internal server error'];
+            if (status === 500) process.stderr.write(`[${label}] request failed: ${err instanceof Error ? err.message : String(err)}\n`);
             if (!res.headersSent) {
-                res.writeHead(500);
-                res.end(String(err));
+                res.writeHead(status, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error }));
             }
         }
     });

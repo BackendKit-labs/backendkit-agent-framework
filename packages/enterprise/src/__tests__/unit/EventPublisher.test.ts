@@ -110,12 +110,12 @@ describe('EventPublisher — queue.add call', () => {
         expect(queueAdd).toHaveBeenCalledWith('contratacion', expect.any(Object), expect.any(Object));
     });
 
-    it('sets removeOnComplete and removeOnFail to false for reconciliation', async () => {
+    it('bounds the finished jobs the queue keeps: reconciliation reads the vault, not the queue (audit C-10)', async () => {
         const { publisher, queueAdd } = await makePublisher(tmpDir);
         await publisher.publish(ContratacionSchema, { nombre: 'Juan', legajo: 'L-001' });
         const opts = queueAdd.mock.calls[0][2];
-        expect(opts.removeOnComplete).toBe(false);
-        expect(opts.removeOnFail).toBe(false);
+        expect(opts.removeOnComplete).toEqual({ count: 1_000 });
+        expect(opts.removeOnFail).toEqual({ count: 5_000 });
     });
 
     it('uses custom attempts when provided', async () => {

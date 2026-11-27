@@ -121,6 +121,18 @@ export class ObsidianRAGProvider {
     async index(
         opts: { verbose?: boolean; onProgress?: (p: { processed: number; total: number }) => void } = {},
     ): Promise<{ indexed: number; removed: number }> {
+        // One indexing at a time: two would interleave removing and adding the same files' chunks and duplicate them
+        // (audit C-03). A call made while one runs gets that run's result.
+        if (this.indexing) return this.indexing;
+        this.indexing = this.indexNow(opts).finally(() => { this.indexing = undefined; });
+        return this.indexing;
+    }
+
+    private indexing?: Promise<{ indexed: number; removed: number }>;
+
+    private async indexNow(
+        opts: { verbose?: boolean; onProgress?: (p: { processed: number; total: number }) => void },
+    ): Promise<{ indexed: number; removed: number }> {
         await this.store.load();
         const knownMtimes = this.store.getKnownMtimes();
         const { toIndex, toRemove } = await this.indexer.getChangedFiles(knownMtimes);

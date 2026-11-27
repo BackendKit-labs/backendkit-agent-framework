@@ -168,7 +168,9 @@ export class VaultIndexer {
 
         const toIndex = allFiles.filter(f => {
             const known = knownMtimes.get(f.filePath);
-            return known === undefined || known < f.mtime;
+            // Any change of mtime, not only a newer one: a file restored from a backup keeps an older mtime and its
+            // content changed all the same (audit C-12).
+            return known === undefined || known !== f.mtime;
         });
 
         const toRemove = [...knownMtimes.keys()].filter(p => !currentPaths.has(p));

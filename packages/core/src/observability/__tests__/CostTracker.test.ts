@@ -141,3 +141,31 @@ describe('CostTracker', () => {
         });
     });
 });
+
+describe('CostTracker lifecycle and the cost it reports (audit D-08, D-10)', () => {
+    it('holds no timer: creating trackers leaves no interval behind', () => {
+        const spy = jest.spyOn(global, 'setInterval');
+        const t = new CostTracker({ inputPricePerMToken: 1, outputPricePerMToken: 1 });
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+        t.destroy();
+    });
+
+    it('returns the cost the provider gave, not the estimate, as the totals count it', () => {
+        const t = new CostTracker({ inputPricePerMToken: 1_000_000, outputPricePerMToken: 0 });
+        expect(t.onTokens(1, 0, 0.5)).toBe(0.5);
+        expect(t.getRunCost()).toBe(0.5);
+        expect(t.onTokens(1, 0)).toBe(1);
+    });
+
+    it('rolls the day over when read, without a timer', () => {
+        jest.useFakeTimers({ now: Date.UTC(2026, 0, 1, 23, 59) });
+        try {
+            const t = new CostTracker({ inputPricePerMToken: 1_000_000 });
+            t.onTokens(1, 0);
+            expect(t.getDayCost()).toBe(1);
+            jest.setSystemTime(Date.UTC(2026, 0, 2, 0, 1));
+            expect(t.getDayCost()).toBe(0);
+        } finally { jest.useRealTimers(); }
+    });
+});

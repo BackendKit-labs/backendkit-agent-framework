@@ -32,13 +32,18 @@ export interface EventPublisherOptions {
     vaultPath: string;
     /** Publisher identity (agentId, system name) written into the envelope and vault note. */
     source: string;
+    /**
+     * How many finished jobs the queue keeps. Default 1 000 completed and 5 000 failed (those are the ones looked into).
+     * Reconciliation reads the vault notes, not the queue, so keeping every job only made Redis grow for good (audit C-10).
+     */
+    retainJobs?: { completed?: number; failed?: number };
 }
 
 /**
  * Publishes a typed, validated event in a single atomic call:
  *   1. Validates payload against the EventSchema's Zod schema.
  *   2. Creates an EventEnvelope with a UUID and ISO timestamp.
- *   3. Adds the job to the BullMQ queue (retry config, removeOnComplete: false for reconciliation).
+ *   3. Adds the job to the BullMQ queue (retry config; finished jobs kept up to `retainJobs`).
  *   4. Writes a canonical vault note to /eventos/ so the event is auditable and RAG-queryable.
  */
 export class EventPublisher {
@@ -73,8 +78,8 @@ export class EventPublisher {
         await this.opts.queue.add(schema.type, envelope, {
             attempts: options?.attempts ?? 3,
             backoff: { type: 'exponential', delay: options?.backoffDelay ?? 1000 },
-            removeOnComplete: false,  // keep completed jobs available for reconciliation
-            removeOnFail: false,
+            removeOnComplete: { count: this.opts.retainJobs?.completed ?? 1_000 },
+            removeOnFail: { count: this.opts.retainJobs?.failed ?? 5_000 },
             jobId,
         });
 

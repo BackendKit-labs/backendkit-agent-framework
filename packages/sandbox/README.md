@@ -113,7 +113,7 @@ const verdict = checkNarrower(parentPolicy.snapshot(), requestedChildPolicy);
 if (!verdict.ok) throw new Error(`POLICY_WIDER_THAN_PARENT: ${describeViolations(verdict.violations)}`);
 ```
 
-Each policy is measured at its **widest** (its base setting or any rule), so a rule cannot hide a widening. The child may not exceed the parent's mode or network, must ask at least as much (`approval`), may only use roots inside the parent's, must keep every `writeTools`/`commandTools` entry and every `env.deny` the parent lists, may exempt only `ownStateTools` the parent exempts, and may only allow variables the parent allows. Note that a `read-only` child of an `ask` parent must still set `approval: 'writes-and-commands'`: it can still run commands.
+Each policy is measured at its **widest** (its base setting or any rule), so a rule cannot hide a widening. The child may not exceed the parent's mode or network, must ask at least as much (`approval`), may only use roots inside the parent's (compared where they really land: a child root that is a link pointing outside the parent's is wider), must keep every `writeTools`/`commandTools` entry and every `env.deny` the parent lists, may exempt only `ownStateTools` the parent exempts, and may only allow variables the parent allows. Note that a `read-only` child of an `ask` parent must still set `approval: 'writes-and-commands'`: it can still run commands.
 
 ## Environment hygiene
 

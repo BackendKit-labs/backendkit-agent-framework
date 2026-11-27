@@ -1,5 +1,16 @@
 # Changelog
 
+## Sin publicar
+
+**Lo que un servidor MCP dice de sus tools ya no decide solo.** Dos huecos de confianza del cliente MCP (`MCPClientManager`), del análisis "una tool no es confiable porque declare ser segura".
+
+- **`pinnedTools`:** `{ nombreDeLaTool: huella }`. Antes, un servidor podía cambiar la descripción, el esquema o las anotaciones de una tool entre conexiones (envenenamiento de tools: instrucciones nuevas en la descripción) y el modelo las recibía sin que nadie lo aceptara. Ahora, con pins, una tool cuya definición cambió se deja fuera con un aviso, y también una que no está en la lista: el servidor no puede añadir tools nuevas. La huella es el SHA-256 del JSON canónico de nombre, título, descripción, esquema y anotaciones; `_meta` queda fuera. `mcp.toolFingerprints(servidor)` y `mcpToolFingerprint(tool)` la dan para rellenar la config. Sin `pinnedTools`, nada cambia.
+- **`toolFacts`:** hechos que declara el cliente, por nombre de la tool en el servidor. Ganan a las anotaciones del servidor, de confianza o no. Antes, con `trustAnnotations`, el servidor decidía el nivel de cada tool y no había forma de corregirlo sin dejar de confiar en todo el servidor: un `readOnlyHint: true` hacía que una tool de pago no pidiera nada, y un `destructiveHint: false` la sacaba de la aprobación solo humana (la cubría "aprobar todo"). Un `destructive: true` local quita `readOnly`; un `readOnly: true` local quita `destructive`; los dos a la vez se rechazan al construir el manager. Sirve también para confiar en una sola tool como de solo lectura sin `trustAnnotations`.
+- Una clave de `toolFacts` que el servidor no lista (una errata, o el nombre con prefijo `mcp__erp__…`) se avisa al conectar: si no, el hecho que se quería imponer no se aplicaría sin que nadie lo viera.
+- La documentación de `trustAnnotations` decía solo `readOnlyHint`: copia también `destructiveHint`, `idempotentHint`, `openWorldHint` y `_meta`.
+- **Límite:** el pin comprueba lo que la tool dice, no lo que hace. Una tool local que declara `readOnly` y escribe sigue siendo un problema del código, no del framework.
+- Pruebas: `MCPClientManager.pins.test.ts`.
+
 ## v0.50.20 (2026-11-26)
 
 **El sandbox juzga cada tool por lo que declara, y el servidor de tools de core deja de enviar errores internos y sabe quién llama.** Hallazgos de la revisión de código del sandbox y del servidor de tools.

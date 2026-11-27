@@ -167,7 +167,7 @@ const payTool = defineTool({
 | `openWorld` | Talks to entities outside the system | `openWorldHint` |
 | `meta` | Free-form, never read by the engine | `_meta` |
 
-Contradictions throw `ToolDefinitionError` at definition time, not at call time. For a hand-written `ToolDefinition`, call `validateToolDefinition(tool)` yourself; the MCP tool server does. When the **client** side consumes an MCP server (`MCPClientManager`), these facts are copied from the server's annotations only with `trustAnnotations: true`: what a server says about its tools is a claim.
+Contradictions throw `ToolDefinitionError` at definition time, not at call time. For a hand-written `ToolDefinition`, call `validateToolDefinition(tool)` yourself; the MCP tool server does. When the **client** side consumes an MCP server (`MCPClientManager`), these facts are copied from the server's annotations only with `trustAnnotations: true`: what a server says about its tools is a claim. `toolFacts` states them yourself, per tool, and wins over the server (see [MCP client](#mcp-client)).
 
 ### Running a tool outside an engine
 
@@ -579,7 +579,27 @@ mcp.isConnected('remote');               // per-server status
 await mcp.disconnect();
 ```
 
-Other useful fields: `timeoutMs` (per tool call, default 30 s), `connectTimeoutMs`, `trustAnnotations` (believe the server's `readOnlyHint` and `_meta`; off by default), `mode: 'tools' | 'agent'` and `assignTo` (which agents get the tools).
+Other useful fields: `timeoutMs` (per tool call, default 30 s), `connectTimeoutMs`, `mode: 'tools' | 'agent'` and `assignTo` (which agents get the tools).
+
+**What a server says about its tools is a claim.** Three fields decide how much of it you believe:
+
+| Field | What it does |
+|---|---|
+| `trustAnnotations` | Believe the server's `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` and `_meta`. Off by default: a tool with no facts counts as one with effect (it asks, and the sandbox's `read-only` refuses it). |
+| `toolFacts` | Facts you state yourself, by the tool's name on the server. They win over the server, trusted or not: a server cannot make a tool you marked `destructive` stop asking a person. Also trusts one tool as read-only without trusting the whole server. |
+| `pinnedTools` | The definitions you accepted, `{ toolName: fingerprint }`. A tool whose name, title, description, input schema or annotations changed is left out with a warning, and so is a tool not listed: a server cannot change what a tool tells the model, or add one, without you accepting it again. |
+
+```typescript
+const mcp = new MCPClientManager([{
+  name: 'erp', url: 'https://erp.example.com/mcp',
+  toolFacts:   { list_invoices: { readOnly: true }, pay_invoice: { destructive: true } },
+  pinnedTools: { list_invoices: '9f2c…', pay_invoice: '41ab…' },
+}]);
+await mcp.initialize();
+mcp.toolFingerprints('erp');   // every tool the server listed, kept or not: check them, then pin
+```
+
+`mcpToolFingerprint(tool)` computes the same fingerprint from a listed tool. Pinning checks the definition, not the behaviour: a server can still do something else when called. That is what policy, approval and audit are for.
 
 ### Multiple servers via engine options
 

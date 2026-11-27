@@ -3,8 +3,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '../types';
 import { ToolError } from '../tools/tool-error';
+import { canonicalJson } from '../shared/utils/canonical-json';
 import type { MCPServerConfig } from './types';
 
 type ServerState = 'pending' | 'connected' | 'failed';
@@ -14,6 +16,28 @@ interface ConnectedServer {
     client: Client;
     tools: ToolDefinition[];
     transportUsed: string;
+    /** Fingerprint of every tool the server listed, kept or not, by its name on the server. */
+    fingerprints: Record<string, string>;
+}
+
+/** A tool as an MCP server lists it. */
+interface ListedTool {
+    name: string;
+    title?: string;
+    description?: string;
+    inputSchema: unknown;
+    annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
+    _meta?: Record<string, unknown>;
+}
+
+/**
+ * SHA-256 (hex) of what an MCP server says about a tool: name, title, description, input schema and annotations,
+ * as canonical JSON (key order does not matter). What `MCPServerConfig.pinnedTools` compares against. `_meta` is
+ * left out: servers put changing data there, and the engine never reads it.
+ */
+export function mcpToolFingerprint(tool: Pick<ListedTool, 'name' | 'title' | 'description' | 'inputSchema' | 'annotations'>): string {
+    const { name, title, description, inputSchema, annotations } = tool;
+    return createHash('sha256').update(canonicalJson({ name, title, description, inputSchema, annotations })).digest('hex');
 }
 
 /**
@@ -53,6 +77,9 @@ export class MCPClientManager {
             const other = seen.get(prefix);
             if (other !== undefined) throw new Error(`MCP servers "${other}" and "${cfg.name}" would share the tool prefix "mcp__${prefix}__": give them different names`);
             seen.set(prefix, cfg.name);
+            for (const [tool, facts] of Object.entries(cfg.toolFacts ?? {})) {
+                if (facts.readOnly === true && facts.destructive === true) throw new Error(`MCP server "${cfg.name}": toolFacts.${tool} says both readOnly and destructive`);
+            }
             this.serverStates.set(cfg.name, 'pending');
         }
     }
@@ -153,6 +180,14 @@ export class MCPClientManager {
     /** Whether a server is currently connected. */
     isConnected(serverName: string): boolean {
         return this.serverStates.get(serverName) === 'connected';
+    }
+
+    /**
+     * The fingerprint of every tool a connected server listed on its last connection, kept or left out, by the
+     * tool's name on the server. What to put in `MCPServerConfig.pinnedTools` once you have checked the tools.
+     */
+    toolFingerprints(serverName: string): Record<string, string> {
+        return { ...(this.servers.find(s => s.config.name === serverName)?.fingerprints ?? {}) };
     }
 
     /** Diagnostic summary of connected servers. */
@@ -298,8 +333,8 @@ export class MCPClientManager {
         const client = this.buildClient();
         try {
             await client.connect(transport, { timeout: timeoutMs });
-            const tools = await this.discoverTools(config, client);
-            this.servers.push({ config, client, tools, transportUsed });
+            const { tools, fingerprints } = await this.discoverTools(config, client);
+            this.servers.push({ config, client, tools, transportUsed, fingerprints });
             client.onclose = () => { this.handleDisconnect(config.name); };
         } catch (err) {
             client.onclose = undefined;
@@ -326,10 +361,26 @@ export class MCPClientManager {
     private async discoverTools(
         config: MCPServerConfig,
         client: Client,
-    ): Promise<ToolDefinition[]> {
+    ): Promise<{ tools: ToolDefinition[]; fingerprints: Record<string, string> }> {
         const listResult = await client.listTools();
         const out: ToolDefinition[] = [];
-        for (const t of listResult.tools) {
+        const fingerprints: Record<string, string> = {};
+        const pins = config.pinnedTools;
+        for (const t of listResult.tools as ListedTool[]) {
+            const fingerprint = mcpToolFingerprint(t);
+            fingerprints[t.name] = fingerprint;
+            // A pinned server may not change what a tool says to the model, nor add one, without being accepted again.
+            if (pins) {
+                const pinned = Object.prototype.hasOwnProperty.call(pins, t.name) ? pins[t.name] : undefined;
+                if (pinned === undefined) {
+                    console.warn(`[MCPClientManager] "${config.name}": the tool "${t.name}" is left out: it is not in pinnedTools (fingerprint ${fingerprint})`);
+                    continue;
+                }
+                if (pinned !== fingerprint) {
+                    console.warn(`[MCPClientManager] "${config.name}": the tool "${t.name}" is left out: its definition changed since it was pinned (now ${fingerprint})`);
+                    continue;
+                }
+            }
             // The tool name is the server's, not ours. Providers accept function names of 1 to 64 letters, digits, "_" and "-": one
             // tool with another name would make the whole request fail, for every tool, so that tool is left out and said.
             const full = `mcp__${config.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__${t.name}`;
@@ -339,7 +390,13 @@ export class MCPClientManager {
             }
             out.push(this.wrapTool(config, client, t));
         }
-        return out;
+        // A fact stated for a tool the server does not list never applies: a typo, or the `mcp__server__tool` name, would go unseen.
+        for (const name of Object.keys(config.toolFacts ?? {})) {
+            if (!Object.prototype.hasOwnProperty.call(fingerprints, name)) {
+                console.warn(`[MCPClientManager] "${config.name}": toolFacts names "${name}", which the server does not list: use the tool's name on the server`);
+            }
+        }
+        return { tools: out, fingerprints };
     }
 
     private isHTTP4xx(err: unknown): boolean {
@@ -353,14 +410,7 @@ export class MCPClientManager {
     private wrapTool(
         config: MCPServerConfig,
         client: Client,
-        mcpTool: {
-            name: string;
-            title?: string;
-            description?: string;
-            inputSchema: unknown;
-            annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
-            _meta?: Record<string, unknown>;
-        },
+        mcpTool: ListedTool,
     ): ToolDefinition {
         // Function names must match ^[a-zA-Z0-9_-]+$ — replace ':' and use '__' as separator
         const safeName   = config.name.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -377,6 +427,16 @@ export class MCPClientManager {
             if (a?.idempotentHint !== undefined) claims.idempotent = a.idempotentHint;
             if (a?.openWorldHint !== undefined) claims.openWorld = a.openWorldHint;
             if (mcpTool._meta && Object.keys(mcpTool._meta).length > 0) claims.meta = { ...mcpTool._meta };
+        }
+        // What the client says about the tool wins over what the server says, trusted or not.
+        const own = config.toolFacts && Object.prototype.hasOwnProperty.call(config.toolFacts, mcpTool.name) ? config.toolFacts[mcpTool.name] : undefined;
+        if (own) {
+            if (own.destructive === true) { claims.destructive = true; delete claims.readOnly; delete claims.concurrencySafe; }
+            else if (own.destructive === false) claims.destructive = false;
+            if (own.readOnly === true) { claims.readOnly = true; claims.concurrencySafe = true; delete claims.destructive; }
+            else if (own.readOnly === false) { claims.readOnly = false; delete claims.concurrencySafe; }
+            if (own.idempotent !== undefined) claims.idempotent = own.idempotent;
+            if (own.openWorld !== undefined) claims.openWorld = own.openWorld;
         }
 
         return {

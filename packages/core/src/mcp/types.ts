@@ -56,10 +56,32 @@ export interface MCPServerConfig {
     // ── Shared ────────────────────────────────────────────────────────────────
 
     /**
-     * Honor `readOnlyHint` annotations from this server: tools declaring it become
-     * concurrencySafe. Off by default — annotations from an untrusted server must not be believed.
+     * Believe what this server says about its tools: `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+     * `openWorldHint` and `_meta` become the tool's facts. Off by default: what a server says about its tools
+     * is a claim, and a tool with no facts counts as one with effect (it asks, and `read-only` refuses it).
+     * `toolFacts` overrides it per tool.
      */
     trustAnnotations?: boolean;
+
+    /**
+     * Facts about this server's tools that you state yourself, by the tool's name on the server (not
+     * `mcp__server__tool`). They win over the server's annotations, trusted or not: a server cannot make a tool
+     * you marked `destructive` stop asking a person. A `destructive: true` here clears `readOnly`, and a
+     * `readOnly: true` clears `destructive`. Lets you trust one tool as read-only without `trustAnnotations`.
+     *
+     * @example
+     * toolFacts: { list_invoices: { readOnly: true }, pay_invoice: { destructive: true } }
+     */
+    toolFacts?: Record<string, MCPToolFacts>;
+
+    /**
+     * The definitions of this server's tools you accepted, as `{ toolName: fingerprint }`. When set, a tool
+     * whose definition (name, title, description, input schema, annotations) no longer has that fingerprint is
+     * left out with a warning, and so is a tool not listed: a server cannot change what a tool says to the
+     * model, or add a new one, without you accepting it again. Get the fingerprints with
+     * `MCPClientManager.toolFingerprints(server)` or `mcpToolFingerprint(tool)`. Unset: no pinning.
+     */
+    pinnedTools?: Record<string, string>;
 
     /** Timeout for individual tool calls in ms. Default: 30 000 */
     timeoutMs?: number;
@@ -150,4 +172,12 @@ export interface MCPServerConfig {
      * toolTriggers: { "explicame": "explain", "review this": "review" }
      */
     toolTriggers?: Record<string, string>;
+}
+
+/** Facts about a server's tool that the client states itself (`MCPServerConfig.toolFacts`). */
+export interface MCPToolFacts {
+    readOnly?: boolean;
+    destructive?: boolean;
+    idempotent?: boolean;
+    openWorld?: boolean;
 }

@@ -75,3 +75,8 @@ Entorno depurado (se eliminan variables `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWO
 - **D1 Windows:** (a) Job Object + token restringido en JS/PowerShell (menos fuerte, sin nativo), (b) ACL con SID de capacidad (fuerte, nativo, mantenimiento alto), (c) solo docker/WSL en Windows. Propuesta: (c) en la primera entrega y (a) como mejora; (b) solo si hay demanda.
 - **D2** ¿Red por defecto `none` también fuera de docker? Propuesta: sí en `read-only`, `allow` configurable en `workspace-write`.
 - **D3** ¿Deprecar `COMMAND_ALLOWLIST` fijo? Propuesta: pasa a ser *preset* configurable, no sustituto del confinamiento.
+
+## 7. Registro
+
+- **2026-11-26, `read-only` juzga por lo declarado ([ADR-0009](../adr/0009-lo-declarado-decide-el-efecto.md); agent-sandbox 0.1.24, agent-core 0.49.15).** Hasta entonces `read-only` rechazaba solo lo listado en `writeTools` (§3.5), vacío por defecto: una tool `destructive`, una MCP o una propia sin declarar corría. Ahora el motor pasa a `authorizeTool(caller, tool, facts?)` y `approvalFor(caller, tool, facts?)` los hechos de la tool (`SandboxToolFacts`): en `read-only` solo corre `readOnly: true`; lo no declarado cuenta como efecto. Nueva dimensión de la política, `ownStateTools`: tools que escriben solo el estado propio del agente (su memoria), que corren en `read-only` y no piden aprobación; una política hija solo exime lo que eximía la padre (se añade a §3.5). `writeTools` se queda como refuerzo.
+- **2026-11-26, el backend docker monta las raíces de la política (§3.1).** Un comando con `cwd` en una de `roots`, fuera del workspace, pasaba la comprobación pero corría en un directorio vacío del contenedor. Ahora cada raíz se monta en `/roots/<n>` (`:ro` en `read-only`) y un `cwd` fuera de todos los montajes falla.

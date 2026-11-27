@@ -66,7 +66,7 @@ interface ToolServerOptions {
 - **Validación una vez:** nombres duplicados, hechos contradictorios y esquemas se comprueban en `createToolServerFactory`; la fábrica construye un `McpServer` por conexión (stdio: uno; HTTP sin estado: uno por petición).
 - **Por llamada:** `authorize` → `ExecutionContext` (`createToolContext` con `agentId` = nombre del servidor, `sessionId` = sesión MCP o `'mcp'`, `signal` que aborta por cancelación del cliente o `timeoutMs`) → `execute` → tope de salida → `audit`.
 - **Contrato de errores:** `isError: true` solo si la llamada **no terminó** (`denied`, `timeout`, `error` con mensaje sin stack, `too_large`). Lo que la tool devuelve es payload, incluido un `{ ok: false }` de negocio. Transporte ≠ negocio. Esto resuelve el punto 7.
-- **Seguridad (bloqueante del borrador, cumplida):** `authorize` es obligatorio si alguna tool es `destructive` (el constructor lanza); `audit` recibe cada llamada, también las denegadas y fallidas, con SHA-256 de los argumentos canónicos y nunca los argumentos; tope de salida. Si `audit` lanza, va a stderr y el resultado no cambia (la tool ya corrió; marcar `isError` haría reintentar una escritura hecha).
+- **Seguridad (bloqueante del borrador, cumplida):** `authorize` es obligatorio si alguna tool es `destructive` (el constructor lanza; desde [ADR-0009](../adr/0009-lo-declarado-decide-el-efecto.md) pasa a ser obligatorio para toda tool que no declare `readOnly: true`, ver §6); `audit` recibe cada llamada, también las denegadas y fallidas, con SHA-256 de los argumentos canónicos y nunca los argumentos; tope de salida. Si `audit` lanza, va a stderr y el resultado no cambia (la tool ya corrió; marcar `isError` haría reintentar una escritura hecha).
 - `annotations` MCP siguen siendo pistas para el cliente, no un control.
 
 ### 2.3 `startToolServerHttp(opts, http)`: Streamable HTTP sin estado
@@ -108,3 +108,9 @@ Ninguno. Campos nuevos opcionales y ausentes si no se declaran; `AgentToolDef` d
 - `engineFactory` por tool.
 - Dos implementaciones (prompt y direct) bajo el mismo nombre.
 - Validar JSON Schema en el servidor para tools a mano más allá de lo que expresa `fromJSONSchema`.
+
+## 6. Registro
+
+- **2026-11-26, errores públicos e internos ([ADR-0011](../adr/0011-error-publico-y-error-interno.md); agent-core 0.49.15).** El contrato de errores de §2.2 enviaba el mensaje de cualquier error (`error` con mensaje sin stack). Ahora solo el de un `ToolError` llega al cliente; cualquier otro, y los fallos de `authorize` y del aprobador, llegan como `internal error (<errorId>)` y el detalle va a `onInternalError`. La auditoría guarda `errorCode`, no el mensaje.
+- **2026-11-26, quién llama.** `ToolCallInfo` lleva las cabeceras HTTP (`headers`) y `authInfo`, e `identity` puede ser una función de la llamada: cada llamada actúa por quien la hizo. Una función que lanza deniega la llamada.
+- **2026-11-26, pendiente (auditoría B-07): `authorize` o `policy` para todo lo que no sea `readOnly: true`.** Hoy solo se exige para `destructive`, y una tool que escribe sin declararlo queda expuesta a cualquier cliente con el token. Lo decide [ADR-0009](../adr/0009-lo-declarado-decide-el-efecto.md) punto 5; es un cambio de comportamiento y se publica con su propio release.

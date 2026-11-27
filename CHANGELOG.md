@@ -1,6 +1,14 @@
 # Changelog
 
-## Sin publicar
+## v0.50.21 (2026-11-26)
+
+**El cliente MCP fija la definición de las tools y los hechos locales ganan a las anotaciones del servidor.**
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.16 | `pinnedTools`, `toolFacts`, `mcpToolFingerprint`, `toolFingerprints()` |
+
+Se publica uno. Tag: `agent-core@0.49.16`. Aditivo: sin `pinnedTools` ni `toolFacts` nada cambia.
 
 **Lo que un servidor MCP dice de sus tools ya no decide solo.** Dos huecos de confianza del cliente MCP (`MCPClientManager`), del análisis "una tool no es confiable porque declare ser segura".
 

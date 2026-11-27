@@ -37,7 +37,7 @@ describe('conditional steps (when)', () => {
 
     it('runs it when the condition holds', async () => {
         const calls: string[] = [];
-        const r = await runFlow(decide({ step: 'decision', contains: 'ENTER' }), { executor: say({ decision: 'DECISION: ENTER size=10' }, calls) });
+        const r = await runFlow(decide({ step: 'decision', contains: 'ENTER' }), { executor: say({ decision: 'DECISION: ENTER size=10' }, calls), approve: async () => true });
         expect(calls).toEqual(['decision', 'execute', 'report']);
         expect(r.status).toBe('completed');
     });
@@ -52,7 +52,7 @@ describe('conditional steps (when)', () => {
         [{ step: 'decision', contains: 'SKIP', not: true }, 'DECISION: SKIP', false],
     ])('%j on "%s" runs: %s', async (when, output, runs) => {
         const calls: string[] = [];
-        await runFlow(decide(when), { executor: say({ decision: output }, calls) });
+        await runFlow(decide(when), { executor: say({ decision: output }, calls), approve: async () => true });
         expect(calls.includes('execute')).toBe(runs);
     });
 

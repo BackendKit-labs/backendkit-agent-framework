@@ -38,7 +38,7 @@ describe('planFlow', () => {
         expect(JSON.stringify(asked[0])).toContain('id: audit');
 
         const ran: string[] = [];
-        const r = await runFlow(planned.flow, { executor: { run: async (s) => { ran.push(s.id); return { content: '' }; } }, approvals: undefined });
+        const r = await runFlow(planned.flow, { executor: { run: async (s) => { ran.push(s.id); return { content: '' }; } }, approve: async () => true });
         expect(ran).toEqual(['t1', 't2']);
         expect(r.status).toBe('completed');
     });

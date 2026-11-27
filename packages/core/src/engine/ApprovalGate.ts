@@ -42,7 +42,7 @@ export class ApprovalGate {
                 args_preview: preview,
             });
             const decision = await this.opts.onToolApproval(call.name, agentId, preview);
-            return decision === 'reject' ? 'rejected' : 'run';
+            return approves(decision) ? 'run' : 'rejected';
         }
 
         // With a sandbox policy in charge, it alone decides which tools ask.
@@ -56,7 +56,7 @@ export class ApprovalGate {
             });
             const decision = await this.opts.onToolApproval(call.name, agentId, preview);
             if (decision === 'approve_all') this.disabled = true;
-            return decision === 'reject' ? 'rejected' : 'run';
+            return approves(decision) ? 'run' : 'rejected';
         }
 
         return 'run';
@@ -69,9 +69,15 @@ export class ApprovalGate {
         if (!tool?.alwaysAsk) return false;
         try {
             const args = JSON.parse(call.args) as unknown;
-            return typeof args === 'object' && args !== null && tool.alwaysAsk(args as Record<string, unknown>);
+            return typeof args !== 'object' || args === null || tool.alwaysAsk(args as Record<string, unknown>) !== false;
         } catch {
-            return false;
+            // A check that cannot be made asks (ADR-0010): unreadable arguments, or an alwaysAsk that throws.
+            return true;
         }
     }
+}
+
+/** Only an explicit approval approves (ADR-0010): `undefined`, an unknown value or a typo rejects. */
+function approves(decision: unknown): boolean {
+    return decision === 'approve' || decision === 'approve_all';
 }

@@ -95,9 +95,17 @@ export interface RunFlowOptions {
     transport?: Transport;
     /** Approval through the `ApprovalStore` (F5); replaces `approve`. A step can stop the run as `awaiting_approval`. */
     approvals?: FlowApprovals;
-    /** Asks a person for a step with `gate.approval: human`. Default: approve. False rejects the step and what depends on it. */
+    /**
+     * Asks a person for a step with `gate.approval: human`. Only `true` approves; false, anything else or a throw rejects the
+     * step and what depends on it. Without it (and without `approvals`) such a step is rejected: an approval nobody can give
+     * is not given (ADR-0010).
+     */
     approve?: (step: FlowStep, previousOutputs: Record<string, string>) => Promise<boolean>;
-    /** After a step succeeds and has a `gate`: throw to fail the step (a gate is never skipped silently). */
+    /**
+     * After a step succeeds and has a `gate`: throw to fail the step. A step whose gate has an `evaluator`, or `criteria`
+     * without `approval: human` (a person weighs them), fails without running when this is not given: a gate is never
+     * skipped silently (ADR-0010).
+     */
     gate?: (step: FlowStep, output: string, ctx: GateContext) => Promise<void>;
     onTransition?: (t: FlowTransition) => void;
     /** What a failed step means for the steps that wait for it: `skip` (default) skips them; `continue` runs them without its output. The run still ends `failed`. */
@@ -376,14 +384,32 @@ async function execute(def: FlowDefinition, opts: RunFlowOptions, runId: string,
             }
         }
 
+        // A gate that nothing can evaluate would pass every step it guards: the step fails before it runs. An `evaluator` needs the
+        // gate function; criteria need it too unless a person reviews the step (`approval: human`: the person weighs them).
+        if (step.gate && (step.gate.evaluator !== undefined || (step.gate.criteria.length > 0 && step.gate.approval !== 'human')) && !opts.gate) {
+            const reason = `step "${step.id}" has a gate with an evaluator or criteria no person reviews, and runFlow was given no gate function to evaluate it`;
+            record(step.id, 'failed', reason);
+            await journal?.step(runId, step.id, { status: 'failed', error: redact(reason), transitions: flush() }).catch(() => undefined);
+            results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'failed', error: reason };
+            failed.add(step.id);
+            return;
+        }
+
         if (opts.approvals) {
             if (approvalsWhen === 'before' && !(await settleApproval(step, prev, undefined, call))) return;
         } else if (step.gate?.approval === 'human') {
             opts.transport?.emit({ type: 'workflow_approval_required', step: step.id });
             record(step.id, 'approval_requested');
-            const ok = await (opts.approve?.(step, prev) ?? Promise.resolve(true));
+            // No one to ask is a rejection, never an approval (ADR-0010). Only a literal `true` approves; a throw rejects.
+            let ok = false;
+            let why: string | undefined;
+            if (!opts.approve) why = 'no approver: pass approve or approvals to runFlow';
+            else {
+                try { ok = (await opts.approve(step, prev)) === true; }
+                catch { why = 'the approver failed'; }
+            }
             if (!ok) {
-                record(step.id, 'rejected');
+                record(step.id, 'rejected', why);
                 await journal?.step(runId, step.id, { status: 'failed', error: 'rejected', transitions: flush() }).catch(() => undefined);
                 results[step.id] = { stepId: step.id, agentId: step.agent, content: '', status: 'rejected' };
                 failed.add(step.id);

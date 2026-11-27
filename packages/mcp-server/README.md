@@ -175,7 +175,7 @@ Find skills for TypeScript testing
 
 ### `skills_install`
 
-Install a skill pack from GitHub or a local path.
+Install a skill pack from GitHub or a local path. A skill is text that goes into an agent's prompt and the caller is an MCP client (often a model), so it installs **only from `BK_TRUSTED_SOURCES`**: without that variable on the server nothing is installed. A prefix matches at a boundary: `https://github.com/my-org` admits `my-org/x`, not `my-org-evil/x`.
 
 ```
 Args:
@@ -372,3 +372,5 @@ Rules checked in the constructor: prompt tools need `engineFactory` (a server wi
 |----------|---------|-------------|
 | `BK_APP_NAME` | `deepseek-code` | App name — determines `~/.{name}/` storage |
 | `BK_CWD` | `process.cwd()` | Project directory to index and serve |
+| `BK_TRUSTED_SOURCES` | — | Comma-separated source prefixes `skills_install` may install from. Unset: it installs nothing |
+| `BK_MCP_AUTH_TOKEN` | — | HTTP mode: every request needs `Authorization: Bearer <token>`. The server binds to 127.0.0.1, but other local users and processes reach it too |

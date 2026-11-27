@@ -239,3 +239,27 @@ describe('gcal tools', () => {
         await c.close();
     });
 });
+
+describe('ids that go into the URL path are checked (audit C-13)', () => {
+    it('jira refuses a key that would change the request, and sends none of it', async () => {
+        process.env.JIRA_HOST = 'acme.atlassian.net'; process.env.JIRA_EMAIL = 'a@acme.com'; process.env.JIRA_TOKEN = 'tok';
+        const calls = useFetch([() => ({ json: {} })]);
+        const { buildServer } = await import('../jira/tools.js');
+        const c = await connect(buildServer());
+        for (const key of ['P-1?expand=all', '../../myself', 'P-1/comment', 'P-1#x']) {
+            expect((await c.call('jira_get_issue', { key })).isError).toBe(true);
+        }
+        expect(calls).toHaveLength(0);
+        await c.close();
+    });
+
+    it('hubspot refuses a contact id that is not numeric', async () => {
+        process.env.HUBSPOT_TOKEN = 'tok';
+        const calls = useFetch([() => ({ json: {} })]);
+        const { buildServer } = await import('../hubspot/tools.js');
+        const c = await connect(buildServer());
+        expect((await c.call('crm_get_contact', { id: '1?properties=x&archived=true' })).isError).toBe(true);
+        expect(calls).toHaveLength(0);
+        await c.close();
+    });
+});

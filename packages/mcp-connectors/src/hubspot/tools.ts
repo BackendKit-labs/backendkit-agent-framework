@@ -59,12 +59,12 @@ export function buildServer(): McpServer {
         'crm_get_contact',
         'Get full property details for a HubSpot contact by ID.',
         {
-            id: z.string().describe('HubSpot contact ID'),
+            id: z.string().regex(/^\d+$/, 'a numeric HubSpot id').describe('HubSpot contact ID'),
         },
         async ({ id }: { id: string }) => {
             const props = 'firstname,lastname,email,phone,company,jobtitle,lifecyclestage,createdate,lastmodifieddate';
             const data = await hs<{ id: string; properties: Record<string, string> }>(
-                'GET', `/crm/v3/objects/contacts/${id}?properties=${props}`,
+                'GET', `/crm/v3/objects/contacts/${encodeURIComponent(id)}?properties=${props}`,
             );
             const lines = Object.entries(data.properties)
                 .filter(([, v]) => v)
@@ -133,8 +133,8 @@ export function buildServer(): McpServer {
         'Log an activity note in HubSpot, optionally associated with a contact or deal.',
         {
             body:       z.string().describe('Note text content'),
-            contact_id: z.string().optional().describe('HubSpot contact ID to associate'),
-            deal_id:    z.string().optional().describe('HubSpot deal ID to associate'),
+            contact_id: z.string().regex(/^\d+$/, 'a numeric HubSpot id').optional().describe('HubSpot contact ID to associate'),
+            deal_id:    z.string().regex(/^\d+$/, 'a numeric HubSpot id').optional().describe('HubSpot deal ID to associate'),
         },
         async ({ body, contact_id, deal_id }: { body: string; contact_id?: string; deal_id?: string }) => {
             type Assoc = { to: { id: string }; types: Array<{ associationCategory: string; associationTypeId: number }> };

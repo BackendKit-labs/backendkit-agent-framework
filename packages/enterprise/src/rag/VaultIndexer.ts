@@ -151,6 +151,12 @@ export class VaultIndexer {
             excludeFiles: opts.excludeFiles ?? [],
             excludeFolders: opts.excludeFolders ?? [],
         };
+        // A folder is a part of the vault: `../secrets` or an absolute path would index files outside it (audit C-07).
+        for (const f of this.opts.folders) {
+            if (!insideVault(this.opts.vaultPath, path.join(this.opts.vaultPath, f))) {
+                throw new Error(`VaultIndexer: folder ${JSON.stringify(f)} resolves outside the vault`);
+            }
+        }
     }
 
     async getChangedFiles(knownMtimes: Map<string, number>): Promise<{
@@ -254,4 +260,10 @@ export class VaultIndexer {
             },
         };
     }
+}
+
+/** Is `target` the vault or inside it? `..`, an absolute path elsewhere, or another drive are not. */
+function insideVault(vault: string, target: string): boolean {
+    const rel = path.relative(path.resolve(vault), path.resolve(target));
+    return rel === '' || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`));
 }

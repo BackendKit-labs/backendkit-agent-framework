@@ -76,3 +76,12 @@ describe('VaultIndexer.getChangedFiles — scanning a nested vault', () => {
         expect(peak).toBeLessThanOrEqual(32);
     });
 });
+
+describe('VaultIndexer folders stay inside the vault (audit C-07)', () => {
+    it.each(['../secreto', '../../etc', 'Notes/../../fuera'])('refuses %j', (folder) => {
+        expect(() => new VaultIndexer({ vaultPath: path.join(os.tmpdir(), 'v'), folders: [folder] })).toThrow(/outside the vault/);
+    });
+    it('accepts a folder of the vault', () => {
+        expect(() => new VaultIndexer({ vaultPath: path.join(os.tmpdir(), 'v'), folders: ['Notes/2026'] })).not.toThrow();
+    });
+});

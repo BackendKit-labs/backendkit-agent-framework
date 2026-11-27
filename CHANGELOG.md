@@ -1,6 +1,18 @@
 # Changelog
 
-## Sin publicar
+## v0.50.20 (2026-11-26)
+
+**El sandbox juzga cada tool por lo que declara, y el servidor de tools de core deja de enviar errores internos y sabe quién llama.** Hallazgos de la revisión de código del sandbox y del servidor de tools.
+
+| Paquete | Versión | |
+|---|---|---|
+| `agent-core` | 0.49.15 | Hechos de la tool al sandbox, `ToolError`/`errorId` en el servidor de tools, identidad por llamada, aviso de `--token` |
+| `agent-sandbox` | 0.1.24 | `read-only` por hechos, `ownStateTools`, raíces extra en Docker; peer `agent-core` >=0.49.15 |
+| `agent-coding` | 0.32.14 | `ownStateTools` con sus tools de memoria, lecturas de auditoría `readOnly` |
+
+Se publican tres, en ese orden (`agent-sandbox` necesita que el engine le pase los hechos: con un core anterior toda tool contaría como sin declarar). Tags: `agent-core@0.49.15`, `agent-sandbox@0.1.24`, `agent-coding@0.32.14`.
+
+**Cuidado al actualizar:** en `read-only`, una tool sin `readOnly: true` ahora se rechaza; en `ask`, una tool sin declarar pide aprobación; y un error que no sea `ToolError` llega al cliente MCP como `internal error (<errorId>)`.
 
 **El modo `read-only` del sandbox juzga cada tool por lo que declara, no por su nombre.** Hallazgo de la revisión de código del sandbox (2026-11-26).
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Sin publicar
+
+**La aprobación falla cerrada ([ADR-0010](docs/adr/0010-la-aprobacion-falla-cerrada.md)).** Auditoría externa del 2026-11-26, reproducida contra `dist/`.
+
+- **B-01 / C-02:** un paso con `gate.approval: human` sin aprobador se **rechaza** (antes se aprobaba). Igual en `runFlow` (`approve`), `FlowRunner` de enterprise (`onApprovalRequired`) y `WorkflowRunner` de core.
+- **B-02:** solo `'approve'` y `'approve_all'` aprueban, en `approverFromCallback` y `ApprovalGate`. `undefined`, un valor desconocido o una errata rechazan, con el motivo.
+- **B-03:** un paso cuyo `gate` tiene `evaluator`, o criterios que no revisa una persona, falla antes de correr si `runFlow` no recibe `gate`. Con `approval: human`, los criterios los valora esa persona.
+- **B-04:** un paso que pide una persona sigue pidiéndola aunque la política acepte un agente; si la política no acepta ninguna persona, se deniega.
+- **B-14:** un `alwaysAsk` que lanza, o argumentos ilegibles, preguntan.
+- **C-01:** `ComplianceGate.reject()` es definitivo: evaluar criterios después no devuelve el veredicto a `passed`.
+- **B-06:** `mandateCovers` exige que `actions` y `resources` sean listas de nombres: un texto ya no cubre por subcadena.
+- **B-16 (mandates):** `checkAssurance` solo acepta niveles propios: `'toString'` u otro nombre del prototipo ya no pasa un mínimo `high`.
+- **Cambio de comportamiento:** un flujo con aprobación humana que corría sin aprobador ahora la rechaza. Pasa `approve`/`approvals` (`onApprovalRequired` en enterprise).
+- Documentación: ADR-0009 (lo declarado decide el efecto), ADR-0010, ADR-0011 (error público e interno); ADR-0008 aceptado; registro en SPEC-0006, SPEC-0011, SPEC-0023 y SPEC-0041.
+
 ## v0.50.21 (2026-11-26)
 
 **El cliente MCP fija la definición de las tools y los hechos locales ganan a las anotaciones del servidor.**

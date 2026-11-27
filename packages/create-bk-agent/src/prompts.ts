@@ -88,7 +88,7 @@ const DEPLOY_MODE_CHOICES_BASE = [
 const WEB_DEPLOY_CHOICE = {
     title: p('Web server', 28) + 'WebSocket chat + kanban monitor UI on port 4001',
     value: 'web' as DeployMode,
-    description: 'Serves @backendkit-labs/agent-web with all 6 enterprise departments',
+    description: 'Serves the agent with @backendkit-labs/agent-web (src/server.ts)',
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

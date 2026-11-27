@@ -138,3 +138,33 @@ describe('add testing', () => {
         expect(JSON.parse(fs.readFileSync(info.pkgFile, 'utf-8')).devDependencies['@backendkit-labs/agent-testkit']).toBe('^0.1.5');
     });
 });
+
+describe('add server: what the user types cannot break the generated code (audit B-26)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { addServer } = require('../add/modules/server') as typeof import('../add/modules/server');
+    const project = () => {
+        pkg({ '@backendkit-labs/agent-core': '1' });
+        file('src/engine.ts', 'export function createEngine() {}');
+        return detectProject(dir)!;
+    };
+    const quiet = () => [jest.spyOn(console, 'log').mockImplementation(() => undefined), jest.spyOn(console, 'error').mockImplementation(() => undefined)];
+
+    it("a name with a quote stays a string: O'Brien does not end the literal", () => {
+        const spies = quiet();
+        try {
+            addServer(project(), ['--name', "O'Brien'); process.exit(1); ('"]);
+            const code = fs.readFileSync(path.join(dir, 'src', 'server.ts'), 'utf-8');
+            const literal = /name:\s+(.+),\n/.exec(code)![1];
+            expect(new Function(`return ${literal}`)()).toBe("O'Brien'); process.exit(1); ('");
+        } finally { spies.forEach(s => s.mockRestore()); }
+    });
+
+    it.each(['abc', '3001abc', '0', '70000', '-1'])('refuses --port %s', (port) => {
+        const spies = quiet();
+        const exit = jest.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+        try {
+            expect(() => addServer(project(), ['--port', port])).toThrow('exit');
+            expect(fs.existsSync(path.join(dir, 'src', 'server.ts'))).toBe(false);
+        } finally { exit.mockRestore(); spies.forEach(s => s.mockRestore()); }
+    });
+});

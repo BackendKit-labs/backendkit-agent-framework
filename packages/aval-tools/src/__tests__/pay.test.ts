@@ -75,6 +75,18 @@ describe('pay', () => {
         expect(keys[0]).not.toBe(keys[2]);
     });
 
+    it('under an engine: the same call in one run is a replay, the same call in another run is a new payment (audit C-04)', async () => {
+        (fetch as jest.Mock).mockResolvedValue(jsonResponse(200, { decision: 'denied', reasons: [] }));
+        const args = { counterparty: 'ocr.docs', ceilingUsd: 0.3, purpose: 'Lectura del pedimento' };
+        // The engine gives the same key to a call repeated in a run, and another one in the next run.
+        await pay.execute(args, makeCtx({ secrets: { AVAL_KEY: 'k' }, idempotencyKey: 'run1:agent:pay:args' }));
+        await pay.execute(args, makeCtx({ secrets: { AVAL_KEY: 'k' }, idempotencyKey: 'run1:agent:pay:args' }));
+        await pay.execute(args, makeCtx({ secrets: { AVAL_KEY: 'k' }, idempotencyKey: 'run2:agent:pay:args' }));
+        const keys = (fetch as jest.Mock).mock.calls.map(([, init]) => JSON.parse(init.body).idempotencyKey);
+        expect(keys[0]).toBe(keys[1]);
+        expect(keys[2]).not.toBe(keys[0]);
+    });
+
     it('reports a held spend without claiming money moved', async () => {
         (fetch as jest.Mock).mockResolvedValueOnce(
             jsonResponse(200, {

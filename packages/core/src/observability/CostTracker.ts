@@ -19,8 +19,8 @@ export class CostTracker {
     private firedRun = false;
     private firedDay = false;
 
-    // Lightweight midnight-reset: unref'd so it doesn't keep the process alive
-    private readonly timer = setInterval(() => this.rollDay(), 60_000).unref();
+    // The day rolls over when the tracker is used (recording or reading), not on a timer: an interval kept every tracker,
+    // and what it holds, alive for good, one per engine, and engines are not disposed (audit D-08).
 
     constructor(private readonly config: CostTrackerConfig) {}
 
@@ -63,11 +63,12 @@ export class CostTracker {
             });
         }
 
-        return this.compute(inputTokens, outputTokens, usage);
+        // What was added to the totals: the provider's own cost when it gave one, not the estimate (audit D-10).
+        return batchCost;
     }
 
     getRunCost(): number { return this.runCost; }
-    getDayCost(): number { return this.dayCost; }
+    getDayCost(): number { this.rollDay(); return this.dayCost; }
 
     /** True once the current run's cost reached budget.perRun. */
     isRunOverBudget(): boolean {
@@ -86,7 +87,8 @@ export class CostTracker {
         }
     }
 
-    destroy(): void { clearInterval(this.timer); }
+    /** Kept for compatibility: there is no timer to stop any more. */
+    destroy(): void { /* nothing to release */ }
 
     private compute(input: number, output: number, usage?: CacheUsage): number {
         const inPrice = this.config.inputPricePerMToken ?? 0;

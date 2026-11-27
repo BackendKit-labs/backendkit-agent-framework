@@ -67,3 +67,41 @@ describe('ObsidianRAGProvider.index — checkpoints are time based, not per batc
         expect(text).toContain(`Nota ${FILES - 1}`);
     });
 });
+
+describe('ObsidianRAGProvider.index: concurrency and change detection (audit C-03, C-12)', () => {
+    let dir: string;
+    beforeEach(async () => {
+        dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rag-c03-'));
+        await fs.mkdir(path.join(dir, 'vault'));
+        for (let i = 0; i < 12; i++) await fs.writeFile(path.join(dir, 'vault', `n${i}.md`), `## Tema\n\nNota ${i}.\n`);
+    });
+    afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+    const make = () => new ObsidianRAGProvider({ vaultPath: path.join(dir, 'vault'), indexPath: path.join(dir, 'idx.json'), embedder, batchPacingMs: 0, stagePacingMs: 0 });
+    const chunksOf = async () => (JSON.parse(await fs.readFile(path.join(dir, 'idx.json'), 'utf8')) as { chunks: Array<{ filePath: string }> }).chunks;
+
+    it('two index() at once embed the vault once: the second joins the first, and the index is complete', async () => {
+        // A slow embedder, so that the second call starts while the first is between batches.
+        let embedded = 0;
+        const slow = { ...embedder, embed: async (texts: string[]) => { embedded += texts.length; await new Promise(r => setTimeout(r, 30)); return texts.map(() => [1, 0, 0]); } };
+        const p = new ObsidianRAGProvider({ vaultPath: path.join(dir, 'vault'), indexPath: path.join(dir, 'idx.json'), embedder: slow, batchPacingMs: 0, stagePacingMs: 0 });
+        const first = p.index();
+        await new Promise(r => setTimeout(r, 40));
+        const [a, b] = await Promise.all([first, p.index()]);
+        expect(b).toEqual(a);
+        expect(embedded).toBe(12);                 // each note once: the second call paid for nothing
+        const chunks = await chunksOf();
+        expect(new Set(chunks.map(c => c.filePath)).size).toBe(12);
+        expect(chunks).toHaveLength(12);
+    });
+
+    it('a file whose mtime went back (restored from a backup) is indexed again', async () => {
+        const p = make();
+        await p.index();
+        const file = path.join(dir, 'vault', 'n0.md');
+        await fs.writeFile(file, '## Tema\n\nRestaurada.\n');
+        const old = new Date(Date.now() - 86_400_000);
+        await fs.utimes(file, old, old);
+        const again = await p.index();
+        expect(again.indexed).toBeGreaterThan(0);
+    });
+});

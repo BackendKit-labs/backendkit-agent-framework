@@ -74,12 +74,22 @@ describe('fetchJson', () => {
     }, 15_000);
 
     it('gives up after maxAttempts on persistent 5xx', async () => {
-        const up = await upstream((_q, res) => { res.writeHead(502); res.end('bad gateway'); });
+        const up = await upstream((_q, res) => { res.writeHead(502); res.end('upstream db at 10.0.0.7 refused'); });
         try {
-            await expect(fetchJson('Svc', up.url, {}, { maxAttempts: 2 })).rejects.toThrow(/502: bad gateway/);
+            // The status reaches the model; the body of a 5xx (the service's internals) does not (audit C-11).
+            const err = await fetchJson('Svc', up.url, {}, { maxAttempts: 2 }).catch((e: Error) => e);
+            expect((err as Error).message).toMatch(/→ 502 Bad Gateway$/);
+            expect((err as Error).message).not.toContain('10.0.0.7');
             expect(up.calls()).toBe(2);
         } finally { await up.close(); }
     }, 15_000);
+
+    it('keeps the start of a 4xx body: it says what was wrong with the request', async () => {
+        const up = await upstream((_q, res) => { res.writeHead(400); res.end('field "summary" is required'); });
+        try {
+            await expect(fetchJson('Svc', up.url, {})).rejects.toThrow(/400: field "summary" is required/);
+        } finally { await up.close(); }
+    });
 
     describe('retries only what is safe to repeat', () => {
         const post = { method: 'POST', body: '{}' };
@@ -87,7 +97,7 @@ describe('fetchJson', () => {
         it.each([500, 502, 503])('does not repeat a POST after a %i: the first attempt may have been applied', async (status) => {
             const up = await upstream((_q, res, call) => (call < 2 ? (res.writeHead(status), res.end('fail')) : json(res, 200, { n: call })));
             try {
-                await expect(fetchJson('Svc', up.url, post)).rejects.toThrow(new RegExp(`${status}: fail`));
+                await expect(fetchJson('Svc', up.url, post)).rejects.toThrow(new RegExp(`→ ${status} `));
                 expect(up.calls()).toBe(1);
             } finally { await up.close(); }
         });
@@ -231,6 +241,19 @@ describe('startHttp', () => {
         expect(await request(port, {})).toBe(401);
         expect(await request(port, { Authorization: 'Bearer wrong' })).toBe(401);
         expect(await request(port, { Authorization: 'Bearer s3cret' })).toBe(400);
+    });
+
+    it('a broken body gets a status and a generic message, not the error text (ADR-0011, audit C-05)', async () => {
+        const port = await start();
+        const out = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+            const r = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: { 'Content-Type': 'application/json' } }, res => {
+                let body = ''; res.on('data', c => { body += c; }); res.on('end', () => resolve({ status: res.statusCode!, body }));
+            });
+            r.on('error', reject);
+            r.end('{not json');
+        });
+        expect(out.status).toBe(400);
+        expect(JSON.parse(out.body)).toEqual({ error: 'Invalid JSON body' });
     });
 });
 

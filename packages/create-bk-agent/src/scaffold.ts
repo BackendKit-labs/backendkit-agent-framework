@@ -53,6 +53,7 @@ export const GENERATED_DEP_RANGES = {
     '@backendkit-labs/mcp-server': '^0.19.4',
     '@backendkit-labs/agent-web':  '^0.6.0',
     '@backendkit-labs/agent-testkit': '^0.1.0',
+    '@backendkit-labs/agent-enterprise': '^0.11.0',
 } as const;
 
 // ── Patch package.json — name + scripts ──────────────────────────────────────

@@ -3,6 +3,7 @@ import type { AgentSource, InstructionLayer, InstructionSource } from '@backendk
 import { discoverAgents } from './agent-discovery';
 import type { AgentDiscoveryConfig } from './agent-discovery';
 import { runContextPipeline, StageCache } from './context';
+import { CONTEXT_LIMITS, capContext } from './context/limits';
 
 /** Agents from `~/.{appName}/agents`, `{workingDir}/.{appName}/agents` and, if configured, a remote registry. */
 export function fileAgentSource(config: AgentDiscoveryConfig): AgentSource {
@@ -28,14 +29,14 @@ export function fileInstructionSource(opts: FileInstructionSourceOptions): Instr
             if (!isOk(result)) throw result.error;
             const r = result.value;
             const layers: InstructionLayer[] = [];
-            if (r.instructions.agentMd) layers.push({ title: 'Project Instructions (AGENT.md)', content: r.instructions.agentMd });
-            if (r.instructions.userMd) layers.push({ title: 'Developer Preferences (USER.md)', content: r.instructions.userMd });
-            if (r.project.content) layers.push({ title: 'Project Context', content: r.project.content });
-            if (r.session.content) layers.push({ title: 'Active Session', content: r.session.content });
+            if (r.instructions.agentMd) layers.push({ title: 'Project Instructions (AGENT.md)', content: capContext(r.instructions.agentMd, CONTEXT_LIMITS.agentMd) });
+            if (r.instructions.userMd) layers.push({ title: 'Developer Preferences (USER.md)', content: capContext(r.instructions.userMd, CONTEXT_LIMITS.userMd) });
+            if (r.project.content) layers.push({ title: 'Project Context', content: capContext(r.project.content, CONTEXT_LIMITS.project) });
+            if (r.session.content) layers.push({ title: 'Active Session', content: capContext(r.session.content, CONTEXT_LIMITS.session) });
             if (r.lessons.memo) {
                 // The memo is generated text: strip every tag, not only the role ones.
                 const memo = r.lessons.memo.replace(/<\/?[a-zA-Z][^>]*>/g, '');
-                layers.push({ title: 'Lessons Learned (from previous audits)', content: memo, maxChars: 3000 });
+                layers.push({ title: 'Lessons Learned (from previous audits)', content: capContext(memo, CONTEXT_LIMITS.lessons) });
             }
             return layers;
         },

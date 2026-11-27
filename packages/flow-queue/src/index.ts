@@ -121,6 +121,13 @@ export class QueueStepExecutor implements StepExecutor {
             removeOnFail: 50,
         });
 
+        // Cancelled while the job was being added: the listener below did not exist yet, so the abort would be lost and
+        // the step would run (audit B-23). Drop it now.
+        if (input.signal.aborted) {
+            await job.remove().catch(() => undefined);
+            throw new Error('step cancelled');
+        }
+
         // A cancelled run must not leave its step waiting for a worker: drop it if no worker took it yet.
         let onAbort: (() => void) | undefined;
         const aborted = new Promise<never>((_, reject) => {

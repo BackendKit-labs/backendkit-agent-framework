@@ -44,14 +44,17 @@ interface AvalSpendResponse {
 }
 
 /**
- * A deterministic idempotency key from what the call actually is, not a
- * random one: an agent that retries the exact same request after a timeout
- * gets the exact same key and AVAL treats it as a replay instead of a second
- * charge. A genuinely new request — different args, or a later turn — gets a
- * different key on its own.
+ * A deterministic idempotency key, not a random one: a retry of the same request gets the same key and AVAL treats it as
+ * a replay instead of a second charge.
+ *
+ * Under an engine the key is the one the engine gives the call (`ctx.idempotencyKey`): the same within a run (the model
+ * repeating a call after a timeout), different in another run, so two real payments of the same amount to the same
+ * counterparty on two turns are two payments. Before, the key was the session and the arguments only, so the second of
+ * those was taken for a replay and never paid (audit C-04). Without an engine (a direct call) it falls back to that.
  */
-function deriveIdempotencyKey(sessionId: string, counterparty: string, ceilingUsd: number, purpose: string): string {
-    return createHash('sha256').update(`${sessionId}:${counterparty}:${ceilingUsd}:${purpose}`).digest('hex').slice(0, 24);
+function deriveIdempotencyKey(engineKey: string | undefined, sessionId: string, counterparty: string, ceilingUsd: number, purpose: string): string {
+    const basis = engineKey !== undefined ? `engine:${engineKey}` : `${sessionId}:${counterparty}:${ceilingUsd}:${purpose}`;
+    return createHash('sha256').update(basis).digest('hex').slice(0, 24);
 }
 
 const usdFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
@@ -104,7 +107,7 @@ export function createPayTool(config: AvalToolsConfig) {
             }
 
             const ceiling = Math.round(ceilingUsd * USD_PER_UNIT);
-            const key = idempotencyKey ?? deriveIdempotencyKey(ctx.sessionId, counterparty, ceiling, purpose);
+            const key = idempotencyKey ?? deriveIdempotencyKey(ctx.idempotencyKey, ctx.sessionId, counterparty, ceiling, purpose);
 
             const { status, body } = await avalRequest<AvalSpendResponse>(config, token, 'POST', '/api/v1/spend', {
                 counterparty,

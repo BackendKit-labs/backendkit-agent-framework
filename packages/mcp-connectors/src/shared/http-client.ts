@@ -60,12 +60,17 @@ export async function fetchJson<T>(
         try {
         if (res.status === 204) return undefined as T;
         if (!res.ok) {
-            const text = (await res.text().catch(() => '')).slice(0, MAX_ERROR_BODY_CHARS);
+            // A 4xx says what was wrong with the request the model made (a missing field): its start is kept, so the model can
+            // fix it. A 5xx is the service's own failure and its body tends to carry internals (traces, hosts): only the status
+            // goes on (audit C-11).
+            const text = res.status < 500
+                ? `: ${(await res.text().catch(() => '')).slice(0, MAX_ERROR_BODY_CHARS)}`
+                : ` ${res.statusText || 'server error'}`;
             // eslint-disable-next-line @typescript-eslint/no-throw-literal
             throw {
                 type: 'http',
                 status: res.status,
-                message: `${serviceName} ${method} ${url.split('?')[0]} → ${res.status}: ${text}`,
+                message: `${serviceName} ${method} ${url.split('?')[0]} → ${res.status}${text}`,
             };
         }
         return await (res.json() as Promise<T>);

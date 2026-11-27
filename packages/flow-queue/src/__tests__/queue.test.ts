@@ -65,6 +65,24 @@ describe('QueueStepExecutor', () => {
         expect(adds[0].name).toBe('q.writer');
     });
 
+    it('a cancel that arrives while the job is being added is not lost: the job is removed and the step does not wait (audit B-23)', async () => {
+        finish = () => new Promise(() => undefined);    // a worker would take it and run it: it must not get the chance
+        const ac = new AbortController();
+        const { Queue } = jest.requireMock('bullmq') as { Queue: jest.Mock };
+        Queue.mockImplementationOnce((name: string) => ({
+            name,
+            add: jest.fn(async (_n: string, data: any, opts: any) => {
+                adds.push({ name, data, opts });
+                ac.abort();                              // the run is cancelled during the round trip to Redis
+                return { id: opts.jobId, remove: async () => { removed++; }, waitUntilFinished: () => finish!() };
+            }),
+            getJob: jest.fn(async () => undefined),
+            close: jest.fn(async () => undefined),
+        }));
+        await expect(new QueueStepExecutor({ redis: 'redis://x', pollMs: 0 }).run(step, input(ac.signal))).rejects.toThrow('cancelled');
+        expect(removed).toBe(1);
+    });
+
     it('does not enqueue when already cancelled', async () => {
         const ac = new AbortController(); ac.abort();
         await expect(new QueueStepExecutor({ redis: 'redis://x' }).run(step, input(ac.signal))).rejects.toThrow('cancelled');

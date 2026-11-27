@@ -144,4 +144,6 @@ await runFlow(flow, { executor, journal, runId: 'close-2026-10', payload });   /
 
 One Lua script per mutation makes "create only if absent", "append only if it exists" and "take the claim only if free or mine" atomic. The claim expires by Redis TTL, and releasing with an old token never frees a renewed claim. Logs do not expire on their own: delete finished runs with your own retention job.
 
+**One writer per run comes from the claim, not from the journal.** Appends are not fenced by the claim's token: the `RunJournal` contract does not say who writes a step. A process whose claim expired (paused past the TTL) can still append until its next renewal finds the claim taken and `runFlow` stops it with `FlowClaimError`. Keep `claimTtlMs` well above the pauses you expect (GC, a stalled host). The conformance battery records this as `exclusiveWriter: false`; `NdjsonRunJournal` does detect a second writer, on one host.
+
 > The scripts are covered by a contract suite that runs against a real Redis when `localhost:6379` answers (`REDIS_HOST`, `REDIS_PORT`) and against an in-memory stand-in otherwise.

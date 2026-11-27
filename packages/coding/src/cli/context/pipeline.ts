@@ -1,5 +1,6 @@
 import { run, type Result } from '@backendkit-labs/result';
 import { sanitizeDiskContent } from '@backendkit-labs/agent-core';
+import { CONTEXT_LIMITS, capContext } from './limits';
 import { runStageInstructions, InstructionsResult } from './stages/stage-instructions';
 import { runStageProject, ProjectResult } from './stages/stage-project';
 import { runStageSession, SessionResult } from './stages/stage-session';
@@ -148,16 +149,16 @@ export function formatPipelineForPrompt(result: PipelineResult): string[] {
     const sections: string[] = [];
 
     if (result.instructions.agentMd) {
-        sections.push(formatSection('Project Instructions (AGENT.md)', sanitizeDiskContent(result.instructions.agentMd)));
+        sections.push(formatSection('Project Instructions (AGENT.md)', capContext(sanitizeDiskContent(result.instructions.agentMd), CONTEXT_LIMITS.agentMd)));
     }
     if (result.instructions.userMd) {
-        sections.push(formatSection('Developer Preferences (USER.md)', sanitizeDiskContent(result.instructions.userMd)));
+        sections.push(formatSection('Developer Preferences (USER.md)', capContext(sanitizeDiskContent(result.instructions.userMd), CONTEXT_LIMITS.userMd)));
     }
     if (result.project.content) {
-        sections.push(formatSection('Project Context', sanitizeDiskContent(result.project.content)));
+        sections.push(formatSection('Project Context', capContext(sanitizeDiskContent(result.project.content), CONTEXT_LIMITS.project)));
     }
     if (result.session.content) {
-        sections.push(formatSection('Active Session', sanitizeDiskContent(result.session.content)));
+        sections.push(formatSection('Active Session', capContext(sanitizeDiskContent(result.session.content), CONTEXT_LIMITS.session)));
     }
     if (result.lessons.memo) {
         const sanitized = result.lessons.memo

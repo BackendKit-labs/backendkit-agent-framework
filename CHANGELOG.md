@@ -1,5 +1,18 @@
 # Changelog
 
+## Sin publicar
+
+**Estado compartido y aislamiento en core (auditoría 2026-11-26, prioridad 3).**
+
+- **D-01:** `JsonFileStore` (memoria) escribe bajo un bloqueo de archivo y compacta releyendo el disco: antes reescribía desde la copia en memoria de su proceso y borraba lo que otro proceso hubiera añadido, o resucitaba lo que hubiera borrado.
+- **D-03 / B-09:** `FileRuleStore` y `FileLessonStore` (learning) cambian el archivo bajo un bloqueo, en el proceso y entre procesos: dos aprobaciones a la vez se quedan las dos (antes se perdía una, también en un solo proceso). Un archivo ilegible sigue haciendo que `list` lance, a propósito: leído como vacío, el siguiente `add` borraría todas las reglas aprobadas.
+- Nueva utilidad interna `withFileLock` / `withFileLockSync` (`<archivo>.lock` exclusivo, con espera, toma de un bloqueo abandonado y tiempo límite).
+- **D-07:** el resumen de la memoria episódica en segundo plano ya no deja un rechazo sin manejar (en Node ≥15 terminaba el proceso): se avisa y se reintenta con el siguiente episodio, sin dos resúmenes a la vez.
+- **D-15:** `retention.summarizeFn` sin `summarizeAfter` se rechaza al construir: antes el resumidor no corría nunca, sin aviso (ADR-0007).
+- **B-10:** `runWorkflow` espera al turno en curso y retiene el engine como un turno, con su propio `runId`: antes corría a la vez y sus eventos de auditoría llevaban el id de otra ejecución.
+- **B-11:** `ctx.jobs` es una vista del agente de la tool (`scopedJobs`, exportado): no puede leer, cancelar ni listar jobs de otro agente. El registro completo sigue siendo del engine y del canal de control.
+- **B-08 (coste):** los guardrails resuelven los secretos de todos los agentes una vez por ejecución, no en cada pasada (con un `secretResolver` remoto era una llamada por agente y fase). Que vean los de todos los agentes es intencional: enmascaran el secreto de uno que aparezca en otro.
+
 ## v0.50.22 (2026-11-27)
 
 **Seguridad: correcciones de la auditoría externa del 2026-11-26, prioridades 1 y 2.** Las aprobaciones fallan cerradas, el servidor de tools exige gate a todo lo que no es de solo lectura, y se comprueban rutas, orígenes e ids que llegan de fuera.

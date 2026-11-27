@@ -86,3 +86,31 @@ describe('MetricsCollector — bounded run durations', () => {
         expect(new MetricsCollector().getSnapshot().runs.p50Ms).toBeNull();
     });
 });
+
+describe('summarization that fails or cannot run (audit D-07, D-15)', () => {
+    it('a summarizer that rejects is no unhandled rejection: it is said, and the next episode tries again', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const unhandled = jest.fn();
+        process.on('unhandledRejection', unhandled);
+        try {
+            let calls = 0;
+            const summarizeFn = jest.fn(async () => { calls++; if (calls === 1) throw new Error('LLM down'); return 'SUMMARY'; });
+            const mem = new EpisodicMemory({}, { summarizeAfter: 2, summarizeFn });
+            mem.remember('a'); mem.remember('b');
+            await new Promise(r => setTimeout(r, 20));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('summarization failed'));
+            mem.remember('c');
+            await new Promise(r => setTimeout(r, 20));
+            expect(summarizeFn).toHaveBeenCalledTimes(2);
+            expect(mem.recallByTag('summary')).toHaveLength(1);
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            warn.mockRestore();
+        }
+    });
+
+    it('a summarizer with no summarizeAfter is refused, not silently never run', () => {
+        expect(() => new EpisodicMemory({}, { summarizeFn: async () => 'x' })).toThrow(/needs retention.summarizeAfter/);
+    });
+});

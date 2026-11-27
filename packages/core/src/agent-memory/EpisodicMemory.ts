@@ -29,7 +29,13 @@ export class EpisodicMemory {
         this.maxEpisodes = retentionCfg.maxEpisodes ?? Infinity;
         this.summarizeAfter = retentionCfg.summarizeAfter ?? Infinity;
         this.summarizeFn = retentionCfg.summarizeFn;
+        // A summarizer with nothing to trigger it would never run (ADR-0007: a declared limit is applied or refused; audit D-15).
+        if (this.summarizeFn && !(this.summarizeAfter > 0 && Number.isFinite(this.summarizeAfter))) {
+            throw new Error('retention.summarizeFn needs retention.summarizeAfter (a positive number of episodes): without it the summarizer never runs');
+        }
     }
+
+    private summarizing = false;
 
     /** Store an experience. Returns the new episode ID. */
     remember(content: string, tags: string[] = []): string {
@@ -46,9 +52,17 @@ export class EpisodicMemory {
             if (toDelete.length > 0) this.backend.deleteByIds(toDelete);
         }
 
-        if (this.summarizeFn && this.episodesSinceSummary >= this.summarizeAfter) {
+        if (this.summarizeFn && !this.summarizing && this.episodesSinceSummary >= this.summarizeAfter) {
             this.episodesSinceSummary = 0;
-            void this.runSummarization();
+            this.summarizing = true;
+            // Runs in the background; a summarizer that fails must not become an unhandled rejection (it would end the process)
+            // nor leave the episodes stuck: it is said, and the next episode tries again (audit D-07).
+            this.runSummarization()
+                .catch(err => {
+                    this.episodesSinceSummary = this.summarizeAfter;
+                    console.warn(`[EpisodicMemory] summarization failed, will retry on the next episode: ${err instanceof Error ? err.message : String(err)}`);
+                })
+                .finally(() => { this.summarizing = false; });
         }
 
         return id;

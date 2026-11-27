@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'fs';
 import { dirname } from 'path';
 import { atomicWriteSync } from '../../shared/utils/atomic-write';
+import { withFileLockSync } from '../../shared/utils/file-lock';
 import type { MemoryStoreBackend, StoredRecord } from '../types';
 
 /** Appended line that removes records: `{"_del":["id", ...]}`. Every other line is a record (insert or replace). */
@@ -70,41 +71,50 @@ export class JsonFileStore implements MemoryStoreBackend {
         this.append(JSON.stringify({ _del: ids } satisfies DeleteLine));
     }
 
+    // Writes hold the file's lock (in the process and across processes, see file-lock), so that a compaction here never
+    // rewrites the file over a line another process appended meanwhile (audit D-01).
     private append(lines: string, count = 1): void {
-        appendFileSync(this.path, lines + '\n');
-        this.logLines += count;
-        const live = this.load().size;
-        if (this.logLines > Math.max(COMPACT_MIN, live * COMPACT_RATIO)) this.compact();
+        withFileLockSync(this.path, () => {
+            appendFileSync(this.path, lines + '\n');
+            this.logLines += count;
+            const live = this.load().size;
+            if (this.logLines > Math.max(COMPACT_MIN, live * COMPACT_RATIO)) this.compactLocked();
+        });
     }
 
-    private compact(): void {
-        const map = this.load();
+    /**
+     * Rewrites the log with the live records. Called holding the lock. It replays the file as it is on disk now, not this
+     * process's copy, so records other processes appended since this one loaded are kept (and seen from now on).
+     */
+    private compactLocked(): void {
+        // Every write of this process is already a line on disk, so the file is the whole truth: what is only in this
+        // process's copy was removed by another process, and must not come back.
+        const { map } = this.readDisk();
         const body = [...map.values()].map(r => JSON.stringify(r)).join('\n');
         atomicWriteSync(this.path, body ? body + '\n' : '');
+        this.records = map;
         this.logLines = map.size;
     }
 
-    private load(): Map<string, StoredRecord> {
-        if (this.records) return this.records;
+    /** The records the file holds now, and whether it needs rewriting (legacy array format, or a last line torn by a crash). */
+    private readDisk(): { map: Map<string, StoredRecord>; lines: number; rewrite: boolean } {
         const map = new Map<string, StoredRecord>();
-        this.records = map;
-        if (!existsSync(this.path)) return map;
-
+        if (!existsSync(this.path)) return { map, lines: 0, rewrite: false };
         let text: string;
-        try { text = readFileSync(this.path, 'utf-8'); } catch { return map; }
+        try { text = readFileSync(this.path, 'utf-8'); } catch { return { map, lines: 0, rewrite: false }; }
 
         if (text.trimStart().startsWith('[')) {
             // Legacy format: one JSON array. A corrupt file counts as empty, as it always did.
             try {
                 for (const r of JSON.parse(text) as StoredRecord[]) map.set(r.id, r);
             } catch { map.clear(); }
-            this.compact(); // convert to the log format now
-            return map;
+            return { map, lines: map.size, rewrite: true }; // convert to the log format now
         }
 
+        let lines = 0;
         for (const line of text.split('\n')) {
             if (!line.trim()) continue;
-            this.logLines++;
+            lines++;
             let parsed: StoredRecord | DeleteLine;
             try { parsed = JSON.parse(line); } catch { continue; } // torn last line after a crash
             const del = (parsed as Partial<DeleteLine>)._del;
@@ -112,7 +122,15 @@ export class JsonFileStore implements MemoryStoreBackend {
             else map.set((parsed as StoredRecord).id, parsed as StoredRecord);
         }
         // A last line cut short by a crash has no newline: appending would glue the next line to it.
-        if (text.length > 0 && !text.endsWith('\n')) this.compact();
-        return map;
+        return { map, lines, rewrite: text.length > 0 && !text.endsWith('\n') };
+    }
+
+    private load(): Map<string, StoredRecord> {
+        if (this.records) return this.records;
+        const { map, lines, rewrite } = this.readDisk();
+        this.records = map;
+        this.logLines = lines;
+        if (rewrite) withFileLockSync(this.path, () => this.compactLocked());
+        return this.records;
     }
 }

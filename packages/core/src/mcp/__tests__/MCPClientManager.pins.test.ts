@@ -121,6 +121,14 @@ describe('facts the client states itself', () => {
         await mcp.disconnect();
     });
 
+    it('a toolFacts key the server does not list is said, so a fact meant to apply does not silently not apply', async () => {
+        tools.push(pay);
+        const mcp = await connect({ toolFacts: { mcp__erp__pay_invoice: { destructive: true }, pay_invoice: { destructive: true } } });
+        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('toolFacts names "mcp__erp__pay_invoice", which the server does not list'));
+        expect(console.warn).toHaveBeenCalledTimes(1);
+        await mcp.disconnect();
+    });
+
     it('a config that says both readOnly and destructive is refused when the manager is built', () => {
         expect(() => new MCPClientManager([{ name: 'erp', command: 'x', toolFacts: { t: { readOnly: true, destructive: true } } }]))
             .toThrow(/toolFacts\.t says both readOnly and destructive/);

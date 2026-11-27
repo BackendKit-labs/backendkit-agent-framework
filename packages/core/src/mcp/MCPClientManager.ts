@@ -390,6 +390,12 @@ export class MCPClientManager {
             }
             out.push(this.wrapTool(config, client, t));
         }
+        // A fact stated for a tool the server does not list never applies: a typo, or the `mcp__server__tool` name, would go unseen.
+        for (const name of Object.keys(config.toolFacts ?? {})) {
+            if (!Object.prototype.hasOwnProperty.call(fingerprints, name)) {
+                console.warn(`[MCPClientManager] "${config.name}": toolFacts names "${name}", which the server does not list: use the tool's name on the server`);
+            }
+        }
         return { tools: out, fingerprints };
     }
 
